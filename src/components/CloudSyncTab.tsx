@@ -31,10 +31,7 @@ export function CloudSyncTab() {
     if (searchCloudQuery) return [];
     const folders = new Set<string>();
     cloudChars.forEach(char => {
-      let charPath = char.appProperties?.folderPath || (char.appProperties?.isChat === 'true' || char.appProperties?.isChatRecord === 'true' ? `聊天记录/${char.appProperties?.charName || '未分类'}` : "");
-      if (charPath.startsWith('Chats/')) {
-        charPath = '聊天记录/' + charPath.substring(6);
-      }
+      const charPath = char.appProperties?.folderPath || "";
       if (charPath.startsWith(currentCloudPath ? currentCloudPath + '/' : '') && charPath !== currentCloudPath) {
         const remaining = charPath.substring(currentCloudPath ? currentCloudPath.length + 1 : 0);
         const nextSegment = remaining.split('/')[0];
@@ -216,7 +213,6 @@ export function CloudSyncTab() {
       });
 
       window.dispatchEvent(new CustomEvent('charactersUpdated'));
-      window.dispatchEvent(new CustomEvent('chatsUpdated'));
       alert(`聊天记录「${chatName}」已下载至本地！`);
     } catch (err: any) {
       alert("下载聊天记录失败: " + err.message);
@@ -717,7 +713,9 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
                   {filteredCloudChars.map(char => {
-                    const charName = char.appProperties?.charName || char.name?.replace(/\\.(zip|png|json|webp|jpg)$/i, '');
+                    const isChat = char.appProperties?.isChat === 'true';
+                    const baseCharName = char.appProperties?.charName || char.name?.replace(/\\.(zip|png|json|webp|jpg)$/i, '');
+                    const charName = isChat ? (char.name?.replace(/\\.(jsonl|json)$/i, '') || baseCharName) : baseCharName;
                     return (
                       <div key={char.id} className="relative group rounded-xl overflow-hidden bg-white/5 border border-white/10 flex flex-col h-auto">
                         <div className="relative aspect-[3/4] overflow-hidden bg-black/40">
@@ -736,19 +734,19 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                               }}
                             />
                             <div className="w-full h-full items-center justify-center hidden bg-black/40">
-                              <Cloud className="w-8 h-8 text-white/20" />
+                              {isChat ? <MessageSquare className="w-8 h-8 text-white/20" /> : <Cloud className="w-8 h-8 text-white/20" />}
                             </div>
                           </>
 
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
-                            <Cloud className="w-8 h-8 text-white/20" />
+                            {isChat ? <MessageSquare className="w-8 h-8 text-white/20" /> : <Cloud className="w-8 h-8 text-white/20" />}
                           </div>
                         )}
                         
-                        {((char.appProperties?.cardType && char.appProperties.cardType !== 'character') || char.appProperties?.isChat === 'true' || char.appProperties?.isChatRecord === 'true' || char.name?.endsWith('.jsonl')) && (
+                        {((char.appProperties?.cardType && char.appProperties.cardType !== 'character') || char.appProperties?.isChat === 'true') && (
                           <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-md text-[10px] font-medium text-white/90 border border-white/10 uppercase">
-                            {(char.appProperties?.isChat === 'true' || char.appProperties?.isChatRecord === 'true' || char.name?.endsWith('.jsonl')) ? '聊天记录' :
+                            {char.appProperties?.isChat === 'true' ? '聊天记录' :
                              char.appProperties.cardType === 'worldbook' ? '世界书' :
                              char.appProperties.cardType === 'qr' ? '快速回复' :
                              char.appProperties.cardType === 'preset' ? '预设' :
@@ -761,7 +759,7 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                         
                         <div className="absolute inset-0 items-center justify-center gap-3 opacity-0 lg:group-hover:opacity-100 transition-opacity bg-black/40 backdrop-blur-sm hidden lg:flex">
                            <button 
-                             onClick={() => (char.appProperties?.isChat === 'true' || char.appProperties?.isChatRecord === 'true' || char.name?.endsWith('.jsonl')) ? handleDownloadCloudChat(char.id, char.name, char.appProperties) : handleDownloadCloudChar(char.id, charName, char.name, char.appProperties)}
+                             onClick={() => char.appProperties?.isChat === 'true' ? handleDownloadCloudChat(char.id, char.name, char.appProperties) : handleDownloadCloudChar(char.id, charName, char.name, char.appProperties)}
                              disabled={downloadingId === char.id}
                              title="下载卡片"
                              className="p-3 rounded-full bg-blue-500 hover:bg-blue-400 text-white transition transform hover:scale-105 active:scale-95 shadow-lg disabled:opacity-50"
@@ -789,7 +787,7 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                         </div>
                         <div className="flex items-center gap-1.5 sm:gap-2 mt-2 lg:hidden">
                            <button 
-                             onClick={() => (char.appProperties?.isChat === 'true' || char.appProperties?.isChatRecord === 'true' || char.name?.endsWith('.jsonl')) ? handleDownloadCloudChat(char.id, char.name, char.appProperties) : handleDownloadCloudChar(char.id, charName, char.name, char.appProperties)}
+                             onClick={() => char.appProperties?.isChat === 'true' ? handleDownloadCloudChat(char.id, char.name, char.appProperties) : handleDownloadCloudChar(char.id, charName, char.name, char.appProperties)}
                              disabled={downloadingId === char.id}
                              className="flex-1 py-1 sm:py-1.5 rounded-lg bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center justify-center gap-1 active:bg-blue-500/40 transition disabled:opacity-50"
                            >

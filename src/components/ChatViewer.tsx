@@ -1,3 +1,4 @@
+import { resolveAvatarUrl } from "../lib/avatar";
 import { getFallbackAvatar } from "../lib/avatar";
 import React, {
   useState,
@@ -466,9 +467,6 @@ export function ChatViewer({
 
   useEffect(() => {
     loadData();
-    const handleUpdate = () => loadData();
-    window.addEventListener("chatsUpdated", handleUpdate);
-    return () => window.removeEventListener("chatsUpdated", handleUpdate);
   }, []);
 
   useEffect(() => {
@@ -571,7 +569,7 @@ export function ChatViewer({
             if (zipEntry.dir) continue;
 
             const lowerName = zipEntry.name.toLowerCase();
-            if (lowerName.endsWith(".json") || lowerName.endsWith(".jsonl") || lowerName.endsWith(".txt")) {
+            if (lowerName.endsWith(".json") || lowerName.endsWith(".jsonl")) {
               filesToProcess.push(zipEntry);
             }
           }
@@ -610,21 +608,34 @@ export function ChatViewer({
               let parsedMessages: any[] = [];
 
               if (lowerName.endsWith(".jsonl")) {
-                const { parseJsonlChat } = await import("../lib/chatParse");
-                parsedMessages = parseJsonlChat(text);
-              } else if (lowerName.endsWith(".txt")) {
-                const { parseTextChatLog } = await import("../lib/chatParse");
-                const entryChatName = (zipEntry.name.split("/").pop() || zipEntry.name).replace(/\.[^/.]+$/, "");
-                parsedMessages = parseTextChatLog(text, entryChatName);
+                const lines = text.trim().split("\n");
+                for (let k = 0; k < lines.length; k++) {
+                  try {
+                    const parsed = JSON.parse(lines[k]);
+                    if (parsed) parsedMessages.push(parsed);
+                  } catch (e) {}
+                  if (k % 500 === 0)
+                    await new Promise((r) => setTimeout(r, 0));
+                }
               } else {
                 try {
                   const data = JSON.parse(text);
-                  const { sanitizeChatMessages } = await import("../lib/chatParse");
-                  const { messages: cleanMsgs } = sanitizeChatMessages(data);
-                  parsedMessages = cleanMsgs;
+                  if (Array.isArray(data)) parsedMessages = data;
+                  else if (data.chat && Array.isArray(data.chat))
+                    parsedMessages = data.chat;
+                  else parsedMessages = [data];
                 } catch (err) {
-                  const { parseJsonlChat } = await import("../lib/chatParse");
-                  parsedMessages = parseJsonlChat(text);
+                  if (text.trim().split("\n").length > 1) {
+                    const lines = text.trim().split("\n");
+                    for (let k = 0; k < lines.length; k++) {
+                      try {
+                        const parsed = JSON.parse(lines[k]);
+                        if (parsed) parsedMessages.push(parsed);
+                      } catch (e) {}
+                      if (k % 500 === 0)
+                        await new Promise((r) => setTimeout(r, 0));
+                    }
+                  }
                 }
               }
 
@@ -664,7 +675,7 @@ export function ChatViewer({
               const chatName = zipEntry.name.split("/").pop() || zipEntry.name;
               const finalMessages = parsedMessages.map((m: any) => ({
                 ...m,
-                is_user: m.is_user !== undefined ? m.is_user : (m.name ? m.name !== chatName : false),
+                is_user: m.is_user !== undefined ? m.is_user : m.name !== chatName,
                 send_date: m.send_date || Date.now(),
                 mes: m.mes || m.text || "",
               }));
@@ -701,21 +712,32 @@ export function ChatViewer({
           let parsedMessages: any[] = [];
 
           if (file.name.toLowerCase().endsWith(".jsonl")) {
-            const { parseJsonlChat } = await import("../lib/chatParse");
-            parsedMessages = parseJsonlChat(text);
-          } else if (file.name.toLowerCase().endsWith(".txt")) {
-            const { parseTextChatLog } = await import("../lib/chatParse");
-            const fileChatName = file.name.replace(/\.[^/.]+$/, "");
-            parsedMessages = parseTextChatLog(text, fileChatName);
+            const lines = text.trim().split("\n");
+            for (let k = 0; k < lines.length; k++) {
+              try {
+                const parsed = JSON.parse(lines[k]);
+                if (parsed) parsedMessages.push(parsed);
+              } catch (e) {}
+              if (k % 500 === 0) await new Promise((r) => setTimeout(r, 0));
+            }
           } else {
             try {
               const data = JSON.parse(text);
-              const { sanitizeChatMessages } = await import("../lib/chatParse");
-              const { messages: cleanMsgs } = sanitizeChatMessages(data);
-              parsedMessages = cleanMsgs;
+              if (Array.isArray(data)) parsedMessages = data;
+              else if (data.chat && Array.isArray(data.chat))
+                parsedMessages = data.chat;
+              else parsedMessages = [data];
             } catch (err) {
-              const { parseJsonlChat } = await import("../lib/chatParse");
-              parsedMessages = parseJsonlChat(text);
+              if (text.trim().split("\n").length > 1) {
+                const lines = text.trim().split("\n");
+                for (let k = 0; k < lines.length; k++) {
+                  try {
+                    const parsed = JSON.parse(lines[k]);
+                    if (parsed) parsedMessages.push(parsed);
+                  } catch (e) {}
+                  if (k % 500 === 0) await new Promise((r) => setTimeout(r, 0));
+                }
+              }
             }
           }
 
@@ -733,7 +755,7 @@ export function ChatViewer({
           const chatName = file.name.replace(/\.[^/.]+$/, "");
           const finalMessages = parsedMessages.map((m: any) => ({
             ...m,
-            is_user: m.is_user !== undefined ? m.is_user : (m.name ? m.name !== chatName : false),
+            is_user: m.is_user !== undefined ? m.is_user : m.name !== chatName,
             send_date: m.send_date || Date.now(),
             mes: m.mes || m.text || "",
           }));
@@ -768,7 +790,6 @@ export function ChatViewer({
           message: phase,
         }));
       });
-      window.dispatchEvent(new CustomEvent("chatsUpdated"));
     }
 
     if (imported > 0) {
@@ -1501,7 +1522,7 @@ export function ChatViewer({
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept=".json,.jsonl,.txt,.zip"
+                  accept=".json,.jsonl,.zip"
                   className="hidden"
                   onChange={(e) => {
                     if (e.target.files?.length) {

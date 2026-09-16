@@ -518,7 +518,7 @@ async function upsertCloudFile(
   searchQuery: string,
 ): Promise<'uploaded' | 'skipped'> {
   const searchRes = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(searchQuery)}&spaces=drive&fields=files(id,name,appProperties)`,
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(searchQuery)}&spaces=drive&fields=files(id,name,appProperties,parents)`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
   if (!searchRes.ok) throw new Error(`云端查询失败: HTTP ${searchRes.status}`);
@@ -526,7 +526,24 @@ async function upsertCloudFile(
 
   if (searchData.files && searchData.files.length > 0) {
     const existing = searchData.files[0];
+    const existingParents = Array.isArray(existing.parents) ? existing.parents : [];
+    const shouldMove = existingParents.length !== 1 || existingParents[0] !== folderId;
+
     if (existing.appProperties?.contentHash === payload.contentHash) {
+      if (shouldMove) {
+        const removeParents = existingParents.filter(id => id !== folderId);
+        let moveUrl = `https://www.googleapis.com/drive/v3/files/${existing.id}?addParents=${encodeURIComponent(folderId)}&fields=id,parents`;
+        if (removeParents.length > 0) {
+          moveUrl += `&removeParents=${encodeURIComponent(removeParents.join(','))}`;
+        }
+        await fetch(moveUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-HTTP-Method-Override': 'PATCH',
+          },
+        });
+      }
       return 'skipped';
     }
 
@@ -536,7 +553,16 @@ async function upsertCloudFile(
     };
     if (payload.extraMetadata) Object.assign(patchMeta, payload.extraMetadata);
 
-    await fetch(`https://www.googleapis.com/drive/v3/files/${existing.id}`, {
+    let patchUrl = `https://www.googleapis.com/drive/v3/files/${existing.id}`;
+    if (shouldMove) {
+      const removeParents = existingParents.filter(id => id !== folderId);
+      patchUrl += `?addParents=${encodeURIComponent(folderId)}`;
+      if (removeParents.length > 0) {
+        patchUrl += `&removeParents=${encodeURIComponent(removeParents.join(','))}`;
+      }
+    }
+
+    await fetch(patchUrl, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -936,7 +962,7 @@ export async function uploadCharacterToCloud(
   return 'uploaded';
 }
 export async function listCloudCharacters(token: string) {
-  const q = `(appProperties has { key='isChar' and value='true' } or appProperties has { key='isChatRecord' and value='true' } or appProperties has { key='isChat' and value='true' }) and trashed=false`;
+  const q = `(appProperties has { key='isChar' and value='true' } or appProperties has { key='isChat' and value='true' }) and trashed=false`;
   const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,thumbnailLink,appProperties,size,createdTime,parents)&pageSize=1000`, {
     headers: { Authorization: `Bearer ${token}` }
   });
@@ -1252,17 +1278,20 @@ export async function uploadChatsToCloud(
         continue;
       }
       const char = await getCharacter(chat.characterId);
-      const safeCharName = char && char.name ? char.name.replace(/[\\/:*?"<>|]/g, "_") : "Unknown";
+      const charNameFallback = char?.name || char?.data?.name || char?.data?.data?.name || (chat.name ? chat.name.split(" - ")[0] : "Unknown");
+      const safeCharName = charNameFallback.replace(/[\\/:*?"<>|]/g, "_");
       const safeChatName = chat.name ? chat.name.replace(/[\\/:*?"<>|]/g, "_") : "Unnamed";
       const formattedDate = new Date(chat.createdAt).toISOString().replace(/[:.]/g, "-");
       const filename = `${safeChatName}_${formattedDate}.jsonl`;
-      const folderPath = `聊天记录/${safeCharName}`;
+      const pathParts = ['聊天记录', safeCharName];
+      const folderPath = pathParts.join('/');
       
       const jsonlString = chat.messages.map((m: any) => JSON.stringify(m)).join('\n');
       const blob = new Blob([jsonlString], { type: 'application/jsonl' });
       
       const fileHash = await hashBlobLight(blob, 'chat');
-      const folderId = await getCloudFolderId(token);
+      const rootFolderId = await getCloudFolderId(token);
+      const targetParentId = await resolveDriveFolderPath(token, rootFolderId, pathParts);
       
       const payload: CloudFilePayload = {
         blob,
@@ -1270,17 +1299,15 @@ export async function uploadChatsToCloud(
         mimeType: 'application/jsonl',
         appProperties: {
            isChat: 'true',
-           isChatRecord: 'true',
            chatId: chat.id,
            charId: chat.characterId,
-           charName: safeCharName,
            folderPath,
            contentHash: fileHash
         },
         contentHash: fileHash
       };
       
-      const result = await upsertCloudFile(token, folderId, payload, `appProperties has { key='chatId' and value='${chat.id}' } and '${folderId}' in parents and trashed=false`);
+      const result = await upsertCloudFile(token, targetParentId, payload, `appProperties has { key='chatId' and value='${chat.id}' } and trashed=false`);
       if (result === 'uploaded') success++;
       else skipped++;
     } catch(e) {

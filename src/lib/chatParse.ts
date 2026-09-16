@@ -1,159 +1,53 @@
 /**
  * 聊天记录解析/校验工具
  *
- * 集中提供「这是不是一条真正的聊天消息」「这一组数据是不是真正的聊天记录」
- * 以及 JSONL / TXT 对话记录的统一解析，供所有导入路径共用。
+ * 历史问题：
+ *  - 导入聊天记录时，任何 .json/.jsonl 都被无差别当成「一条聊天记录」。
+ *    酒馆(SillyTavern)导出的压缩包里通常同时包含：聊天 .jsonl、世界书 .json、
+ *    预设 .json、快速回复 .json、角色卡 .json 等「附属文件」。这些附属文件被
+ *    误当成聊天记录后：
+ *      1) 在查看器里渲染成空白/乱码气泡（它们没有 mes 字段）；
+ *      2) 每个附属文件都生成一张「记录卡」，于是导入一份压缩包就「爆出很多张卡」。
+ *  - 酒馆 .jsonl 的第一行是会话元数据头(user_name / chat_metadata 等)，不是消息，
+ *    也会被当成一条消息渲染成空白/乱码气泡。
+ *
+ * 这里集中提供「这是不是一条真正的聊天消息」「这一组数据是不是真正的聊天记录」
+ * 的判断，供所有导入路径与后台扫描共用。
  */
 
-/**
- * 判断对象是否是工具（脚本、预设、世界书、快速回复）或角色卡
- */
-export function isToolOrCard(obj: any): boolean {
-  if (!obj || typeof obj !== "object") return false;
-  if (obj.type === "script" && obj.content !== undefined) return true;
-  if (obj.temperature !== undefined || obj.prompts !== undefined || obj.top_p !== undefined) return true;
-  if (obj.entries !== undefined || (obj.data && obj.data.entries !== undefined)) return true;
-  if (obj.qrList !== undefined || obj.quick_replies !== undefined) return true;
-  if (obj.spec === "chara_card_v2" || obj.spec === "chara_card_v3" || (obj.data && (obj.data.first_mes !== undefined || obj.data.personality !== undefined))) return true;
-  return false;
-}
-
-/**
- * 判断对象是否是酒馆 .jsonl 的会话元数据头（首行），它不是消息。
- */
 export function looksLikeChatHeader(obj: any): boolean {
   if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
-  if ("chat_metadata" in obj) return true;
-  if (
-    ("user_name" in obj || "character_name" in obj || "create_date" in obj) &&
-    !("mes" in obj) &&
-    !("text" in obj)
-  ) {
-    return true;
-  }
-  return false;
-}
-
-/**
- * 判断单个对象是否是一条真正的聊天消息。
- * 渲染层(ChatViewer/CharacterChatsSection)与数据层只读取以下字段：
- * mes / is_user / swipes / send_date / text。
- */
-export function looksLikeChatMessage(obj: any): boolean {
-  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
-  if (looksLikeChatHeader(obj) || isToolOrCard(obj)) return false;
   return (
-    "mes" in obj ||
-    "swipes" in obj ||
-    ("text" in obj && typeof obj.text === "string" && !("type" in obj)) ||
-    ("is_user" in obj && typeof obj.is_user === "boolean")
+    "user_name" in obj ||
+    "character_name" in obj ||
+    "chat_metadata" in obj ||
+    "create_date" in obj
   );
 }
 
 /**
- * 解析 SillyTavern 单行/多行 JSONL 聊天文本，自动过滤元数据头部。
+ * 判断单个对象是否是一条真正的聊天消息。
+ * 渲染层(ChatViewer/CharacterChatsSection)与数据层只读取以下字段，
+ * 因此用它们来界定「消息」最稳妥：mes / is_user / swipes / send_date。
  */
-export function parseJsonlChat(text: string): any[] {
-  if (!text) return [];
-  const lines = text.trim().split("\n");
-  const messages: any[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const l = lines[i].trim();
-    if (!l) continue;
-    try {
-      const parsed = JSON.parse(l);
-      if (parsed && typeof parsed === "object" && !looksLikeChatHeader(parsed)) {
-        messages.push(parsed);
-      }
-    } catch {}
-  }
-  return messages;
-}
-
-/**
- * 解析纯文本对话记录（格式如 "沈雀里: 内容\n\n沈长昀: 内容"）或嵌入的 JSON/JSONL。
- */
-export function parseTextChatLog(text: string, fallbackCharName?: string): any[] {
-  const trimmed = text.trim();
-  if (!trimmed) return [];
-
-  // 1. 优先尝试是否为 JSON 或 JSONL
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) {
-        const filtered = parsed.filter(m => !looksLikeChatHeader(m));
-        if (filtered.length > 0) return filtered;
-      }
-      if (parsed && Array.isArray(parsed.chat)) {
-        const filtered = parsed.chat.filter((m: any) => !looksLikeChatHeader(m));
-        if (filtered.length > 0) return filtered;
-      }
-    } catch {}
-
-    const jsonlMsgs = parseJsonlChat(trimmed);
-    if (jsonlMsgs.length > 0) return jsonlMsgs;
-  }
-
-  // 2. 解析文本对话格式
-  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-  const messages: any[] = [];
-  let currentMsg: any = null;
-
-  const speakerRegex = /^([^\s\[\]{}<>:：\/\\#@]{1,25})\s*[:：]\s*(.*)$/;
-
-  for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const trimmedLine = rawLine.trim();
-    if (!trimmedLine && !currentMsg) continue;
-
-    const match = trimmedLine.match(speakerRegex);
-    const isTimestamp = match && /^\d+$/.test(match[1]);
-    const isUrl = match && /^(https?|ftp|file|data)$/i.test(match[1]);
-
-    if (match && !isTimestamp && !isUrl) {
-      const speaker = match[1].trim();
-      const firstLineContent = match[2];
-
-      if (currentMsg) {
-        messages.push(currentMsg);
-      }
-      currentMsg = {
-        name: speaker,
-        mes: firstLineContent,
-        is_user:
-          speaker === "You" ||
-          speaker === "User" ||
-          speaker === "你" ||
-          (fallbackCharName ? speaker.toLowerCase() !== fallbackCharName.toLowerCase() : false),
-        send_date: Date.now() + messages.length * 1000,
-      };
-    } else {
-      if (currentMsg) {
-        currentMsg.mes = currentMsg.mes ? currentMsg.mes + "\n" + rawLine : rawLine;
-      } else if (trimmedLine) {
-        currentMsg = {
-          name: fallbackCharName || "Narrator",
-          mes: rawLine,
-          is_user: false,
-          send_date: Date.now(),
-        };
-      }
-    }
-  }
-
-  if (currentMsg) {
-    messages.push(currentMsg);
-  }
-
-  return messages;
+export function looksLikeChatMessage(obj: any): boolean {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
+  if (looksLikeChatHeader(obj)) return false;
+  return (
+    "mes" in obj ||
+    "is_user" in obj ||
+    "swipes" in obj ||
+    "send_date" in obj
+  );
 }
 
 /**
  * 清洗一组解析后的「消息」：
  *  - 丢弃会话元数据头；
- *  - 丢弃一切不是聊天消息的对象；
+ *  - 丢弃一切不是聊天消息的对象（世界书/预设/快速回复/角色卡等附属内容）；
  *  - 返回是否「确实是一条聊天记录」(isChat)。
+ *
+ * 只有 isChat === true 且 messages.length > 0 时，调用方才应把它存成一条聊天记录。
  */
 export function sanitizeChatMessages(raw: any): {
   messages: any[];
@@ -176,9 +70,10 @@ export function sanitizeChatMessages(raw: any): {
 
 /**
  * 判断「准备写入 characters 表的对象」是否其实是聊天内容（而非角色卡/资源）。
+ * 用于后台扫描时，避免把散落的聊天 .json 误建成主页上的角色卡。
  */
 export function looksLikeChatPayload(parsed: any): boolean {
-  if (!parsed || isToolOrCard(parsed)) return false;
+  if (!parsed) return false;
   if (Array.isArray(parsed)) {
     return parsed.some(looksLikeChatMessage);
   }

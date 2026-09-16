@@ -137,7 +137,10 @@ export interface Folder {
   createdAt: number;
   parentId?: string | null;
   sortOrder?: number;
+  tags?: string[];
+  isTool?: boolean;
   avatarBlob?: Blob;
+  deletedAt?: number;
 }
 
 export interface CharacterCard {
@@ -156,6 +159,8 @@ export interface CharacterCard {
   folderId?: string;
   hasBlobsSeparated?: boolean;
   sortOrder?: number;
+  tags?: string[];
+  isTool?: boolean;
 }
 
 export interface ChatLog {
@@ -589,9 +594,16 @@ export async function getOrCreateNestedFolder(
   return currentParentId;
 }
 
+export interface FolderPreviewItem {
+  url: string;
+  seed: string;
+  tags?: string[];
+  isTool?: boolean;
+}
+
 export async function getFolderPreviews(
   folderIds: string[],
-): Promise<Record<string, string[]>> {
+): Promise<Record<string, FolderPreviewItem[]>> {
   if (folderIds.length === 0) return {};
   const db = await initDB();
   const tx = db.transaction("char_meta", "readonly");
@@ -609,24 +621,21 @@ export async function getFolderPreviews(
       // 只读取前 4 张卡的轻量 meta, 再按需取头像 blob, 不再全量读取角色 data
       const topBlobs = await Promise.all(
         topMetas.map(async (meta) => {
+          let url: string | undefined = undefined;
           if (meta.localFilePath) {
-            return getLocalImageUrl(
+            url = getLocalImageUrl(
               meta.localFilePath,
               meta.updatedAt || meta.createdAt,
             );
-          }
-          if (meta.hasBlobsSeparated) {
+          } else if (meta.hasBlobsSeparated) {
             const blobs = await db.get("blobs", meta.id);
-            if (blobs?.avatarBlob) return URL.createObjectURL(blobs.avatarBlob);
+            if (blobs?.avatarBlob) url = URL.createObjectURL(blobs.avatarBlob);
+          } else {
+            const legacyChar = await db.get("characters", meta.id);
+            if (legacyChar?.avatarBlob) {
+              url = URL.createObjectURL(legacyChar.avatarBlob);
+            }
           }
-
-          // 老卡片尚未完成 blob 分离时，头像仍可能直接存在 characters 里；
-          // 这里只回退读取前 4 张，不影响主页秒开，也避免文件夹封面变成占位图。
-          const legacyChar = await db.get("characters", meta.id);
-          if (legacyChar?.avatarBlob) {
-            return URL.createObjectURL(legacyChar.avatarBlob);
-          }
-
           let fallbackUrlStr = meta.avatarUrlFallback;
           if (fallbackUrlStr && (
               fallbackUrlStr.includes("api.dicebear.com") || 
@@ -635,11 +644,16 @@ export async function getFolderPreviews(
           )) {
             fallbackUrlStr = undefined;
           }
-          return fallbackUrlStr || getFallbackAvatar(meta.name || meta.id);
+          return {
+            url: url || fallbackUrlStr || getFallbackAvatar(meta.name || meta.id, meta.tags?.join(',') || (meta.isTool ? 'tool' : undefined)),
+            seed: meta.name || meta.id,
+            tags: meta.tags,
+            isTool: meta.isTool
+          };
         }),
       );
 
-      previews[folderId] = topBlobs.filter(Boolean) as string[];
+      previews[folderId] = topBlobs.filter(Boolean) as FolderPreviewItem[];
     }),
   );
 
@@ -949,14 +963,18 @@ export interface CharMeta {
   name: string;
   autoImportFilename?: string;
   sortOrder?: number;
+
+
   deletedAt?: number;
   folderId?: string;
-  tags: string[];
+
   avatarUrlFallback?: string;
   localFilePath?: string;
   hasBlobsSeparated?: boolean;
-  isTool?: boolean;
+
   isQR?: boolean;
+  tags?: string[];
+  isTool?: boolean;
 }
 
 function buildCharMeta(val: any): CharMeta {
@@ -1892,6 +1910,23 @@ export async function restoreCharacter(id: string): Promise<void> {
       const folder = await db.get("folders", char.folderId);
       if (!folder) {
         delete char.folderId;
+      } else {
+        let currentFolderId = char.folderId;
+        const txFolders = db.transaction("folders", "readwrite");
+        const folderStore = txFolders.store;
+        while (currentFolderId) {
+          const f = await folderStore.get(currentFolderId);
+          if (f) {
+            if (f.deletedAt) {
+              delete f.deletedAt;
+              await folderStore.put(f);
+            }
+            currentFolderId = f.parentId;
+          } else {
+            break;
+          }
+        }
+        await txFolders.done;
       }
     }
 

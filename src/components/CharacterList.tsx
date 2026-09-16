@@ -126,7 +126,7 @@ function FolderCover({
                 onError={(e) => {
                     const item = previews[i];
                     if (item && typeof item !== 'string' && item.seed) {
-                       const category = item.tags || (item.isTool ? 'tool' : undefined);
+                       const category = item.tags?.join(',') || (item.isTool ? 'tool' : undefined);
                        e.currentTarget.src = getFallbackAvatar(item.seed, category);
                        e.currentTarget.style.display = 'block';
                     } else if (!e.currentTarget.src.startsWith('data:image/svg+xml')) {
