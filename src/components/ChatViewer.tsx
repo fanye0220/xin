@@ -467,6 +467,9 @@ export function ChatViewer({
 
   useEffect(() => {
     loadData();
+    const handleUpdate = () => loadData();
+    window.addEventListener("chatsUpdated", handleUpdate);
+    return () => window.removeEventListener("chatsUpdated", handleUpdate);
   }, []);
 
   useEffect(() => {
@@ -569,7 +572,7 @@ export function ChatViewer({
             if (zipEntry.dir) continue;
 
             const lowerName = zipEntry.name.toLowerCase();
-            if (lowerName.endsWith(".json") || lowerName.endsWith(".jsonl")) {
+            if (lowerName.endsWith(".json") || lowerName.endsWith(".jsonl") || lowerName.endsWith(".txt")) {
               filesToProcess.push(zipEntry);
             }
           }
@@ -608,15 +611,13 @@ export function ChatViewer({
               let parsedMessages: any[] = [];
 
               if (lowerName.endsWith(".jsonl")) {
-                const lines = text.trim().split("\n");
-                for (let k = 0; k < lines.length; k++) {
-                  try {
-                    const parsed = JSON.parse(lines[k]);
-                    if (parsed) parsedMessages.push(parsed);
-                  } catch (e) {}
-                  if (k % 500 === 0)
-                    await new Promise((r) => setTimeout(r, 0));
-                }
+                const { parseJsonlChat } = await import("../lib/chatParse");
+                parsedMessages = parseJsonlChat(text);
+              } else if (lowerName.endsWith(".txt")) {
+                const { parseTextChatLog } = await import("../lib/chatParse");
+                const entryChatName = (zipEntry.name.split("/").pop() || zipEntry.name).replace(/\.[^/.]+$/, "");
+                const parsed = parseTextChatLog(text, entryChatName);
+                parsedMessages = parsed.messages;
               } else {
                 try {
                   const data = JSON.parse(text);
@@ -712,14 +713,13 @@ export function ChatViewer({
           let parsedMessages: any[] = [];
 
           if (file.name.toLowerCase().endsWith(".jsonl")) {
-            const lines = text.trim().split("\n");
-            for (let k = 0; k < lines.length; k++) {
-              try {
-                const parsed = JSON.parse(lines[k]);
-                if (parsed) parsedMessages.push(parsed);
-              } catch (e) {}
-              if (k % 500 === 0) await new Promise((r) => setTimeout(r, 0));
-            }
+            const { parseJsonlChat } = await import("../lib/chatParse");
+            parsedMessages = parseJsonlChat(text);
+          } else if (file.name.toLowerCase().endsWith(".txt")) {
+            const { parseTextChatLog } = await import("../lib/chatParse");
+            const fileChatName = file.name.replace(/\.[^/.]+$/, "");
+            const parsed = parseTextChatLog(text, fileChatName);
+            parsedMessages = parsed.messages;
           } else {
             try {
               const data = JSON.parse(text);
@@ -1522,7 +1522,7 @@ export function ChatViewer({
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept=".json,.jsonl,.zip"
+                  accept=".json,.jsonl,.txt,.zip"
                   className="hidden"
                   onChange={(e) => {
                     if (e.target.files?.length) {
@@ -2238,11 +2238,13 @@ export function ChatViewer({
       <AnimatePresence>
         {isBatchMode && selectedChatIds.size > 0 && (
           <motion.div
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-black/60 backdrop-blur-xl border border-white/10 rounded-full px-4 sm:px-6 py-3 shadow-[0_10px_40px_rgba(0,0,0,0.5)] flex items-center justify-center gap-2 sm:gap-6 w-auto max-w-[90vw] overflow-x-auto hide-scrollbar"
+            initial={{ y: 100, opacity: 0, x: "-50%" }}
+            animate={{ y: 0, opacity: 1, x: "-50%" }}
+            exit={{ y: 100, opacity: 0, x: "-50%" }}
+            className="fixed bottom-8 left-1/2 z-[60] max-w-[95vw] sm:max-w-[80vw] bg-slate-800/80 backdrop-blur-2xl border border-white/10 rounded-full shadow-2xl overflow-hidden"
           >
+            <div className="overflow-x-auto hide-scrollbar w-full">
+              <div className="flex items-center gap-1 sm:gap-2 p-3 min-w-max">
             
             <button
               onClick={() => handleBatchExport(false)}
@@ -2276,6 +2278,8 @@ export function ChatViewer({
               </div>
               <span className="font-medium text-[10px]">删除</span>
             </button>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
