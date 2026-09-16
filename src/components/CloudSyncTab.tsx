@@ -18,7 +18,7 @@ export function CloudSyncTab() {
   const [isLoadingBackups, setIsLoadingBackups] = useState(false);
   
   const [actionFileId, setActionFileId] = useState<string | null>(null);
-  const [syncInfo, setSyncInfo] = useState<SyncState>({ isActive: false, taskName: '', message: '', isError: false, completed: false });
+  const [syncInfo, setSyncInfo] = useState<SyncState>({ isActive: false, taskName: '', message: '', isError: false, completed: false, needsReauth: false });
 
     const [activeTab, setActiveTab] = useState<'backup' | 'cloud_drive'>('backup');
   const [cloudChars, setCloudChars] = useState<any[]>([]);
@@ -80,11 +80,14 @@ export function CloudSyncTab() {
     try {
         const { jsonData, avatarBlob, studioMeta, avatarHistory } = await downloadCloudCharacter(token, fileId, fileName, (msg) => console.log(msg));
         const existingChars = await getCachedMeta();
+        const rawFileName = (fileName || '').replace(/\.(zip|png|json|webp|jpg|jpeg)$/i, '').trim();
         const extractedName =
-          appProperties?.charName ||
-          jsonData.name ||
-          jsonData.data?.name ||
-          charName;
+          appProperties?.charName?.trim() ||
+          jsonData?.name?.trim() ||
+          jsonData?.data?.name?.trim() ||
+          charName?.trim() ||
+          rawFileName ||
+          '未命名卡片';
         const cloudCharId = appProperties?.charId;
         const existing = cloudCharId
           ? existingChars.find(c => c.id === cloudCharId)
@@ -168,7 +171,10 @@ export function CloudSyncTab() {
             createdAt: createTime,
             folderId,
             avatarHistory: avatarHistory || [],
-            avatarUrlFallback: avatarBlob ? undefined : getFallbackAvatar(extractedName, cardCategory !== '未归类' ? cardCategory : (mergedMeta as any)?.cardType)
+            avatarUrlFallback: avatarBlob ? undefined : getFallbackAvatar(
+                (extractedName && extractedName !== '未命名卡片') ? extractedName : (appProperties?.charId || fileId || targetId),
+                cardCategory !== '未归类' ? cardCategory : (mergedMeta as any)?.cardType
+            )
         };
         
         if (avatarBlob) {
@@ -718,28 +724,26 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                       <div key={char.id} className="relative group rounded-xl overflow-hidden bg-white/5 border border-white/10 flex flex-col h-auto">
                         <div className="relative aspect-[3/4] overflow-hidden bg-black/40">
                         {char.thumbnailLink ? (
-                          
-                          <>
-                            <img 
-                              src={char.thumbnailLink} 
-                              alt={charName} 
-                              className="w-full h-full object-cover group-hover:scale-105 transition duration-500" 
-                              referrerPolicy="no-referrer" 
-                              onError={(e) => {
-                                e.currentTarget.style.display = 'none';
-                                const fallback = e.currentTarget.nextElementSibling;
-                                if (fallback) fallback.classList.remove('hidden');
-                              }}
-                            />
-                            <div className="w-full h-full items-center justify-center hidden bg-black/40">
-                              <Cloud className="w-8 h-8 text-white/20" />
-                            </div>
-                          </>
-
+                          <img 
+                            src={char.thumbnailLink} 
+                            alt={charName} 
+                            className="w-full h-full object-cover group-hover:scale-105 transition duration-500" 
+                            referrerPolicy="no-referrer" 
+                            onError={(e) => {
+                              const fbSeed = char.appProperties?.charName || char.name?.replace(/\.(zip|png|json|webp|jpg|jpeg)$/i, '') || char.id;
+                              const fbCat = char.appProperties?.cardType;
+                              e.currentTarget.src = getFallbackAvatar(fbSeed, fbCat);
+                            }}
+                          />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Cloud className="w-8 h-8 text-white/20" />
-                          </div>
+                          <img 
+                            src={getFallbackAvatar(
+                              char.appProperties?.charName || char.name?.replace(/\.(zip|png|json|webp|jpg|jpeg)$/i, '') || char.id,
+                              char.appProperties?.cardType
+                            )} 
+                            alt={charName} 
+                            className="w-full h-full object-cover group-hover:scale-105 transition duration-500" 
+                          />
                         )}
                         
                         {((char.appProperties?.cardType && char.appProperties.cardType !== 'character') || char.appProperties?.isChat === 'true') && (
