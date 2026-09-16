@@ -1,0 +1,188 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  --theme-bg: var(--color-slate-900);
+  --overlay-bottom: rgba(0, 0, 0, 0.9);
+  --overlay-mid: rgba(0, 0, 0, 0.2);
+}
+
+.light-theme {
+  --color-slate-900: #f2f2f7;
+  --color-slate-800: #ffffff;
+  --color-slate-700: #e5e5ea;
+  --color-slate-400: #8e8e93;
+  --color-white: #1c1c1e;
+  --color-black: #ffffff;
+  
+  --color-blue-600: #86b9f4;
+  --color-blue-500: #a7cbf6;
+  --color-blue-400: #007aff; /* iOS Blue */
+  --color-blue-300: #0056b3;
+  --color-blue-200: #004080;
+  --color-blue-100: #002244;
+  
+  --overlay-bottom: rgba(255, 255, 255, 0.20);
+  --overlay-mid: rgba(255, 255, 255, 0.05);
+  
+  --color-purple-600: #dcb8ff;
+  --color-purple-500: #ebd4ff;
+  --color-purple-400: #af52de; /* iOS Purple */
+  --color-purple-300: #7b29a3;
+  
+  --color-red-600: #ff9f9c;
+  --color-red-500: #ffc2c0;
+  --color-red-400: #ff3b30; /* iOS Red */
+  --color-red-300: #b31f17;
+  
+  --color-green-600: #8df5a5;
+  --color-green-500: #c1fad0;
+  --color-green-400: #34c759; /* iOS Green */
+  --color-green-300: #20873a;
+  
+  --color-indigo-600: #a2b1ff;
+  --color-indigo-500: #c7d1ff;
+  --color-indigo-400: #5856d6; /* iOS Indigo */
+  --color-indigo-300: #3936a1;
+  
+  --color-yellow-600: #ffd426;
+  --color-yellow-500: #ffdf66;
+  --color-yellow-400: #ffcc00; /* iOS Yellow */
+  --color-yellow-300: #b38f00;
+  
+  --color-pink-500: #ffcce6;
+  --color-pink-400: #ff2d55; /* iOS Pink */
+  --color-pink-300: #b31836;
+  
+  --color-orange-500: #ffc999;
+  --color-orange-400: #ff9500; /* iOS Orange */
+  --color-orange-300: #b36800;
+  
+  --color-cyan-500: #99ebff;
+  --color-cyan-400: #32ade6; /* iOS Cyan */
+  
+  --color-emerald-500: #99f0c2;
+  --color-emerald-400: #00c7be; /* iOS Mint */
+  
+  --color-gray-400: #8e8e93;
+  --color-gray-300: #aeaeb2;
+}
+
+/* iOS card styling for light theme */
+.light-theme .border-white\/10 {
+  border-color: rgba(0, 0, 0, 0.05) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04) !important;
+}
+.light-theme .border-white\/20 {
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+.light-theme .bg-white\/5 {
+  background-color: rgba(255, 255, 255, 0.29) !important;
+}
+.light-theme .bg-white\/10 {
+  background-color: rgba(255, 255, 255, 0.4) !important;
+}
+.rounded-xl {
+  border-radius: 1.25rem !important; /* Make things rounder */
+}
+.rounded-2xl {
+  border-radius: 1.5rem !important;
+}
+.rounded-tr-sm {
+  border-top-right-radius: 0.25rem !important;
+}
+.rounded-tl-sm {
+  border-top-left-radius: 0.25rem !important;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-slate-900);
+  color: var(--color-white);
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Force details block styling inside markdown across the board, but preserve native backgrounds */
+.prose details {
+  border-radius: 0.5rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  max-width: 100%;
+  overflow-x: auto !important;
+  box-sizing: border-box;
+}
+
+/* Ensure text inside details respects markdown breaks but forces no overflow for android */
+.prose details * {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.prose table,
+.prose pre,
+.prose div {
+  max-width: 100%;
+  overflow-x: auto !important;
+  box-sizing: border-box;
+}
+
+.prose summary {
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+}
+
+/* Ensure text in bubbles is always readable over dark bubbles even in light mode! */
+.light-theme .chat-bubble-prose > p,
+.light-theme .chat-bubble-prose > *:not(pre):not(code) > p,
+.light-theme .chat-bubble-prose > span,
+.light-theme .chat-bubble-prose > div {
+  color: #f8fafc; 
+}
+
+/* Force Memos section to use dark text in light mode instead of prose-invert */
+.light-theme .memo-prose-adapt {
+  --tw-prose-body: var(--color-white);
+  --tw-prose-headings: var(--color-white);
+  --tw-prose-lead: var(--color-white);
+  --tw-prose-links: var(--color-blue-600);
+  --tw-prose-bold: var(--color-white);
+  --tw-prose-counters: var(--color-slate-500);
+  --tw-prose-bullets: var(--color-slate-500);
+  --tw-prose-hr: var(--color-slate-300);
+  --tw-prose-quotes: var(--color-white);
+  --tw-prose-quote-borders: var(--color-slate-300);
+  --tw-prose-captions: var(--color-slate-500);
+  --tw-prose-code: var(--color-white);
+  --tw-prose-pre-code: var(--color-slate-200);
+  --tw-prose-pre-bg: var(--color-slate-800);
+  --tw-prose-th-borders: var(--color-slate-300);
+  --tw-prose-td-borders: var(--color-slate-200);
+}
