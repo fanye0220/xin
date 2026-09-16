@@ -936,7 +936,7 @@ export async function uploadCharacterToCloud(
   return 'uploaded';
 }
 export async function listCloudCharacters(token: string) {
-  const q = `(appProperties has { key='isChar' and value='true' } or appProperties has { key='isChatRecord' and value='true' }) and trashed=false`;
+  const q = `(appProperties has { key='isChar' and value='true' } or appProperties has { key='isChatRecord' and value='true' } or appProperties has { key='isChat' and value='true' }) and trashed=false`;
   const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,thumbnailLink,appProperties,size,createdTime,parents)&pageSize=1000`, {
     headers: { Authorization: `Bearer ${token}` }
   });
@@ -1256,7 +1256,7 @@ export async function uploadChatsToCloud(
       const safeChatName = chat.name ? chat.name.replace(/[\\/:*?"<>|]/g, "_") : "Unnamed";
       const formattedDate = new Date(chat.createdAt).toISOString().replace(/[:.]/g, "-");
       const filename = `${safeChatName}_${formattedDate}.jsonl`;
-      const folderPath = `Chats/${safeCharName}`;
+      const folderPath = `聊天记录/${safeCharName}`;
       
       const jsonlString = chat.messages.map((m: any) => JSON.stringify(m)).join('\n');
       const blob = new Blob([jsonlString], { type: 'application/jsonl' });
@@ -1270,8 +1270,10 @@ export async function uploadChatsToCloud(
         mimeType: 'application/jsonl',
         appProperties: {
            isChat: 'true',
+           isChatRecord: 'true',
            chatId: chat.id,
            charId: chat.characterId,
+           charName: safeCharName,
            folderPath,
            contentHash: fileHash
         },
