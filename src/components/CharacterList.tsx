@@ -116,7 +116,7 @@ function FolderCover({
         {[0, 1, 2, 3].map((i) => (
           <div
             key={i}
-            className="w-full h-full bg-black/20 rounded-md overflow-hidden pointer-events-none"
+            className="w-full h-full bg-black/20 rounded-md overflow-hidden pointer-events-none flex items-center justify-center"
           >
             {previews[i] && (
               <img
@@ -125,16 +125,10 @@ function FolderCover({
                 className="w-full h-full object-cover pointer-events-none"
                 onError={(e) => {
                     const item = previews[i];
-                    if (item && typeof item !== 'string' && item.seed) {
-                       const category = item.tags || (item.isTool ? 'tool' : undefined);
-                       e.currentTarget.src = getFallbackAvatar(item.seed, category);
-                       e.currentTarget.style.display = 'block';
-                    } else if (!e.currentTarget.src.startsWith('data:image/svg+xml')) {
-                       e.currentTarget.src = getFallbackAvatar(folder.id + i);
-                       e.currentTarget.style.display = 'block';
-                   } else {
-                       e.currentTarget.style.display = 'none';
-                   }
+                    const seed = (typeof item === 'object' && item?.seed) ? item.seed : (typeof item === 'string' ? item : (folder.name || folder.id));
+                    const category = (typeof item === 'object') ? (item.tags || (item.isTool ? 'tool' : undefined)) : undefined;
+                    e.currentTarget.src = getFallbackAvatar(seed, category);
+                    e.currentTarget.style.display = 'block';
                 }}
               />
             )}
@@ -145,10 +139,9 @@ function FolderCover({
   }
 
   return (
-    <FolderIcon className="w-1/2 h-1/2 text-white/50 pointer-events-none" />
+    <FolderIcon className="w-1/2 h-1/2 text-slate-400/70 dark:text-white/50 pointer-events-none" />
   );
 }
-
 function SortableItemWrapper({
   id,
   children,

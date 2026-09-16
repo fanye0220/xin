@@ -589,63 +589,106 @@ export async function getOrCreateNestedFolder(
   return currentParentId;
 }
 
+export interface FolderPreviewItem {
+  url: string;
+  seed: string;
+  isTool?: boolean;
+  tags?: string;
+}
+
 export async function getFolderPreviews(
   folderIds: string[],
-): Promise<Record<string, string[]>> {
+): Promise<Record<string, FolderPreviewItem[]>> {
   if (folderIds.length === 0) return {};
   const db = await initDB();
-  const tx = db.transaction("char_meta", "readonly");
-  const index = tx.store.index("by-folder");
-
   const previews: Record<string, FolderPreviewItem[]> = {};
+
+  let allMeta: CharMeta[] = [];
+  try {
+    allMeta = await getCachedMeta();
+  } catch {}
 
   await Promise.all(
     folderIds.map(async (folderId) => {
-      let metas = await index.getAll(folderId);
-      metas = metas.filter((m) => !m.deletedAt);
-      metas.sort((a, b) => b.createdAt - a.createdAt);
+      let metas = allMeta.filter((m) => m.folderId === folderId && !m.deletedAt);
+
+      if (metas.length === 0) {
+        try {
+          const txMeta = db.transaction("char_meta", "readonly");
+          const indexMeta = txMeta.store.index("by-folder");
+          metas = await indexMeta.getAll(folderId);
+          metas = metas.filter((m) => !m.deletedAt);
+        } catch {}
+      }
+
+      if (metas.length === 0) {
+        try {
+          const txChar = db.transaction("characters", "readonly");
+          const indexChar = txChar.store.index("by-folder");
+          const chars = await indexChar.getAll(folderId);
+          metas = chars.filter((c) => !c.deletedAt).map((c) => buildCharMeta(c));
+        } catch {}
+      }
+
+      metas.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       const topMetas = metas.slice(0, 4);
 
-      // 只读取前 4 张卡的轻量 meta, 再按需取头像 blob, 不再全量读取角色 data
       const topBlobs = await Promise.all(
-        topMetas.map(async (meta) => {
+        topMetas.map(async (meta): Promise<FolderPreviewItem | null> => {
+          const seed = meta.name || meta.id;
+          const category = meta.tags?.join(",") || (meta.isTool ? "tool" : undefined);
+          const fallbackRobot = getFallbackAvatar(seed, category);
+
           if (meta.localFilePath) {
-            return getLocalImageUrl(
-              meta.localFilePath,
-              meta.updatedAt || meta.createdAt,
-            );
+            return {
+              url: getLocalImageUrl(meta.localFilePath, meta.updatedAt || meta.createdAt),
+              seed,
+              isTool: meta.isTool,
+              tags: meta.tags?.join(","),
+            };
           }
           if (meta.hasBlobsSeparated) {
             const blobs = await db.get("blobs", meta.id);
-            if (blobs?.avatarBlob) return URL.createObjectURL(blobs.avatarBlob);
+            if (blobs?.avatarBlob) {
+              return {
+                url: URL.createObjectURL(blobs.avatarBlob),
+                seed,
+                isTool: meta.isTool,
+                tags: meta.tags?.join(","),
+              };
+            }
           }
 
-          // 老卡片尚未完成 blob 分离时，头像仍可能直接存在 characters 里；
-          // 这里只回退读取前 4 张，不影响主页秒开，也避免文件夹封面变成占位图。
           const legacyChar = await db.get("characters", meta.id);
           if (legacyChar?.avatarBlob) {
-            return URL.createObjectURL(legacyChar.avatarBlob);
+            return {
+              url: URL.createObjectURL(legacyChar.avatarBlob),
+              seed,
+              isTool: meta.isTool,
+              tags: meta.tags?.join(","),
+            };
           }
 
-          let fallbackUrlStr = meta.avatarUrlFallback;
-          if (fallbackUrlStr && (
-              fallbackUrlStr.includes("api.dicebear.com") || 
-              fallbackUrlStr.startsWith('data:image/svg+xml;charset=utf-8,') || 
-              fallbackUrlStr.startsWith('data:image/svg+xml;base64,')
-          )) {
-            fallbackUrlStr = undefined;
+          let url = meta.avatarUrlFallback;
+          if (!url || url.includes("api.dicebear.com") || url.startsWith("data:image/svg+xml;charset=utf-8,") || url.startsWith("data:image/svg+xml;base64,")) {
+            url = fallbackRobot;
           }
-          return fallbackUrlStr || getFallbackAvatar(meta.name || meta.id);
+
+          return {
+            url,
+            seed,
+            isTool: meta.isTool,
+            tags: meta.tags?.join(","),
+          };
         }),
       );
 
-      previews[folderId] = topBlobs.filter(Boolean) as string[];
+      previews[folderId] = topBlobs.filter(Boolean) as FolderPreviewItem[];
     }),
   );
 
   return previews;
 }
-
 export async function resolveFolderPath(
   folderId?: string | null,
 ): Promise<string> {
