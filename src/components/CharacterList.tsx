@@ -81,7 +81,7 @@ function FolderCover({
   viewMode,
 }: {
   folder: Folder;
-  previews: string[];
+  previews: any[];
   viewMode: string;
 }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -120,11 +120,16 @@ function FolderCover({
           >
             {previews[i] && (
               <img
-                src={previews[i]}
+                src={typeof previews[i] === 'string' ? previews[i] : previews[i].url}
                 alt=""
                 className="w-full h-full object-cover pointer-events-none"
                 onError={(e) => {
-                    if (!e.currentTarget.src.startsWith('data:image/svg+xml')) {
+                    const item = previews[i];
+                    if (item && typeof item !== 'string' && item.seed) {
+                       const category = item.tags || (item.isTool ? 'tool' : undefined);
+                       e.currentTarget.src = getFallbackAvatar(item.seed, category);
+                       e.currentTarget.style.display = 'block';
+                    } else if (!e.currentTarget.src.startsWith('data:image/svg+xml')) {
                        e.currentTarget.src = getFallbackAvatar(folder.id + i);
                        e.currentTarget.style.display = 'block';
                    } else {
@@ -248,20 +253,20 @@ export function CharacterList({
   const [characters, setCharacters] = useState<CharacterCard[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [folderPreviews, setFolderPreviews] = useState<
-    Record<string, string[]>
+    Record<string, any[]>
   >({});
   // 每次刷新文件夹预览图都会重新生成一批 blob URL, 这里记一份"当前挂着的"
   // 引用, 下次覆盖前先批量释放旧的, 避免每次翻页/切换文件夹都泄漏一批。
   const folderPreviewUrlsRef = useRef<string[]>([]);
-  const setFolderPreviewsWithCleanup = (previews: Record<string, string[]>) => {
+  const setFolderPreviewsWithCleanup = (previews: Record<string, any[]>) => {
     const oldUrls = folderPreviewUrlsRef.current;
-    const newUrls = Object.values(previews).flat();
+    const newUrls = Object.values(previews).flat().map(p => typeof p === 'string' ? p : p.url);
     folderPreviewUrlsRef.current = newUrls;
     setFolderPreviews(previews);
     if (oldUrls.length > 0) {
       requestAnimationFrame(() => {
         oldUrls.forEach((u) => {
-          if (u.startsWith("blob:")) URL.revokeObjectURL(u);
+          if (u && u.startsWith("blob:")) URL.revokeObjectURL(u);
         });
       });
     }

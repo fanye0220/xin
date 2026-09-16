@@ -597,7 +597,7 @@ export async function getFolderPreviews(
   const tx = db.transaction("char_meta", "readonly");
   const index = tx.store.index("by-folder");
 
-  const previews: Record<string, string[]> = {};
+  const previews: Record<string, FolderPreviewItem[]> = {};
 
   await Promise.all(
     folderIds.map(async (folderId) => {
