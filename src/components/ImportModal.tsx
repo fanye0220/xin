@@ -447,10 +447,8 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
           }
         } else if (
           file.type === "application/json" ||
-          file.name.endsWith(".json") ||
-          file.name.endsWith(".jsonl") ||
-          file.name.endsWith(".js") ||
-          file.name.endsWith(".txt")
+          file.type === "text/plain" ||
+          file.name.match(/\.(json|jsonl|txt|js)$/i)
         ) {
           const text = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
@@ -458,22 +456,26 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
             reader.onerror = reject;
             reader.readAsText(file, "utf-8");
           });
-          if (file.name.endsWith(".jsonl")) {
-            const lines = text.trim().split("\n");
-            let parsedMessages = [];
-            for (const line of lines) {
-              try {
-                const p = JSON.parse(line);
-                if (p) parsedMessages.push(p);
-              } catch (e) {}
-            }
+          if (file.name.toLowerCase().endsWith(".jsonl")) {
+            const { parseJsonlChat } = await import("../lib/chatParse");
+            const parsedMessages = parseJsonlChat(text);
             if (parsedMessages.length > 0) {
               data = parsedMessages;
               isMain = false;
             } else {
               errorMsg = "无效的聊天记录文件。";
             }
-          } else if (file.name.endsWith(".js") || file.name.endsWith(".txt")) {
+          } else if (file.name.toLowerCase().endsWith(".txt")) {
+            const { parseTextChatLog } = await import("../lib/chatParse");
+            const parsedMessages = parseTextChatLog(text);
+            if (parsedMessages.length > 0 && parsedMessages.some((m: any) => m.name && (m.mes || m.text || m.content))) {
+              data = parsedMessages;
+              isMain = false;
+            } else {
+              data = { type: "script", name: file.name.replace(/\.[^/.]+$/, ""), content: text };
+              isMain = true;
+            }
+          } else if (file.name.toLowerCase().endsWith(".js")) {
             data = { type: "script", name: file.name.replace(/\.[^/.]+$/, ""), content: text };
             isMain = true;
           } else {
@@ -493,7 +495,7 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
             const isScript = data?.type === "script" && data?.content !== undefined && data?.name !== undefined;
 
             const isChatData = Array.isArray(data)
-              ? (data.length > 0 && (data[0].mes || data[0].text !== undefined))
+              ? (data.length > 0 && (data[0].mes !== undefined || data[0].text !== undefined || data[0].swipes !== undefined))
               : !!(data.chat && Array.isArray(data.chat) && !data.name && !data.char_name && !data.character_name && !data.data?.name && !data.data?.char_name && !data.data?.character_name);
 
             const isCharacter =
@@ -515,15 +517,10 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
             ) {
               isMain = true;
             } else if (isChatData) {
-              if (Array.isArray(data)) {
-                isMain = false;
-              } else if (data.chat && Array.isArray(data.chat)) {
-                data = data.chat;
-                isMain = false;
-              } else {
-                data = [data]; // 对于不标准的聊天记录结构，防止被丢弃，至少包装成数组
-                isMain = false;
-              }
+              const { sanitizeChatMessages } = await import("../lib/chatParse");
+              const { messages: cleanMsgs } = sanitizeChatMessages(data);
+              data = cleanMsgs;
+              isMain = false;
             } else {
               errorMsg = "非酒馆卡或预设格式：无法识别的数据结构。";
             }
@@ -921,11 +918,15 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
         }
 
         const chatName = cl.file.name.replace(/\.[^/.]+$/, "");
-        const finalMessages = cl.data.map((m: any) => ({
+        const rawArray = Array.isArray(cl.data) ? cl.data : [cl.data];
+        const { sanitizeChatMessages } = await import("../lib/chatParse");
+        const { messages: cleanMsgs } = sanitizeChatMessages(rawArray);
+
+        const finalMessages = cleanMsgs.map((m: any) => ({
           ...m,
-          is_user: m.is_user !== undefined ? m.is_user : m.name !== chatName,
+          is_user: m.is_user !== undefined ? m.is_user : (m.name ? m.name !== chatName : false),
           send_date: m.send_date || Date.now(),
-          mes: m.mes || m.text || "",
+          mes: m.mes || m.text || m.content || "",
         }));
 
         const newChat: ChatLog = {
@@ -948,6 +949,8 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
             message: phase + ` ${current}/${total}`,
           });
         });
+        window.dispatchEvent(new CustomEvent("chatsUpdated"));
+        window.dispatchEvent(new CustomEvent("charactersUpdated"));
       }
     }
 
@@ -978,7 +981,7 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
 
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
-      if (f.name.endsWith(".zip")) {
+      if (f.name.toLowerCase().endsWith(".zip")) {
         try {
           const zip = await JSZip.loadAsync(f, {
             decodeFileName: function (bytes: any) {
@@ -993,19 +996,19 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
             const zipEntry = zip.files[relativePath];
             if (
               !zipEntry.dir &&
-              relativePath.match(/\.(png|jpe?g|webp|gif|json|jsonl)$/i)
+              relativePath.match(/\.(png|jpe?g|webp|gif|json|jsonl|txt|js)$/i)
             ) {
               const arrayBuffer = await zipEntry.async("arraybuffer");
 
               let type = "application/octet-stream";
-              if (relativePath.endsWith(".png")) type = "image/png";
+              if (relativePath.match(/\.png$/i)) type = "image/png";
               else if (relativePath.match(/\.jpe?g$/i)) type = "image/jpeg";
-              else if (relativePath.endsWith(".webp")) type = "image/webp";
-              else if (relativePath.endsWith(".gif")) type = "image/gif";
-              else if (relativePath.endsWith(".json"))
-                type = "application/json";
-              else if (relativePath.endsWith(".jsonl"))
-                type = "application/json";
+              else if (relativePath.match(/\.webp$/i)) type = "image/webp";
+              else if (relativePath.match(/\.gif$/i)) type = "image/gif";
+              else if (relativePath.match(/\.json$/i)) type = "application/json";
+              else if (relativePath.match(/\.jsonl$/i)) type = "application/json";
+              else if (relativePath.match(/\.txt$/i)) type = "text/plain";
+              else if (relativePath.match(/\.js$/i)) type = "text/javascript";
 
               const extractedFile = new File(
                 [arrayBuffer],
@@ -1029,14 +1032,15 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
         f.type.startsWith("image/") ||
         f.name.match(/\.(png|jpe?g|webp|gif)$/i) ||
         f.type === "application/json" ||
-        f.name.endsWith(".json")
+        f.type === "text/plain" ||
+        f.name.match(/\.(json|jsonl|txt|js)$/i)
       ) {
         fileArray.push(f);
       }
     }
 
     if (fileArray.length === 0) {
-      setError("未找到有效的图片、JSON 或 ZIP 文件。");
+      setError("未找到有效的图片、JSON、JSONL、TXT 或 ZIP 文件。");
       return;
     }
 
