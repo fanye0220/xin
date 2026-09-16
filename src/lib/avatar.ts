@@ -1,14 +1,12 @@
 import { createAvatar } from '@dicebear/core';
 import { bottts } from '@dicebear/collection';
 
-export function getFallbackAvatar(seed?: string | null, category?: string): string {
+export function getFallbackAvatar(seed: string, category?: string): string {
   const cat = (category || '').toLowerCase();
-  const trimmed = typeof seed === 'string' ? seed.trim() : '';
-  const cleanSeed = (trimmed && trimmed !== 'default') ? trimmed : 'robot_' + Math.random().toString(36).substring(2, 10);
-
+  
   try {
     const avatar = createAvatar(bottts, {
-      seed: cleanSeed,
+      seed: seed || 'default',
       size: 100
     });
     const svgStr = avatar.toString();
@@ -20,7 +18,7 @@ export function getFallbackAvatar(seed?: string | null, category?: string): stri
   }
 }
 
-export function resolveAvatarUrl(avatarFallback: string | undefined | null, seed?: string | null, category?: string): string {
+export function resolveAvatarUrl(avatarFallback: string | undefined | null, seed: string, category?: string): string {
   if (
     avatarFallback &&
     typeof avatarFallback === 'string' &&
@@ -35,10 +33,6 @@ export function resolveAvatarUrl(avatarFallback: string | undefined | null, seed
   ) {
     // 强制修复本地 IndexedDB 里残留的老版本带有 charset=utf-8 / base64 声明的 bug 图片
     if (avatarFallback.startsWith('data:image/svg+xml;charset=utf-8,') || avatarFallback.startsWith('data:image/svg+xml;base64,')) {
-      return getFallbackAvatar(seed, category);
-    }
-    // 修复历史下载中因种子为 default 或缺失而导致的单一红色机器人 (#f4511e)
-    if ((avatarFallback.includes('%23f4511e') || avatarFallback.includes('#f4511e') || avatarFallback.includes('seed=default')) && seed && seed !== 'default') {
       return getFallbackAvatar(seed, category);
     }
     return avatarFallback;

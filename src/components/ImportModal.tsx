@@ -1336,7 +1336,7 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
               type="file"
               ref={fileInputRef}
               onChange={(e) => e.target.files && handleFiles(e.target.files)}
-              accept=".png,.jpg,.jpeg,.webp,.gif,.json,.jsonl,.zip,application/json,application/zip,application/x-zip-compressed"
+              accept=".png,.jpg,.jpeg,.webp,.gif,.json,.jsonl,.txt,.js,.zip,application/json,application/zip,application/x-zip-compressed,text/plain"
               className="hidden"
               multiple
             />

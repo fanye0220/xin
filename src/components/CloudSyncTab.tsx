@@ -18,7 +18,7 @@ export function CloudSyncTab() {
   const [isLoadingBackups, setIsLoadingBackups] = useState(false);
   
   const [actionFileId, setActionFileId] = useState<string | null>(null);
-  const [syncInfo, setSyncInfo] = useState<SyncState>({ isActive: false, taskName: '', message: '', isError: false, completed: false, needsReauth: false });
+  const [syncInfo, setSyncInfo] = useState<SyncState>({ isActive: false, taskName: '', message: '', isError: false, completed: false });
 
     const [activeTab, setActiveTab] = useState<'backup' | 'cloud_drive'>('backup');
   const [cloudChars, setCloudChars] = useState<any[]>([]);
@@ -80,14 +80,11 @@ export function CloudSyncTab() {
     try {
         const { jsonData, avatarBlob, studioMeta, avatarHistory } = await downloadCloudCharacter(token, fileId, fileName, (msg) => console.log(msg));
         const existingChars = await getCachedMeta();
-        const rawFileName = (fileName || '').replace(/\.(zip|png|json|webp|jpg|jpeg)$/i, '').trim();
         const extractedName =
-          appProperties?.charName?.trim() ||
-          jsonData?.name?.trim() ||
-          jsonData?.data?.name?.trim() ||
-          charName?.trim() ||
-          rawFileName ||
-          '未命名卡片';
+          appProperties?.charName ||
+          jsonData.name ||
+          jsonData.data?.name ||
+          charName;
         const cloudCharId = appProperties?.charId;
         const existing = cloudCharId
           ? existingChars.find(c => c.id === cloudCharId)
@@ -171,10 +168,7 @@ export function CloudSyncTab() {
             createdAt: createTime,
             folderId,
             avatarHistory: avatarHistory || [],
-            avatarUrlFallback: avatarBlob ? undefined : getFallbackAvatar(
-                (extractedName && extractedName !== '未命名卡片') ? extractedName : (appProperties?.charId || fileId || targetId),
-                cardCategory !== '未归类' ? cardCategory : (mergedMeta as any)?.cardType
-            )
+            avatarUrlFallback: avatarBlob ? undefined : getFallbackAvatar(extractedName, cardCategory !== '未归类' ? cardCategory : (mergedMeta as any)?.cardType)
         };
         
         if (avatarBlob) {
@@ -723,34 +717,29 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                     return (
                       <div key={char.id} className="relative group rounded-xl overflow-hidden bg-white/5 border border-white/10 flex flex-col h-auto">
                         <div className="relative aspect-[3/4] overflow-hidden bg-black/40">
-                        {isChat ? (
-                          <div className="w-full h-full flex flex-col items-center justify-center bg-blue-950/30 text-blue-400 gap-2">
-                            <MessageSquare className="w-10 h-10 text-blue-400/80" />
-                            <span className="text-[10px] text-blue-300/60 font-mono px-2 text-center truncate max-w-full">
-                              {baseCharName || '聊天记录'}
-                            </span>
-                          </div>
-                        ) : char.thumbnailLink ? (
-                          <img 
-                            src={char.thumbnailLink} 
-                            alt={charName} 
-                            className="w-full h-full object-cover group-hover:scale-105 transition duration-500" 
-                            referrerPolicy="no-referrer" 
-                            onError={(e) => {
-                              const fbSeed = char.appProperties?.charName || char.name?.replace(/\.(zip|png|json|webp|jpg|jpeg)$/i, '') || char.id;
-                              const fbCat = char.appProperties?.cardType;
-                              e.currentTarget.src = getFallbackAvatar(fbSeed, fbCat);
-                            }}
-                          />
+                        {char.thumbnailLink ? (
+                          
+                          <>
+                            <img 
+                              src={char.thumbnailLink} 
+                              alt={charName} 
+                              className="w-full h-full object-cover group-hover:scale-105 transition duration-500" 
+                              referrerPolicy="no-referrer" 
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                                const fallback = e.currentTarget.nextElementSibling;
+                                if (fallback) fallback.classList.remove('hidden');
+                              }}
+                            />
+                            <div className="w-full h-full items-center justify-center hidden bg-black/40">
+                              <Cloud className="w-8 h-8 text-white/20" />
+                            </div>
+                          </>
+
                         ) : (
-                          <img 
-                            src={getFallbackAvatar(
-                              char.appProperties?.charName || char.name?.replace(/\.(zip|png|json|webp|jpg|jpeg)$/i, '') || char.id,
-                              char.appProperties?.cardType
-                            )} 
-                            alt={charName} 
-                            className="w-full h-full object-cover group-hover:scale-105 transition duration-500" 
-                          />
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Cloud className="w-8 h-8 text-white/20" />
+                          </div>
                         )}
                         
                         {((char.appProperties?.cardType && char.appProperties.cardType !== 'character') || char.appProperties?.isChat === 'true') && (

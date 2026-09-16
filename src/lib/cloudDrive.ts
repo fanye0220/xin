@@ -2,11 +2,6 @@ import { Capacitor } from '@capacitor/core';
 import { getAuth } from 'firebase/auth';
 import { getCharacter, getFolders, getCachedMeta, getChatsForCharacter, getChatById, isActualCharacterCard } from './db';
 import { uploadBlobToDrive } from './driveUpload';
-// getValidAccessToken 在快过期时会自动静默续期一次；driveApiFetch 在普通请求
-// 拿到 401 时再补一次静默刷新重试。两者都拿不到新 token 时会抛 DriveAuthError，
-// 调用方应该把它当成"需要用户重新登录"而不是普通网络错误来处理。见 drive.ts。
-import { getValidAccessToken, driveApiFetch, DriveAuthError } from './drive';
-export { DriveAuthError };
 
 const CLOUD_FOLDER_NAME = 'AIs_Studio_Cloud_Cards';
 
@@ -18,16 +13,21 @@ export function getCloudFolderId(token: string): Promise<string> {
 
   const promise = (async () => {
     const q = `name='${CLOUD_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-    const response = await driveApiFetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive`);
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
     if (!response.ok) throw new Error("Failed to query folder");
     const data = await response.json();
     if (data.files && data.files.length > 0) {
       return data.files[0].id;
     }
     
-    const createRes = await driveApiFetch('https://www.googleapis.com/drive/v3/files', {
+    const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({
         name: CLOUD_FOLDER_NAME,
         mimeType: 'application/vnd.google-apps.folder'
@@ -62,7 +62,9 @@ async function getOrCreateDriveSubfolder(
 ): Promise<string> {
   const safeName = name.replace(/'/g, "\\'");
   const q = `name='${safeName}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`;
-  const res = await driveApiFetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive&fields=files(id,name)`);
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive&fields=files(id,name)`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
   if (res.ok) {
     const data = await res.json();
     if (data.files && data.files.length > 0) {
@@ -70,9 +72,12 @@ async function getOrCreateDriveSubfolder(
     }
   }
 
-  const createRes = await driveApiFetch('https://www.googleapis.com/drive/v3/files', {
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
     body: JSON.stringify({
       name,
       mimeType: 'application/vnd.google-apps.folder',
@@ -512,31 +517,16 @@ async function upsertCloudFile(
   payload: CloudFilePayload,
   searchQuery: string,
 ): Promise<'uploaded' | 'skipped'> {
-  const searchRes = await driveApiFetch(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(searchQuery)}&spaces=drive&fields=files(id,name,appProperties,parents)`,
+  const searchRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(searchQuery)}&spaces=drive&fields=files(id,name,appProperties)`,
+    { headers: { Authorization: `Bearer ${token}` } },
   );
   if (!searchRes.ok) throw new Error(`云端查询失败: HTTP ${searchRes.status}`);
   const searchData = await searchRes.json();
 
   if (searchData.files && searchData.files.length > 0) {
     const existing = searchData.files[0];
-    const existingParents = Array.isArray(existing.parents) ? existing.parents : [];
-    const shouldMove = existingParents.length !== 1 || existingParents[0] !== folderId;
-
     if (existing.appProperties?.contentHash === payload.contentHash) {
-      if (shouldMove) {
-        const removeParents = existingParents.filter(id => id !== folderId);
-        let moveUrl = `https://www.googleapis.com/drive/v3/files/${existing.id}?addParents=${encodeURIComponent(folderId)}&fields=id,parents`;
-        if (removeParents.length > 0) {
-          moveUrl += `&removeParents=${encodeURIComponent(removeParents.join(','))}`;
-        }
-        await driveApiFetch(moveUrl, {
-          method: 'POST',
-          headers: {
-            'X-HTTP-Method-Override': 'PATCH',
-          },
-        });
-      }
       return 'skipped';
     }
 
@@ -546,18 +536,10 @@ async function upsertCloudFile(
     };
     if (payload.extraMetadata) Object.assign(patchMeta, payload.extraMetadata);
 
-    let patchUrl = `https://www.googleapis.com/drive/v3/files/${existing.id}`;
-    if (shouldMove) {
-      const removeParents = existingParents.filter(id => id !== folderId);
-      patchUrl += `?addParents=${encodeURIComponent(folderId)}`;
-      if (removeParents.length > 0) {
-        patchUrl += `&removeParents=${encodeURIComponent(removeParents.join(','))}`;
-      }
-    }
-
-    await driveApiFetch(patchUrl, {
+    await fetch(`https://www.googleapis.com/drive/v3/files/${existing.id}`, {
       method: 'POST',
       headers: {
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
         'X-HTTP-Method-Override': 'PATCH',
       },
@@ -581,9 +563,12 @@ async function upsertCloudFile(
   };
   if (payload.extraMetadata) Object.assign(metadata, payload.extraMetadata);
 
-  const createRes = await driveApiFetch('https://www.googleapis.com/drive/v3/files', {
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify(metadata),
   });
   if (!createRes.ok) throw new Error('Failed to create file');
@@ -640,9 +625,6 @@ export async function uploadCharacterToCloud(
   charId: string,
   onProgress?: (msg: string) => void,
 ): Promise<'uploaded' | 'skipped'> {
-  // 不信任传进来的 token（可能是很久之前存的 React state），统一换成一个
-  // 确认没过期、必要时已静默续期过的 token，见 drive.ts 里的说明。
-  token = await getValidAccessToken();
   if (onProgress) onProgress("准备云端数据...");
   const char = await getCharacter(charId);
   if (!char) throw new Error("Character not found");
@@ -954,9 +936,10 @@ export async function uploadCharacterToCloud(
   return 'uploaded';
 }
 export async function listCloudCharacters(token: string) {
-  token = await getValidAccessToken();
   const q = `(appProperties has { key='isChar' and value='true' } or appProperties has { key='isChatRecord' and value='true' }) and trashed=false`;
-  const response = await driveApiFetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,thumbnailLink,appProperties,size,createdTime,parents)&pageSize=1000`);
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,thumbnailLink,appProperties,size,createdTime,parents)&pageSize=1000`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
   if (!response.ok) throw new Error("Failed to list cloud characters");
   const data = await response.json();
   const files = data.files || [];
@@ -971,9 +954,10 @@ export async function listCloudCharacters(token: string) {
 
 
 export async function downloadCloudCharacter(token: string, fileId: string, fileName?: string, onProgress?: (msg: string) => void) {
-  token = await getValidAccessToken();
   if (onProgress) onProgress("正在下载云端文件...");
-  const response = await driveApiFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
   if (!response.ok) throw new Error("Download failed");
   
   const blob = await response.blob();
@@ -1241,8 +1225,9 @@ export async function syncLibraryToCloud(token: string, onProgress?: (msg: strin
 }
 
 export async function deleteCloudCharacter(token: string, fileId: string) {
-  const response = await driveApiFetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
     method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
   });
   if (!response.ok) throw new Error("Delete failed");
 }
@@ -1252,7 +1237,6 @@ export async function uploadChatsToCloud(
   chatIds: string[],
   onProgress?: (msg: string) => void
 ): Promise<{ success: number; skipped: number; failed: number }> {
-  token = await getValidAccessToken();
   const { getChatById, getCharacter } = await import('./db');
   let success = 0;
   let skipped = 0;
@@ -1272,15 +1256,13 @@ export async function uploadChatsToCloud(
       const safeChatName = chat.name ? chat.name.replace(/[\\/:*?"<>|]/g, "_") : "Unnamed";
       const formattedDate = new Date(chat.createdAt).toISOString().replace(/[:.]/g, "-");
       const filename = `${safeChatName}_${formattedDate}.jsonl`;
-      const pathParts = ['聊天记录', safeCharName];
-      const folderPath = pathParts.join('/');
+      const folderPath = `Chats/${safeCharName}`;
       
       const jsonlString = chat.messages.map((m: any) => JSON.stringify(m)).join('\n');
       const blob = new Blob([jsonlString], { type: 'application/jsonl' });
       
       const fileHash = await hashBlobLight(blob, 'chat');
-      const rootFolderId = await getCloudFolderId(token);
-      const targetParentId = await resolveDriveFolderPath(token, rootFolderId, pathParts);
+      const folderId = await getCloudFolderId(token);
       
       const payload: CloudFilePayload = {
         blob,
@@ -1296,7 +1278,7 @@ export async function uploadChatsToCloud(
         contentHash: fileHash
       };
       
-      const result = await upsertCloudFile(token, targetParentId, payload, `appProperties has { key='chatId' and value='${chat.id}' } and trashed=false`);
+      const result = await upsertCloudFile(token, folderId, payload, `appProperties has { key='chatId' and value='${chat.id}' } and '${folderId}' in parents and trashed=false`);
       if (result === 'uploaded') success++;
       else skipped++;
     } catch(e) {
