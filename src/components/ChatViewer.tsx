@@ -1,4 +1,4 @@
-import { getFallbackAvatar } from "../lib/avatar";
+import { getFallbackAvatar, resolveAvatarUrl } from "../lib/avatar";
 import React, {
   useState,
   useRef,

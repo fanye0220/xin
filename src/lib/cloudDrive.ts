@@ -513,14 +513,30 @@ async function upsertCloudFile(
   searchQuery: string,
 ): Promise<'uploaded' | 'skipped'> {
   const searchRes = await driveApiFetch(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(searchQuery)}&spaces=drive&fields=files(id,name,appProperties)`,
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(searchQuery)}&spaces=drive&fields=files(id,name,appProperties,parents)`,
   );
   if (!searchRes.ok) throw new Error(`云端查询失败: HTTP ${searchRes.status}`);
   const searchData = await searchRes.json();
 
   if (searchData.files && searchData.files.length > 0) {
     const existing = searchData.files[0];
+    const existingParents = Array.isArray(existing.parents) ? existing.parents : [];
+    const shouldMove = existingParents.length !== 1 || existingParents[0] !== folderId;
+
     if (existing.appProperties?.contentHash === payload.contentHash) {
+      if (shouldMove) {
+        const removeParents = existingParents.filter(id => id !== folderId);
+        let moveUrl = `https://www.googleapis.com/drive/v3/files/${existing.id}?addParents=${encodeURIComponent(folderId)}&fields=id,parents`;
+        if (removeParents.length > 0) {
+          moveUrl += `&removeParents=${encodeURIComponent(removeParents.join(','))}`;
+        }
+        await driveApiFetch(moveUrl, {
+          method: 'POST',
+          headers: {
+            'X-HTTP-Method-Override': 'PATCH',
+          },
+        });
+      }
       return 'skipped';
     }
 
@@ -530,7 +546,16 @@ async function upsertCloudFile(
     };
     if (payload.extraMetadata) Object.assign(patchMeta, payload.extraMetadata);
 
-    await driveApiFetch(`https://www.googleapis.com/drive/v3/files/${existing.id}`, {
+    let patchUrl = `https://www.googleapis.com/drive/v3/files/${existing.id}`;
+    if (shouldMove) {
+      const removeParents = existingParents.filter(id => id !== folderId);
+      patchUrl += `?addParents=${encodeURIComponent(folderId)}`;
+      if (removeParents.length > 0) {
+        patchUrl += `&removeParents=${encodeURIComponent(removeParents.join(','))}`;
+      }
+    }
+
+    await driveApiFetch(patchUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1247,13 +1272,15 @@ export async function uploadChatsToCloud(
       const safeChatName = chat.name ? chat.name.replace(/[\\/:*?"<>|]/g, "_") : "Unnamed";
       const formattedDate = new Date(chat.createdAt).toISOString().replace(/[:.]/g, "-");
       const filename = `${safeChatName}_${formattedDate}.jsonl`;
-      const folderPath = `Chats/${safeCharName}`;
+      const pathParts = ['聊天记录', safeCharName];
+      const folderPath = pathParts.join('/');
       
       const jsonlString = chat.messages.map((m: any) => JSON.stringify(m)).join('\n');
       const blob = new Blob([jsonlString], { type: 'application/jsonl' });
       
       const fileHash = await hashBlobLight(blob, 'chat');
-      const folderId = await getCloudFolderId(token);
+      const rootFolderId = await getCloudFolderId(token);
+      const targetParentId = await resolveDriveFolderPath(token, rootFolderId, pathParts);
       
       const payload: CloudFilePayload = {
         blob,
@@ -1269,7 +1296,7 @@ export async function uploadChatsToCloud(
         contentHash: fileHash
       };
       
-      const result = await upsertCloudFile(token, folderId, payload, `appProperties has { key='chatId' and value='${chat.id}' } and '${folderId}' in parents and trashed=false`);
+      const result = await upsertCloudFile(token, targetParentId, payload, `appProperties has { key='chatId' and value='${chat.id}' } and trashed=false`);
       if (result === 'uploaded') success++;
       else skipped++;
     } catch(e) {
