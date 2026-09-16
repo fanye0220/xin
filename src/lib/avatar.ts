@@ -10,18 +10,11 @@ export function getFallbackAvatar(seed: string, category?: string): string {
       size: 100
     });
     const svgStr = avatar.toString();
-    try {
-      const encoded = encodeURIComponent(svgStr).replace(/%([0-9A-F]{2})/g,
-          (match, p1) => String.fromCharCode(parseInt(p1, 16))
-      );
-      const base64 = typeof window !== 'undefined' ? window.btoa(encoded) : (typeof Buffer !== 'undefined' ? Buffer.from(svgStr).toString('base64') : btoa(encoded));
-      return `data:image/svg+xml;base64,${base64}`;
-    } catch {
-      return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgStr)}`;
-    }
+    // Use standard URL encoding for SVG data URI, which has the widest compatibility across mobile WebViews
+    return `data:image/svg+xml,${encodeURIComponent(svgStr)}`;
   } catch {
     const fallbackRobot = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="g-rb" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#4f46e5"/></linearGradient></defs><rect width="100" height="100" rx="24" fill="url(#g-rb)"/><rect x="28" y="32" width="44" height="36" rx="10" fill="#ffffff"/><circle cx="40" cy="48" r="5" fill="#4f46e5"/><circle cx="60" cy="48" r="5" fill="#4f46e5"/><rect x="42" y="58" width="16" height="4" rx="2" fill="#4f46e5"/><rect x="47" y="22" width="6" height="10" rx="3" fill="#ffffff"/><circle cx="50" cy="20" r="4" fill="#ffffff"/></svg>';
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(fallbackRobot)}`;
+    return `data:image/svg+xml,${encodeURIComponent(fallbackRobot)}`;
   }
 }
 
@@ -33,11 +26,15 @@ export function resolveAvatarUrl(avatarFallback: string | undefined | null, seed
     avatarFallback !== 'undefined' &&
     avatarFallback !== 'null' &&
     !avatarFallback.includes('api.dicebear.com') &&
-    (avatarFallback.startsWith('data:image/') ||
-     avatarFallback.startsWith('http://') ||
-     avatarFallback.startsWith('https://') ||
+    (avatarFallback.startsWith('data:image/') || 
+     avatarFallback.startsWith('http://') || 
+     avatarFallback.startsWith('https://') || 
      avatarFallback.startsWith('blob:'))
   ) {
+    // 强制修复本地 IndexedDB 里残留的老版本带有 charset=utf-8 / base64 声明的 bug 图片
+    if (avatarFallback.startsWith('data:image/svg+xml;charset=utf-8,') || avatarFallback.startsWith('data:image/svg+xml;base64,')) {
+      return getFallbackAvatar(seed, category);
+    }
     return avatarFallback;
   }
   return getFallbackAvatar(seed, category);

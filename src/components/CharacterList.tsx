@@ -123,12 +123,10 @@ function FolderCover({
                 src={previews[i]}
                 alt=""
                 className="w-full h-full object-cover pointer-events-none"
-                onError={(e) => { 
-                   if (!e.currentTarget.src.startsWith('data:image/svg+xml')) {
-                       import('../lib/avatar').then(({ getFallbackAvatar }) => {
-                           e.currentTarget.src = getFallbackAvatar(folder.id + i);
-                           e.currentTarget.style.display = 'block';
-                       });
+                onError={(e) => {
+                    if (!e.currentTarget.src.startsWith('data:image/svg+xml')) {
+                       e.currentTarget.src = getFallbackAvatar(folder.id + i);
+                       e.currentTarget.style.display = 'block';
                    } else {
                        e.currentTarget.style.display = 'none';
                    }
@@ -2924,11 +2922,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   viewMode: "grid" | "list" | "masonry";
 }) {
   const defaultFallback = getFallbackAvatar(char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
-  const initialUrl =
-    char.avatarUrlFallback &&
-    !char.avatarUrlFallback.includes("api.dicebear.com")
-      ? char.avatarUrlFallback
-      : defaultFallback;
+  const initialUrl = resolveAvatarUrl(char.avatarUrlFallback, char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
   const [url, setUrl] = useState<string>(initialUrl);
   // 追踪 onError 兜底逻辑里额外创建的 blob URL, 保证换掉/卸载时释放,
   // 否则长列表滚动 + 图片偶发加载失败会不断泄漏内存(可能是持续发热的一个来源)。

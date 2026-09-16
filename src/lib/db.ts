@@ -628,7 +628,11 @@ export async function getFolderPreviews(
           }
 
           let fallbackUrlStr = meta.avatarUrlFallback;
-          if (fallbackUrlStr && fallbackUrlStr.includes("api.dicebear.com")) {
+          if (fallbackUrlStr && (
+              fallbackUrlStr.includes("api.dicebear.com") || 
+              fallbackUrlStr.startsWith('data:image/svg+xml;charset=utf-8,') || 
+              fallbackUrlStr.startsWith('data:image/svg+xml;base64,')
+          )) {
             fallbackUrlStr = undefined;
           }
           return fallbackUrlStr || getFallbackAvatar(meta.name || meta.id);

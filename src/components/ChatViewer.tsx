@@ -510,10 +510,7 @@ export function ChatViewer({
           if (cached) {
             urls[char.id] = cached;
           } else {
-            urls[char.id] = char.avatarUrlFallback &&
-                !char.avatarUrlFallback.includes("api.dicebear.com")
-              ? char.avatarUrlFallback
-              : getFallbackAvatar(char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
+            urls[char.id] = resolveAvatarUrl(char.avatarUrlFallback, char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
             pendingThumbFetches.push(
               getCharacterThumb(char.id).then((thumbBlob: Blob | null) => {
                 if (thumbBlob && active) {
@@ -524,10 +521,7 @@ export function ChatViewer({
             );
           }
         } else {
-          urls[char.id] = char.avatarUrlFallback &&
-              !char.avatarUrlFallback.includes("api.dicebear.com")
-            ? char.avatarUrlFallback
-            : getFallbackAvatar(char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
+          urls[char.id] = resolveAvatarUrl(char.avatarUrlFallback, char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
         }
       });
       if (active) setAvatarUrls(urls);

@@ -1,4 +1,4 @@
-import { getFallbackAvatar } from '../lib/avatar';
+import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
 import { getLocalImageUrl } from '../lib/appBridge';
 import { useState, useRef, useEffect } from 'react';
 import { ArrowLeft, Sparkles, Loader2, AlertCircle, Play, Terminal, Dices } from 'lucide-react';
@@ -12,9 +12,7 @@ import { useObjectUrl, useManagedObjectUrl } from '../lib/useObjectUrl';
 // 都会创建新 URL 却从不释放,是最容易被忽略的一种泄漏)。
 function RecommendResultAvatar({ char, name }: { char: CharacterCard; name: string }) {
   const objectUrl = useObjectUrl(char.avatarBlob);
-  const fallback = char.avatarUrlFallback && !char.avatarUrlFallback.includes('api.dicebear.com')
-    ? char.avatarUrlFallback
-    : getFallbackAvatar(char.name || char.id);
+  const fallback = resolveAvatarUrl(char.avatarUrlFallback, char.name || char.id);
   const staticUrl = !char.avatarBlob && char.localFilePath
     ? getLocalImageUrl(char.localFilePath, char.updatedAt || char.createdAt)
     : fallback;
