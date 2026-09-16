@@ -723,7 +723,14 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                     return (
                       <div key={char.id} className="relative group rounded-xl overflow-hidden bg-white/5 border border-white/10 flex flex-col h-auto">
                         <div className="relative aspect-[3/4] overflow-hidden bg-black/40">
-                        {char.thumbnailLink ? (
+                        {isChat ? (
+                          <div className="w-full h-full flex flex-col items-center justify-center bg-blue-950/30 text-blue-400 gap-2">
+                            <MessageSquare className="w-10 h-10 text-blue-400/80" />
+                            <span className="text-[10px] text-blue-300/60 font-mono px-2 text-center truncate max-w-full">
+                              {baseCharName || '聊天记录'}
+                            </span>
+                          </div>
+                        ) : char.thumbnailLink ? (
                           <img 
                             src={char.thumbnailLink} 
                             alt={charName} 
