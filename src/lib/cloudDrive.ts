@@ -585,12 +585,18 @@ async function upsertCloudFile(
 
 async function hashBlobLight(blob: Blob, extra: string = ''): Promise<string> {
   const file = blob as any;
+  const size = blob.size;
+  // Read a small chunk from the middle to ensure uniqueness without reading the whole file
+  const chunk = blob.slice(Math.floor(size / 2), Math.floor(size / 2) + 10240);
+  const buffer = await chunk.arrayBuffer();
+  const chunkHex = Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join('');
   const info = [
     blob.size,
     blob.type,
     file?.name || '',
     file?.lastModified || 0,
     extra,
+    chunkHex
   ].join('|');
   return hashString(info);
 }
@@ -612,126 +618,7 @@ function guessMimeFromExt(ext: string): string {
   return 'image/png';
 }
 
-async function uploadCharacterWithSeparateFiles(
-  token: string,
-  folderId: string,
-  char: any,
-  safeName: string,
-  sourceUrl: string,
-  charType: string,
-  folderPath: string,
-  thumbB64: string | null,
-  onProgress?: (msg: string) => void,
-): Promise<'uploaded' | 'skipped'> {
-  const baseFolderPath = folderPath ? `${folderPath}/${safeName}` : `角色卡/${safeName}`;
-  const mainHash = await hashString(`${JSON.stringify(char.data || {})}|${sourceUrl}`);
-  const mainPayload: CloudFilePayload = {
-    blob: new Blob([JSON.stringify(char.data ?? {}, null, 2)], { type: 'application/json' }),
-    fileName: `${safeName}_${char.id}.json`,
-    mimeType: 'application/json',
-    appProperties: {
-      isChar: 'true',
-      charId: char.id,
-      charName: char.name || '',
-      cardType: charType,
-      folderPath: baseFolderPath,
-      sourceUrl,
-      hasBundle: 'true',
-      createdAt: char.createdAt.toString(),
-      contentHash: mainHash,
-    },
-    contentHash: mainHash,
-  };
 
-  if (thumbB64) {
-    mainPayload.extraMetadata = {
-      contentHints: {
-        thumbnail: {
-          image: thumbB64,
-          mimeType: 'image/jpeg',
-        },
-      },
-    };
-  }
-
-  let uploadedSomething = false;
-  const mainResult = await upsertCloudFile(
-    token,
-    folderId,
-    mainPayload,
-    `appProperties has { key='charId' and value='${char.id}' } and '${folderId}' in parents and trashed=false`,
-  );
-  if (mainResult === 'uploaded') uploadedSomething = true;
-
-  const sideFiles: CloudFilePayload[] = [];
-  if (char.avatarBlob) {
-    const ext = getAvatarExtension(char.avatarBlob);
-    const fileHash = await hashBlobLight(char.avatarBlob, 'avatar');
-    sideFiles.push({
-      blob: char.avatarBlob,
-      fileName: `avatar.${ext}`,
-      mimeType: char.avatarBlob.type || guessMimeFromExt(ext),
-      appProperties: {
-        isChar: 'true',
-        charId: char.id,
-        relatedCharId: char.id,
-        fileKind: 'avatar_0',
-        charName: char.name || '',
-        folderPath: baseFolderPath,
-        sourceUrl,
-        createdAt: char.createdAt.toString(),
-        contentHash: fileHash,
-      },
-      contentHash: fileHash,
-    });
-  }
-
-  const extraAvatars = (char.avatarHistory || []).filter((b: any) => !b ? false : (!char.avatarBlob || !(b.size === char.avatarBlob.size && b.type === char.avatarBlob.type)));
-  const hasExtraAvatars = extraAvatars.length > 0;
-  const chats = await getChatsForCharacter(char.id);
-
-  if (hasExtraAvatars) {
-    for (let i = 0; i < extraAvatars.length; i++) {
-      const ab = extraAvatars[i];
-      const ext = getAvatarExtension(ab);
-      const rawName = (ab as any)?.name || '';
-      const baseName = getSafeFilename(rawName || `替换头像_${i + 1}`);
-      const fileName = baseName.includes('.') ? baseName : `${baseName}.${ext}`;
-      const fileHash = await hashBlobLight(ab, `history_${i}`);
-      sideFiles.push({
-        blob: ab,
-        fileName,
-        mimeType: ab.type || guessMimeFromExt(ext),
-        appProperties: {
-          isChar: 'true',
-          charId: char.id,
-          relatedCharId: char.id,
-          fileKind: `avatar_history_${i}`,
-          charName: char.name || '',
-          folderPath: `${baseFolderPath}/替换头像`,
-          sourceUrl,
-          createdAt: char.createdAt.toString(),
-          contentHash: fileHash,
-        },
-        contentHash: fileHash,
-      });
-    }
-  }
-
-  for (let i = 0; i < sideFiles.length; i++) {
-    const side = sideFiles[i];
-    if (onProgress) onProgress(`上传头像文件... (${i + 1}/${sideFiles.length})`);
-    const result = await upsertCloudFile(
-      token,
-      folderId,
-      side,
-      `appProperties has { key='relatedCharId' and value='${char.id}' } and appProperties has { key='fileKind' and value='${side.appProperties.fileKind}' } and '${folderId}' in parents and trashed=false`,
-    );
-    if (result === 'uploaded') uploadedSomething = true;
-  }
-
-  return uploadedSomething ? 'uploaded' : 'skipped';
-}
 
 export async function uploadCharacterToCloud(
   token: string,
@@ -1008,11 +895,21 @@ export async function uploadCharacterToCloud(
              if (onProgress) onProgress("云端已有相同内容的卡片，跳过");
              return 'skipped';
           }
-          finalCharName = `${finalCharName}_${exactMatches.length}`;
+          let maxSuffix = 0;
+          const escapedName = finalCharName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(`^${escapedName}_(\\d+)$`);
+          for (const f of exactMatches) {
+              const cName = f.appProperties?.charName || '';
+              const match = cName.match(regex);
+              if (match) {
+                  const num = parseInt(match[1], 10);
+                  if (num > maxSuffix) maxSuffix = num;
+              }
+          }
+          finalCharName = `${finalCharName}_${maxSuffix + 1}`;
           metadata.appProperties.charName = finalCharName;
        }
     }
-
     if (onProgress) onProgress("创建云端文件...");
     metadata.parents = [targetParentId];
     const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
@@ -1153,10 +1050,13 @@ export async function downloadCloudCharacter(token: string, fileId: string, file
      // sort history to maintain 1, 2, 3... order
      zipAvatarHistory.sort((a: any, b: any) => {
          const getNum = (name: string) => {
-             const m = name.match(/_(\d+)\./);
-             return m ? parseInt(m[1]) : 0;
+             const m = name.match(/_?(\d+)\.?/);
+             return m ? parseInt(m[1]) : null;
          };
-         return getNum(a._filename) - getNum(b._filename);
+         const numA = getNum(a._filename);
+         const numB = getNum(b._filename);
+         if (numA !== null && numB !== null) return numA - numB;
+         return String(a._filename).localeCompare(String(b._filename));
      });
      
      return { jsonData: zipJson, avatarBlob: zipAvatar, studioMeta: zipMeta, avatarHistory: zipAvatarHistory };
@@ -1289,7 +1189,7 @@ export async function syncLibraryToCloud(token: string, onProgress?: (msg: strin
   let completedCount = 0;
 
   const isAndroid = Capacitor.isNativePlatform();
-  const CONCURRENCY = isAndroid ? 3 : 5;
+  const CONCURRENCY = isAndroid ? 1 : 3;
   let currentIndex = 0;
 
   const uploadWorker = async () => {

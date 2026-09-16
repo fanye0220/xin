@@ -123,7 +123,16 @@ function FolderCover({
                 src={previews[i]}
                 alt=""
                 className="w-full h-full object-cover pointer-events-none"
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                onError={(e) => { 
+                   if (!e.currentTarget.src.startsWith('data:image/svg+xml')) {
+                       import('../lib/avatar').then(({ getFallbackAvatar }) => {
+                           e.currentTarget.src = getFallbackAvatar(folder.id + i);
+                           e.currentTarget.style.display = 'block';
+                       });
+                   } else {
+                       e.currentTarget.style.display = 'none';
+                   }
+                }}
               />
             )}
           </div>
