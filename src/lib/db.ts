@@ -551,7 +551,8 @@ export async function migrateDatabase(
 
 export async function getFolders(): Promise<Folder[]> {
   const db = await initDB();
-  const folders = await db.getAllFromIndex("folders", "by-date");
+  const rawFolders = await db.getAllFromIndex("folders", "by-date");
+  const folders = rawFolders.filter(f => !f.deletedAt);
   return folders.sort((a, b) => {
     if (a.sortOrder !== undefined && b.sortOrder !== undefined) {
       return a.sortOrder - b.sortOrder;
@@ -790,7 +791,11 @@ export async function deleteFolder(
   const charMetaStore2 = tx2.objectStore("char_meta");
 
   for (const folderId of folderIdsToDelete) {
-    await folderStore2.delete(folderId);
+    const f = allFolders.find((x) => x.id === folderId);
+    if (f) {
+      f.deletedAt = Date.now();
+      await folderStore2.put(f);
+    }
   }
 
   for (const char of charsToMove) {
@@ -899,6 +904,7 @@ export async function cleanupEmptyFolders(): Promise<void> {
   const foldersToDelete = new Set<string>();
 
   for (const f of allFolders) {
+    if (f.deletedAt) continue;
     if (f.name === "回收站") {
       foldersToDelete.add(f.id);
     }
@@ -2024,6 +2030,17 @@ export async function emptyTrash(): Promise<void> {
   // 只调一次原生批量接口、数据库一个事务删完), 不再自己另起一套
   // "一个个删、每个之间还睡50ms"的循环。
   await deleteCharactersBulk(toDelete);
+
+  const tx2 = db.transaction("folders", "readwrite");
+  const fStore = tx2.store;
+  let fCursor = await fStore.openCursor();
+  while (fCursor) {
+    if (fCursor.value.deletedAt) {
+      await fCursor.delete();
+    }
+    fCursor = await fCursor.continue();
+  }
+  await tx2.done;
 }
 
 export async function cleanupOldTrash(): Promise<void> {
