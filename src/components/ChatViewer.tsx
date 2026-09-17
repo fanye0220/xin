@@ -2243,8 +2243,16 @@ export function ChatViewer({
             exit={{ y: 100, opacity: 0, x: "-50%" }}
             className="fixed bottom-8 left-1/2 z-[60] max-w-[95vw] sm:max-w-[80vw] bg-slate-800/80 backdrop-blur-2xl border border-white/10 rounded-full shadow-2xl overflow-hidden"
           >
-            <div className="overflow-x-auto hide-scrollbar w-full">
-              <div className="flex items-center gap-1 sm:gap-2 p-3 min-w-max">
+            <div
+              className="flex items-center p-1 overflow-x-auto"
+              style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+            >
+              <style>{`
+                .no-scrollbar::-webkit-scrollbar {
+                  display: none;
+                }
+              `}</style>
+              <div className="flex items-center gap-2 no-scrollbar px-1 min-w-max">
             
             <button
               onClick={() => handleBatchExport(false)}

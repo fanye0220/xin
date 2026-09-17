@@ -60,33 +60,47 @@ async function getOrCreateDriveSubfolder(
   parentId: string,
   name: string,
 ): Promise<string> {
-  const safeName = name.replace(/'/g, "\\'");
-  const q = `name='${safeName}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`;
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive&fields=files(id,name)`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  if (res.ok) {
-    const data = await res.json();
-    if (data.files && data.files.length > 0) {
-      return data.files[0].id;
-    }
-  }
+  const cacheKey = `${parentId}/${name}`;
+  const cached = driveSubfolderCache.get(cacheKey);
+  if (cached) return cached;
 
-  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      name,
-      mimeType: 'application/vnd.google-apps.folder',
-      parents: [parentId]
-    })
-  });
-  if (!createRes.ok) throw new Error("创建云端子文件夹失败");
-  const createData = await createRes.json();
-  return createData.id;
+  const promise = (async () => {
+    const safeName = name.replace(/'/g, "\\'");
+    const q = `name='${safeName}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`;
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive&fields=files(id,name)`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.files && data.files.length > 0) {
+        return data.files[0].id;
+      }
+    }
+
+    const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        name,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [parentId]
+      })
+    });
+    if (!createRes.ok) throw new Error("创建云端子文件夹失败");
+    const createData = await createRes.json();
+    return createData.id;
+  })();
+
+  driveSubfolderCache.set(cacheKey, promise);
+  try {
+    return await promise;
+  } catch(e) {
+    driveSubfolderCache.delete(cacheKey);
+    throw e;
+  }
 }
 
 async function resolveDriveFolderPath(
@@ -95,25 +109,11 @@ async function resolveDriveFolderPath(
   pathParts: string[],
 ): Promise<string> {
   if (pathParts.length === 0) return rootFolderId;
-  const cacheKey = pathParts.join('/');
-  const cached = driveSubfolderCache.get(cacheKey);
-  if (cached) return cached;
-
-  const promise = (async () => {
-    let currentParent = rootFolderId;
-    for (const part of pathParts) {
-      currentParent = await getOrCreateDriveSubfolder(token, currentParent, part);
-    }
-    return currentParent;
-  })();
-
-  driveSubfolderCache.set(cacheKey, promise);
-  try {
-    return await promise;
-  } catch (e) {
-    driveSubfolderCache.delete(cacheKey); // 失败了不要缓存, 下次还能重试
-    throw e;
+  let currentParent = rootFolderId;
+  for (const part of pathParts) {
+    currentParent = await getOrCreateDriveSubfolder(token, currentParent, part);
   }
+  return currentParent;
 }
 
 import JSZip from 'jszip';
