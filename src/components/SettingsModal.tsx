@@ -154,7 +154,7 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
             </button>
           </div>
           
-          <div className="p-3 sm:p-6 space-y-4 sm:space-y-6 overflow-y-auto">
+          <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-6 overflow-y-auto">
             {activeTab === 'api' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
                 
