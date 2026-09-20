@@ -121,7 +121,7 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
           initial={{ scale: 0.95, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.95, opacity: 0 }}
-          className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+          className={`bg-slate-900 border border-white/10 rounded-2xl w-full ${activeTab === 'cloud' ? 'max-w-4xl' : 'max-w-md'} overflow-hidden shadow-2xl flex flex-col max-h-[90vh] transition-all duration-200`}
         >
           <div className="flex items-center justify-between p-4 border-b border-white/10 bg-white/5 shrink-0">
             <h2 className="text-lg font-semibold text-white flex items-center gap-2">

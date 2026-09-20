@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import { X, Upload, Check, Trash2, Download, Share2 } from 'lucide-react';
 import { CharacterCard, saveCharacter, resolveFolderPath } from '../lib/db';
-import { isAndroid, getLocalImageUrl } from '../lib/appBridge';
+import { isAndroid, getLocalImageUrl, getDownloadTooltip } from '../lib/appBridge';
 
 interface Props {
   isOpen: boolean;
@@ -321,37 +321,15 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
     else if (isLocalFile && character.localFilePath?.endsWith('.webp')) ext = 'webp';
 
     const exportName = `${character.name || 'avatar'}_image.${ext}`;
+    const mime = blobToExport ? blobToExport.type : (ext === 'jpg' ? 'image/jpeg' : `image/${ext}`);
+    const buffer = blobToExport ? await blobToExport.arrayBuffer() : fallbackBuffer;
+    if (!buffer) return;
 
-    if (isAndroid()) {
-        try {
-            const { shareFileOnAndroid, exportFileToMIU } = await import('../lib/appBridge');
-            const buffer = blobToExport ? await blobToExport.arrayBuffer() : fallbackBuffer;
-            if (!buffer) return;
-            if (share) {
-                await shareFileOnAndroid(exportName, buffer, blobToExport ? blobToExport.type : 'image/png');
-            } else {
-                const savedPath = await exportFileToMIU(exportName, buffer, blobToExport ? blobToExport.type : 'image/png', true);
-                if (savedPath) {
-                    alert(`导出图片成功！\n文件已存至：${savedPath.split('Download/')[1] || savedPath}`);
-                }
-            }
-        } catch(e) {
-            alert('导出图片失败');
-        }
-        return;
-    }
-
-    if (!blobToExport && fallbackBuffer) {
-        blobToExport = new Blob([fallbackBuffer], { type: `image/${ext==='jpg'?'jpeg':ext}` });
-    }
-
-    if (blobToExport) {
-      const url = URL.createObjectURL(blobToExport);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = exportName;
-      a.click();
-      URL.revokeObjectURL(url);
+    try {
+        const { downloadOrShareFile } = await import('../lib/appBridge');
+        await downloadOrShareFile(exportName, buffer, mime, share);
+    } catch(e) {
+        alert('导出图片失败');
     }
   };
 
@@ -377,7 +355,7 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
           <button 
             onClick={() => handleExportAvatar(true)}
             className="p-2 rounded-full bg-black/40 text-white hover:bg-white/20 transition"
-            title={typeof window !== 'undefined' && !!(window as any).Android ? "导出到MIU目录" : "导出图片"}
+            title={getDownloadTooltip("下载图片")}
           >
             <Download className="w-6 h-6" />
           </button>

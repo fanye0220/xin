@@ -49,7 +49,7 @@ import {
   getCharacter,
   resolveFolderPath,
 } from "../lib/db";
-import { isAndroid, saveToGallery } from "../lib/appBridge";
+import { isAndroid, saveToGallery, getDownloadTooltip } from "../lib/appBridge";
 
 interface ChatMessage {
   name: string;
@@ -467,9 +467,6 @@ export function ChatViewer({
 
   useEffect(() => {
     loadData();
-    const handleUpdate = () => loadData();
-    window.addEventListener("chatsUpdated", handleUpdate);
-    return () => window.removeEventListener("chatsUpdated", handleUpdate);
   }, []);
 
   useEffect(() => {
@@ -572,7 +569,7 @@ export function ChatViewer({
             if (zipEntry.dir) continue;
 
             const lowerName = zipEntry.name.toLowerCase();
-            if (lowerName.endsWith(".json") || lowerName.endsWith(".jsonl") || lowerName.endsWith(".txt")) {
+            if (lowerName.endsWith(".json") || lowerName.endsWith(".jsonl")) {
               filesToProcess.push(zipEntry);
             }
           }
@@ -611,13 +608,15 @@ export function ChatViewer({
               let parsedMessages: any[] = [];
 
               if (lowerName.endsWith(".jsonl")) {
-                const { parseJsonlChat } = await import("../lib/chatParse");
-                parsedMessages = parseJsonlChat(text);
-              } else if (lowerName.endsWith(".txt")) {
-                const { parseTextChatLog } = await import("../lib/chatParse");
-                const entryChatName = (zipEntry.name.split("/").pop() || zipEntry.name).replace(/\.[^/.]+$/, "");
-                const parsed = parseTextChatLog(text, entryChatName);
-                parsedMessages = parsed.messages;
+                const lines = text.trim().split("\n");
+                for (let k = 0; k < lines.length; k++) {
+                  try {
+                    const parsed = JSON.parse(lines[k]);
+                    if (parsed) parsedMessages.push(parsed);
+                  } catch (e) {}
+                  if (k % 500 === 0)
+                    await new Promise((r) => setTimeout(r, 0));
+                }
               } else {
                 try {
                   const data = JSON.parse(text);
@@ -713,13 +712,14 @@ export function ChatViewer({
           let parsedMessages: any[] = [];
 
           if (file.name.toLowerCase().endsWith(".jsonl")) {
-            const { parseJsonlChat } = await import("../lib/chatParse");
-            parsedMessages = parseJsonlChat(text);
-          } else if (file.name.toLowerCase().endsWith(".txt")) {
-            const { parseTextChatLog } = await import("../lib/chatParse");
-            const fileChatName = file.name.replace(/\.[^/.]+$/, "");
-            const parsed = parseTextChatLog(text, fileChatName);
-            parsedMessages = parsed.messages;
+            const lines = text.trim().split("\n");
+            for (let k = 0; k < lines.length; k++) {
+              try {
+                const parsed = JSON.parse(lines[k]);
+                if (parsed) parsedMessages.push(parsed);
+              } catch (e) {}
+              if (k % 500 === 0) await new Promise((r) => setTimeout(r, 0));
+            }
           } else {
             try {
               const data = JSON.parse(text);
@@ -1036,24 +1036,9 @@ export function ChatViewer({
         let safeChatName = fullChat.name.replace(/[/\\?%*:|"<>]/g, "-");
         if (!safeChatName.endsWith(".jsonl")) safeChatName += ".jsonl";
 
-        if (isAndroid()) {
-          const { exportFileToMIU } = await import("../lib/appBridge");
-          const bytes = new TextEncoder().encode(jsonlString);
-          const savedPath = await exportFileToMIU(safeChatName, bytes.buffer, "application/jsonl", share);
-          if (savedPath) {
-            alert(`导出聊天记录成功！\n文件已存至：${savedPath.split("Download/")[1] || savedPath}${share ? "\n已为你拉起系统分享面板与MT管理器定位！" : ""}`);
-          }
-        } else {
-          const blob = new Blob([jsonlString], { type: "application/jsonl" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = safeChatName;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        }
+        const { downloadOrShareFile } = await import("../lib/appBridge");
+        const bytes = new TextEncoder().encode(jsonlString);
+        await downloadOrShareFile(safeChatName, bytes.buffer, "application/jsonl", share);
         setIsBatchMode(false);
         setShowDuplicatesOnly(false);
         setSelectedChatIds(new Set());
@@ -1104,23 +1089,8 @@ export function ChatViewer({
     const content = await zip.generateAsync({ type: "blob" });
     const zipName = `chats_export_${new Date().toISOString().replace(/[:.]/g, "-")}.zip`;
 
-    if (isAndroid()) {
-      const buffer = await content.arrayBuffer();
-      const { exportFileToMIU } = await import("../lib/appBridge");
-      const savedPath = await exportFileToMIU(zipName, buffer, "application/zip", share);
-      if (savedPath) {
-        alert(`批量导出聊天记录成功！\n文件已存至：${savedPath.split("Download/")[1] || savedPath}${share ? "\n已为你拉起系统分享面板与MT管理器定位！" : ""}`);
-      }
-    } else {
-      const url = URL.createObjectURL(content);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = zipName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
+    const { downloadOrShareFile } = await import("../lib/appBridge");
+    await downloadOrShareFile(zipName, content, "application/zip", share);
 
     setIsBatchMode(false);
     setShowDuplicatesOnly(false);
@@ -1514,7 +1484,7 @@ export function ChatViewer({
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept=".json,.jsonl,.txt,.zip"
+                  accept=".json,.jsonl,.zip"
                   className="hidden"
                   onChange={(e) => {
                     if (e.target.files?.length) {
@@ -2250,6 +2220,7 @@ export function ChatViewer({
               onClick={() => handleBatchExport(true)}
               disabled={selectedChatIds.size === 0}
               className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-white/10 text-white/70 hover:text-green-400 transition disabled:opacity-50 group shrink-0"
+              title={getDownloadTooltip("导出聊天记录")}
             >
               <div className="p-2 rounded-full bg-white/5 group-hover:bg-green-400/20 transition">
                 <Download className="w-5 h-5" />

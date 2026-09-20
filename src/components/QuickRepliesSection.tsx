@@ -4,6 +4,7 @@ import { Upload, FileJson, QrCode, Trash2, Download, Library, Share2 } from 'luc
 import { CharacterCard, saveCharacter, saveCharacters, getOrCreateNestedFolder, resolveFolderPath } from '../lib/db';
 import { SelectQRModal } from './SelectQRModal';
 import { ExportQRModal } from './ExportQRModal';
+import { getDownloadTooltip } from '../lib/appBridge';
 
 interface Props {
   character: CharacterCard;
@@ -208,7 +209,7 @@ export function QuickRepliesSection({ character, onUpdate }: Props) {
     }
   };
 
-  const exportSets = async (setsToExport: QRSet[], share = false) => {
+  const exportSets = async (setsToExport: QRSet[], share = true) => {
     if (setsToExport.length === 0) return;
 
     if (setsToExport.length === 1) {
@@ -228,33 +229,14 @@ export function QuickRepliesSection({ character, onUpdate }: Props) {
         };
       }
 
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
       let filename = set.sourceName || `${character.name}_qr.json`;
       if (!filename.endsWith('.json')) {
         filename += '.json';
       }
-      if (typeof window !== 'undefined' && !!(window as any).Android) {
-          import('../lib/appBridge').then(async ({ shareFileOnAndroid, exportFileToMIU }) => {
-              const buffer = blob.arrayBuffer ? await blob.arrayBuffer() : await new Response(blob).arrayBuffer();
-              if (share) {
-                  await shareFileOnAndroid(filename, buffer, 'application/json');
-              } else {
-                  const savedPath = await exportFileToMIU(filename, buffer, 'application/json', true);
-                  if (savedPath) {
-                      alert(`导出成功！\n文件已存至：${savedPath.split('Download/')[1] || savedPath}`);
-                  }
-              }
-          });
-      } else {
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = filename;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-      }
+
+      const { downloadOrShareFile } = await import('../lib/appBridge');
+      const bytes = new TextEncoder().encode(JSON.stringify(exportData, null, 2));
+      await downloadOrShareFile(filename, bytes.buffer, 'application/json', share);
     } else {
       const { default: JSZip } = await import('jszip');
       const zip = new JSZip();
@@ -292,28 +274,8 @@ export function QuickRepliesSection({ character, onUpdate }: Props) {
       
       const content = await zip.generateAsync({ type: 'blob' });
       const zipFileName = `${character.name}_QRs.zip`;
-      if (typeof window !== 'undefined' && !!(window as any).Android) {
-          import('../lib/appBridge').then(async ({ shareFileOnAndroid, exportFileToMIU }) => {
-              const buffer = await content.arrayBuffer();
-              if (share) {
-                  await shareFileOnAndroid(zipFileName, buffer, 'application/zip');
-              } else {
-                  const savedPath = await exportFileToMIU(zipFileName, buffer, 'application/zip', true);
-                  if (savedPath) {
-                      alert(`批量导出成功！共导出 ${setsToExport.length} 个快速回复集。\n文件已存至：${savedPath.split('Download/')[1] || savedPath}`);
-                  }
-              }
-          });
-      } else {
-          const url = URL.createObjectURL(content);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = zipFileName;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-      }
+      const { downloadOrShareFile } = await import('../lib/appBridge');
+      await downloadOrShareFile(zipFileName, content, 'application/zip', share);
     }
   };
 
@@ -370,6 +332,7 @@ export function QuickRepliesSection({ character, onUpdate }: Props) {
               <button 
                 onClick={() => handleDownloadClick(true)}
                 className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition flex items-center justify-center gap-2"
+                title={getDownloadTooltip("导出快速回复")}
               >
                 <Download className="w-4 h-4" /> 导出快速回复 
               </button>

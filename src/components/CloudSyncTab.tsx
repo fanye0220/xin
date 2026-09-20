@@ -1,4 +1,4 @@
-import { isAndroid, exportFileToMIU } from "../lib/appBridge";
+import { downloadOrShareFile, getDownloadTooltip } from "../lib/appBridge";
 import { useState, useEffect, useMemo } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Cloud, Download, Upload, Trash2, Github, Loader2, Search, Folder, ChevronRight, MessageSquare, FileText } from 'lucide-react';
@@ -177,42 +177,38 @@ export function CloudSyncTab() {
         }
         
         await saveCharacter(charToSave);
-        window.dispatchEvent(new CustomEvent("charactersUpdated"));
+        window.dispatchEvent(new CustomEvent('charactersUpdated'));
 
-        if (isAndroid()) {
-          try {
-            const safeName = (charToSave.name || "Character").replace(/[\/:*?"<>|]/g, "_");
-            let exportBuffer: ArrayBuffer | null = null;
-            let exportMime = "application/json";
-            let exportFileName = `${safeName}.json`;
+        try {
+          const safeName = (charToSave.name || "Character").replace(/[\/:*?"<>|]/g, "_");
+          let exportBuffer = null;
+          let exportMime = "application/json";
+          let exportFileName = `${safeName}.json`;
 
-            if (avatarBlob) {
-              try {
-                const { injectTavernData } = await import("../lib/png");
-                const rawBuffer = await avatarBlob.arrayBuffer();
-                exportBuffer = injectTavernData(rawBuffer, jsonData);
-                exportMime = "image/png";
-                exportFileName = `${safeName}.png`;
-              } catch (pngErr) {
-                console.error("Failed to inject PNG in cloud download", pngErr);
-              }
+          if (avatarBlob) {
+            try {
+              const { injectTavernData } = await import("../lib/png");
+              const rawBuffer = await avatarBlob.arrayBuffer();
+              exportBuffer = injectTavernData(rawBuffer, jsonData);
+              exportMime = "image/png";
+              exportFileName = `${safeName}.png`;
+            } catch (pngErr) {
+              console.error("Failed to inject PNG in cloud download", pngErr);
             }
+          }
 
-            if (!exportBuffer) {
-              exportBuffer = new TextEncoder().encode(JSON.stringify(jsonData, null, 2)).buffer;
-            }
+          if (!exportBuffer) {
+            exportBuffer = new TextEncoder().encode(JSON.stringify(jsonData, null, 2)).buffer;
+          }
 
-            const savedPath = await exportFileToMIU(exportFileName, exportBuffer, exportMime, true);
-            if (savedPath) {
-              alert(`「${charToSave.name}」下载成功！\n文件已存至：${savedPath.split("Download/")[1] || savedPath}\n已为你拉起系统分享面板与MT管理器定位！`);
-            } else {
-              alert(`「${charToSave.name}」已成功下载至本地！`);
-            }
-          } catch (exportErr) {
-            console.error("Failed to export downloaded cloud char", exportErr);
+          const result = await downloadOrShareFile(exportFileName, exportBuffer, exportMime, true);
+          if (result && result.path) {
+            alert(`「${charToSave.name}」下载成功！\n文件已存至：${result.path.split("Download/")[1] || result.path}\n已为你拉起系统分享面板与MT管理器定位！`);
+          } else {
             alert(`「${charToSave.name}」已成功下载至本地！`);
           }
-        } else {
+        } catch (exportErr) {
+          console.error("Failed to export downloaded cloud char", exportErr);
           alert(`「${charToSave.name}」已成功下载至本地！`);
         }
     } catch (err: any) {
@@ -249,24 +245,20 @@ export function CloudSyncTab() {
         firstAiName: appProperties?.charName || '',
       });
 
-      window.dispatchEvent(new CustomEvent("charactersUpdated"));
-      window.dispatchEvent(new CustomEvent("chatsUpdated"));
+      window.dispatchEvent(new CustomEvent('charactersUpdated'));
+      window.dispatchEvent(new CustomEvent('chatsUpdated'));
 
-      if (isAndroid()) {
-        try {
-          const safeChatFileName = `${chatName.replace(/[\/:*?"<>|]/g, "_")}.jsonl`;
-          const bytes = new TextEncoder().encode(text);
-          const savedPath = await exportFileToMIU(safeChatFileName, bytes.buffer, "application/jsonl", true);
-          if (savedPath) {
-            alert(`聊天记录「${chatName}」下载成功！\n文件已存至：${savedPath.split("Download/")[1] || savedPath}\n已为你拉起系统分享面板与MT管理器定位！`);
-          } else {
-            alert(`聊天记录「${chatName}」已下载至本地！`);
-          }
-        } catch (exportErr) {
-          console.error("Failed to export downloaded cloud chat", exportErr);
+      try {
+        const safeChatFileName = `${chatName.replace(/[\/:*?"<>|]/g, "_")}.jsonl`;
+        const bytes = new TextEncoder().encode(text);
+        const result = await downloadOrShareFile(safeChatFileName, bytes.buffer, "application/jsonl", true);
+        if (result && result.path) {
+          alert(`聊天记录「${chatName}」下载成功！\n文件已存至：${result.path.split("Download/")[1] || result.path}\n已为你拉起系统分享面板与MT管理器定位！`);
+        } else {
           alert(`聊天记录「${chatName}」已下载至本地！`);
         }
-      } else {
+      } catch (exportErr) {
+        console.error("Failed to export downloaded cloud chat", exportErr);
         alert(`聊天记录「${chatName}」已下载至本地！`);
       }
     } catch (err: any) {
@@ -633,7 +625,7 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                         {new Date(b.createdTime).toLocaleString()}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 justify-end sm:opacity-0 sm:group-hover:opacity-100 transition shrink-0 border-t sm:border-t-0 border-white/5 pt-2 sm:pt-0">
+                    <div className="flex items-center gap-2 justify-end transition shrink-0 border-t sm:border-t-0 border-white/5 pt-2 sm:pt-0">
                       <button 
                         title="下载并恢复到本应用"
                         disabled={syncInfo.isActive || actionFileId === b.id}
@@ -755,7 +747,7 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                                }
                             }
                           }}
-                          className="px-3.5 sm:px-4 text-red-400/80 hover:text-red-400 hover:bg-red-500/20 active:bg-red-500/30 sm:opacity-0 sm:group-hover:opacity-100 transition shrink-0 flex items-center justify-center"
+                          className="px-3.5 sm:px-4 text-red-400/80 hover:text-red-400 hover:bg-red-500/20 active:bg-red-500/30 transition shrink-0 flex items-center justify-center"
                           title="删除文件夹"
                         >
                           <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -766,13 +758,16 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
+                <div 
+                  className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3.5"
+                  style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))' }}
+                >
                   {filteredCloudChars.map(char => {
                     const isChat = char.appProperties?.isChat === 'true';
-                    const baseCharName = char.appProperties?.charName || char.name?.replace(/\\.(zip|png|json|webp|jpg)$/i, '');
-                    const charName = isChat ? (char.name?.replace(/\\.(jsonl|json)$/i, '') || baseCharName) : baseCharName;
+                    const baseCharName = char.appProperties?.charName || char.name?.replace(/\.(zip|png|json|webp|jpg)$/i, '');
+                    const charName = isChat ? (char.name?.replace(/\.(jsonl|json)$/i, '') || baseCharName) : baseCharName;
                     return (
-                      <div key={char.id} className="relative group rounded-xl overflow-hidden bg-white/5 border border-white/10 flex flex-col h-auto">
+                      <div key={char.id} className="relative group rounded-2xl overflow-hidden bg-white/5 hover:bg-white/[0.08] border border-white/10 flex flex-col h-auto transition shadow-md">
                         <div className="relative aspect-[3/4] overflow-hidden bg-black/40">
                         {char.thumbnailLink ? (
                           
@@ -810,51 +805,33 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                           </div>
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-60 group-hover:opacity-80 transition pointer-events-none" />
-
-                        
-                        <div className="absolute inset-0 items-center justify-center gap-3 opacity-0 lg:group-hover:opacity-100 transition-opacity bg-black/40 backdrop-blur-sm hidden lg:flex">
-                           <button 
-                             onClick={() => char.appProperties?.isChat === 'true' ? handleDownloadCloudChat(char.id, char.name, char.appProperties) : handleDownloadCloudChar(char.id, charName, char.name, char.appProperties)}
-                             disabled={downloadingId === char.id}
-                             title="下载卡片"
-                             className="p-3 rounded-full bg-blue-500 hover:bg-blue-400 text-white transition transform hover:scale-105 active:scale-95 shadow-lg disabled:opacity-50"
-                           >
-                             {downloadingId === char.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
-                           </button>
-                           <button
-                             onClick={() => handleDeleteCloudChar(char.id, charName)}
-                             disabled={downloadingId === char.id}
-                             title="删除卡片"
-                             className="p-3 rounded-full bg-red-500 hover:bg-red-400 text-white transition transform hover:scale-105 active:scale-95 shadow-lg disabled:opacity-50"
-                           >
-                             <Trash2 className="w-5 h-5" />
-                           </button>
-                        </div>
                       </div>
                       
-                      <div className="p-2 sm:p-3 bg-black/40 border-t border-white/10 flex flex-col justify-between flex-1">
+                      <div className="p-2.5 sm:p-3 bg-black/40 border-t border-white/10 flex flex-col justify-between flex-1">
                         <div>
-                           <h4 className="font-medium text-xs sm:text-sm text-white/90 truncate">{charName}</h4>
+                           <h4 className="font-medium text-xs sm:text-sm text-white/90 truncate" title={charName}>{charName}</h4>
                            <p className="text-[10px] sm:text-xs text-white/50 mt-0.5 truncate">
                               {char.size ? formatSize(char.size) : '未知大小'}
                              {char.createdTime ? ` · ${new Date(char.createdTime).toLocaleDateString()}` : ''}
                            </p>
                         </div>
-                        <div className="flex items-center gap-1.5 sm:gap-2 mt-2 lg:hidden">
+                        <div className="flex items-center gap-1.5 sm:gap-2 mt-2.5">
                            <button 
                              onClick={() => char.appProperties?.isChat === 'true' ? handleDownloadCloudChat(char.id, char.name, char.appProperties) : handleDownloadCloudChar(char.id, charName, char.name, char.appProperties)}
                              disabled={downloadingId === char.id}
-                             className="flex-1 py-1 sm:py-1.5 rounded-lg bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center justify-center gap-1 active:bg-blue-500/40 transition disabled:opacity-50"
+                             className="flex-1 py-1.5 px-2 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/30 flex items-center justify-center gap-1 active:scale-95 transition disabled:opacity-50"
+                             title={getDownloadTooltip("下载")}
                            >
-                             {downloadingId === char.id ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> : <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
-                             <span className="text-[10px] sm:text-xs font-medium">下载</span>
+                             {downloadingId === char.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                             <span className="text-[11px] sm:text-xs font-medium">下载</span>
                            </button>
-                           <button
+                           <button 
                              onClick={() => handleDeleteCloudChar(char.id, charName)}
                              disabled={downloadingId === char.id}
-                             className="p-1 sm:p-1.5 rounded-lg bg-red-500/20 text-red-400 border border-red-500/30 flex items-center justify-center active:bg-red-500/40 transition disabled:opacity-50"
+                             className="p-1.5 px-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 flex items-center justify-center active:scale-95 transition disabled:opacity-50"
+                             title="删除"
                            >
-                             <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                             <Trash2 className="w-3.5 h-3.5" />
                            </button>
                         </div>
                       </div>

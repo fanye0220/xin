@@ -551,8 +551,7 @@ export async function migrateDatabase(
 
 export async function getFolders(): Promise<Folder[]> {
   const db = await initDB();
-  const rawFolders = await db.getAllFromIndex("folders", "by-date");
-  const folders = rawFolders.filter(f => !f.deletedAt);
+  const folders = await db.getAllFromIndex("folders", "by-date");
   return folders.sort((a, b) => {
     if (a.sortOrder !== undefined && b.sortOrder !== undefined) {
       return a.sortOrder - b.sortOrder;
@@ -791,11 +790,7 @@ export async function deleteFolder(
   const charMetaStore2 = tx2.objectStore("char_meta");
 
   for (const folderId of folderIdsToDelete) {
-    const f = allFolders.find((x) => x.id === folderId);
-    if (f) {
-      f.deletedAt = Date.now();
-      await folderStore2.put(f);
-    }
+    await folderStore2.delete(folderId);
   }
 
   for (const char of charsToMove) {
@@ -884,46 +879,12 @@ export async function cleanupEmptyFolders(): Promise<void> {
     return;
   }
 
-  const folderUsageCount = new Map<string, number>();
-  for (const f of allFolders) folderUsageCount.set(f.id, 0);
-
-  for (const c of allCharacters) {
-    if (
-      c.localFilePath &&
-      (c.localFilePath.includes("回收站/") ||
-        c.localFilePath.includes("回收站"))
-    )
-      continue; // already deleted
-    if (c.deletedAt) continue;
-    if (c.folderId && folderUsageCount.has(c.folderId)) {
-      folderUsageCount.set(c.folderId, folderUsageCount.get(c.folderId)! + 1);
-    }
-  }
-
-  let deletedAny = true;
+  // Preserve all user folders even if they are currently empty.
+  // Only remove legacy/internal "回收站" folder if accidentally stored in folders.
   const foldersToDelete = new Set<string>();
-
   for (const f of allFolders) {
-    if (f.deletedAt) continue;
     if (f.name === "回收站") {
       foldersToDelete.add(f.id);
-    }
-  }
-
-  while (deletedAny) {
-    deletedAny = false;
-    for (const f of allFolders) {
-      if (foldersToDelete.has(f.id)) continue;
-
-      if (folderUsageCount.get(f.id)! > 0) continue;
-
-      const hasSubfolders = allFolders.some(
-        (sub) => sub.parentId === f.id && !foldersToDelete.has(sub.id),
-      );
-      if (hasSubfolders) continue;
-
-      foldersToDelete.add(f.id);
-      deletedAny = true;
     }
   }
 
@@ -944,7 +905,6 @@ export async function cleanupEmptyFolders(): Promise<void> {
         const { deleteFolderFromAndroid } = await import("./androidSync");
         for (const id of foldersToDelete) {
           const f = allFolders.find((x) => x.id === id);
-          // Wait, do NOT delete the native "回收站" folder!
           if (f && f.name !== "回收站") {
             await deleteFolderFromAndroid(f);
           }
@@ -2030,17 +1990,6 @@ export async function emptyTrash(): Promise<void> {
   // 只调一次原生批量接口、数据库一个事务删完), 不再自己另起一套
   // "一个个删、每个之间还睡50ms"的循环。
   await deleteCharactersBulk(toDelete);
-
-  const tx2 = db.transaction("folders", "readwrite");
-  const fStore = tx2.store;
-  let fCursor = await fStore.openCursor();
-  while (fCursor) {
-    if (fCursor.value.deletedAt) {
-      await fCursor.delete();
-    }
-    fCursor = await fCursor.continue();
-  }
-  await tx2.done;
 }
 
 export async function cleanupOldTrash(): Promise<void> {

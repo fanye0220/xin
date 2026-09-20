@@ -14,7 +14,7 @@ import { CharacterRegexSection } from './CharacterRegexSection';
 import { CharacterChatsSection } from './CharacterChatsSection';
 import { CharacterMemosSection } from './CharacterMemosSection';
 import JSZip from 'jszip';
-import { isAndroid, saveToGallery, shareFileOnAndroid, exportFileToMIU, readLocalFileBuffer } from '../lib/appBridge';
+import { isAndroid, saveToGallery, shareFileOnAndroid, exportFileToMIU, readLocalFileBuffer, downloadOrShareFile, getDownloadTooltip } from '../lib/appBridge';
 import { multipartPost } from '../lib/multipart';
 import { useBackHandler } from '../lib/useBackHandler';
 
@@ -368,21 +368,8 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     const jsonStr = JSON.stringify(getNormalizedExportData(), null, 2);
     const safeName = await getExportBaseName();
     const exportFileName = `${safeName}.json`;
-    if (isAndroid()) {
-        const bytes = new TextEncoder().encode(jsonStr);
-        const savedPath = await exportFileToMIU(exportFileName, bytes.buffer, "application/json", share);
-        if (savedPath) {
-            alert(`导出成功！\n文件已存至：${savedPath.split("Download/")[1] || savedPath}${share ? "\n已为你拉起系统分享面板与MT管理器定位！" : ""}`);
-        }
-        return;
-    }
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = exportFileName;
-    a.click();
-    URL.revokeObjectURL(url);
+    const bytes = new TextEncoder().encode(jsonStr);
+    await downloadOrShareFile(exportFileName, bytes.buffer, 'application/json', share);
   };
 
   const handleExportPng = async (share: boolean = true) => {
@@ -406,21 +393,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         
         const safeName = await getExportBaseName();
         const exportFileName = `${safeName}.png`;
-        
-        if (isAndroid()) {
-            const savedPath = await exportFileToMIU(exportFileName, newBuffer, "image/png", share);
-            if (savedPath) {
-                alert(`导出成功！\n文件已存至：${savedPath.split("Download/")[1] || savedPath}${share ? "\n已为你拉起系统分享面板与MT管理器定位！" : ""}`);
-            }
-        } else {
-            const blob = new Blob([newBuffer], { type: 'image/png' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = exportFileName;
-            a.click();
-            URL.revokeObjectURL(url);
-        }
+        await downloadOrShareFile(exportFileName, newBuffer, 'image/png', share);
       } catch (e) {
         console.error("Failed to export PNG", e);
         if (!isPreset && !isStandaloneWorldbook) setShowExportAlert(true);
@@ -584,12 +557,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               </button>
             )}
                         
-            {isAndroid() && (
-              <button onClick={() => handleExportPng(true)} className="p-2 rounded-full hover:bg-white/10 text-blue-400 hover:text-blue-300 transition" title="分享文件 / MT定位">
-                <Share2 className="w-5 h-5" />
-              </button>
-            )}
-            <button onClick={() => handleExportPng(true)} className="p-2 rounded-full hover:bg-white/10 transition" title={isAndroid() ? "导出并分享 / MT定位" : "下载"}>
+            <button onClick={() => handleExportPng(true)} className="p-2 rounded-full hover:bg-white/10 transition" title={getDownloadTooltip("下载")}>
               <Download className="w-5 h-5" />
             </button>
             <button onClick={() => setShowDeleteConfirm(true)} className="p-2 rounded-full hover:bg-red-500/20 text-red-400 transition" title="删除">
@@ -1854,7 +1822,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
 
           
           <button 
-            onClick={() => {
+            onClick={async () => {
               let exportData = book;
               if (book.entries && Array.isArray(book.entries)) {
                 exportData = { ...book, entries: {} };
@@ -1872,26 +1840,11 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
               const jsonStr = JSON.stringify(exportData, null, 2);
               const safeName = (book.name || (book.data && book.data.name) || 'worldbook').replace(/[^a-zA-Z0-9_\u4e00-\u9fa5\-]/g, '_');
               const exportFileName = `${safeName}.json`;
-              if (typeof window !== 'undefined' && !!(window as any).Android) {
-                  Promise.all([import('../lib/appBridge')]).then(async ([{ exportFileToMIU }]) => {
-                      const bytes = new TextEncoder().encode(jsonStr);
-                      const savedPath = await exportFileToMIU(exportFileName, bytes.buffer, "application/json", true);
-                      if (savedPath) {
-                          alert(`世界书导出成功！\n文件已存至：${savedPath.split('Download/')[1] || savedPath}`);
-                      }
-                  });
-              } else {
-                  const blob = new Blob([jsonStr], { type: 'application/json' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = exportFileName;
-                  a.click();
-                  URL.revokeObjectURL(url);
-              }
+              const bytes = new TextEncoder().encode(jsonStr);
+              await downloadOrShareFile(exportFileName, bytes.buffer, 'application/json', true);
             }}
             className="p-2 rounded-full bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition"
-            title={isAndroid() ? "导出到MIU目录" : "导出世界书"}
+            title={getDownloadTooltip("导出世界书")}
           >
             <Download className="w-5 h-5" />
           </button>

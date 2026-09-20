@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { getMemosForCharacter, saveMemo, deleteMemo, CharacterMemo } from '../lib/db';
+import { getDownloadTooltip } from '../lib/appBridge';
 import { StickyNote, Image as ImageIcon, File, Trash2, Plus, Download, X, Share2, Pin, Edit, FileUp, Eye } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -183,28 +184,10 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
      }
   };
 
-  const handleDownloadFile = (memo: CharacterMemo, share: boolean = true) => {
+  const handleDownloadFile = async (memo: CharacterMemo, share: boolean = true) => {
       if (!memo.blob) return;
-      if (typeof window !== 'undefined' && !!(window as any).Android) {
-          Promise.all([
-              import('../lib/appBridge')
-          ]).then(async ([{ shareFileOnAndroid, exportFileToMIU }]) => {
-              const buffer = await memo.blob!.arrayBuffer();
-              if (share) {
-                  await shareFileOnAndroid(memo.content, buffer);
-              } else {
-                  await exportFileToMIU(memo.content, buffer, memo.blob!.type || '', true);
-              }
-          });
-          return;
-      }
-
-      const url = URL.createObjectURL(memo.blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = memo.content;
-      a.click();
-      URL.revokeObjectURL(url);
+      const { downloadOrShareFile } = await import('../lib/appBridge');
+      await downloadOrShareFile(memo.content, memo.blob, memo.blob.type || '*/*', share);
   };
 
   return (
@@ -379,7 +362,7 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
                                     <Eye className="w-4 h-4" />
                                  </button>
                                  
-                                 <button onClick={() => handleDownloadFile(memo, true)} className="p-1.5 bg-black/40 hover:bg-blue-500 text-white/70 hover:text-white rounded-lg transition" title={typeof window !== 'undefined' && !!(window as any).Android ? "下载到MIU目录" : "下载"}>
+                                 <button onClick={() => handleDownloadFile(memo, true)} className="p-1.5 bg-black/40 hover:bg-blue-500 text-white/70 hover:text-white rounded-lg transition" title={getDownloadTooltip("下载")}>
                                     <Download className="w-4 h-4" />
                                  </button>
                              </div>
@@ -400,7 +383,7 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
                                       <Eye className="w-5 h-5" />
                                   </button>
                                   
-                                  <button onClick={() => handleDownloadFile(memo, true)} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition" title={typeof window !== 'undefined' && !!(window as any).Android ? "下载到MIU目录" : "下载"}>
+                                  <button onClick={() => handleDownloadFile(memo, true)} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition" title={getDownloadTooltip("下载")}>
                                       <Download className="w-5 h-5" />
                                   </button>
                                   <button onClick={() => handleTogglePin(memo)} className={`w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-full transition ${memo.isPinned ? 'text-purple-400' : 'text-white/70 hover:text-white'}`} title={memo.isPinned ? "取消置顶" : "置顶"}>

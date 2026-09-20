@@ -11,6 +11,28 @@ export const isAndroid = () => {
   return false;
 };
 
+/**
+ * 判断是否为移动端环境（手机/平板的移动端浏览器，或 Android 原生 App）
+ * 排除 PC / 桌面端浏览器（Windows、Mac、Linux 桌面系统）
+ */
+export const isMobileDevice = (): boolean => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  if (isAndroid()) return true;
+  const ua = navigator.userAgent || '';
+  const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(ua);
+  const isIPadOS = /Macintosh/i.test(ua) && Boolean(navigator.maxTouchPoints && navigator.maxTouchPoints > 1);
+  return Boolean(isMobileUA || isIPadOS);
+};
+
+/**
+ * 根据运行环境动态返回下载/导出按钮的提示文案
+ */
+export const getDownloadTooltip = (action: string = '下载'): string => {
+  if (isAndroid()) return `${action}并分享/定位到MIU`;
+  if (isMobileDevice()) return `${action}/分享`;
+  return action;
+};
+
 // Get image URL for <img> tags. Capacitor handles this magically if used, otherwise custom bridge
 export function getLocalImageUrl(filePath: string, cacheBuster?: number | string): string {
   if (isAndroid()) {
@@ -33,20 +55,13 @@ export function getLocalImageUrl(filePath: string, cacheBuster?: number | string
 
 export async function shareFileOnAndroid(filename: string, buffer: ArrayBuffer, mimeType?: string): Promise<boolean> {
   if (!isAndroid()) return false;
-
-  // 1. 优先使用 exportFileToMIU 落地至 Download/MIU/Export/ 并通过 FileProvider 拉起系统分享面板（支持 MT 管理器直接定位真实目录）
   try {
-    const exportedPath = await exportFileToMIU(filename, buffer, mimeType, true);
-    if (exportedPath) return true;
-  } catch (err) {
-    console.warn("exportFileToMIU in shareFileOnAndroid fallback", err);
-  }
-
-  // 2. 回退到 Capacitor Filesystem 缓存分享方案
-  try {
+    // 分块写入应用 Cache 目录（避免大文件一次性转 base64 占用过多内存/卡顿），
+    // 再交给 Capacitor 的系统分享面板。不落地到 Downloads/MIU，
+    // 也就不会被原生扫描（listAllTavernFiles）误当成新角色卡再次导入。
     const chunkSize = 256 * 1024; // 256KB 分块
     const totalChunks = Math.ceil(buffer.byteLength / chunkSize);
-    let fileUri = "";
+    let fileUri = '';
 
     for (let i = 0; i < totalChunks; i++) {
        const chunkBlob = new Blob([buffer.slice(i * chunkSize, (i + 1) * chunkSize)]);
@@ -54,7 +69,7 @@ export async function shareFileOnAndroid(filename: string, buffer: ArrayBuffer, 
            const reader = new FileReader();
            reader.onload = () => {
                const dataUrl = reader.result as string;
-               resolve(dataUrl.split(",")[1]);
+               resolve(dataUrl.split(',')[1]);
            };
            reader.onerror = () => reject(reader.error);
            reader.readAsDataURL(chunkBlob);
@@ -73,7 +88,7 @@ export async function shareFileOnAndroid(filename: string, buffer: ArrayBuffer, 
                data: b64Chunk,
                directory: Directory.Cache
            });
-           await new Promise(r => setTimeout(r, 0));
+       await new Promise(r => setTimeout(r, 0));
        }
     }
 
@@ -88,12 +103,12 @@ export async function shareFileOnAndroid(filename: string, buffer: ArrayBuffer, 
 
     try {
       await Share.share({
-        title: "分享文件",
+        title: '分享文件',
         url: fileUri,
-        dialogTitle: "分享文件 / MT定位",
+        dialogTitle: '分享文件',
       });
     } catch (shareErr) {
-      console.log("Share canceled or failed", shareErr);
+      console.log('Share canceled or failed', shareErr);
     }
     return true;
   } catch (e) {
@@ -101,6 +116,7 @@ export async function shareFileOnAndroid(filename: string, buffer: ArrayBuffer, 
     return false;
   }
 }
+
 
 export async function readLocalFileBuffer(path: string): Promise<ArrayBuffer | null> {
   if (!isAndroid()) return null;
@@ -486,11 +502,115 @@ export async function exportFileToMIU(
 }
 
 export async function shareLocalFileOnAndroid(absolutePath: string, mimeType: string = "*/*"): Promise<boolean> {
-  if (!isAndroid() || !(window as any).Android.shareLocalFile) return false;
+  if (!isAndroid()) return false;
+  if ((window as any).Android && (window as any).Android.shareLocalFile) {
+    try {
+      await (window as any).Android.shareLocalFile(absolutePath, mimeType);
+      return true;
+    } catch (e) {
+      console.warn("window.Android.shareLocalFile failed, trying capacitor fallback:", e);
+    }
+  }
+  // Fallback using Capacitor Share
   try {
-    await (window as any).Android.shareLocalFile(absolutePath, mimeType);
+    const fileUrl = absolutePath.startsWith("file://") ? absolutePath : `file://${absolutePath}`;
+    await Share.share({
+      title: "分享文件",
+      url: fileUrl,
+      dialogTitle: "分享文件",
+    });
     return true;
   } catch (e) {
+    console.error("Capacitor shareLocalFile fallback failed:", e);
     return false;
   }
 }
+
+/**
+ * 统一文件导出/分享逻辑：
+ * 1. Android 原生环境：
+ *    - 写入永久目录 Download/MIU/Export/<filename>
+ *    - 并拉起系统分享面板（可选择 MT 管理器进行"定位所在位置"或"打开"，也可保存到文件、分享给微信QQ等）
+ * 2. 移动端浏览器环境：
+ *    - 若支持 Web Share API (navigator.share)，优先拉起手机系统的分享面板；
+ * 3. 常规网页/桌面端环境：
+ *    - 触发浏览器的常规文件下载（<a> download 标签）。
+ *
+ * @param filename 导出的文件名，如 "筱原冬弥.png"
+ * @param data 文件二进制数据，可为 ArrayBuffer 或 Blob
+ * @param mimeType MIME 类型，默认根据扩展名推断
+ * @param share 是否拉起分享面板，默认 true
+ */
+export async function downloadOrShareFile(
+  filename: string,
+  data: ArrayBuffer | Blob,
+  mimeType?: string,
+  share: boolean = true
+): Promise<{ success: boolean; path?: string | null }> {
+  const ext = filename.split(".").pop()?.toLowerCase() || "";
+  const detectedMime =
+    mimeType ||
+    (ext === "png"
+      ? "image/png"
+      : ext === "jpg" || ext === "jpeg"
+      ? "image/jpeg"
+      : ext === "webp"
+      ? "image/webp"
+      : ext === "json"
+      ? "application/json"
+      : ext === "jsonl"
+      ? "application/jsonl"
+      : ext === "zip"
+      ? "application/zip"
+      : ext === "txt"
+      ? "text/plain"
+      : "*/*");
+
+  const buffer = data instanceof Blob ? await data.arrayBuffer() : data;
+
+  if (isAndroid()) {
+    try {
+      const savedPath = await exportFileToMIU(filename, buffer, detectedMime, share);
+      return { success: true, path: savedPath };
+    } catch (err) {
+      console.error("downloadOrShareFile: exportFileToMIU error, falling back to shareFileOnAndroid:", err);
+      await shareFileOnAndroid(filename, buffer, detectedMime);
+      return { success: true };
+    }
+  }
+
+  // 非 Android 原生容器（网页端）
+  const blob = data instanceof Blob ? data : new Blob([buffer], { type: detectedMime });
+
+  // 仅在移动端浏览器环境（手机网页端）且 share 为 true 时，才尝试唤起手机系统的分享面板
+  // PC / 桌面端测试时（!isMobileDevice()），直接跳过系统分享，直接执行标准的浏览器文件下载
+  if (share && isMobileDevice() && typeof navigator !== "undefined" && navigator.share && navigator.canShare) {
+    try {
+      const file = new File([blob], filename, { type: detectedMime });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: filename,
+        });
+        return { success: true };
+      }
+    } catch (e: any) {
+      if (e.name === "AbortError") {
+        // 手机端用户主动取消了系统分享面板，直接返回，不再二次弹出网页下载打扰用户
+        return { success: true };
+      }
+    }
+  }
+
+  // 常规浏览器直接下载（PC 桌面端测试，或不支持 Web Share 的浏览器环境）
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  return { success: true };
+}
+
