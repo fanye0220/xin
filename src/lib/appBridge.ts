@@ -33,13 +33,20 @@ export function getLocalImageUrl(filePath: string, cacheBuster?: number | string
 
 export async function shareFileOnAndroid(filename: string, buffer: ArrayBuffer, mimeType?: string): Promise<boolean> {
   if (!isAndroid()) return false;
+
+  // 1. 优先使用 exportFileToMIU 落地至 Download/MIU/Export/ 并通过 FileProvider 拉起系统分享面板（支持 MT 管理器直接定位真实目录）
   try {
-    // 分块写入应用 Cache 目录（避免大文件一次性转 base64 占用过多内存/卡顿），
-    // 再交给 Capacitor 的系统分享面板。不落地到 Downloads/MIU，
-    // 也就不会被原生扫描（listAllTavernFiles）误当成新角色卡再次导入。
+    const exportedPath = await exportFileToMIU(filename, buffer, mimeType, true);
+    if (exportedPath) return true;
+  } catch (err) {
+    console.warn("exportFileToMIU in shareFileOnAndroid fallback", err);
+  }
+
+  // 2. 回退到 Capacitor Filesystem 缓存分享方案
+  try {
     const chunkSize = 256 * 1024; // 256KB 分块
     const totalChunks = Math.ceil(buffer.byteLength / chunkSize);
-    let fileUri = '';
+    let fileUri = "";
 
     for (let i = 0; i < totalChunks; i++) {
        const chunkBlob = new Blob([buffer.slice(i * chunkSize, (i + 1) * chunkSize)]);
@@ -47,7 +54,7 @@ export async function shareFileOnAndroid(filename: string, buffer: ArrayBuffer, 
            const reader = new FileReader();
            reader.onload = () => {
                const dataUrl = reader.result as string;
-               resolve(dataUrl.split(',')[1]);
+               resolve(dataUrl.split(",")[1]);
            };
            reader.onerror = () => reject(reader.error);
            reader.readAsDataURL(chunkBlob);
@@ -66,7 +73,7 @@ export async function shareFileOnAndroid(filename: string, buffer: ArrayBuffer, 
                data: b64Chunk,
                directory: Directory.Cache
            });
-       await new Promise(r => setTimeout(r, 0));
+           await new Promise(r => setTimeout(r, 0));
        }
     }
 
@@ -81,12 +88,12 @@ export async function shareFileOnAndroid(filename: string, buffer: ArrayBuffer, 
 
     try {
       await Share.share({
-        title: '分享文件',
+        title: "分享文件",
         url: fileUri,
-        dialogTitle: '分享文件',
+        dialogTitle: "分享文件 / MT定位",
       });
     } catch (shareErr) {
-      console.log('Share canceled or failed', shareErr);
+      console.log("Share canceled or failed", shareErr);
     }
     return true;
   } catch (e) {
@@ -94,7 +101,6 @@ export async function shareFileOnAndroid(filename: string, buffer: ArrayBuffer, 
     return false;
   }
 }
-
 
 export async function readLocalFileBuffer(path: string): Promise<ArrayBuffer | null> {
   if (!isAndroid()) return null;

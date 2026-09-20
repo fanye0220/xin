@@ -1,3 +1,4 @@
+import { isAndroid, exportFileToMIU } from "../lib/appBridge";
 import { useState, useEffect, useMemo } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Cloud, Download, Upload, Trash2, Github, Loader2, Search, Folder, ChevronRight, MessageSquare, FileText } from 'lucide-react';
@@ -176,8 +177,44 @@ export function CloudSyncTab() {
         }
         
         await saveCharacter(charToSave);
-        window.dispatchEvent(new CustomEvent('charactersUpdated'));
-        alert(`「${charToSave.name}」已成功下载至本地！`);
+        window.dispatchEvent(new CustomEvent("charactersUpdated"));
+
+        if (isAndroid()) {
+          try {
+            const safeName = (charToSave.name || "Character").replace(/[\/:*?"<>|]/g, "_");
+            let exportBuffer: ArrayBuffer | null = null;
+            let exportMime = "application/json";
+            let exportFileName = `${safeName}.json`;
+
+            if (avatarBlob) {
+              try {
+                const { injectTavernData } = await import("../lib/png");
+                const rawBuffer = await avatarBlob.arrayBuffer();
+                exportBuffer = injectTavernData(rawBuffer, jsonData);
+                exportMime = "image/png";
+                exportFileName = `${safeName}.png`;
+              } catch (pngErr) {
+                console.error("Failed to inject PNG in cloud download", pngErr);
+              }
+            }
+
+            if (!exportBuffer) {
+              exportBuffer = new TextEncoder().encode(JSON.stringify(jsonData, null, 2)).buffer;
+            }
+
+            const savedPath = await exportFileToMIU(exportFileName, exportBuffer, exportMime, true);
+            if (savedPath) {
+              alert(`「${charToSave.name}」下载成功！\n文件已存至：${savedPath.split("Download/")[1] || savedPath}\n已为你拉起系统分享面板与MT管理器定位！`);
+            } else {
+              alert(`「${charToSave.name}」已成功下载至本地！`);
+            }
+          } catch (exportErr) {
+            console.error("Failed to export downloaded cloud char", exportErr);
+            alert(`「${charToSave.name}」已成功下载至本地！`);
+          }
+        } else {
+          alert(`「${charToSave.name}」已成功下载至本地！`);
+        }
     } catch (err: any) {
         alert("下载失败: " + err.message);
     } finally {
@@ -212,8 +249,26 @@ export function CloudSyncTab() {
         firstAiName: appProperties?.charName || '',
       });
 
-      window.dispatchEvent(new CustomEvent('charactersUpdated'));
-      alert(`聊天记录「${chatName}」已下载至本地！`);
+      window.dispatchEvent(new CustomEvent("charactersUpdated"));
+      window.dispatchEvent(new CustomEvent("chatsUpdated"));
+
+      if (isAndroid()) {
+        try {
+          const safeChatFileName = `${chatName.replace(/[\/:*?"<>|]/g, "_")}.jsonl`;
+          const bytes = new TextEncoder().encode(text);
+          const savedPath = await exportFileToMIU(safeChatFileName, bytes.buffer, "application/jsonl", true);
+          if (savedPath) {
+            alert(`聊天记录「${chatName}」下载成功！\n文件已存至：${savedPath.split("Download/")[1] || savedPath}\n已为你拉起系统分享面板与MT管理器定位！`);
+          } else {
+            alert(`聊天记录「${chatName}」已下载至本地！`);
+          }
+        } catch (exportErr) {
+          console.error("Failed to export downloaded cloud chat", exportErr);
+          alert(`聊天记录「${chatName}」已下载至本地！`);
+        }
+      } else {
+        alert(`聊天记录「${chatName}」已下载至本地！`);
+      }
     } catch (err: any) {
       alert("下载聊天记录失败: " + err.message);
     } finally {

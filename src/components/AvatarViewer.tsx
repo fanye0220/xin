@@ -296,7 +296,7 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
 
   };
 
-  const handleExportAvatar = async (share: boolean = false) => {
+  const handleExportAvatar = async (share: boolean = true) => {
     let blobToExport = previewBlob || character.avatarBlob;
     let fallbackBuffer: ArrayBuffer | null = null;
     let isLocalFile = false;
@@ -330,7 +330,7 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
             if (share) {
                 await shareFileOnAndroid(exportName, buffer, blobToExport ? blobToExport.type : 'image/png');
             } else {
-                const savedPath = await exportFileToMIU(exportName, buffer, blobToExport ? blobToExport.type : 'image/png', false);
+                const savedPath = await exportFileToMIU(exportName, buffer, blobToExport ? blobToExport.type : 'image/png', true);
                 if (savedPath) {
                     alert(`导出图片成功！\n文件已存至：${savedPath.split('Download/')[1] || savedPath}`);
                 }
@@ -375,7 +375,7 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
         <div className="flex gap-2">
           
           <button 
-            onClick={() => handleExportAvatar(false)}
+            onClick={() => handleExportAvatar(true)}
             className="p-2 rounded-full bg-black/40 text-white hover:bg-white/20 transition"
             title={typeof window !== 'undefined' && !!(window as any).Android ? "导出到MIU目录" : "导出图片"}
           >

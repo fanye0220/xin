@@ -1014,7 +1014,7 @@ export function ChatViewer({
     setDeleteChatId(id);
   };
 
-  const handleBatchExport = async (share: boolean = false) => {
+  const handleBatchExport = async (share: boolean = true) => {
     if (selectedChatIds.size === 1) {
       const chatId = Array.from(selectedChatIds)[0];
       const { getChatById } = await import("../lib/db");
@@ -1037,15 +1037,11 @@ export function ChatViewer({
         if (!safeChatName.endsWith(".jsonl")) safeChatName += ".jsonl";
 
         if (isAndroid()) {
-          const { shareFileOnAndroid, exportFileToMIU } = await import("../lib/appBridge");
+          const { exportFileToMIU } = await import("../lib/appBridge");
           const bytes = new TextEncoder().encode(jsonlString);
-          if (share) {
-            await shareFileOnAndroid(safeChatName, bytes.buffer, "application/jsonl");
-          } else {
-            const savedPath = await exportFileToMIU(safeChatName, bytes.buffer, "application/jsonl", false);
-            if (savedPath) {
-                alert(`导出聊天记录成功！\n文件已存至：${savedPath.split('Download/')[1] || savedPath}`);
-            }
+          const savedPath = await exportFileToMIU(safeChatName, bytes.buffer, "application/jsonl", share);
+          if (savedPath) {
+            alert(`导出聊天记录成功！\n文件已存至：${savedPath.split("Download/")[1] || savedPath}${share ? "\n已为你拉起系统分享面板与MT管理器定位！" : ""}`);
           }
         } else {
           const blob = new Blob([jsonlString], { type: "application/jsonl" });
@@ -1110,14 +1106,10 @@ export function ChatViewer({
 
     if (isAndroid()) {
       const buffer = await content.arrayBuffer();
-      const { shareFileOnAndroid, exportFileToMIU } = await import("../lib/appBridge");
-      if (share) {
-        await shareFileOnAndroid(zipName, buffer, "application/zip");
-      } else {
-        const savedPath = await exportFileToMIU(zipName, buffer, "application/zip", false);
-        if (savedPath) {
-            alert(`批量导出聊天记录成功！\n文件已存至：${savedPath.split('Download/')[1] || savedPath}`);
-        }
+      const { exportFileToMIU } = await import("../lib/appBridge");
+      const savedPath = await exportFileToMIU(zipName, buffer, "application/zip", share);
+      if (savedPath) {
+        alert(`批量导出聊天记录成功！\n文件已存至：${savedPath.split("Download/")[1] || savedPath}${share ? "\n已为你拉起系统分享面板与MT管理器定位！" : ""}`);
       }
     } else {
       const url = URL.createObjectURL(content);
@@ -2255,7 +2247,7 @@ export function ChatViewer({
               <div className="flex items-center gap-2 no-scrollbar px-1 min-w-max">
             
             <button
-              onClick={() => handleBatchExport(false)}
+              onClick={() => handleBatchExport(true)}
               disabled={selectedChatIds.size === 0}
               className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-white/10 text-white/70 hover:text-green-400 transition disabled:opacity-50 group shrink-0"
             >

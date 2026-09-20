@@ -1441,8 +1441,8 @@ export function CharacterList({
                     const { injectTavernData } = await import("../lib/png");
                     const newBuffer = injectTavernData(buffer, exportData);
                     const exportFileName = `${safeName}.png`;
-                    if (Capacitor.isNativePlatform()) {
-                        await exportFileToMIU(exportFileName, newBuffer, 'image/png', true);
+                    if (isAndroid()) {
+                        await exportFileToMIU(exportFileName, newBuffer, "image/png", true);
                     } else {
                         const blob = new Blob([newBuffer], { type: 'image/png' });
                         const url = URL.createObjectURL(blob);
@@ -1461,8 +1461,8 @@ export function CharacterList({
             // Fallback to JSON
             const exportFileName = `${safeName}.json`;
             const bytes = new TextEncoder().encode(JSON.stringify(exportData, null, 2));
-            if (Capacitor.isNativePlatform()) {
-                await exportFileToMIU(exportFileName, bytes.buffer, 'application/json', true);
+            if (isAndroid()) {
+                await exportFileToMIU(exportFileName, bytes.buffer, "application/json", true);
             } else {
                 const blob = new Blob([bytes.buffer], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
@@ -1524,9 +1524,10 @@ export function CharacterList({
 
           const finalPath = await finishAndroidZip(zipName);
           if (finalPath) {
-             
+             const { shareLocalFileOnAndroid } = await import("../lib/appBridge");
+             await shareLocalFileOnAndroid(finalPath, "application/zip");
              alert(
-              `批量导出成功！共导出 ${successCount} 个角色资料。\n文件已存至：Download/MIU/${zipName}`,
+              `批量导出成功！共导出 ${successCount} 个角色资料。\n文件已存至：Download/MIU/${zipName}\n已为你拉起系统分享面板与MT管理器定位！`,
              );
           } else {
             alert("导出结束时发生错误！");
@@ -1702,15 +1703,23 @@ export function CharacterList({
           type: "blob",
           compression: "STORE",
         });
-        const url = URL.createObjectURL(zipBlob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download =
-          totalParts > 1
-            ? `Tavern_Export_${timestamp}_卷${chunkIndex}.zip`
-            : `Tavern_Export_${timestamp}.zip`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const zipFileName = totalParts > 1
+          ? `Tavern_Export_${timestamp}_卷${chunkIndex}.zip`
+          : `Tavern_Export_${timestamp}.zip`;
+
+        if (isAndroid()) {
+          const { exportFileToMIU } = await import("../lib/appBridge");
+          const buffer = await zipBlob.arrayBuffer();
+          await exportFileToMIU(zipFileName, buffer, "application/zip", true);
+        } else {
+          const url = URL.createObjectURL(zipBlob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = zipFileName;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+        
 
         chunkIndex += 1;
         if (i + CHUNK_SIZE < exportTasks.length) {
@@ -2730,7 +2739,7 @@ export function CharacterList({
                   <div className="p-2 rounded-full bg-white/5 group-hover:bg-green-400/20 transition">
                     <Download className="w-5 h-5" />
                   </div>
-                  <span className="font-medium text-[10px]">导出</span>
+                  <span className="font-medium text-[10px]">导出/分享</span>
                 </button>
                 <div className="w-px h-8 bg-white/10 shrink-0" />
                 <button

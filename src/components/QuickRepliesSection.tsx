@@ -199,7 +199,7 @@ export function QuickRepliesSection({ character, onUpdate }: Props) {
     onUpdate(updatedChar);
   };
 
-  const handleDownloadClick = (share: boolean = false) => {
+  const handleDownloadClick = (share: boolean = true) => {
     if (qrSets.length === 0) return;
     if (qrSets.length === 1) {
       exportSets([qrSets[0]], share);
@@ -239,7 +239,7 @@ export function QuickRepliesSection({ character, onUpdate }: Props) {
               if (share) {
                   await shareFileOnAndroid(filename, buffer, 'application/json');
               } else {
-                  const savedPath = await exportFileToMIU(filename, buffer, 'application/json', false);
+                  const savedPath = await exportFileToMIU(filename, buffer, 'application/json', true);
                   if (savedPath) {
                       alert(`导出成功！\n文件已存至：${savedPath.split('Download/')[1] || savedPath}`);
                   }
@@ -298,7 +298,7 @@ export function QuickRepliesSection({ character, onUpdate }: Props) {
               if (share) {
                   await shareFileOnAndroid(zipFileName, buffer, 'application/zip');
               } else {
-                  const savedPath = await exportFileToMIU(zipFileName, buffer, 'application/zip', false);
+                  const savedPath = await exportFileToMIU(zipFileName, buffer, 'application/zip', true);
                   if (savedPath) {
                       alert(`批量导出成功！共导出 ${setsToExport.length} 个快速回复集。\n文件已存至：${savedPath.split('Download/')[1] || savedPath}`);
                   }
@@ -368,7 +368,7 @@ export function QuickRepliesSection({ character, onUpdate }: Props) {
 
             <div className="flex flex-col sm:flex-row gap-2 mt-2">
               <button 
-                onClick={() => handleDownloadClick()}
+                onClick={() => handleDownloadClick(true)}
                 className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition flex items-center justify-center gap-2"
               >
                 <Download className="w-4 h-4" /> 导出快速回复 

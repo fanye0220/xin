@@ -183,7 +183,7 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
      }
   };
 
-  const handleDownloadFile = (memo: CharacterMemo, share: boolean = false) => {
+  const handleDownloadFile = (memo: CharacterMemo, share: boolean = true) => {
       if (!memo.blob) return;
       if (typeof window !== 'undefined' && !!(window as any).Android) {
           Promise.all([
@@ -193,7 +193,7 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
               if (share) {
                   await shareFileOnAndroid(memo.content, buffer);
               } else {
-                  await exportFileToMIU(memo.content, buffer, memo.blob!.type || '', false);
+                  await exportFileToMIU(memo.content, buffer, memo.blob!.type || '', true);
               }
           });
           return;
@@ -379,7 +379,7 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
                                     <Eye className="w-4 h-4" />
                                  </button>
                                  
-                                 <button onClick={() => handleDownloadFile(memo, false)} className="p-1.5 bg-black/40 hover:bg-blue-500 text-white/70 hover:text-white rounded-lg transition" title={typeof window !== 'undefined' && !!(window as any).Android ? "下载到MIU目录" : "下载"}>
+                                 <button onClick={() => handleDownloadFile(memo, true)} className="p-1.5 bg-black/40 hover:bg-blue-500 text-white/70 hover:text-white rounded-lg transition" title={typeof window !== 'undefined' && !!(window as any).Android ? "下载到MIU目录" : "下载"}>
                                     <Download className="w-4 h-4" />
                                  </button>
                              </div>
@@ -400,7 +400,7 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
                                       <Eye className="w-5 h-5" />
                                   </button>
                                   
-                                  <button onClick={() => handleDownloadFile(memo, false)} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition" title={typeof window !== 'undefined' && !!(window as any).Android ? "下载到MIU目录" : "下载"}>
+                                  <button onClick={() => handleDownloadFile(memo, true)} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition" title={typeof window !== 'undefined' && !!(window as any).Android ? "下载到MIU目录" : "下载"}>
                                       <Download className="w-5 h-5" />
                                   </button>
                                   <button onClick={() => handleTogglePin(memo)} className={`w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-full transition ${memo.isPinned ? 'text-purple-400' : 'text-white/70 hover:text-white'}`} title={memo.isPinned ? "取消置顶" : "置顶"}>

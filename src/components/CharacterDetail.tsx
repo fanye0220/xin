@@ -364,19 +364,15 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         : baseName;
     };
 
-    const handleExportJson = async (share: boolean = false) => {
+    const handleExportJson = async (share: boolean = true) => {
     const jsonStr = JSON.stringify(getNormalizedExportData(), null, 2);
     const safeName = await getExportBaseName();
     const exportFileName = `${safeName}.json`;
     if (isAndroid()) {
         const bytes = new TextEncoder().encode(jsonStr);
-        if (share) {
-            await shareFileOnAndroid(exportFileName, bytes.buffer, 'application/json');
-        } else {
-            const savedPath = await exportFileToMIU(exportFileName, bytes.buffer, 'application/json', false);
-            if (savedPath) {
-                alert(`导出成功！\n文件已存至：${savedPath.split('Download/')[1] || savedPath}`);
-            }
+        const savedPath = await exportFileToMIU(exportFileName, bytes.buffer, "application/json", share);
+        if (savedPath) {
+            alert(`导出成功！\n文件已存至：${savedPath.split("Download/")[1] || savedPath}${share ? "\n已为你拉起系统分享面板与MT管理器定位！" : ""}`);
         }
         return;
     }
@@ -389,7 +385,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     URL.revokeObjectURL(url);
   };
 
-  const handleExportPng = async (share: boolean = false) => {
+  const handleExportPng = async (share: boolean = true) => {
     if (isPreset || isStandaloneWorldbook || isTheme || isQR || isScript) {
       handleExportJson(share);
       return;
@@ -412,13 +408,9 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         const exportFileName = `${safeName}.png`;
         
         if (isAndroid()) {
-            if (share) {
-                await shareFileOnAndroid(exportFileName, newBuffer, 'image/png');
-            } else {
-                const savedPath = await exportFileToMIU(exportFileName, newBuffer, 'image/png', false);
-                if (savedPath) {
-                    alert(`导出成功！\n文件已存至：${savedPath.split('Download/')[1] || savedPath}`);
-                }
+            const savedPath = await exportFileToMIU(exportFileName, newBuffer, "image/png", share);
+            if (savedPath) {
+                alert(`导出成功！\n文件已存至：${savedPath.split("Download/")[1] || savedPath}${share ? "\n已为你拉起系统分享面板与MT管理器定位！" : ""}`);
             }
         } else {
             const blob = new Blob([newBuffer], { type: 'image/png' });
@@ -592,7 +584,12 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               </button>
             )}
                         
-            <button onClick={() => handleExportPng(false)} className="p-2 rounded-full hover:bg-white/10 transition" title={isAndroid() ? "导出到MIU目录" : "下载"}>
+            {isAndroid() && (
+              <button onClick={() => handleExportPng(true)} className="p-2 rounded-full hover:bg-white/10 text-blue-400 hover:text-blue-300 transition" title="分享文件 / MT定位">
+                <Share2 className="w-5 h-5" />
+              </button>
+            )}
+            <button onClick={() => handleExportPng(true)} className="p-2 rounded-full hover:bg-white/10 transition" title={isAndroid() ? "导出并分享 / MT定位" : "下载"}>
               <Download className="w-5 h-5" />
             </button>
             <button onClick={() => setShowDeleteConfirm(true)} className="p-2 rounded-full hover:bg-red-500/20 text-red-400 transition" title="删除">
@@ -1878,7 +1875,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
               if (typeof window !== 'undefined' && !!(window as any).Android) {
                   Promise.all([import('../lib/appBridge')]).then(async ([{ exportFileToMIU }]) => {
                       const bytes = new TextEncoder().encode(jsonStr);
-                      const savedPath = await exportFileToMIU(exportFileName, bytes.buffer, 'application/json', false);
+                      const savedPath = await exportFileToMIU(exportFileName, bytes.buffer, "application/json", true);
                       if (savedPath) {
                           alert(`世界书导出成功！\n文件已存至：${savedPath.split('Download/')[1] || savedPath}`);
                       }
