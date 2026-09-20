@@ -758,16 +758,13 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                   </div>
                 )}
 
-                <div 
-                  className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3.5"
-                  style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))' }}
-                >
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-3.5">
                   {filteredCloudChars.map(char => {
                     const isChat = char.appProperties?.isChat === 'true';
                     const baseCharName = char.appProperties?.charName || char.name?.replace(/\.(zip|png|json|webp|jpg)$/i, '');
                     const charName = isChat ? (char.name?.replace(/\.(jsonl|json)$/i, '') || baseCharName) : baseCharName;
                     return (
-                      <div key={char.id} className="relative group rounded-2xl overflow-hidden bg-white/5 hover:bg-white/[0.08] border border-white/10 flex flex-col h-auto transition shadow-md">
+                      <div key={char.id} className="relative group rounded-xl sm:rounded-2xl overflow-hidden bg-white/5 hover:bg-white/[0.08] border border-white/10 flex flex-col h-auto transition shadow-sm">
                         <div className="relative aspect-[3/4] overflow-hidden bg-black/40">
                         {char.thumbnailLink ? (
                           
@@ -807,31 +804,31 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-60 group-hover:opacity-80 transition pointer-events-none" />
                       </div>
                       
-                      <div className="p-2.5 sm:p-3 bg-black/40 border-t border-white/10 flex flex-col justify-between flex-1">
+                      <div className="p-1.5 sm:p-2.5 bg-black/40 border-t border-white/10 flex flex-col justify-between flex-1">
                         <div>
-                           <h4 className="font-medium text-xs sm:text-sm text-white/90 truncate" title={charName}>{charName}</h4>
-                           <p className="text-[10px] sm:text-xs text-white/50 mt-0.5 truncate">
+                           <h4 className="font-medium text-[11px] sm:text-sm text-white/90 truncate" title={charName}>{charName}</h4>
+                           <p className="text-[9px] sm:text-xs text-white/50 mt-0.5 truncate">
                               {char.size ? formatSize(char.size) : '未知大小'}
                              {char.createdTime ? ` · ${new Date(char.createdTime).toLocaleDateString()}` : ''}
                            </p>
                         </div>
-                        <div className="flex items-center gap-1.5 sm:gap-2 mt-2.5">
+                        <div className="flex items-center gap-1 sm:gap-2 mt-1.5 sm:mt-2.5">
                            <button 
                              onClick={() => char.appProperties?.isChat === 'true' ? handleDownloadCloudChat(char.id, char.name, char.appProperties) : handleDownloadCloudChar(char.id, charName, char.name, char.appProperties)}
                              disabled={downloadingId === char.id}
-                             className="flex-1 py-1.5 px-2 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/30 flex items-center justify-center gap-1 active:scale-95 transition disabled:opacity-50"
+                             className="flex-1 py-1 sm:py-1.5 px-1 sm:px-2 rounded-lg sm:rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/30 flex items-center justify-center gap-0.5 sm:gap-1 active:scale-95 transition disabled:opacity-50"
                              title={getDownloadTooltip("下载")}
                            >
-                             {downloadingId === char.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                             <span className="text-[11px] sm:text-xs font-medium">下载</span>
+                             {downloadingId === char.id ? <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin" /> : <Download className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
+                             <span className="text-[10px] sm:text-xs font-medium">下载</span>
                            </button>
                            <button 
                              onClick={() => handleDeleteCloudChar(char.id, charName)}
                              disabled={downloadingId === char.id}
-                             className="p-1.5 px-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 flex items-center justify-center active:scale-95 transition disabled:opacity-50"
+                             className="p-1 sm:p-1.5 px-1.5 sm:px-2 rounded-lg sm:rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 flex items-center justify-center active:scale-95 transition disabled:opacity-50"
                              title="删除"
                            >
-                             <Trash2 className="w-3.5 h-3.5" />
+                             <Trash2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                            </button>
                         </div>
                       </div>
