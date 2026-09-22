@@ -1,8 +1,8 @@
 import { downloadOrShareFile, getDownloadTooltip } from "../lib/appBridge";
 import { useState, useEffect, useMemo } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { Cloud, Download, Upload, Trash2, Github, Loader2, Search, Folder, ChevronRight, MessageSquare, FileText } from 'lucide-react';
-import { listCloudCharacters, downloadCloudCharacter, deleteCloudCharacter } from '../lib/cloudDrive';
+import { Cloud, Download, Upload, Trash2, Github, Loader2, Search, Folder, ChevronRight, MessageSquare, FileText, FolderSync } from 'lucide-react';
+import { listCloudCharacters, downloadCloudCharacter, deleteCloudCharacter, syncFolderStructureToCloud } from '../lib/cloudDrive';
 import { getCachedMeta, saveCharacter, getFolders, saveFolder, saveChat, getCharacterCategoryPrefix } from '../lib/db';
 import { getFallbackAvatar } from '../lib/avatar';
 import { initAuth, googleSignIn, logout, getAccessToken, listBackupsFromDrive, deleteBackupFromDrive, triggerManualBackup, triggerRestore, onSyncStateChange, SyncState } from '../lib/drive';
@@ -357,10 +357,28 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
     return localStorage.getItem('miu_auto_backup') === '1';
   });
   const [oneClickProgress, setOneClickProgress] = useState<{current: number, total: number, message: string} | null>(null);
+  const [syncFolderProgress, setSyncFolderProgress] = useState<{ current: number; total: number; message: string } | null>(null);
+
+  const handleSyncFolderStructure = async () => {
+    if (!token) return;
+    try {
+      setSyncFolderProgress({ current: 0, total: 0, message: '正在比对本地与云端分类...' });
+      const res = await syncFolderStructureToCloud(token, (msg, current, total) => {
+        setSyncFolderProgress({ current: current || 0, total: total || 0, message: msg });
+      });
+      setSyncFolderProgress(null);
+      alert(`文件夹分类对齐完成！\n已同步移动更新: ${res.moved} 个卡片\n分类一致保持原样: ${res.unchanged} 个`);
+      await loadCloudChars(token);
+    } catch (err: any) {
+      console.error(err);
+      setSyncFolderProgress(null);
+      alert("同步分类发生错误: " + err.message);
+    }
+  };
 
   const handleOneClickCloudSync = async () => {
     if (!token) return;
-    const confirm = window.confirm("确定要将所有本地卡片逐一同步至云端文件夹吗？\n\n这可能需要一些时间，请保持应用在前台运行。");
+    const confirm = window.confirm("确定要将所有本地卡片逐一同步至云端文件夹吗？\n\n如果云端已有相同卡片但分类不同，将自动同步移动到对应的嵌套文件夹中。");
     if (!confirm) return;
 
     try {
@@ -371,6 +389,7 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
       
       setOneClickProgress({ current: 0, total: chars.length, message: '正在同步...' });
       let success = 0;
+      let moved = 0;
       let skipped = 0;
       
       const isAndroid = Capacitor.isNativePlatform();
@@ -383,11 +402,12 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
           try {
              const res = await uploadCharacterToCloud(token, chars[i].id);
              if (res === 'uploaded') success++;
+             else if (res === 'moved') moved++;
              else skipped++;
           } catch(e) {
              console.error("Failed", e);
           } finally {
-             setOneClickProgress(prev => prev ? { ...prev, current: prev.current + 1 } : null);
+             setOneClickProgress(prev => prev ? { ...prev, current: prev.current + 1, message: '正在同步卡片与目录分类...' } : null);
              await new Promise(r => setTimeout(r, isAndroid ? 200 : 50));
           }
         }
@@ -400,7 +420,7 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
       await Promise.all(workers);
       
       setOneClickProgress(null);
-      alert(`一键同步完成！\n成功上传: ${success}\n跳过已存在: ${skipped}`);
+      alert(`一键同步完成！\n新上传卡片: ${success}\n更新文件夹嵌套: ${moved}\n内容与分类一致已跳过: ${skipped}`);
       if (activeTab === 'cloud_drive') {
         loadCloudChars(token);
       }
@@ -531,34 +551,61 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
       {activeTab === 'backup' && (
         <div className="space-y-6">
           
-          <div className="space-y-4">
+          <div className="space-y-3">
             
-            <button
-                 onClick={handleOneClickCloudSync}
-                 disabled={oneClickProgress !== null}
-                 className="w-full py-4 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-medium flex justify-center items-center gap-2 transition disabled:opacity-50 shadow-sm"
-               >
-                 {oneClickProgress ? (
-                   <>
-                     <Loader2 className="w-5 h-5 animate-spin" />
-                     <span>同步中 {oneClickProgress.current}/{oneClickProgress.total}</span>
-                   </>
-                 ) : (
-                   <>
-                     <Upload className="w-5 h-5" />
-                     逐一同步所有卡片
-                   </>
-                 )}
-               </button>
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                onClick={handleOneClickCloudSync}
+                disabled={oneClickProgress !== null || syncFolderProgress !== null}
+                className="py-3 px-2.5 sm:px-4 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-medium text-xs sm:text-sm flex justify-center items-center gap-1.5 transition disabled:opacity-50 shadow-sm active:scale-[0.99] min-h-[44px]"
+                title="全量上传本地卡片并同步文件夹结构"
+              >
+                {oneClickProgress ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    <span className="truncate text-xs">同步中 {oneClickProgress.current}/{oneClickProgress.total}</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4 shrink-0" />
+                    <span>全量同步</span>
+                  </>
+                )}
+              </button>
 
-            <label className="flex items-center justify-between p-4 bg-white/5 border border-white/10 rounded-xl cursor-pointer hover:bg-white/10 transition">
+              <button
+                onClick={handleSyncFolderStructure}
+                disabled={syncFolderProgress !== null || oneClickProgress !== null}
+                className="py-3 px-2.5 sm:px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/90 text-xs sm:text-sm font-medium flex justify-center items-center gap-1.5 transition disabled:opacity-50 active:scale-[0.99] min-h-[44px]"
+                title="仅整理对齐云端卡片的文件夹分类，不重复上传文件（秒级完成）"
+              >
+                {syncFolderProgress ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-blue-400 shrink-0" />
+                    <span className="truncate text-xs">{syncFolderProgress.total > 0 ? `${syncFolderProgress.current}/${syncFolderProgress.total}` : '对齐中...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <FolderSync className="w-4 h-4 text-blue-400 shrink-0" />
+                    <span>对齐分类</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] text-white/40 px-1">
+              <span>全量：上传并整理卡片</span>
+              <span>对齐：仅整理目录(秒级)</span>
+            </div>
+
+            <label className="flex items-center justify-between p-3.5 sm:p-4 bg-white/5 border border-white/10 rounded-xl cursor-pointer hover:bg-white/10 transition">
               <div>
                 <div className="text-sm font-medium text-white">挂机自动同步</div>
-                <div className="text-xs text-white/50 mt-1">
-                  开启后，网页打开期间每隔30分钟自动静默覆盖备份到云端。
+                <div className="text-xs text-white/50 mt-0.5">
+                  网页打开期间每隔30分钟自动静默覆盖备份到云端。
                 </div>
               </div>
-              <div className="relative inline-flex items-center cursor-pointer">
+              <div className="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
                 <input 
                   type="checkbox" 
                   className="sr-only peer" 
@@ -575,12 +622,12 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
 
           </div>
 
-          <div className="p-4 bg-white/5 border border-white/10 rounded-xl space-y-4">
+          <div className="p-3.5 sm:p-4 bg-white/5 border border-white/10 rounded-xl space-y-3">
 
             <div className="flex items-center justify-between">
-              <h4 className="text-sm font-medium text-white/80">旧版完整压缩包备份 (易闪退)</h4>
+              <h4 className="text-xs sm:text-sm font-medium text-white/70">完整打包备份 (旧版)</h4>
 
-              <button onClick={() => {if(token) loadBackups(token)}} className="text-xs text-blue-400 hover:text-blue-300 transition px-2 py-1 bg-blue-500/10 rounded-md">
+              <button onClick={() => {if(token) loadBackups(token)}} className="text-xs text-blue-400 hover:text-blue-300 transition px-2 py-0.5 bg-blue-500/10 rounded-md">
                 刷新
               </button>
             </div>
@@ -588,17 +635,17 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
             <button
               onClick={handleUploadBackup}
               disabled={syncInfo.isActive}
-              className="w-full py-2 mt-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 font-medium flex justify-center items-center gap-2 transition disabled:opacity-50 text-sm border border-white/10"
+              className="w-full py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 font-medium flex justify-center items-center gap-2 transition disabled:opacity-50 text-xs sm:text-sm border border-white/10"
             >
               {syncInfo.isActive && syncInfo.taskName === '手动备份' ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>请求已发送...</span>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>处理中...</span>
                 </>
               ) : (
                 <>
-                  <Upload className="w-4 h-4" />
-                  创建旧版压缩包备份
+                  <Upload className="w-3.5 h-3.5" />
+                  创建打包备份
                 </>
               )}
             </button>
@@ -656,24 +703,24 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
       {activeTab === 'cloud_drive' && (
         <div className="space-y-6">
           
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <h3 className="text-lg font-semibold text-white/90">我的云端角色卡</h3>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <h3 className="text-base sm:text-lg font-semibold text-white/90">我的云端角色卡</h3>
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <div className="relative flex-1 sm:w-48">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Search className="h-4 w-4 text-white/40" />
+                <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
+                  <Search className="h-3.5 w-3.5 text-white/40" />
                 </div>
                 <input
                   type="text"
-                  placeholder="搜索云端卡片..."
+                  placeholder="搜索卡片..."
                   value={searchCloudQuery}
                   onChange={(e) => setSearchCloudQuery(e.target.value)}
-                  className="block w-full pl-9 pr-3 py-1.5 border border-white/10 rounded-full bg-black/20 text-sm text-white placeholder-white/40 focus:outline-none focus:border-white/20 focus:bg-black/40 transition"
+                  className="block w-full pl-8 pr-2.5 py-1.5 border border-white/10 rounded-full bg-black/20 text-xs sm:text-sm text-white placeholder-white/40 focus:outline-none focus:border-white/20 focus:bg-black/40 transition"
                 />
               </div>
               <button
                 onClick={() => { if(token) loadCloudChars(token); }}
-                className="text-sm px-4 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/70 transition shrink-0"
+                className="text-xs sm:text-sm px-3.5 sm:px-4 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/70 transition shrink-0 active:scale-[0.98]"
               >
                 刷新
               </button>

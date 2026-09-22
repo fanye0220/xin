@@ -1288,6 +1288,8 @@ export function CharacterList({
       }
 
       let success = 0;
+      let moved = 0;
+      let skipped = 0;
       let completed = 0;
       const CONCURRENCY = Capacitor.isNativePlatform() ? 3 : 5;
       let currentIndex = 0;
@@ -1302,8 +1304,10 @@ export function CharacterList({
         while (currentIndex < charsArray.length) {
           const i = currentIndex++;
           try {
-            await uploadCharacterToCloud(token, charsArray[i]);
-            success++;
+            const res = await uploadCharacterToCloud(token, charsArray[i]);
+            if (res === 'uploaded') success++;
+            else if (res === 'moved') moved++;
+            else skipped++;
           } catch (e) {
             console.error("Upload failed for char:", charsArray[i], e);
           } finally {
@@ -1325,7 +1329,7 @@ export function CharacterList({
       await Promise.all(workers);
 
       setProgress(null);
-      alert(`云端备份成功！共备份 ${success} 个角色资料。`);
+      alert(`云端同步完成！\n新上传: ${success} 个\n同步文件夹嵌套: ${moved} 个${skipped > 0 ? `\n分类未变已跳过: ${skipped} 个` : ''}`);
     } catch (err: any) {
       console.error(err);
       setProgress(null);

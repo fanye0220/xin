@@ -646,11 +646,74 @@ function guessMimeFromExt(ext: string): string {
 
 
 
+export async function computeCharacterCloudPathParts(
+  char: any,
+  allFolders?: any[]
+): Promise<{ pathParts: string[]; folderPath: string }> {
+  const { getCharacterCategoryPrefix, getFolders } = await import('./db');
+  const folders = allFolders || (await getFolders());
+  const toolCategory = getCharacterCategoryPrefix(char);
+  const pathParts: string[] = [];
+
+  if (toolCategory !== "未归类") {
+    pathParts.push('工具区');
+    const categoryName = (toolCategory === '美化' || toolCategory === '预设' || toolCategory === '世界书' || toolCategory === '快速回复')
+      ? toolCategory
+      : '脚本';
+
+    if (char.folderId) {
+      const visitedFolderIds = new Set<string>();
+      let currentF = folders.find((f: any) => f.id === char.folderId);
+      const subParts: string[] = [];
+      while (currentF) {
+        if (visitedFolderIds.has(currentF.id)) break;
+        visitedFolderIds.add(currentF.id);
+        subParts.unshift(currentF.name);
+        currentF = folders.find((f: any) => f.id === currentF.parentId);
+      }
+
+      // Filter out redundant '工具区' or category names to prevent nested '工具区/世界书/世界书'
+      const cleanSubParts = subParts.filter((part: string, idx: number) => {
+        if (idx === 0 && part === '工具区') return false;
+        if (idx === 0 && (part === categoryName || part === toolCategory)) return false;
+        return true;
+      });
+
+      pathParts.push(categoryName);
+      if (cleanSubParts.length > 0) {
+        pathParts.push(...cleanSubParts);
+      }
+    } else {
+      pathParts.push(categoryName);
+    }
+  } else {
+    pathParts.push('角色卡');
+    if (char.folderId) {
+      const visitedFolderIds = new Set<string>();
+      let currentF = folders.find((f: any) => f.id === char.folderId);
+      const subParts: string[] = [];
+      while (currentF) {
+        if (visitedFolderIds.has(currentF.id)) break;
+        visitedFolderIds.add(currentF.id);
+        const isTopLevelGroup = currentF.name === '角色卡' && (currentF.parentId === null || currentF.parentId === undefined);
+        if (!isTopLevelGroup) {
+          subParts.unshift(currentF.name);
+        }
+        currentF = folders.find((f: any) => f.id === currentF.parentId);
+      }
+      pathParts.push(...subParts);
+    }
+  }
+
+  const folderPath = pathParts.join('/');
+  return { pathParts, folderPath };
+}
+
 export async function uploadCharacterToCloud(
   token: string,
   charId: string,
   onProgress?: (msg: string) => void,
-): Promise<'uploaded' | 'skipped'> {
+): Promise<'uploaded' | 'skipped' | 'moved'> {
   if (onProgress) onProgress("准备云端数据...");
   const char = await getCharacter(charId);
   if (!char) throw new Error("Character not found");
@@ -668,70 +731,12 @@ export async function uploadCharacterToCloud(
     thumbB64 = await generateThumbnail(char.avatarBlob);
   }
 
-  let folderPath = "";
-  let pathParts: string[] = [];
-  const { getCharacterCategoryPrefix, getChatsForCharacter } = await import('./db');
-  const toolCategory = getCharacterCategoryPrefix(char);
-
-  if (toolCategory !== "未归类") {
-    pathParts.push('工具区');
-    const categoryName = (toolCategory === '美化' || toolCategory === '预设' || toolCategory === '世界书' || toolCategory === '快速回复')
-      ? toolCategory
-      : '脚本';
-
-    if (char.folderId) {
-      const allFolders = await getFolders();
-      const visitedFolderIds = new Set<string>();
-      let currentF = allFolders.find(f => f.id === char.folderId);
-      const subParts: string[] = [];
-      while (currentF) {
-        if (visitedFolderIds.has(currentF.id)) break;
-        visitedFolderIds.add(currentF.id);
-        subParts.unshift(currentF.name);
-        currentF = allFolders.find(f => f.id === currentF.parentId);
-      }
-
-      // Filter out redundant '工具区' or category names to prevent nested '工具区/世界书/世界书'
-      const cleanSubParts = subParts.filter((part, idx) => {
-        if (idx === 0 && part === '工具区') return false;
-        if (idx === 0 && (part === categoryName || part === toolCategory)) return false;
-        return true;
-      });
-
-      pathParts.push(categoryName);
-      if (cleanSubParts.length > 0) {
-        pathParts.push(...cleanSubParts);
-      }
-    } else {
-      pathParts.push(categoryName);
-    }
-  } else {
-    pathParts.push('角色卡');
-    if (char.folderId) {
-      const allFolders = await getFolders();
-      const visitedFolderIds = new Set<string>();
-      let currentF = allFolders.find(f => f.id === char.folderId);
-      const subParts: string[] = [];
-      while (currentF) {
-        if (visitedFolderIds.has(currentF.id)) break;
-        visitedFolderIds.add(currentF.id);
-        const isTopLevelGroup = currentF.name === '角色卡' && (currentF.parentId === null || currentF.parentId === undefined);
-        if (!isTopLevelGroup) {
-          subParts.unshift(currentF.name);
-        }
-        currentF = allFolders.find(f => f.id === currentF.parentId);
-      }
-      pathParts.push(...subParts);
-    }
-  }
-
-  const { getChatsForCharacter: _unused } = await import('./db');
+  const { pathParts, folderPath } = await computeCharacterCloudPathParts(char);
+  const { getChatsForCharacter } = await import('./db');
   const extraAvatars = (char.avatarHistory || []).filter(b => !char.avatarBlob || !(b.size === char.avatarBlob.size && b.type === char.avatarBlob.type));
   
   const hasExtraAvatars = extraAvatars.length > 0;
   const chats = await getChatsForCharacter(char.id);
-
-  folderPath = pathParts.join('/');
 
   const targetParentId = await resolveDriveFolderPath(token, folderId, pathParts);
 
@@ -876,13 +881,57 @@ export async function uploadCharacterToCloud(
   let targetFileId = '';
   let finalCharName = char.name || "未命名";
 
+  let existingFile: any = null;
   if (searchData.files && searchData.files.length > 0) {
-    const existingFile = searchData.files[0];
+    existingFile = searchData.files[0];
+  } else {
+    // 如果根据 charId 没查到，在整个云盘中根据 contentHash 全局查找（可能之前传在根目录或其他旧目录）
+    const qHash = `(appProperties has { key='isChar' and value='true' } or appProperties has { key='cardType' }) and appProperties has { key='contentHash' and value='${contentHash}' } and trashed=false`;
+    try {
+      const searchResHash = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qHash)}&spaces=drive&fields=files(id,name,appProperties,parents)`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (searchResHash.ok) {
+        const searchDataHash = await searchResHash.json();
+        if (searchDataHash.files && searchDataHash.files.length > 0) {
+          existingFile = searchDataHash.files[0];
+        }
+      }
+    } catch (e) {
+      console.warn("contentHash search fallback failed", e);
+    }
+  }
+
+  if (existingFile) {
     const existingParents = Array.isArray(existingFile.parents) ? existingFile.parents : [];
+    const currentCloudFolder = existingFile.appProperties?.folderPath || '';
+    const folderChanged = currentCloudFolder !== folderPath || existingParents.length !== 1 || existingParents[0] !== targetParentId;
 
     if (existingFile.appProperties?.contentHash === contentHash) {
-      if (onProgress) onProgress("内容未变更，同步云端目录位置");
-      await moveCloudFileToParent(existingFile.id, existingParents);
+      if (folderChanged) {
+        if (onProgress) onProgress("内容一致，正在同步移动并更新云端文件夹嵌套...");
+        await moveCloudFileToParent(existingFile.id, existingParents);
+        await fetch(`https://www.googleapis.com/drive/v3/files/${existingFile.id}`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'X-HTTP-Method-Override': 'PATCH'
+          },
+          body: JSON.stringify({
+            appProperties: {
+              ...(existingFile.appProperties || {}),
+              charId: char.id,
+              charName: char.name || existingFile.appProperties?.charName || '',
+              cardType: charType,
+              folderPath: folderPath,
+              contentHash: contentHash
+            }
+          })
+        });
+        return 'moved';
+      }
+      if (onProgress) onProgress("云端已有相同内容与分类的卡片，跳过");
       return 'skipped';
     }
 
@@ -890,7 +939,7 @@ export async function uploadCharacterToCloud(
     finalCharName = existingFile.appProperties?.charName || finalCharName;
     metadata.appProperties.charName = finalCharName;
     
-    if (onProgress) onProgress("更新云端文件信息...");
+    if (onProgress) onProgress("更新云端文件信息与分类...");
     await fetch(`https://www.googleapis.com/drive/v3/files/${targetFileId}`, {
       method: 'POST',
       headers: {
@@ -905,7 +954,7 @@ export async function uploadCharacterToCloud(
     if (onProgress) onProgress("检查同名卡片...");
     const safeQueryName = finalCharName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const qName = `name contains '${safeQueryName}' and '${targetParentId}' in parents and trashed=false`;
-    const searchResName = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qName)}&spaces=drive&fields=files(id,name,appProperties)`, {
+    const searchResName = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qName)}&spaces=drive&fields=files(id,name,appProperties,parents)`, {
       headers: { Authorization: `Bearer ${token}` }
     });
     if (!searchResName.ok) {
@@ -918,6 +967,32 @@ export async function uploadCharacterToCloud(
        if (exactMatches.length > 0) {
           const identical = exactMatches.find((f:any) => f.appProperties?.contentHash === contentHash);
           if (identical) {
+             const idParents = Array.isArray(identical.parents) ? identical.parents : [];
+             const idFolder = identical.appProperties?.folderPath || '';
+             const idFolderChanged = idFolder !== folderPath || idParents.length !== 1 || idParents[0] !== targetParentId;
+             if (idFolderChanged) {
+               if (onProgress) onProgress("内容一致，同步移动到新文件夹分类...");
+               await moveCloudFileToParent(identical.id, idParents);
+               await fetch(`https://www.googleapis.com/drive/v3/files/${identical.id}`, {
+                 method: 'POST',
+                 headers: {
+                   Authorization: `Bearer ${token}`,
+                   'Content-Type': 'application/json',
+                   'X-HTTP-Method-Override': 'PATCH'
+                 },
+                 body: JSON.stringify({
+                   appProperties: {
+                     ...(identical.appProperties || {}),
+                     charId: char.id,
+                     charName: char.name || identical.appProperties?.charName || '',
+                     cardType: charType,
+                     folderPath: folderPath,
+                     contentHash: contentHash
+                   }
+                 })
+               });
+               return 'moved';
+             }
              if (onProgress) onProgress("云端已有相同内容的卡片，跳过");
              return 'skipped';
           }
@@ -1248,6 +1323,123 @@ export async function syncLibraryToCloud(token: string, onProgress?: (msg: strin
   await Promise.all(workers);
 
   if (onProgress) onProgress(`同步完成! 成功: ${successCount} 个, 跳过: ${skippedCount} 个, 失败: ${failCount} 个`);
+}
+
+export async function syncFolderStructureToCloud(
+  token: string,
+  onProgress?: (msg: string, current?: number, total?: number) => void
+): Promise<{ moved: number; unchanged: number; total: number }> {
+  if (onProgress) onProgress('正在读取本地与云端卡片列表...');
+  const { getCachedMeta, getFolders } = await import('./db');
+  const localChars = (await getCachedMeta()).filter(c => !c.deletedAt);
+  const allFolders = await getFolders();
+  const rootFolderId = await getCloudFolderId(token);
+  const cloudChars = await listCloudCharacters(token);
+
+  if (cloudChars.length === 0 || localChars.length === 0) {
+    return { moved: 0, unchanged: 0, total: localChars.length };
+  }
+
+  let moved = 0;
+  let unchanged = 0;
+  let completed = 0;
+
+  // Build lookup maps for fast matching
+  const cloudByCharId = new Map<string, any>();
+  const cloudByName = new Map<string, any>();
+
+  for (const cf of cloudChars) {
+    if (cf.appProperties?.charId) {
+      cloudByCharId.set(cf.appProperties.charId, cf);
+    }
+    const cleanName = (cf.appProperties?.charName || cf.name?.replace(/\.(zip|png|json|webp|jpg)$/i, '') || '').trim();
+    if (cleanName) {
+      if (!cloudByName.has(cleanName) || cf.appProperties?.charId) {
+        cloudByName.set(cleanName, cf);
+      }
+    }
+  }
+
+  const resolvedFolderCache = new Map<string, string>();
+
+  for (const localChar of localChars) {
+    completed++;
+    if (onProgress) {
+      onProgress(`正在同步分类层级 (${completed}/${localChars.length})...`, completed, localChars.length);
+    }
+
+    let cloudFile = cloudByCharId.get(localChar.id);
+    if (!cloudFile && localChar.name) {
+      cloudFile = cloudByName.get(localChar.name.trim());
+    }
+
+    if (!cloudFile) {
+      unchanged++;
+      continue;
+    }
+
+    const { pathParts, folderPath } = await computeCharacterCloudPathParts(localChar, allFolders);
+    const currentCloudFolder = cloudFile.appProperties?.folderPath || '';
+    const existingParents = Array.isArray(cloudFile.parents) ? cloudFile.parents : [];
+
+    const cacheKey = pathParts.join('/');
+    let targetParentId = resolvedFolderCache.get(cacheKey);
+    if (!targetParentId) {
+      targetParentId = await resolveDriveFolderPath(token, rootFolderId, pathParts);
+      resolvedFolderCache.set(cacheKey, targetParentId);
+    }
+
+    const folderChanged = currentCloudFolder !== folderPath || existingParents.length !== 1 || existingParents[0] !== targetParentId;
+
+    if (!folderChanged) {
+      unchanged++;
+      continue;
+    }
+
+    try {
+      const removeParents = existingParents.filter((id: string) => id !== targetParentId);
+      
+      let moveUrl = `https://www.googleapis.com/drive/v3/files/${cloudFile.id}?addParents=${encodeURIComponent(targetParentId)}&fields=id,parents`;
+      if (removeParents.length > 0) {
+        moveUrl += `&removeParents=${encodeURIComponent(removeParents.join(','))}`;
+      }
+
+      await fetch(moveUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-HTTP-Method-Override': 'PATCH',
+        },
+      });
+
+      await fetch(`https://www.googleapis.com/drive/v3/files/${cloudFile.id}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-HTTP-Method-Override': 'PATCH'
+        },
+        body: JSON.stringify({
+          appProperties: {
+            ...(cloudFile.appProperties || {}),
+            folderPath: folderPath,
+            charId: localChar.id,
+            charName: localChar.name || cloudFile.appProperties?.charName || ''
+          }
+        })
+      });
+
+      if (cloudFile.appProperties) {
+        cloudFile.appProperties.folderPath = folderPath;
+      }
+      cloudFile.parents = [targetParentId];
+      moved++;
+    } catch (err) {
+      console.error(`Sync folder failed for char ${localChar.name}:`, err);
+    }
+  }
+
+  return { moved, unchanged, total: localChars.length };
 }
 
 export async function deleteCloudCharacter(token: string, fileId: string) {
