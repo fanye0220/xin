@@ -8,6 +8,8 @@ import {
   BookOpen,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Trash2,
   CheckCircle2,
   Cloud,
@@ -46,12 +48,14 @@ import {
   deleteFolder,
   SortOption,
   getCachedMeta,
+  getCharacterCategoryPrefix,
 } from "../lib/db";
 import { useInView } from "../lib/useInView";
 import { useContinuousInView } from "../lib/useContinuousInView";
 import { peekCachedUrl, putCachedBlobUrl, putCachedStaticUrl } from "../lib/thumbCache";
 import { MoveToFolderModal } from "./MoveToFolderModal";
 import { BindQRModal } from "./BindQRModal";
+import { DragQRBindModal } from "./DragQRBindModal";
 import JSZip from "jszip";
 import { injectTavernData } from "../lib/png";
 import { uploadCharacterToCloud } from "../lib/cloudDrive";
@@ -479,6 +483,10 @@ export function CharacterList({
   const [newFolderName, setNewFolderName] = useState("");
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
   const [isBindModalOpen, setIsBindModalOpen] = useState(false);
+  const [pendingDragQRBind, setPendingDragQRBind] = useState<{
+    qrChar: CharacterCard;
+    targetChar: CharacterCard;
+  } | null>(null);
   const [progress, setProgress] = useState<{
     current: number;
     total: number;
@@ -492,9 +500,18 @@ export function CharacterList({
 
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+  const [folderPage, setFolderPage] = useState(1);
+  const [folderPageInputValue, setFolderPageInputValue] = useState("1");
+  const [folderPageSize, setFolderPageSize] = useState(
+    () => Number(localStorage.getItem("tavern_folderPageSize")) || 50,
+  );
+  const totalFolderPages = Math.max(1, Math.ceil(folders.length / folderPageSize));
   const [isFoldersExpanded, setIsFoldersExpanded] = useState(
     () => localStorage.getItem("tavern_foldersExpanded") !== "false",
   );
+  const visibleFolders = isFoldersExpanded
+    ? folders.slice((folderPage - 1) * folderPageSize, folderPage * folderPageSize)
+    : [];
   const lastScrollY = useRef(0);
   const filterRef = useRef<HTMLDivElement>(null);
   const sortRef = useRef<HTMLDivElement>(null);
@@ -505,6 +522,10 @@ export function CharacterList({
       isFoldersExpanded.toString(),
     );
   }, [isFoldersExpanded]);
+
+  useEffect(() => {
+    localStorage.setItem("tavern_folderPageSize", folderPageSize.toString());
+  }, [folderPageSize]);
 
   useEffect(() => {
     localStorage.setItem("tavern_pageSize", pageSize.toString());
@@ -648,16 +669,16 @@ export function CharacterList({
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
-    if (sortBy !== "custom") {
-      setSortBy("custom");
-    }
-
     const activeIdStr = String(active.id);
     const overIdStr = String(over.id);
 
     const isFolder = activeIdStr.startsWith("folder-");
+    const isOverFolder = overIdStr.startsWith("folder-");
 
-    if (isFolder) {
+    if (isFolder && isOverFolder) {
+      if (sortBy !== "custom") {
+        setSortBy("custom");
+      }
       const activeId = activeIdStr.replace("folder-", "");
       const overId = overIdStr.replace("folder-", "");
 
@@ -673,9 +694,30 @@ export function CharacterList({
           saveFolder(f);
         });
       }
-    } else {
+    } else if (!isFolder && !isOverFolder && activeIdStr.startsWith("char-") && overIdStr.startsWith("char-")) {
       const activeId = activeIdStr.replace("char-", "");
       const overId = overIdStr.replace("char-", "");
+
+      const activeChar = characters.find((c) => c.id === activeId);
+      const overChar = characters.find((c) => c.id === overId);
+
+      if (activeChar && overChar) {
+        const isActiveQR = checkIsQR(activeChar);
+        const isOverQR = checkIsQR(overChar);
+
+        // One is a QR card and the other is a regular character card -> trigger drag-to-bind modal!
+        if (isActiveQR && !isOverQR) {
+          setPendingDragQRBind({ qrChar: activeChar, targetChar: overChar });
+          return;
+        } else if (!isActiveQR && isOverQR) {
+          setPendingDragQRBind({ qrChar: overChar, targetChar: activeChar });
+          return;
+        }
+      }
+
+      if (sortBy !== "custom") {
+        setSortBy("custom");
+      }
 
       const oldIndex = characters.findIndex((c) => c.id === activeId);
       const newIndex = characters.findIndex((c) => c.id === overId);
@@ -738,7 +780,7 @@ export function CharacterList({
       // Fetch previews for folders concurrently
       try {
         const { getFolderPreviews } = await import("../lib/db");
-        const folderIds = currentFolders.map((f) => f.id);
+        const folderIds = currentFolders.slice(0, 36).map((f) => f.id);
         const previews = await getFolderPreviews(folderIds);
         setFolderPreviewsWithCleanup(previews);
       } catch (err) {
@@ -765,6 +807,34 @@ export function CharacterList({
     sortBy,
     refreshTrigger,
   ]);
+
+  useEffect(() => {
+    setFolderPageInputValue(folderPage.toString());
+  }, [folderPage]);
+
+  useEffect(() => {
+    setFolderPage(1);
+  }, [folderId]);
+
+  useEffect(() => {
+    if (folderPage > totalFolderPages) {
+      setFolderPage(Math.max(1, totalFolderPages));
+    }
+  }, [folders.length, totalFolderPages, folderPage]);
+
+  useEffect(() => {
+    if (visibleFolders.length > 0) {
+      import("../lib/db").then(async ({ getFolderPreviews }) => {
+        try {
+          const ids = visibleFolders.map((f) => f.id);
+          const previews = await getFolderPreviews(ids);
+          setFolderPreviewsWithCleanup(previews);
+        } catch (err) {
+          console.error("Failed to load folder previews", err);
+        }
+      });
+    }
+  }, [folderPage, folderPageSize, folders, isFoldersExpanded]);
 
   useEffect(() => {
     getAllTags().then(setAllTags);
@@ -953,8 +1023,108 @@ export function CharacterList({
     return parts.join('/');
   };
 
+  const extractQRReplies = (char: CharacterCard) => {
+    const raw = char.data?.data || char.data || {};
+    let replies: any[] = [];
+    let metadata: any = null;
+
+    if (Array.isArray(raw)) {
+      replies = raw;
+    } else if (Array.isArray(raw.qrList)) {
+      replies = raw.qrList;
+      metadata = raw;
+    } else if (Array.isArray(raw.quick_replies)) {
+      replies = raw.quick_replies;
+      metadata = raw;
+    } else if (Array.isArray(raw.tavern_qr_sets)) {
+      replies = raw.tavern_qr_sets.flatMap((s: any) => s.replies || []);
+      metadata = raw;
+    } else if (raw.data) {
+      const inner = raw.data;
+      if (Array.isArray(inner)) {
+        replies = inner;
+      } else if (Array.isArray(inner.qrList)) {
+        replies = inner.qrList;
+        metadata = inner;
+      } else if (Array.isArray(inner.quick_replies)) {
+        replies = inner.quick_replies;
+        metadata = inner;
+      } else if (Array.isArray(inner.tavern_qr_sets)) {
+        replies = inner.tavern_qr_sets.flatMap((s: any) => s.replies || []);
+        metadata = inner;
+      }
+    }
+    return { replies, metadata };
+  };
+
   const checkIsQR = (char: CharacterCard) => {
-    return (char as any).isQR === true;
+    if (!char) return false;
+    if ((char as any).isQR === true) return true;
+    if (getCharacterCategoryPrefix(char) === "快速回复") return true;
+    const data = char.data || {};
+    if (Array.isArray(data)) return data.length > 0 && (data[0].label !== undefined || data[0].message !== undefined);
+    if ((data.quick_replies !== undefined || data.qrList !== undefined) && data.spec !== "chara_card_v2" && data.spec !== "chara_card_v3" && !data.first_mes && !data.personality) {
+      return true;
+    }
+    return false;
+  };
+
+  const handleConfirmDragQRBind = async (options: { deleteOriginal: boolean }) => {
+    if (!pendingDragQRBind) return;
+    const { qrChar, targetChar } = pendingDragQRBind;
+
+    try {
+      const fullQR = (await getCharacter(qrChar.id)) || qrChar;
+      const fullTarget = (await getCharacter(targetChar.id)) || targetChar;
+      if (!fullTarget) return;
+
+      const { replies: newQRs, metadata } = extractQRReplies(fullQR);
+
+      const updatedChar = { ...fullTarget };
+      updatedChar.data = JSON.parse(JSON.stringify(updatedChar.data || {}));
+
+      let updatedData = updatedChar.data.data
+        ? updatedChar.data.data
+        : updatedChar.data;
+
+      const existingSets = Array.isArray(updatedData.extensions?.tavern_qr_sets)
+        ? [...updatedData.extensions.tavern_qr_sets]
+        : [];
+
+      existingSets.push({
+        id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
+        sourceName: fullQR.name,
+        replies: JSON.parse(JSON.stringify(newQRs)),
+        metadata: metadata ? JSON.parse(JSON.stringify(metadata)) : undefined,
+      });
+
+      updatedData.extensions = {
+        ...(updatedData.extensions || {}),
+        tavern_qr_sets: existingSets,
+        quick_replies: existingSets.flatMap((s: any) => s.replies || []),
+        qr_filename: `${fullQR.name}.json`,
+      };
+
+      updatedChar.updatedAt = Date.now();
+      await saveCharacter(updatedChar);
+
+      if (options.deleteOriginal) {
+        await deleteCharacter(fullQR.id);
+      }
+
+      setPendingDragQRBind(null);
+      setSelectionMode(false);
+      setSelectedIds(new Set());
+
+      window.dispatchEvent(new Event("charactersUpdated"));
+      loadData();
+    } catch (e) {
+      console.error("Drag QR Bind failed:", e);
+      alert(
+        "绑定快捷回复失败: " +
+          (e instanceof Error ? e.message : String(e)),
+      );
+    }
   };
 
   const handleBindQR = async (targetCharId: string) => {
@@ -963,21 +1133,11 @@ export function CharacterList({
     if (!qrChar) return;
 
     try {
+      const fullQR = (await getCharacter(qrChar.id)) || qrChar;
       const targetChar = await getCharacter(targetCharId);
       if (!targetChar) return;
 
-      const qrData = qrChar.data || {};
-      let newQRs = [];
-      let metadata = null;
-      if (Array.isArray(qrData)) {
-        newQRs = qrData;
-      } else if (qrData.qrList && Array.isArray(qrData.qrList)) {
-        newQRs = qrData.qrList;
-        metadata = qrData;
-      } else if (qrData.quick_replies && Array.isArray(qrData.quick_replies)) {
-        newQRs = qrData.quick_replies;
-        metadata = qrData;
-      }
+      const { replies: newQRs, metadata } = extractQRReplies(fullQR);
 
       const updatedChar = { ...targetChar };
       // Deep clone data to ensure it is fully writable and clonable by IDB
@@ -991,8 +1151,8 @@ export function CharacterList({
         ? [...updatedData.extensions.tavern_qr_sets]
         : [];
       newSets.push({
-        id: Date.now().toString() + Math.random().toString(),
-        sourceName: qrChar.name,
+        id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
+        sourceName: fullQR.name,
         replies: JSON.parse(JSON.stringify(newQRs)),
         metadata: metadata ? JSON.parse(JSON.stringify(metadata)) : undefined,
       });
@@ -1000,8 +1160,8 @@ export function CharacterList({
       updatedData.extensions = {
         ...(updatedData.extensions || {}),
         tavern_qr_sets: newSets,
-        quick_replies: newSets.flatMap((s: any) => s.replies),
-        qr_filename: `${qrChar.name}.json`,
+        quick_replies: newSets.flatMap((s: any) => s.replies || []),
+        qr_filename: `${fullQR.name}.json`,
       };
 
       setIsBindModalOpen(false);
@@ -1010,6 +1170,7 @@ export function CharacterList({
       await new Promise(r => setTimeout(r, 100));
 
       await saveCharacter(updatedChar);
+      window.dispatchEvent(new Event("charactersUpdated"));
       loadData(); // Refresh the list
     } catch (e) {
       console.error(e);
@@ -1805,7 +1966,7 @@ export function CharacterList({
         type="file"
         ref={coverInputRef}
         className="hidden"
-        accept="image/png, image/jpeg, image/webp, image/gif"
+        accept=".png,.jpg,.jpeg,.webp,.gif,image/*,*/*"
         onChange={handleCoverUpload}
       />
       <motion.header
@@ -2251,56 +2412,131 @@ export function CharacterList({
           >
             <SortableContext
               items={[
-                ...(!searchQuery && selectedTags.length === 0 && page === 1
-                  ? folders.map((f) => `folder-${f.id}`)
+                ...(!searchQuery && selectedTags.length === 0 && page === 1 && isFoldersExpanded
+                  ? visibleFolders.map((f) => `folder-${f.id}`)
                   : []),
                 ...characters.map((c) => `char-${c.id}`),
               ]}
               strategy={rectSortingStrategy}
             >
-              {!searchQuery && selectedTags.length === 0 && page === 1 && (
-                <div
-                  className={
-                    viewMode === "list"
-                      ? "flex flex-col gap-2 mb-2"
-                      : viewMode === "grid"
-                        ? "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4 mb-6"
-                        : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-6"
-                  }
-                >
-                  <motion.div
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setIsCreatingFolder(true)}
-                    className={
-                      viewMode === "list"
-                        ? "flex items-center gap-4 p-3 bg-white/5 hover:bg-white/10 rounded-2xl cursor-pointer transition border border-dashed border-white/20"
-                        : viewMode === "masonry" 
-                          ? "flex flex-col items-center gap-2 cursor-pointer group break-inside-avoid mb-4" 
-                          : "flex flex-col items-center gap-2 cursor-pointer group break-inside-avoid"
-                    }
-                  >
-                    <div
-                      className={
-                        viewMode === "list"
-                          ? "w-12 h-12 bg-white/5 border-2 border-dashed border-white/20 rounded-xl flex items-center justify-center shrink-0"
-                          : "w-full aspect-square bg-white/5 border-2 border-dashed border-white/20 rounded-3xl flex items-center justify-center group-hover:bg-white/10 group-hover:border-white/40 transition"
-                      }
-                    >
-                      <Plus className="w-8 h-8 text-white/40 group-hover:text-white/60 transition" />
+              {!searchQuery && selectedTags.length === 0 && page === 1 && folders.length > 0 && (
+                <div className="mb-6 bg-slate-800/40 border border-white/10 rounded-3xl p-4 sm:p-5 backdrop-blur-md">
+                  {/* Folder Section Header */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                        <FolderIcon className="w-4 h-4" />
+                      </div>
+                      <span className="font-semibold text-white/90 text-sm sm:text-base">
+                        {folderId ? "子文件夹" : "文件夹"}
+                      </span>
+                      <span className="text-xs font-medium bg-white/10 text-white/70 px-2 py-0.5 rounded-full border border-white/10">
+                        {folders.length}
+                      </span>
                     </div>
-                    <span
-                      className={
-                        viewMode === "list"
-                          ? "font-medium text-white/60"
-                          : "text-xs font-medium text-center truncate w-full text-white/60 group-hover:text-white/80"
-                      }
-                    >
-                      新建文件夹
-                    </span>
-                  </motion.div>
 
-                  {folders.map((folder) => {
+                    <div className="flex items-center gap-2">
+                      {totalFolderPages > 1 && isFoldersExpanded && (
+                        <div className="flex items-center bg-white/5 border border-white/10 rounded-xl px-1.5 py-0.5 text-xs text-white/80">
+                          <button
+                            type="button"
+                            onClick={() => setFolderPage((p) => Math.max(1, p - 1))}
+                            disabled={folderPage === 1}
+                            className="p-1 hover:text-white disabled:opacity-30 transition"
+                            title="上一页文件夹"
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="px-1 font-mono text-[11px]">
+                            {folderPage} / {totalFolderPages}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setFolderPage((p) => Math.min(totalFolderPages, p + 1))}
+                            disabled={folderPage === totalFolderPages}
+                            className="p-1 hover:text-white disabled:opacity-30 transition"
+                            title="下一页文件夹"
+                          >
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setIsCreatingFolder(true)}
+                        className="text-xs text-purple-300 hover:text-purple-200 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition font-medium shadow-sm"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        新建
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsFoldersExpanded(!isFoldersExpanded)}
+                        className="text-xs text-white/70 hover:text-white bg-white/5 hover:bg-white/15 border border-white/10 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition font-medium"
+                      >
+                        {isFoldersExpanded ? (
+                          <>
+                            <ChevronUp className="w-3.5 h-3.5" />
+                            收起
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="w-3.5 h-3.5" />
+                            展开
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Folder Grid when expanded */}
+                  {isFoldersExpanded && (
+                    <>
+                      <div
+                        className={
+                          viewMode === "list"
+                            ? "flex flex-col gap-2"
+                            : viewMode === "grid"
+                              ? "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 sm:gap-4"
+                              : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4"
+                        }
+                      >
+                        {folderPage === 1 && (
+                          <motion.div
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => setIsCreatingFolder(true)}
+                            className={
+                              viewMode === "list"
+                                ? "flex items-center gap-4 p-3 bg-white/5 hover:bg-white/10 rounded-2xl cursor-pointer transition border border-dashed border-white/20"
+                                : viewMode === "masonry" 
+                                  ? "flex flex-col items-center gap-2 cursor-pointer group break-inside-avoid mb-4" 
+                                  : "flex flex-col items-center gap-2 cursor-pointer group break-inside-avoid"
+                            }
+                          >
+                            <div
+                              className={
+                                viewMode === "list"
+                                  ? "w-12 h-12 bg-white/5 border-2 border-dashed border-white/20 rounded-xl flex items-center justify-center shrink-0"
+                                  : "w-full aspect-square bg-white/5 border-2 border-dashed border-white/20 rounded-3xl flex items-center justify-center group-hover:bg-white/10 group-hover:border-white/40 transition"
+                              }
+                            >
+                              <Plus className="w-8 h-8 text-white/40 group-hover:text-white/60 transition" />
+                            </div>
+                            <span
+                              className={
+                                viewMode === "list"
+                                  ? "font-medium text-white/60"
+                                  : "text-xs font-medium text-center truncate w-full text-white/60 group-hover:text-white/80"
+                              }
+                            >
+                              新建文件夹
+                            </span>
+                          </motion.div>
+                        )}
+
+                                                                  {visibleFolders.map((folder) => {
                     const previews = folderPreviews[folder.id] || [];
                     return (
                       <SortableItemWrapper
@@ -2420,9 +2656,83 @@ export function CharacterList({
                       </SortableItemWrapper>
                     );
                   })}
+                      </div>
+
+                      {/* Folder Bottom Pagination Bar */}
+                      {totalFolderPages > 1 && (
+                        <div className="flex justify-center mt-6">
+                          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl p-1.5 backdrop-blur-md text-sm">
+                            <button
+                              type="button"
+                              onClick={() => setFolderPage((p) => Math.max(1, p - 1))}
+                              disabled={folderPage === 1}
+                              className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition text-white"
+                              title="上一页文件夹"
+                            >
+                              <ChevronLeft className="w-5 h-5" />
+                            </button>
+
+                            <div className="flex items-center gap-1 text-white/70 px-2 font-medium">
+                              <input
+                                type="text"
+                                value={folderPageInputValue}
+                                onChange={(e) => setFolderPageInputValue(e.target.value)}
+                                onBlur={() => {
+                                  const val = parseInt(folderPageInputValue);
+                                  if (!isNaN(val) && val >= 1 && val <= totalFolderPages) {
+                                    setFolderPage(val);
+                                  } else {
+                                    setFolderPageInputValue(folderPage.toString());
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.currentTarget.blur();
+                                  }
+                                }}
+                                className="w-10 bg-black/20 border border-white/10 rounded-lg px-1 py-1 text-center text-white font-medium focus:outline-none focus:border-purple-500 transition"
+                              />
+                              <span>/ {totalFolderPages} 页</span>
+                              <div className="w-px h-4 bg-white/10 mx-1" />
+                              <select
+                                value={folderPageSize}
+                                onChange={(e) => {
+                                  setFolderPageSize(Number(e.target.value));
+                                  setFolderPage(1);
+                                }}
+                                className="bg-transparent border-none text-white font-medium focus:outline-none cursor-pointer py-1"
+                              >
+                                <option value={50} className="bg-slate-800">
+                                  50/页
+                                </option>
+                                <option value={100} className="bg-slate-800">
+                                  100/页
+                                </option>
+                                <option value={250} className="bg-slate-800">
+                                  250/页
+                                </option>
+                                <option value={500} className="bg-slate-800">
+                                  500/页
+                                </option>
+                              </select>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => setFolderPage((p) => Math.min(totalFolderPages, p + 1))}
+                              disabled={folderPage === totalFolderPages}
+                              className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition text-white"
+                              title="下一页文件夹"
+                            >
+                              <ChevronRight className="w-5 h-5" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
-
               {viewMode === "masonry" ? (
                 <Masonry
                   breakpointCols={{ default: 5, 1024: 4, 768: 3, 640: 2 }}
@@ -2578,6 +2888,14 @@ export function CharacterList({
         qrChar={
           characters.find((c) => c.id === Array.from(selectedIds)[0]) || null
         }
+      />
+
+      <DragQRBindModal
+        isOpen={!!pendingDragQRBind}
+        onClose={() => setPendingDragQRBind(null)}
+        qrChar={pendingDragQRBind?.qrChar || null}
+        targetChar={pendingDragQRBind?.targetChar || null}
+        onConfirm={handleConfirmDragQRBind}
       />
 
       <AnimatePresence>

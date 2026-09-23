@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
-import { X, Upload, Check, Trash2, Download, Share2 } from 'lucide-react';
+import { X, Upload, Check, Trash2, Download, Share2, FolderOpen, Image as ImageIcon } from 'lucide-react';
 import { CharacterCard, saveCharacter, resolveFolderPath } from '../lib/db';
 import { isAndroid, getLocalImageUrl, getDownloadTooltip } from '../lib/appBridge';
 
@@ -19,6 +19,7 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
   const [historyUrls, setHistoryUrls] = useState<{ blob: Blob, url: string }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
@@ -112,6 +113,8 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
   };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (galleryInputRef.current) galleryInputRef.current.value = "";
     const file = e.target.files?.[0];
     if (!file) return;
     setIsProcessing(true);
@@ -435,18 +438,38 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
       <div className="bg-slate-900 rounded-t-3xl p-6 pb-8 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-white/80 font-medium">历史头像</h3>
-          <button 
-            onClick={() => fileInputRef.current?.click()}
-            className="text-purple-400 text-sm font-medium flex items-center gap-1 hover:text-purple-300 transition"
-          >
-            <Upload className="w-4 h-4" />
-            上传新头像
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="text-indigo-300 hover:text-indigo-200 bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/30 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition shadow-sm"
+              title="从文件管理器/MT管理器选择图片"
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              文件/MT选图
+            </button>
+            <button 
+              type="button"
+              onClick={() => galleryInputRef.current?.click()}
+              className="text-purple-300 hover:text-purple-200 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition shadow-sm"
+              title="从系统相册/图库选择图片"
+            >
+              <ImageIcon className="w-3.5 h-3.5" />
+              相册选图
+            </button>
+          </div>
           <input 
             type="file" 
             ref={fileInputRef} 
             className="hidden" 
-            accept="image/png, image/jpeg, image/webp" 
+            accept=".png,.jpg,.jpeg,.webp,.gif,image/*,*/*" 
+            onChange={handleUpload}
+          />
+          <input 
+            type="file" 
+            ref={galleryInputRef} 
+            className="hidden" 
+            accept="image/png, image/jpeg, image/webp, image/*" 
             onChange={handleUpload}
           />
         </div>

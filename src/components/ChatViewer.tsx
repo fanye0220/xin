@@ -2043,7 +2043,7 @@ export function ChatViewer({
                       type="file"
                       ref={userAvatarInputRef}
                       onChange={handleUserAvatarUpload}
-                      accept="image/png, image/jpeg, image/webp, image/gif"
+                      accept=".png,.jpg,.jpeg,.webp,.gif,image/*,*/*"
                       className="hidden"
                     />
                   </div>
