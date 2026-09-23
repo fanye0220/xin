@@ -1270,9 +1270,24 @@ export function getCharacterBlob(id: string): Promise<any> {
 export async function getCharacterThumb(id: string): Promise<Blob | null> {
   const db = await initDB();
   const blobs = await db.get("blobs", id);
-  if (!blobs) return null;
-  if (blobs.thumbBlob) return blobs.thumbBlob;
-  if (!blobs.avatarBlob) return null;
+  if (blobs?.thumbBlob) return blobs.thumbBlob;
+  let avatarBlob = blobs?.avatarBlob;
+  if (!avatarBlob) {
+    const char = await db.get("characters", id);
+    if (char?.localFilePath && isAndroid()) {
+      try {
+        const { readLocalFileBuffer } = await import("./appBridge");
+        const buffer = await readLocalFileBuffer(char.localFilePath);
+        if (buffer) {
+          let ext = "image/png";
+          if (char.localFilePath.endsWith(".jpg") || char.localFilePath.endsWith(".jpeg")) ext = "image/jpeg";
+          else if (char.localFilePath.endsWith(".webp")) ext = "image/webp";
+          avatarBlob = new Blob([buffer], { type: ext });
+        }
+      } catch (e) {}
+    }
+  }
+  if (!avatarBlob) return null;
 
   const { generateThumbnail } = await import("./avatar");
   let thumb: Blob;
@@ -1286,10 +1301,8 @@ export async function getCharacterThumb(id: string): Promise<Blob | null> {
   try {
     const tx = db.transaction("blobs", "readwrite");
     const store = tx.objectStore("blobs");
-    const current = await store.get(id);
-    if (current) {
-      await store.put({ ...current, thumbBlob: thumb }, id);
-    }
+    const current = (await store.get(id)) || {};
+    await store.put({ ...current, thumbBlob: thumb }, id);
     await tx.done;
   } catch (e) {
     console.warn("Failed to persist generated thumbnail:", e);
@@ -1465,6 +1478,9 @@ export async function saveCharacters(
 
   await tx2.done;
   invalidateCache();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("charactersUpdated"));
+  }
 
   // 2.5) Link orphaned chats to these characters if names match.
   // 换头像/换封面这类只动图片不动角色信息的保存, 不需要扫全部孤儿聊天。
@@ -1552,6 +1568,7 @@ export async function saveCharacters(
               (freshChar as any)._androidSyncPath = syncPaths[0];
             }
             await dbRef.put("characters", freshChar);
+            await dbRef.put("char_meta", buildCharMeta(freshChar));
             character.localFilePath = freshChar.localFilePath;
           }
         }
@@ -1563,6 +1580,10 @@ export async function saveCharacters(
         for (const p of cleanupAndroidPaths) {
           await deleteLocalGalleryFile(p);
         }
+      }
+      invalidateCache();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("charactersUpdated"));
       }
       });
       // 只有调用方传入了进度回调(比如导入流程)才等这个后台任务跑完 ——
@@ -1629,6 +1650,10 @@ export async function updateCharacterCover(
     }
   }
   tagsCache = null;
+  invalidateCache();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("charactersUpdated"));
+  }
 }
 
 export async function updateCharacterSortOrder(

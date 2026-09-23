@@ -49,7 +49,7 @@ import {
 } from "../lib/db";
 import { useInView } from "../lib/useInView";
 import { useContinuousInView } from "../lib/useContinuousInView";
-import { peekCachedUrl, putCachedBlobUrl } from "../lib/thumbCache";
+import { peekCachedUrl, putCachedBlobUrl, putCachedStaticUrl } from "../lib/thumbCache";
 import { MoveToFolderModal } from "./MoveToFolderModal";
 import { BindQRModal } from "./BindQRModal";
 import JSZip from "jszip";
@@ -2976,6 +2976,20 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
         getCharacterThumb(char.id).then((thumbBlob) => {
           if (thumbBlob && isMounted) {
             setUrl(putCachedBlobUrl(thumbCacheKey, thumbBlob));
+          } else if (
+            isMounted &&
+            char.localFilePath &&
+            char.localFilePath.match(/\.(png|jpe?g|webp|gif|bmp)$/i)
+          ) {
+            import("../lib/appBridge").then(({ getLocalImageUrl }) => {
+              if (isMounted) {
+                const localUrl = getLocalImageUrl(
+                  char.localFilePath!,
+                  char.updatedAt || char.createdAt,
+                );
+                if (localUrl) setUrl(putCachedStaticUrl(thumbCacheKey, localUrl));
+              }
+            });
           }
         });
       }
@@ -3152,7 +3166,13 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
             return;
           }
           if (char.avatarBlob) setUrlWithFallbackCleanup(URL.createObjectURL(char.avatarBlob), true);
-          else if (char.hasBlobsSeparated) {
+          else if (char.localFilePath && char.localFilePath.match(/\.(png|jpe?g|webp|gif|bmp)$/i)) {
+            import("../lib/appBridge").then(({ getLocalImageUrl }) => {
+              const localUrl = getLocalImageUrl(char.localFilePath!, char.updatedAt || char.createdAt);
+              if (localUrl) setUrl(localUrl);
+              else setUrl(defaultFallback);
+            });
+          } else if (char.hasBlobsSeparated) {
             getCharacterBlob(char.id).then((b) => {
               if (b && b.avatarBlob) setUrlWithFallbackCleanup(URL.createObjectURL(b.avatarBlob), true);
               else setUrl(defaultFallback);

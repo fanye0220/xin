@@ -1282,13 +1282,16 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
           onClose={() => setShowAvatarViewer(false)}
           onUpdate={(updatedCharacter) => {
             setCharacter(updatedCharacter);
-            if (updatedCharacter.localFilePath) {
+            if (updatedCharacter.avatarBlob) {
+              const url = URL.createObjectURL(updatedCharacter.avatarBlob);
+              setAvatarUrl(url);
+            } else if (updatedCharacter.localFilePath) {
               import('../lib/appBridge').then(({ getLocalImageUrl }) => {
                 setAvatarUrl(getLocalImageUrl(updatedCharacter.localFilePath!, updatedCharacter.updatedAt || updatedCharacter.createdAt));
               });
-            } else if (updatedCharacter.avatarBlob) {
-              const url = URL.createObjectURL(updatedCharacter.avatarBlob);
-              setAvatarUrl(url);
+            }
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('charactersUpdated'));
             }
           }}
         />

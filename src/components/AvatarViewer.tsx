@@ -196,7 +196,11 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
     delete updatedCharacter.localFilePath;
     await saveCharacter(updatedCharacter);
     onUpdate(updatedCharacter);
+    setPreviewBlob(null);
     setIsProcessing(false);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("charactersUpdated"));
+    }
   };
 
   const handleSelectHistory = (blob: Blob) => {
@@ -271,8 +275,11 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
     delete updatedCharacter.localFilePath;
     await saveCharacter(updatedCharacter);
     onUpdate(updatedCharacter);
-    setPreviewBlob(null); // Reset preview so it matches current
+    setPreviewBlob(null);
     setIsProcessing(false);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("charactersUpdated"));
+    }
   };
 
   const handleDeleteHistory = async (e: React.MouseEvent, blobToDelete: Blob) => {

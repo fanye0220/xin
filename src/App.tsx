@@ -165,7 +165,7 @@ export default function App() {
   }, []);
   const handleCloseCharacterDetail = useCallback(() => {
     setSelectedCharId(null);
-    setTimeout(() => setRefreshKey(prev => prev + 1), 400);
+    setRefreshKey(prev => prev + 1);
   }, []);
   useEffect(() => {
     const handleTriggerImport = (e: any) => {
@@ -232,7 +232,9 @@ export default function App() {
       } else if (state.globalChatViewerId) {
         setGlobalChatViewerId(null); closedSomething = true;
       } else if (state.selectedCharId) {
-        setSelectedCharId(null); closedSomething = true;
+        setSelectedCharId(null);
+        setRefreshKey(prev => prev + 1);
+        closedSomething = true;
       } else if (state.isSidebarOpen) {
         setIsSidebarOpen(false); closedSomething = true;
       } else if (state.selectedFolderId) {
@@ -310,7 +312,9 @@ export default function App() {
             } else if (state.globalChatViewerId) {
               setGlobalChatViewerId(null); closedSomething = true;
             } else if (state.selectedCharId) {
-              setSelectedCharId(null); closedSomething = true;
+        setSelectedCharId(null);
+        setRefreshKey(prev => prev + 1);
+        closedSomething = true;
             } else if (state.isSidebarOpen) {
               setIsSidebarOpen(false); closedSomething = true;
             } else if (state.selectedFolderId) {
