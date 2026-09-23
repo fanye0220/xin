@@ -79,7 +79,7 @@ export function CloudSyncTab() {
     if (!token) return;
     setDownloadingId(fileId);
     try {
-        const { jsonData, avatarBlob, studioMeta, avatarHistory } = await downloadCloudCharacter(token, fileId, fileName, (msg) => console.log(msg));
+        const { jsonData, avatarBlob, studioMeta, avatarHistory, chats } = await downloadCloudCharacter(token, fileId, fileName, (msg) => console.log(msg));
         const existingChars = await getCachedMeta();
         const extractedName =
           appProperties?.charName ||
@@ -95,10 +95,32 @@ export function CloudSyncTab() {
         let folderId: string | undefined = undefined;
         let createTime = Date.now();
         
+        const historyList: Blob[] = avatarHistory ? [...avatarHistory] : [];
+        if (avatarBlob) {
+            const hasAvatar = historyList.some(b => b.size === avatarBlob.size && b.type === avatarBlob.type);
+            if (!hasAvatar) {
+                historyList.unshift(avatarBlob);
+            }
+        }
+
         if (existing) {
             targetId = existing.id;
             folderId = existing.folderId;
             createTime = existing.createdAt || Date.now();
+            try {
+                const { getCharacterBlob } = await import('../lib/db');
+                const existingBlobs = await getCharacterBlob(existing.id);
+                if (existingBlobs?.avatarHistory) {
+                    for (const eb of existingBlobs.avatarHistory) {
+                        if (!historyList.some(b => b.size === eb.size && b.type === eb.type)) {
+                            historyList.push(eb);
+                        }
+                    }
+                }
+                if (existingBlobs?.avatarBlob && !historyList.some(b => b.size === existingBlobs.avatarBlob.size && b.type === existingBlobs.avatarBlob.type)) {
+                    historyList.push(existingBlobs.avatarBlob);
+                }
+            } catch(e) {}
         }
         
         let mergedMeta = { ...studioMeta, ...appProperties };
@@ -168,7 +190,7 @@ export function CloudSyncTab() {
             data: jsonData,
             createdAt: createTime,
             folderId,
-            avatarHistory: avatarHistory || [],
+            avatarHistory: historyList,
             avatarUrlFallback: avatarBlob ? undefined : getFallbackAvatar(extractedName, cardCategory !== '未归类' ? cardCategory : (mergedMeta as any)?.cardType)
         };
         
@@ -177,40 +199,29 @@ export function CloudSyncTab() {
         }
         
         await saveCharacter(charToSave);
-        window.dispatchEvent(new CustomEvent('charactersUpdated'));
 
-        try {
-          const safeName = (charToSave.name || "Character").replace(/[\/:*?"<>|]/g, "_");
-          let exportBuffer = null;
-          let exportMime = "application/json";
-          let exportFileName = `${safeName}.json`;
-
-          if (avatarBlob) {
-            try {
-              const { injectTavernData } = await import("../lib/png");
-              const rawBuffer = await avatarBlob.arrayBuffer();
-              exportBuffer = injectTavernData(rawBuffer, jsonData);
-              exportMime = "image/png";
-              exportFileName = `${safeName}.png`;
-            } catch (pngErr) {
-              console.error("Failed to inject PNG in cloud download", pngErr);
-            }
-          }
-
-          if (!exportBuffer) {
-            exportBuffer = new TextEncoder().encode(JSON.stringify(jsonData, null, 2)).buffer;
-          }
-
-          const result = await downloadOrShareFile(exportFileName, exportBuffer, exportMime, true);
-          if (result && result.path) {
-            alert(`「${charToSave.name}」下载成功！\n文件已存至：${result.path.split("Download/")[1] || result.path}\n已为你拉起系统分享面板与MT管理器定位！`);
-          } else {
-            alert(`「${charToSave.name}」已成功下载至本地！`);
-          }
-        } catch (exportErr) {
-          console.error("Failed to export downloaded cloud char", exportErr);
-          alert(`「${charToSave.name}」已成功下载至本地！`);
+        // 如果云端包内捆绑了聊天记录，一并安全恢复到本地
+        if (chats && chats.length > 0) {
+           try {
+               const { saveChat } = await import('../lib/db');
+               for (const chat of chats) {
+                   await saveChat({
+                       ...chat,
+                       characterId: targetId
+                   });
+               }
+           } catch(e) {
+               console.warn("Failed to restore bundled chats", e);
+           }
         }
+
+        import('../lib/thumbCache').then(({ evictCharacterThumb }) => {
+            evictCharacterThumb(targetId);
+        }).catch(() => {});
+        window.dispatchEvent(new CustomEvent('charactersUpdated'));
+        window.dispatchEvent(new CustomEvent('chatsUpdated'));
+
+        alert(`「${charToSave.name}」下载成功！`);
     } catch (err: any) {
         alert("下载失败: " + err.message);
     } finally {
@@ -248,19 +259,7 @@ export function CloudSyncTab() {
       window.dispatchEvent(new CustomEvent('charactersUpdated'));
       window.dispatchEvent(new CustomEvent('chatsUpdated'));
 
-      try {
-        const safeChatFileName = `${chatName.replace(/[\/:*?"<>|]/g, "_")}.jsonl`;
-        const bytes = new TextEncoder().encode(text);
-        const result = await downloadOrShareFile(safeChatFileName, bytes.buffer, "application/jsonl", true);
-        if (result && result.path) {
-          alert(`聊天记录「${chatName}」下载成功！\n文件已存至：${result.path.split("Download/")[1] || result.path}\n已为你拉起系统分享面板与MT管理器定位！`);
-        } else {
-          alert(`聊天记录「${chatName}」已下载至本地！`);
-        }
-      } catch (exportErr) {
-        console.error("Failed to export downloaded cloud chat", exportErr);
-        alert(`聊天记录「${chatName}」已下载至本地！`);
-      }
+      alert(`聊天记录「${chatName}」下载成功！`);
     } catch (err: any) {
       alert("下载聊天记录失败: " + err.message);
     } finally {
@@ -553,11 +552,11 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
           
           <div className="space-y-3">
             
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="flex flex-col gap-2.5">
               <button
                 onClick={handleOneClickCloudSync}
                 disabled={oneClickProgress !== null || syncFolderProgress !== null}
-                className="py-3 px-2.5 sm:px-4 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-medium text-xs sm:text-sm flex justify-center items-center gap-1.5 transition disabled:opacity-50 shadow-sm active:scale-[0.99] min-h-[44px]"
+                className="w-full py-3 px-4 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-medium text-xs sm:text-sm flex justify-center items-center gap-1.5 transition disabled:opacity-50 shadow-sm active:scale-[0.99] min-h-[44px]"
                 title="全量上传本地卡片并同步文件夹结构"
               >
                 {oneClickProgress ? (
@@ -568,7 +567,7 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                 ) : (
                   <>
                     <Upload className="w-4 h-4 shrink-0" />
-                    <span>全量同步</span>
+                    <span>全量同步（上传本地所有卡片）</span>
                   </>
                 )}
               </button>
@@ -576,7 +575,7 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
               <button
                 onClick={handleSyncFolderStructure}
                 disabled={syncFolderProgress !== null || oneClickProgress !== null}
-                className="py-3 px-2.5 sm:px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/90 text-xs sm:text-sm font-medium flex justify-center items-center gap-1.5 transition disabled:opacity-50 active:scale-[0.99] min-h-[44px]"
+                className="w-full py-3 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/90 text-xs sm:text-sm font-medium flex justify-center items-center gap-1.5 transition disabled:opacity-50 active:scale-[0.99] min-h-[44px]"
                 title="仅整理对齐云端卡片的文件夹分类，不重复上传文件（秒级完成）"
               >
                 {syncFolderProgress ? (
@@ -587,7 +586,7 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                 ) : (
                   <>
                     <FolderSync className="w-4 h-4 text-blue-400 shrink-0" />
-                    <span>对齐分类</span>
+                    <span>对齐分类与目录（仅整理云端目录，秒级）</span>
                   </>
                 )}
               </button>

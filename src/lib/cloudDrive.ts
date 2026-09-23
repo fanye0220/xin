@@ -1067,6 +1067,7 @@ export async function downloadCloudCharacter(token: string, fileId: string, file
   let avatarBlob: Blob | null = null;
   let studioMeta: any = null;
   let avatarHistory: Blob[] = [];
+  let chats: any[] = [];
   
   
   const fName = (fileName || "").toLowerCase();
@@ -1078,6 +1079,7 @@ export async function downloadCloudCharacter(token: string, fileId: string, file
      let zipAvatar: Blob | null = null;
      let zipMeta: any = null;
      let zipAvatarHistory: Blob[] = [];
+     let zipChats: any[] = [];
      for (const [filename, file] of Object.entries(zip.files)) {
        if (file.dir) continue;
        const lowerName = filename.toLowerCase();
@@ -1120,6 +1122,17 @@ export async function downloadCloudCharacter(token: string, fileId: string, file
          zipAvatar = new Blob([b], { type: mime });
        } else if (
          lowerName.endsWith('.json') &&
+         (lowerName.startsWith('chat_') || lowerName.includes('/chat_'))
+       ) {
+         try {
+           const text = await file.async('text');
+           const chatObj = JSON.parse(text);
+           if (chatObj && (chatObj.messages || chatObj.firstAiName || chatObj.id)) {
+             zipChats.push(chatObj);
+           }
+         } catch(e) {}
+       } else if (
+         lowerName.endsWith('.json') &&
          !lowerName.startsWith('chat_') &&
          !lowerName.includes('/chat_') &&
          !lowerName.endsWith('_qr.json') &&
@@ -1160,7 +1173,17 @@ export async function downloadCloudCharacter(token: string, fileId: string, file
          return String(a._filename).localeCompare(String(b._filename));
      });
      
-     return { jsonData: zipJson, avatarBlob: zipAvatar, studioMeta: zipMeta, avatarHistory: zipAvatarHistory };
+     // 确保主头像也保存在头像列表中，防止更换后丢失
+     if (zipAvatar) {
+       const hasZipAvatar = zipAvatarHistory.some(
+         b => b.size === zipAvatar!.size && b.type === zipAvatar!.type
+       );
+       if (!hasZipAvatar) {
+         zipAvatarHistory.unshift(zipAvatar);
+       }
+     }
+     
+     return { jsonData: zipJson, avatarBlob: zipAvatar, studioMeta: zipMeta, avatarHistory: zipAvatarHistory, chats: zipChats };
   };
 
   if (fName.endsWith('.zip')) {
@@ -1170,6 +1193,7 @@ export async function downloadCloudCharacter(token: string, fileId: string, file
      avatarBlob = res.avatarBlob;
      studioMeta = res.studioMeta;
      if (res.avatarHistory) avatarHistory = res.avatarHistory;
+     if (res.chats) chats = res.chats;
   } else if (fName.endsWith('.json')) {
      const text = await blob.text();
      jsonData = JSON.parse(text);
@@ -1277,8 +1301,15 @@ export async function downloadCloudCharacter(token: string, fileId: string, file
     } catch (e) {}
   }
 
+  if (avatarBlob) {
+    const exists = avatarHistory.some(b => b.size === avatarBlob!.size && b.type === avatarBlob!.type);
+    if (!exists) {
+      avatarHistory = [avatarBlob, ...avatarHistory];
+    }
+  }
+
   if (!jsonData) throw new Error("无效的云端卡片格式或未找到卡片数据");
-  return { jsonData, avatarBlob, studioMeta, avatarHistory };
+  return { jsonData, avatarBlob, studioMeta, avatarHistory, chats };
 }
 export async function syncLibraryToCloud(token: string, onProgress?: (msg: string) => void) {
   if (onProgress) onProgress('准备同步到云端卡库...');

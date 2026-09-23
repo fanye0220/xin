@@ -1478,6 +1478,13 @@ export async function saveCharacters(
 
   await tx2.done;
   invalidateCache();
+  for (const character of characters) {
+    if ((character as any)._isExplicitAvatarUpdate) {
+      import("./thumbCache").then(({ evictCharacterThumb }) => {
+        evictCharacterThumb(character.id);
+      }).catch(() => {});
+    }
+  }
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("charactersUpdated"));
   }
