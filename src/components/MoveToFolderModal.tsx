@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Folder as FolderIcon, X } from 'lucide-react';
 import { getFolders, Folder } from '../lib/db';
+import { useBackHandler } from '../lib/useBackHandler';
 
 interface Props {
   isOpen: boolean;
@@ -11,6 +12,11 @@ interface Props {
 
 export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
   const [folders, setFolders] = useState<Folder[]>([]);
+
+  useBackHandler(isOpen, () => {
+    onClose();
+    return true;
+  });
 
   useEffect(() => {
     if (isOpen) {
@@ -47,6 +53,8 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
         exit={{ opacity: 0 }}
         className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
         onClick={onClose}
+        onTouchStart={(e) => e.stopPropagation()}
+        onTouchEnd={(e) => e.stopPropagation()}
       >
         <motion.div
           initial={{ scale: 0.95, y: 20 }}

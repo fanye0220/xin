@@ -372,7 +372,14 @@ export function CharacterList({
     targetChar: CharacterCard;
   } | null>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
-  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const touchStartRef = useRef<{
+    x: number;
+    y: number;
+    time: number;
+    isEdge: boolean;
+  } | null>(null);
+  const isDraggingRef = useRef(false);
+  const lastDragEndTimeRef = useRef(0);
 
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
@@ -650,27 +657,44 @@ export function CharacterList({
     onSelectFolder?.(current?.parentId || null);
   };
   const handleRootTouchStart = (e: React.TouchEvent) => {
+    // 拖拽中或弹窗打开时，不记录手势起点
+    if (isDraggingRef.current || pendingQRBinding || isBindModalOpen || isMoveModalOpen) return;
     const touch = e.touches[0];
     if (touch) {
+      // 只有屏幕极左侧（<= 25px）的边缘手势才记录，绝不将卡片区域的触摸误判为边缘手势
       touchStartRef.current = {
         x: touch.clientX,
         y: touch.clientY,
         time: Date.now(),
+        isEdge: touch.clientX <= 25,
       };
     }
   };
 
   const handleRootTouchEnd = (e: React.TouchEvent) => {
     const start = touchStartRef.current;
+    touchStartRef.current = null;
     const touch = e.changedTouches[0];
     if (!start || !touch) return;
-    touchStartRef.current = null;
 
+    // 刚结束拖拽（500ms内）或处于多选/弹窗/拖拽中状态时，严禁触发手势返回
+    if (
+      isDraggingRef.current ||
+      Date.now() - lastDragEndTimeRef.current < 500 ||
+      selectionMode ||
+      pendingQRBinding ||
+      isBindModalOpen ||
+      isMoveModalOpen
+    ) {
+      return;
+    }
+
+    const elapsed = Date.now() - start.time;
     const dx = touch.clientX - start.x;
     const dy = touch.clientY - start.y;
 
-    // 进入子文件夹后, 从屏幕左边缘向右轻扫即可返回上一级。
-    if (!selectionMode && folderId && dx > 90 && start.x < 80 && Math.abs(dy) < 70) {
+    // 只有起始于真实屏幕左边缘(isEdge)、快速轻扫(<=350ms)、水平移动明显且垂直偏角较小时才返回上一级
+    if (folderId && start.isEdge && elapsed <= 350 && dx > 70 && Math.abs(dy) < 50) {
       handleBack();
     }
   };
@@ -2472,25 +2496,19 @@ export function CharacterList({
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragStart={(event) => {
+              isDraggingRef.current = true;
               const idStr = String(event.active.id);
               setActiveDragId(idStr);
-              if (!selectionMode) {
-                setSelectionMode(true);
-                setIsHeaderVisible(true);
-                if (idStr.startsWith("char-")) {
-                  const id = idStr.replace("char-", "");
-                  setSelectedIds(new Set([id]));
-                } else if (idStr.startsWith("folder-")) {
-                  const id = idStr.replace("folder-", "");
-                  setSelectedIds(new Set([id]));
-                }
-              }
             }}
             onDragEnd={(event) => {
+              isDraggingRef.current = false;
+              lastDragEndTimeRef.current = Date.now();
               setActiveDragId(null);
               handleDragEnd(event);
             }}
             onDragCancel={() => {
+              isDraggingRef.current = false;
+              lastDragEndTimeRef.current = Date.now();
               setActiveDragId(null);
             }}
           >

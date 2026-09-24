@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Link as LinkIcon, ArrowRight, Sparkles, Check, Trash2 } from "lucide-react";
 import { CharacterCard, getCharacterBlob } from "../lib/db";
 import { getFallbackAvatar, resolveAvatarUrl } from "../lib/avatar";
+import { useBackHandler } from "../lib/useBackHandler";
 
 interface Props {
   isOpen: boolean;
@@ -98,6 +99,11 @@ export function ConfirmBindQRModal({
 }: Props) {
   const [deleteSource, setDeleteSource] = useState(true);
 
+  useBackHandler(isOpen, () => {
+    onClose();
+    return true;
+  });
+
   useEffect(() => {
     if (isOpen) {
       setDeleteSource(true);
@@ -108,7 +114,11 @@ export function ConfirmBindQRModal({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <div 
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+        onTouchStart={(e) => e.stopPropagation()}
+        onTouchEnd={(e) => e.stopPropagation()}
+      >
         <motion.div
           initial={{ opacity: 0, scale: 0.92, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}

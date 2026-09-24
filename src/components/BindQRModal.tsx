@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search } from 'lucide-react';
 import { CharacterCard } from '../lib/db';
+import { useBackHandler } from '../lib/useBackHandler';
 
 interface Props {
   isOpen: boolean;
@@ -61,6 +62,11 @@ function CharacterOption({ char, onClick }: { char: CharacterCard, onClick: () =
 export function BindQRModal({ isOpen, onClose, onBind, characters, qrChar }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
 
+  useBackHandler(isOpen, () => {
+    onClose();
+    return true;
+  });
+
   const validCharacters = useMemo(() => {
     return characters.filter(c => {
       if (c.id === qrChar?.id) return false;
@@ -79,7 +85,11 @@ export function BindQRModal({ isOpen, onClose, onBind, characters, qrChar }: Pro
   if (!isOpen || !qrChar) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div 
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      onTouchStart={(e) => e.stopPropagation()}
+      onTouchEnd={(e) => e.stopPropagation()}
+    >
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
