@@ -540,9 +540,14 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                               {(targetData.character_book?.entries?.length > 0) && <span>世界书: {targetData.character_book.entries.length}项</span>}
                             </p>
                             <div className="flex flex-wrap gap-1.5 mt-2">
-                              <span className="text-[10px] px-2 py-0.5 bg-purple-500/15 text-purple-300 border border-purple-500/20 rounded-md flex items-center gap-1 shrink-0 font-medium">
-                                <Folder className="w-3 h-3 text-purple-400" />
-                                {folderPathMap[char.id] || (char.folderId ? "分类文件夹" : "主页 (未分类)")}
+                              <span
+                                className="text-[10px] px-2 py-0.5 bg-purple-500/15 text-purple-300 border border-purple-500/20 rounded-md inline-flex items-center gap-1 max-w-full font-medium"
+                                title={folderPathMap[char.id] || (char.folderId ? "分类文件夹" : "主页 (未分类)")}
+                              >
+                                <Folder className="w-3 h-3 text-purple-400 shrink-0" />
+                                <span className="truncate">
+                                  {folderPathMap[char.id] || (char.folderId ? "分类文件夹" : "主页 (未分类)")}
+                                </span>
                               </span>
                               <span className="text-[10px] px-2 py-0.5 bg-orange-500/20 text-orange-300 rounded-md font-bold shrink-0">
                                 {reason}
