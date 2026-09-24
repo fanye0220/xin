@@ -1861,6 +1861,10 @@ export async function deleteCharactersBulk(
     totalProcessed += toHardDelete.length;
     onProgress?.(totalProcessed, totalItems, "彻底删除角色...");
   }
+  invalidateCache();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("charactersUpdated"));
+  }
 }
 
 export async function deleteCharacter(id: string): Promise<void> {
@@ -1926,6 +1930,10 @@ export async function deleteCharacter(id: string): Promise<void> {
         }).catch(() => {});
       }
     }
+  }
+  invalidateCache();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("charactersUpdated"));
   }
 }
 
@@ -1998,6 +2006,10 @@ export async function restoreCharacter(id: string): Promise<void> {
         },
       );
     }
+  }
+  invalidateCache();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("charactersUpdated"));
   }
 }
 

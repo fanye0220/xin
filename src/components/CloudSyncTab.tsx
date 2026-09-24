@@ -530,13 +530,13 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
       <div className="flex bg-black/20 p-1 rounded-xl mb-6">
         <button
           onClick={() => setActiveTab('backup')}
-          className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition ${activeTab === 'backup' ? 'bg-white/10 text-white shadow-sm' : 'text-white/50 hover:text-white/80 hover:bg-white/5'}`}
+          className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition ${activeTab === 'backup' ? 'bg-white/10 text-white shadow-sm' : 'text-white/50 hover:text-white/80 hover:bg-white/5'}`}
         >
           完整备份库
         </button>
         <button
           onClick={() => setActiveTab('cloud_drive')}
-          className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition ${activeTab === 'cloud_drive' ? 'bg-white/10 text-white shadow-sm' : 'text-white/50 hover:text-white/80 hover:bg-white/5'}`}
+          className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition ${activeTab === 'cloud_drive' ? 'bg-white/10 text-white shadow-sm' : 'text-white/50 hover:text-white/80 hover:bg-white/5'}`}
         >
           云端卡库
         </button>
@@ -547,17 +547,17 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
           
           <div className="space-y-3">
             
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="flex flex-col gap-2.5">
               <button
                 onClick={handleOneClickCloudSync}
                 disabled={oneClickProgress !== null || syncFolderProgress !== null}
-                className="py-3 px-2.5 sm:px-4 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-medium text-xs sm:text-sm flex justify-center items-center gap-1.5 transition disabled:opacity-50 shadow-sm active:scale-[0.99] min-h-[44px]"
+                className="w-full py-3 px-4 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-medium text-xs sm:text-sm flex justify-center items-center gap-2 transition disabled:opacity-50 shadow-sm active:scale-[0.99] min-h-[44px]"
                 title="全量上传本地卡片并同步文件夹结构"
               >
                 {oneClickProgress ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                    <span className="truncate text-xs">同步中 {oneClickProgress.current}/{oneClickProgress.total}</span>
+                    <span className="truncate text-xs sm:text-sm">同步中 {oneClickProgress.current}/{oneClickProgress.total}</span>
                   </>
                 ) : (
                   <>
@@ -570,13 +570,13 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
               <button
                 onClick={handleSyncFolderStructure}
                 disabled={syncFolderProgress !== null || oneClickProgress !== null}
-                className="py-3 px-2.5 sm:px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/90 text-xs sm:text-sm font-medium flex justify-center items-center gap-1.5 transition disabled:opacity-50 active:scale-[0.99] min-h-[44px]"
+                className="w-full py-3 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/90 text-xs sm:text-sm font-medium flex justify-center items-center gap-2 transition disabled:opacity-50 active:scale-[0.99] min-h-[44px]"
                 title="仅整理对齐云端卡片的文件夹分类，不重复上传文件（秒级完成）"
               >
                 {syncFolderProgress ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin text-blue-400 shrink-0" />
-                    <span className="truncate text-xs">{syncFolderProgress.total > 0 ? `${syncFolderProgress.current}/${syncFolderProgress.total}` : '对齐中...'}</span>
+                    <span className="truncate text-xs sm:text-sm">{syncFolderProgress.total > 0 ? `${syncFolderProgress.current}/${syncFolderProgress.total}` : '对齐中...'}</span>
                   </>
                 ) : (
                   <>
@@ -588,8 +588,8 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
             </div>
 
             <div className="flex items-center justify-between text-[11px] text-white/40 px-1">
-              <span>全量：上传并整理卡片</span>
-              <span>对齐：仅整理目录(秒级)</span>
+              <span>全量同步：上传并整理卡片</span>
+              <span>对齐分类：仅整理目录结构(秒级)</span>
             </div>
 
             <label className="flex items-center justify-between p-3.5 sm:p-4 bg-white/5 border border-white/10 rounded-xl cursor-pointer hover:bg-white/10 transition">

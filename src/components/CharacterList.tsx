@@ -48,10 +48,12 @@ import {
   getCachedMeta,
   getFilteredCharacterCount,
   getCharacterCategoryPrefix,
+  invalidateCache,
 } from "../lib/db";
 import { useInView } from "../lib/useInView";
 import { useContinuousInView } from "../lib/useContinuousInView";
 import { peekCachedUrl, putCachedBlobUrl } from "../lib/thumbCache";
+import { useBackHandler } from "../lib/useBackHandler";
 import { MoveToFolderModal } from "./MoveToFolderModal";
 import { BindQRModal } from "./BindQRModal";
 import { ConfirmBindQRModal } from "./ConfirmBindQRModal";
@@ -157,11 +159,17 @@ function SortableItemWrapper({
   children,
   disabled,
   className = "",
+  isQR = false,
+  activeDragIsQR = false,
+  activeDragCharId = null,
 }: {
   id: string;
   children: React.ReactNode;
   disabled?: boolean;
   className?: string;
+  isQR?: boolean;
+  activeDragIsQR?: boolean;
+  activeDragCharId?: string | null;
 }) {
   const {
     attributes,
@@ -170,17 +178,36 @@ function SortableItemWrapper({
     transform,
     transition,
     isDragging,
+    isOver,
   } = useSortable({ id, disabled });
 
+  // 判断是否处于 QR 与普通角色的拖拽绑定交互中
+  // 情况 1: 拖拽的是 QR 卡片，而当前卡片是普通角色卡（目标卡）
+  // 情况 2: 拖拽的是普通角色卡，而当前卡片是 QR 卡片（目标卡）
+  const isQRBindingTarget =
+    !isDragging &&
+    ((activeDragIsQR && !isQR) || (!!activeDragCharId && !activeDragIsQR && isQR));
+
+  // 跨类型拖拽绑定交互时，禁止目标卡片和同屏其他卡片位移（禁止卡片逃跑）
+  const shouldSuppressDisplacement =
+    !isDragging &&
+    (activeDragIsQR || (!!activeDragCharId && isQR));
+
   const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 10 : undefined,
+    transform: isDragging
+      ? CSS.Transform.toString(transform)
+      : shouldSuppressDisplacement
+        ? undefined
+        : CSS.Transform.toString(transform),
+    transition: shouldSuppressDisplacement ? undefined : transition,
+    zIndex: isDragging ? 50 : isOver && isQRBindingTarget ? 30 : undefined,
     position: "relative" as const,
     userSelect: "none" as const,
     WebkitUserSelect: "none" as const,
     WebkitTouchCallout: "none" as const,
   };
+
+  const showDropHighlight = isOver && isQRBindingTarget;
 
   return (
     <div
@@ -188,9 +215,21 @@ function SortableItemWrapper({
       style={style}
       {...attributes}
       {...listeners}
-      className={`select-none ${className}`}
+      className={`select-none relative transition-transform duration-150 ${className} ${
+        showDropHighlight
+          ? "ring-4 ring-purple-500 ring-offset-2 ring-offset-slate-900 rounded-2xl shadow-[0_0_25px_rgba(168,85,247,0.7)] scale-[1.04]"
+          : ""
+      }`}
     >
       {children}
+      {showDropHighlight && (
+        <div className="absolute inset-0 z-30 bg-purple-600/35 backdrop-blur-[1px] rounded-2xl flex flex-col items-center justify-center border-2 border-purple-400 pointer-events-none animate-pulse shadow-inner">
+          <Link className="w-8 h-8 text-white drop-shadow-lg mb-1" />
+          <span className="text-[11px] font-bold text-white bg-purple-800/90 px-2.5 py-1 rounded-full shadow-lg border border-purple-400/30">
+            松手立即绑定
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -326,6 +365,7 @@ export function CharacterList({
 
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   const [pendingQRBinding, setPendingQRBinding] = useState<{
     qrChar: CharacterCard;
@@ -510,9 +550,22 @@ export function CharacterList({
   const [isFoldersExpanded, setIsFoldersExpanded] = useState(
     () => localStorage.getItem("tavern_foldersExpanded") !== "false",
   );
-  const lastScrollY = useRef(0);
   const filterRef = useRef<HTMLDivElement>(null);
   const sortRef = useRef<HTMLDivElement>(null);
+
+  // 安卓返回键处理：如果正处于多选模式，按返回键直接退出多选模式
+  useBackHandler(selectionMode, () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+    return true;
+  });
+
+  // 进入多选模式时，立即唤起并展示顶部操作栏
+  useEffect(() => {
+    if (selectionMode) {
+      setIsHeaderVisible(true);
+    }
+  }, [selectionMode]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -531,25 +584,56 @@ export function CharacterList({
 
   useEffect(() => {
     const scrollContainer = document.getElementById("main-scroll-container");
-    if (!scrollContainer) return;
+    let lastScroll = scrollContainer
+      ? scrollContainer.scrollTop
+      : window.scrollY || document.documentElement.scrollTop || 0;
+    let upAccumulator = 0;
+    let downAccumulator = 0;
 
     const handleScroll = () => {
-      const currentScrollY = scrollContainer.scrollTop;
+      const currentScrollY = scrollContainer
+        ? scrollContainer.scrollTop
+        : window.scrollY || document.documentElement.scrollTop || 0;
+
       setShowScrollTop(currentScrollY > 500);
 
-      if (currentScrollY > lastScrollY.current + 10 && currentScrollY > 100) {
-        setIsHeaderVisible(false);
-      } else if (
-        currentScrollY < lastScrollY.current - 10 ||
-        currentScrollY < 100
-      ) {
+      const delta = currentScrollY - lastScroll;
+
+      // 靠近页面顶部（<=80px）时始终保持显示
+      if (currentScrollY <= 80) {
         setIsHeaderVisible(true);
+        upAccumulator = 0;
+        downAccumulator = 0;
+      } else if (delta < 0) {
+        // 向上滑动（手指往下拉或回滑浏览）：哪怕只滑一点点（累计>=8px），立即弹出顶部操作栏
+        downAccumulator = 0;
+        upAccumulator += Math.abs(delta);
+        if (upAccumulator >= 8) {
+          setIsHeaderVisible(true);
+        }
+      } else if (delta > 0) {
+        // 向下滑动浏览（页面往下滚）：累计滑动超过24px才隐藏，避免微小抖动误触
+        upAccumulator = 0;
+        downAccumulator += delta;
+        if (downAccumulator >= 24) {
+          setIsHeaderVisible(false);
+        }
       }
-      lastScrollY.current = currentScrollY;
+
+      lastScroll = currentScrollY;
     };
 
-    scrollContainer.addEventListener("scroll", handleScroll);
-    return () => scrollContainer.removeEventListener("scroll", handleScroll);
+    if (scrollContainer) {
+      scrollContainer.addEventListener("scroll", handleScroll, { passive: true });
+    }
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      if (scrollContainer) {
+        scrollContainer.removeEventListener("scroll", handleScroll);
+      }
+      window.removeEventListener("scroll", handleScroll);
+    };
   }, []);
 
   const scrollToTop = () => {
@@ -667,6 +751,12 @@ export function CharacterList({
     return false;
   };
 
+  const activeChar =
+    activeDragId && activeDragId.startsWith("char-")
+      ? characters.find((c) => c.id === activeDragId.replace("char-", ""))
+      : null;
+  const activeIsQR = activeChar ? checkIsQR(activeChar) : false;
+
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -736,7 +826,9 @@ export function CharacterList({
     }
   };
 
+  const loadDataReqIdRef = useRef(0);
   const loadData = async () => {
+    const reqId = ++loadDataReqIdRef.current;
     try {
       const allFoldersData = await getFolders();
       let currentFolders: Folder[] = [];
@@ -759,6 +851,7 @@ export function CharacterList({
         return b.createdAt - a.createdAt;
       });
 
+      if (reqId !== loadDataReqIdRef.current) return;
       setFolders(currentFolders);
 
       let currentVisibleFolders = currentFolders;
@@ -777,6 +870,7 @@ export function CharacterList({
         debouncedSearchQuery,
         selectedTags,
       );
+      if (reqId !== loadDataReqIdRef.current) return;
       setTotalCharacters(totalChars);
 
       const itemsTotal = totalFolderCount + totalChars;
@@ -816,8 +910,10 @@ export function CharacterList({
           charStart,
           charLimit,
         );
+        if (reqId !== loadDataReqIdRef.current) return;
         setCharacters(fetchedChars);
       } else {
+        if (reqId !== loadDataReqIdRef.current) return;
         setCharacters([]);
       }
 
@@ -827,11 +923,13 @@ export function CharacterList({
           const { getFolderPreviews } = await import("../lib/db");
           const folderIds = pageFolders.map((f) => f.id);
           const previews = await getFolderPreviews(folderIds);
+          if (reqId !== loadDataReqIdRef.current) return;
           setFolderPreviewsWithCleanup(previews);
         } catch (err) {
           console.error("Failed to load folder previews", err);
         }
       } else {
+        if (reqId !== loadDataReqIdRef.current) return;
         setFolderPreviewsWithCleanup({});
       }
     } catch (err) {
@@ -1124,7 +1222,14 @@ export function CharacterList({
       setPendingQRBinding(null);
       setSelectionMode(false);
       setSelectedIds(new Set());
-      await new Promise((r) => setTimeout(r, 100));
+      setActiveDragId(null);
+
+      // Optimistically remove the QR card from local state immediately if deleting
+      if (deleteSource) {
+        setCharacters((prev) => prev.filter((c) => c.id !== fullQrChar.id));
+        setTotalCharacters((prev) => Math.max(0, prev - 1));
+        setTotalItems((prev) => Math.max(0, prev - 1));
+      }
 
       await saveCharacter(updatedChar);
 
@@ -1132,6 +1237,7 @@ export function CharacterList({
         await deleteCharacter(fullQrChar.id);
       }
 
+      invalidateCache();
       await loadData();
     } catch (e) {
       console.error("绑定失败:", e);
@@ -1938,7 +2044,7 @@ export function CharacterList({
       <motion.header
         initial={{ y: 0 }}
         animate={{ y: isHeaderVisible ? 0 : "-100%" }}
-        transition={{ duration: 0.3, ease: "easeInOut" }}
+        transition={{ duration: 0.22, ease: "easeOut" }}
         className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur-xl border-b border-white/10 px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-4 mb-6 cursor-pointer"
         onClick={(e) => {
           if (e.target === e.currentTarget) {
@@ -2366,9 +2472,11 @@ export function CharacterList({
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragStart={(event) => {
+              const idStr = String(event.active.id);
+              setActiveDragId(idStr);
               if (!selectionMode) {
                 setSelectionMode(true);
-                const idStr = String(event.active.id);
+                setIsHeaderVisible(true);
                 if (idStr.startsWith("char-")) {
                   const id = idStr.replace("char-", "");
                   setSelectedIds(new Set([id]));
@@ -2378,7 +2486,13 @@ export function CharacterList({
                 }
               }
             }}
-            onDragEnd={handleDragEnd}
+            onDragEnd={(event) => {
+              setActiveDragId(null);
+              handleDragEnd(event);
+            }}
+            onDragCancel={() => {
+              setActiveDragId(null);
+            }}
           >
             <SortableContext
               items={[
@@ -2439,6 +2553,7 @@ export function CharacterList({
                         key={`folder-${folder.id}`}
                         id={`folder-${folder.id}`}
                         disabled={!!searchQuery || selectedTags.length > 0}
+                        activeDragIsQR={activeIsQR}
                       >
                         <motion.div
                           whileHover={{ scale: 1.05 }}
@@ -2451,6 +2566,7 @@ export function CharacterList({
                               if (!selectionMode) {
                                 setSelectionMode(true);
                                 setSelectedIds(new Set([folder.id]));
+                                setIsHeaderVisible(true);
                               }
                             }, 500);
                           }}
@@ -2479,6 +2595,7 @@ export function CharacterList({
                               if (!selectionMode) {
                                 setSelectionMode(true);
                                 setSelectedIds(new Set([folder.id]));
+                                setIsHeaderVisible(true);
                               }
                             }, 500);
                           }}
@@ -2567,6 +2684,9 @@ export function CharacterList({
                       id={`char-${char.id}`}
                       disabled={!!searchQuery || selectedTags.length > 0}
                       className="w-full"
+                      isQR={checkIsQR(char)}
+                      activeDragIsQR={activeIsQR}
+                      activeDragCharId={activeChar?.id || null}
                     >
                       <CharacterCardItem
                         char={char}
@@ -2581,6 +2701,7 @@ export function CharacterList({
                           if (!selectionMode) {
                             setSelectionMode(true);
                             setSelectedIds(new Set([char.id]));
+                            setIsHeaderVisible(true);
                           }
                         }}
                       />
@@ -2600,6 +2721,9 @@ export function CharacterList({
                       key={`char-${char.id}`}
                       id={`char-${char.id}`}
                       disabled={!!searchQuery || selectedTags.length > 0}
+                      isQR={checkIsQR(char)}
+                      activeDragIsQR={activeIsQR}
+                      activeDragCharId={activeChar?.id || null}
                     >
                       <CharacterCardItem
                         char={char}
@@ -2614,6 +2738,7 @@ export function CharacterList({
                           if (!selectionMode) {
                             setSelectionMode(true);
                             setSelectedIds(new Set([char.id]));
+                            setIsHeaderVisible(true);
                           }
                         }}
                       />

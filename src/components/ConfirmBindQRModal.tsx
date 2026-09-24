@@ -98,6 +98,12 @@ export function ConfirmBindQRModal({
 }: Props) {
   const [deleteSource, setDeleteSource] = useState(true);
 
+  useEffect(() => {
+    if (isOpen) {
+      setDeleteSource(true);
+    }
+  }, [isOpen, qrChar?.id, targetChar?.id]);
+
   if (!isOpen || !qrChar || !targetChar) return null;
 
   return (
