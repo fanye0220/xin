@@ -363,13 +363,14 @@ export function CharacterChatsSection({
           let parsedMessages: any[] = [];
 
           if (file.name.toLowerCase().endsWith(".jsonl")) {
-            const { parseJsonlChat } = await import("../lib/chatParse");
-            parsedMessages = parseJsonlChat(text);
-          } else if (file.name.toLowerCase().endsWith(".txt")) {
-            const { parseTextChatLog } = await import("../lib/chatParse");
-            const fileChatName = file.name.replace(/\.[^/.]+$/, "");
-            const parsed = parseTextChatLog(text, fileChatName);
-            parsedMessages = parsed.messages;
+            const lines = text.trim().split("\n");
+            for (let k = 0; k < lines.length; k++) {
+              try {
+                const parsed = JSON.parse(lines[k]);
+                if (parsed) parsedMessages.push(parsed);
+              } catch (e) {}
+              if (k % 500 === 0) await new Promise((r) => setTimeout(r, 0));
+            }
           } else {
             try {
               const data = JSON.parse(text);
@@ -583,7 +584,7 @@ export function CharacterChatsSection({
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".json,.jsonl,.txt,.zip"
+            accept=".json,.jsonl,.zip"
             className="hidden"
             onChange={(e) => {
               if (e.target.files?.length) {

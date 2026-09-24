@@ -778,6 +778,22 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
           targetFolderId = await getOrCreateNestedFolder(pathPrefix, folderId);
         } else {
           targetFolderId = folderId || undefined;
+          // 若在主页根目录下导入且文件自身未指定子文件夹，检测数据库中是否已有同名且已分配分类文件夹的角色卡
+          // 若存在，则新导入的卡片自动跟随已有分类归入该嵌套文件夹中，避免留在主页
+          if (!targetFolderId && isCharacter) {
+            const cleanName = charName.trim().toLowerCase();
+            const existingWithFolder = existingMeta.find(
+              (m) =>
+                !m.deletedAt &&
+                !m.isTool &&
+                m.folderId &&
+                m.name &&
+                m.name.trim().toLowerCase() === cleanName,
+            );
+            if (existingWithFolder) {
+              targetFolderId = existingWithFolder.folderId;
+            }
+          }
         }
 
         const avatarUrlFallback =

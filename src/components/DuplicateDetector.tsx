@@ -1,7 +1,7 @@
 import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Copy, Trash2, X, AlertTriangle, CheckCircle2, Merge, MessageSquarePlus, Link, FileText, CheckCircle } from 'lucide-react';
+import { Copy, Trash2, X, AlertTriangle, CheckCircle2, Merge, MessageSquarePlus, Link, FileText, CheckCircle, Folder } from 'lucide-react';
 import { CharacterCard, DuplicateGroup, findDuplicates, deleteCharacter, saveCharacter } from '../lib/db';
 import { getLocalImageUrl } from '../lib/appBridge';
 
@@ -40,6 +40,7 @@ interface Props {
 
 export function DuplicateDetector({ onClose, onSelectChar }: Props) {
   const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
+  const [folderPathMap, setFolderPathMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [selectionMode, setSelectionMode] = useState(false);
@@ -66,6 +67,23 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
       const isScript = rawData.type === 'script' && rawData.content !== undefined && rawData.name !== undefined;
       return !isPreset && !isBeautify && !isStandaloneWorldbook && !isTheme && !isQR && !isScript;
     });
+
+    try {
+      const { resolveFolderPath } = await import('../lib/db');
+      const pathMap: Record<string, string> = {};
+      for (const group of filteredGroups) {
+        for (const item of group.characters) {
+          if (item.char.folderId) {
+            pathMap[item.char.id] = await resolveFolderPath(item.char.folderId);
+          } else {
+            pathMap[item.char.id] = "主页 (未分类)";
+          }
+        }
+      }
+      setFolderPathMap(pathMap);
+    } catch (e) {
+      console.error("加载文件夹路径出错:", e);
+    }
 
     setDuplicateGroups(filteredGroups);
     setLoading(false);
@@ -164,8 +182,20 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
       updatedData.tags = mergedTags;
     }
 
+    // 嵌套文件夹路径继承:
+    // 如果保留的卡片在主页/未归类(没有 folderId)，而其他合并卡片中存在已被分类到嵌套文件夹的卡片，
+    // 则自动继承已有分类的嵌套文件夹路径，而不是留在主页！
+    let targetFolderId = keptChar.folderId;
+    if (!targetFolderId) {
+      const folderCandidate = otherChars.find((c) => !!c.folderId);
+      if (folderCandidate) {
+        targetFolderId = folderCandidate.folderId;
+      }
+    }
+
     const finalChar = { 
       ...keptChar, 
+      folderId: targetFolderId,
       data: updatedData,
       avatarHistory: mergedHistory.length > 0 ? mergedHistory : undefined
     };
@@ -173,9 +203,18 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
   };
 
   const handleMergeAndKeep = async (keptChar: CharacterCard, group: DuplicateGroup) => {
-    if (!confirm('确定要保留此卡，合并其他卡片的快捷回复(QR)、替换头像、来源链接和标签，并删除其他卡片吗？')) return;
-
+    let destFolder = keptChar.folderId ? folderPathMap[keptChar.id] : undefined;
     const otherChars = group.characters.map(c => c.char).filter(c => c.id !== keptChar.id);
+    if (!destFolder) {
+      const otherWithFolder = otherChars.find(c => !!c.folderId);
+      if (otherWithFolder) {
+        destFolder = folderPathMap[otherWithFolder.id];
+      }
+    }
+    const folderNotice = destFolder ? `\n\n📁 卡片将保留并归类在文件夹：「${destFolder}」` : '';
+
+    if (!confirm(`确定要保留此卡，合并其他卡片的快捷回复(QR)、替换头像、来源链接和标签，并删除其他卡片吗？${folderNotice}`)) return;
+
     await mergeAndSave(keptChar, otherChars);
 
     const { deleteCharactersBulk, getChatsForCharacter, saveChat } = await import('../lib/db');
@@ -237,7 +276,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
 
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
-    if (confirm(`确定要删除选中的 ${selectedIds.size} 张重复卡片吗？\n（删除过程中会自动合并快捷回复(QR)、替换头像、来源和标签到保留的卡片中）`)) {
+    if (confirm(`确定要删除选中的 ${selectedIds.size} 张重复卡片吗？\n（删除过程中会自动合并快捷回复(QR)、替换头像、来源和标签，并自动保留卡片已归类的嵌套文件夹路径）`)) {
       setLoading(true);
 
       // 批量操作保留 miu 这边效率更高的写法(一次性合并/批量删,而不是安卓
@@ -501,6 +540,10 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                               {(targetData.character_book?.entries?.length > 0) && <span>世界书: {targetData.character_book.entries.length}项</span>}
                             </p>
                             <div className="flex flex-wrap gap-1.5 mt-2">
+                              <span className="text-[10px] px-2 py-0.5 bg-purple-500/15 text-purple-300 border border-purple-500/20 rounded-md flex items-center gap-1 shrink-0 font-medium">
+                                <Folder className="w-3 h-3 text-purple-400" />
+                                {folderPathMap[char.id] || (char.folderId ? "分类文件夹" : "主页 (未分类)")}
+                              </span>
                               <span className="text-[10px] px-2 py-0.5 bg-orange-500/20 text-orange-300 rounded-md font-bold shrink-0">
                                 {reason}
                               </span>

@@ -1,4 +1,3 @@
-import { downloadOrShareFile, getDownloadTooltip } from "../lib/appBridge";
 import { useState, useEffect, useMemo } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Cloud, Download, Upload, Trash2, Github, Loader2, Search, Folder, ChevronRight, MessageSquare, FileText, FolderSync } from 'lucide-react';
@@ -219,9 +218,7 @@ export function CloudSyncTab() {
             evictCharacterThumb(targetId);
         }).catch(() => {});
         window.dispatchEvent(new CustomEvent('charactersUpdated'));
-        window.dispatchEvent(new CustomEvent('chatsUpdated'));
-
-        alert(`「${charToSave.name}」下载成功！`);
+        alert(`「${charToSave.name}」已成功同步回App！`);
     } catch (err: any) {
         alert("下载失败: " + err.message);
     } finally {
@@ -257,9 +254,7 @@ export function CloudSyncTab() {
       });
 
       window.dispatchEvent(new CustomEvent('charactersUpdated'));
-      window.dispatchEvent(new CustomEvent('chatsUpdated'));
-
-      alert(`聊天记录「${chatName}」下载成功！`);
+      alert(`聊天记录「${chatName}」已成功同步回App！`);
     } catch (err: any) {
       alert("下载聊天记录失败: " + err.message);
     } finally {
@@ -552,11 +547,11 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
           
           <div className="space-y-3">
             
-            <div className="flex flex-col gap-2.5">
+            <div className="grid grid-cols-2 gap-2.5">
               <button
                 onClick={handleOneClickCloudSync}
                 disabled={oneClickProgress !== null || syncFolderProgress !== null}
-                className="w-full py-3 px-4 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-medium text-xs sm:text-sm flex justify-center items-center gap-1.5 transition disabled:opacity-50 shadow-sm active:scale-[0.99] min-h-[44px]"
+                className="py-3 px-2.5 sm:px-4 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-medium text-xs sm:text-sm flex justify-center items-center gap-1.5 transition disabled:opacity-50 shadow-sm active:scale-[0.99] min-h-[44px]"
                 title="全量上传本地卡片并同步文件夹结构"
               >
                 {oneClickProgress ? (
@@ -567,7 +562,7 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                 ) : (
                   <>
                     <Upload className="w-4 h-4 shrink-0" />
-                    <span>全量同步（上传本地所有卡片）</span>
+                    <span>全量同步</span>
                   </>
                 )}
               </button>
@@ -575,7 +570,7 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
               <button
                 onClick={handleSyncFolderStructure}
                 disabled={syncFolderProgress !== null || oneClickProgress !== null}
-                className="w-full py-3 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/90 text-xs sm:text-sm font-medium flex justify-center items-center gap-1.5 transition disabled:opacity-50 active:scale-[0.99] min-h-[44px]"
+                className="py-3 px-2.5 sm:px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/90 text-xs sm:text-sm font-medium flex justify-center items-center gap-1.5 transition disabled:opacity-50 active:scale-[0.99] min-h-[44px]"
                 title="仅整理对齐云端卡片的文件夹分类，不重复上传文件（秒级完成）"
               >
                 {syncFolderProgress ? (
@@ -586,7 +581,7 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                 ) : (
                   <>
                     <FolderSync className="w-4 h-4 text-blue-400 shrink-0" />
-                    <span>对齐分类与目录（仅整理云端目录，秒级）</span>
+                    <span>对齐分类</span>
                   </>
                 )}
               </button>
@@ -863,7 +858,7 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                              onClick={() => char.appProperties?.isChat === 'true' ? handleDownloadCloudChat(char.id, char.name, char.appProperties) : handleDownloadCloudChar(char.id, charName, char.name, char.appProperties)}
                              disabled={downloadingId === char.id}
                              className="flex-1 py-1 sm:py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/30 flex items-center justify-center gap-1 active:bg-blue-500/40 transition disabled:opacity-50"
-                             title={getDownloadTooltip("下载")}
+                             title="同步回App（直接保存至应用库，无需分享）"
                            >
                              {downloadingId === char.id ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> : <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
                              <span className="text-[10px] sm:text-xs font-medium whitespace-nowrap">下载</span>

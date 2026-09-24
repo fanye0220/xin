@@ -63,6 +63,13 @@ export function putCachedStaticUrl(key: string, url: string): string {
 }
 
 /** 主动移除某一项(比如角色被删除时), 不等 LRU 自然淘汰 */
+export function releaseCachedUrl(key: string) {
+  const entry = cache.get(key);
+  if (entry) {
+    cache.delete(key);
+    if (entry.isBlobUrl) URL.revokeObjectURL(entry.url);
+  }
+}
 
 /** 清理某个角色的所有缩略图缓存 (换头像或更新时调用) */
 export function evictCharacterThumb(charId: string) {
@@ -70,14 +77,6 @@ export function evictCharacterThumb(charId: string) {
     if (key === charId || key.startsWith(`${charId}:`)) {
       releaseCachedUrl(key);
     }
-  }
-}
-
-export function releaseCachedUrl(key: string) {
-  const entry = cache.get(key);
-  if (entry) {
-    cache.delete(key);
-    if (entry.isBlobUrl) URL.revokeObjectURL(entry.url);
   }
 }
 

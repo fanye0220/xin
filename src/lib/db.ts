@@ -1021,6 +1021,38 @@ export function invalidateCache() {
   }, 100);
 }
 
+export async function getFilteredCharacterCount(
+  folderId?: string | null,
+  searchQuery: string = "",
+  tags: string[] = []
+): Promise<number> {
+  let allMeta = await getCachedMeta();
+  allMeta = allMeta.filter((c) => !c.deletedAt);
+
+  if (searchQuery) {
+    const query = searchQuery.toLowerCase();
+    allMeta = allMeta.filter(
+      (c) =>
+        c.name.toLowerCase().includes(query) ||
+        c.tags.some((t) => t.toLowerCase().includes(query)),
+    );
+  }
+
+  if (tags.length > 0) {
+    allMeta = allMeta.filter((c) => tags.every((t) => c.tags.includes(t)));
+  }
+
+  if (folderId === null) {
+    if (!searchQuery && tags.length === 0) {
+      allMeta = allMeta.filter((c) => !c.folderId);
+    }
+  } else if (folderId && folderId !== "all") {
+    allMeta = allMeta.filter((c) => c.folderId === folderId);
+  }
+
+  return allMeta.length;
+}
+
 export async function getCharacters(
   page: number,
   pageSize: number,
@@ -1029,7 +1061,9 @@ export async function getCharacters(
   tags: string[] = [],
   sortBy: SortOption = "newest_import",
   includeBlobs: boolean = true,
-  includeData: boolean = true
+  includeData: boolean = true,
+  offset?: number,
+  limit?: number
 ): Promise<{ characters: CharacterCard[]; total: number }> {
   const db = await initDB();
 
@@ -1083,7 +1117,13 @@ export async function getCharacters(
   });
 
   const total = allMeta.length;
-  const paginatedMeta = allMeta.slice((page - 1) * pageSize, page * pageSize);
+  const paginatedMeta = (offset !== undefined && limit !== undefined)
+    ? (limit === 0 ? [] : allMeta.slice(offset, offset + limit))
+    : allMeta.slice((page - 1) * pageSize, page * pageSize);
+
+  if (paginatedMeta.length === 0) {
+    return { characters: [], total };
+  }
 
   // Fast path: if full JSON data is not needed, we construct list items directly from metadata
   // This avoids reading the massive 'data' fields, which causes severe lag on large collections.
@@ -1292,7 +1332,7 @@ export async function getCharacterThumb(id: string): Promise<Blob | null> {
   const { generateThumbnail } = await import("./avatar");
   let thumb: Blob;
   try {
-    thumb = await generateThumbnail(blobs.avatarBlob, 200, 0.82);
+    thumb = await generateThumbnail(avatarBlob, 200, 0.82);
   } catch {
     return null;
   }
@@ -1478,6 +1518,7 @@ export async function saveCharacters(
 
   await tx2.done;
   invalidateCache();
+
   for (const character of characters) {
     if ((character as any)._isExplicitAvatarUpdate) {
       import("./thumbCache").then(({ evictCharacterThumb }) => {
@@ -1485,6 +1526,7 @@ export async function saveCharacters(
       }).catch(() => {});
     }
   }
+
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("charactersUpdated"));
   }
@@ -1575,7 +1617,6 @@ export async function saveCharacters(
               (freshChar as any)._androidSyncPath = syncPaths[0];
             }
             await dbRef.put("characters", freshChar);
-            await dbRef.put("char_meta", buildCharMeta(freshChar));
             character.localFilePath = freshChar.localFilePath;
           }
         }
@@ -1587,10 +1628,6 @@ export async function saveCharacters(
         for (const p of cleanupAndroidPaths) {
           await deleteLocalGalleryFile(p);
         }
-      }
-      invalidateCache();
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("charactersUpdated"));
       }
       });
       // 只有调用方传入了进度回调(比如导入流程)才等这个后台任务跑完 ——
@@ -1657,10 +1694,6 @@ export async function updateCharacterCover(
     }
   }
   tagsCache = null;
-  invalidateCache();
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("charactersUpdated"));
-  }
 }
 
 export async function updateCharacterSortOrder(

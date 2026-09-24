@@ -232,9 +232,9 @@ export default function App() {
       } else if (state.globalChatViewerId) {
         setGlobalChatViewerId(null); closedSomething = true;
       } else if (state.selectedCharId) {
-        setSelectedCharId(null);
-        setRefreshKey(prev => prev + 1);
+        setSelectedCharId(null); 
         closedSomething = true;
+        setRefreshKey(prev => prev + 1);
       } else if (state.isSidebarOpen) {
         setIsSidebarOpen(false); closedSomething = true;
       } else if (state.selectedFolderId) {
@@ -312,9 +312,7 @@ export default function App() {
             } else if (state.globalChatViewerId) {
               setGlobalChatViewerId(null); closedSomething = true;
             } else if (state.selectedCharId) {
-        setSelectedCharId(null);
-        setRefreshKey(prev => prev + 1);
-        closedSomething = true;
+              setSelectedCharId(null); closedSomething = true;
             } else if (state.isSidebarOpen) {
               setIsSidebarOpen(false); closedSomething = true;
             } else if (state.selectedFolderId) {
