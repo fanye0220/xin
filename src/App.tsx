@@ -16,7 +16,7 @@ import { AIRecommender } from './components/AIRecommender';
 import { SettingsModal } from './components/SettingsModal';
 import { ChatViewer } from './components/ChatViewer';
 import { SyncWidget } from './components/SyncWidget';
-import { migrateDatabase } from './lib/db';
+import { migrateDatabase, getFolders } from './lib/db';
 import { useTaggerState } from './lib/taggerState';
 import { isAndroid } from './lib/appBridge';
 import { handleBackRequest } from './lib/useBackHandler';
@@ -244,11 +244,9 @@ export default function App() {
         } else if (['trash', 'duplicates', 'autotagger', 'recommender', 'chatviewer'].includes(state.selectedFolderId)) {
           setSelectedFolderId(null);
         } else {
-          import('./lib/db').then(({ getFolders }) => {
-            getFolders().then(allFolders => {
-              const current = allFolders.find(f => f.id === state.selectedFolderId);
-              setSelectedFolderId(current?.parentId || null);
-            });
+          getFolders().then(allFolders => {
+            const current = allFolders.find(f => f.id === state.selectedFolderId);
+            setSelectedFolderId(current?.parentId || null);
           });
         }
       }
@@ -322,11 +320,9 @@ export default function App() {
               } else if (['trash', 'duplicates', 'autotagger', 'recommender', 'chatviewer'].includes(state.selectedFolderId)) {
                 setSelectedFolderId(null);
               } else {
-                import('./lib/db').then(({ getFolders }) => {
-                  getFolders().then(allFolders => {
-                    const current = allFolders.find(f => f.id === state.selectedFolderId);
-                    setSelectedFolderId(current?.parentId || null);
-                  });
+                getFolders().then(allFolders => {
+                  const current = allFolders.find(f => f.id === state.selectedFolderId);
+                  setSelectedFolderId(current?.parentId || null);
                 });
               }
             }

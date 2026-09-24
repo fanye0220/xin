@@ -560,7 +560,13 @@ export function CharacterList({
   const filterRef = useRef<HTMLDivElement>(null);
   const sortRef = useRef<HTMLDivElement>(null);
 
-  // 安卓返回键处理：如果正处于多选模式，按返回键直接退出多选模式
+  // 如果进入了子文件夹，按返回键（网页后退/安卓返回键/侧滑手势）时返回上一级目录
+  useBackHandler(!!folderId, () => {
+    handleBack();
+    return true;
+  });
+
+  // 如果正处于多选模式，按返回键直接退出多选模式（由于后注册，优先级高于返回上一级目录）
   useBackHandler(selectionMode, () => {
     setSelectionMode(false);
     setSelectedIds(new Set());
@@ -657,17 +663,37 @@ export function CharacterList({
     onSelectFolder?.(current?.parentId || null);
   };
   const handleRootTouchStart = (e: React.TouchEvent) => {
-    // 拖拽中或弹窗打开时，不记录手势起点
-    if (isDraggingRef.current || pendingQRBinding || isBindModalOpen || isMoveModalOpen) return;
+    // 拖拽中、弹窗打开、多选模式时不记录手势
+    if (
+      isDraggingRef.current ||
+      activeDragId ||
+      pendingQRBinding ||
+      isBindModalOpen ||
+      isMoveModalOpen ||
+      selectionMode
+    ) {
+      touchStartRef.current = null;
+      return;
+    }
+
+    // 如果触摸起始于卡片、按钮、输入框等可交互元素，属于卡片操作或拖拽准备，绝不当作返回手势
+    const target = e.target as HTMLElement | null;
+    if (target?.closest("button, a, input, [data-sortable-id], [role='button']")) {
+      touchStartRef.current = null;
+      return;
+    }
+
     const touch = e.touches[0];
-    if (touch) {
-      // 只有屏幕极左侧（<= 25px）的边缘手势才记录，绝不将卡片区域的触摸误判为边缘手势
+    // 允许从左侧边缘及边距空白区域（<= 75px）舒适起划，不再受限于极窄25px
+    if (touch && touch.clientX <= 75) {
       touchStartRef.current = {
         x: touch.clientX,
         y: touch.clientY,
         time: Date.now(),
-        isEdge: touch.clientX <= 25,
+        isEdge: true,
       };
+    } else {
+      touchStartRef.current = null;
     }
   };
 
@@ -677,10 +703,11 @@ export function CharacterList({
     const touch = e.changedTouches[0];
     if (!start || !touch) return;
 
-    // 刚结束拖拽（500ms内）或处于多选/弹窗/拖拽中状态时，严禁触发手势返回
+    // 拖拽中、刚结束拖拽（600ms内）或处于多选/弹窗状态时严禁触发手势返回
     if (
       isDraggingRef.current ||
-      Date.now() - lastDragEndTimeRef.current < 500 ||
+      activeDragId ||
+      Date.now() - lastDragEndTimeRef.current < 600 ||
       selectionMode ||
       pendingQRBinding ||
       isBindModalOpen ||
@@ -693,8 +720,8 @@ export function CharacterList({
     const dx = touch.clientX - start.x;
     const dy = touch.clientY - start.y;
 
-    // 只有起始于真实屏幕左边缘(isEdge)、快速轻扫(<=350ms)、水平移动明显且垂直偏角较小时才返回上一级
-    if (folderId && start.isEdge && elapsed <= 350 && dx > 70 && Math.abs(dy) < 50) {
+    // 起始于左侧非卡片区域、快速轻扫(<=400ms)、水平右滑明显(>70px)且垂直偏移小(<60px)才返回上一级
+    if (folderId && elapsed <= 400 && dx > 70 && Math.abs(dy) < 60) {
       handleBack();
     }
   };
