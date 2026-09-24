@@ -11,6 +11,8 @@ import {
   Cloud,
   CheckCircle,
   Search,
+  Folder,
+  ArrowRight,
 } from "lucide-react";
 import { extractTavernData } from "../lib/png";
 import {
@@ -37,6 +39,7 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onImported: () => void;
+  onNavigateFolder?: (folderId: string | null) => void;
   folderId?: string | null;
   initialFiles?: FileList | File[] | null;
 }
@@ -133,7 +136,7 @@ export function TavernAvatar({ char, aiSettings }: { char: any, aiSettings: any 
   );
 }
 
-export function ImportModal({ isOpen, onClose, onImported, folderId, initialFiles }: Props) {
+export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, folderId, initialFiles }: Props) {
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importErrors, setImportErrors] = useState<
@@ -145,6 +148,30 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
     message?: string;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [autoCategorizeSameName, setAutoCategorizeSameName] = useState<boolean>(
+    () => localStorage.getItem("miu_auto_categorize_same_name") !== "false",
+  );
+  const [autoCategorizedSummary, setAutoCategorizedSummary] = useState<
+    Array<{
+      cardId: string;
+      charName: string;
+      folderId: string;
+      folderPath: string;
+    }> | null
+  >(null);
+  const [importedSuccessCount, setImportedSuccessCount] = useState(0);
+  const [isReverting, setIsReverting] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setAutoCategorizedSummary(null);
+      setError(null);
+      setImportErrors([]);
+      setProgress(null);
+      setIsReverting(false);
+    }
+  }, [isOpen]);
 
   const initialFilesHandled = useRef(false);
 
@@ -684,11 +711,17 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
     const { initDB } = await import("../lib/db");
     const db = await initDB();
     const existingChars = await db.getAll("characters");
+    const autoCategorizedList: Array<{
+      cardId: string;
+      charName: string;
+      folderId: string;
+    }> = [];
 
     for (let i = 0; i < mainItems.length; i++) {
       const item = mainItems[i];
       try {
         let targetFolderId = folderId || undefined;
+        let autoClassifiedFolderId: string | null = null;
         let charName = "Unknown";
 
         let folderParts: string[] = [];
@@ -779,8 +812,8 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
         } else {
           targetFolderId = folderId || undefined;
           // 若在主页根目录下导入且文件自身未指定子文件夹，检测数据库中是否已有同名且已分配分类文件夹的角色卡
-          // 若存在，则新导入的卡片自动跟随已有分类归入该嵌套文件夹中，避免留在主页
-          if (!targetFolderId && isCharacter) {
+          // 仅当用户开启了「导入同名卡时自动跟随分类」配置时生效
+          if (!targetFolderId && isCharacter && autoCategorizeSameName) {
             const cleanName = charName.trim().toLowerCase();
             const existingWithFolder = existingMeta.find(
               (m) =>
@@ -790,8 +823,9 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
                 m.name &&
                 m.name.trim().toLowerCase() === cleanName,
             );
-            if (existingWithFolder) {
+            if (existingWithFolder && existingWithFolder.folderId) {
               targetFolderId = existingWithFolder.folderId;
+              autoClassifiedFolderId = existingWithFolder.folderId;
             }
           }
         }
@@ -881,6 +915,13 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
         } as any;
 
         charsToSave.push(newChar);
+        if (autoClassifiedFolderId) {
+          autoCategorizedList.push({
+            cardId: newChar.id,
+            charName,
+            folderId: autoClassifiedFolderId,
+          });
+        }
         successCount++;
       } catch (err: any) {
         errors.push({ file: item.file.name, error: err.message || "未知错误" });
@@ -981,6 +1022,23 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
       }
     }
 
+    if (autoCategorizedList.length > 0) {
+      const { resolveFolderPath } = await import("../lib/db");
+      const folderPathMap = new Map<string, string>();
+      for (const item of autoCategorizedList) {
+        if (!folderPathMap.has(item.folderId)) {
+          const resolved = await resolveFolderPath(item.folderId);
+          folderPathMap.set(item.folderId, resolved || "分类文件夹");
+        }
+      }
+      const summaryList = autoCategorizedList.map((item) => ({
+        ...item,
+        folderPath: folderPathMap.get(item.folderId) || "分类文件夹",
+      }));
+      setAutoCategorizedSummary(summaryList);
+      setImportedSuccessCount(successCount);
+    }
+
     setProgress(null);
     if (errors.length > 0) {
       setImportErrors(errors);
@@ -988,8 +1046,8 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
         const { cleanupEmptyFolders } = await import("../lib/db");
         await cleanupEmptyFolders();
         onImported();
-      window.dispatchEvent(new CustomEvent("chatsUpdated"));
-      window.dispatchEvent(new CustomEvent("charactersUpdated"));
+        window.dispatchEvent(new CustomEvent("chatsUpdated"));
+        window.dispatchEvent(new CustomEvent("charactersUpdated"));
       }
     } else if (successCount === 0) {
       setError("未能成功导入任何文件。");
@@ -999,7 +1057,9 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
       onImported();
       window.dispatchEvent(new CustomEvent("chatsUpdated"));
       window.dispatchEvent(new CustomEvent("charactersUpdated"));
-      onClose();
+      if (autoCategorizedList.length === 0) {
+        onClose();
+      }
     }
   };
 
@@ -1182,7 +1242,7 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
           >
             <div className="flex justify-between items-center mb-6 shrink-0">
               <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600">
-                导入角色卡
+                {autoCategorizedSummary ? "导入完成" : "导入角色卡"}
               </h2>
               {!progress && (
                 <button
@@ -1194,7 +1254,98 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
               )}
             </div>
 
-            {tavernMode ? (() => {
+            {autoCategorizedSummary ? (
+              <div className="py-2 flex flex-col flex-1 min-h-0">
+                <div className="flex items-center gap-2.5 text-emerald-400 mb-3 shrink-0">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
+                    <CheckCircle className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-base text-white">导入完成</h3>
+                    <p className="text-xs text-white/60">共成功导入 {importedSuccessCount} 项卡片/数据</p>
+                  </div>
+                </div>
+
+                <div className="bg-purple-500/10 border border-purple-500/20 rounded-2xl p-3.5 mb-4 shrink-0">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-purple-300 mb-1.5">
+                    <Folder className="w-4 h-4 text-purple-400 shrink-0" />
+                    <span>检测到同名角色卡，已自动归入已有分类：</span>
+                  </div>
+                  <p className="text-[11px] text-white/50 mb-2.5">
+                    系统匹配到已有同名角色的分类文件夹并已自动整理归类。您可以前往查看，或一键移回主页。
+                  </p>
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                    {autoCategorizedSummary.map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between text-xs bg-black/30 p-2.5 rounded-xl border border-white/5">
+                        <div className="min-w-0 flex-1 mr-2">
+                          <span className="font-medium text-white truncate block">{item.charName}</span>
+                          <span className="text-[11px] text-purple-300/80 truncate block mt-0.5">📁 {item.folderPath}</span>
+                        </div>
+                        {onNavigateFolder && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onNavigateFolder(item.folderId);
+                              setAutoCategorizedSummary(null);
+                              onClose();
+                            }}
+                            className="px-2.5 py-1 text-[11px] bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg shrink-0 font-medium transition flex items-center gap-1"
+                          >
+                            <span>前往文件夹</span>
+                            <ArrowRight className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex gap-2.5 mt-auto pt-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={isReverting}
+                    onClick={async () => {
+                      setIsReverting(true);
+                      try {
+                        const { getCharacter, saveCharacters } = await import("../lib/db");
+                        const charsToRevert = [];
+                        for (const item of autoCategorizedSummary) {
+                          const c = await getCharacter(item.cardId);
+                          if (c) {
+                            c.folderId = undefined;
+                            charsToRevert.push(c);
+                          }
+                        }
+                        if (charsToRevert.length > 0) {
+                          await saveCharacters(charsToRevert);
+                        }
+                        onImported();
+                        window.dispatchEvent(new CustomEvent("charactersUpdated"));
+                      } catch (e) {
+                        console.error("Revert folder failed", e);
+                      } finally {
+                        setIsReverting(false);
+                        setAutoCategorizedSummary(null);
+                        onClose();
+                      }
+                    }}
+                    className="flex-1 py-2.5 px-3 bg-white/10 hover:bg-white/15 text-white/80 rounded-xl text-xs sm:text-sm font-medium transition disabled:opacity-50"
+                  >
+                    {isReverting ? "正在移回..." : "移回主页未分类"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAutoCategorizedSummary(null);
+                      onClose();
+                    }}
+                    className="flex-1 py-2.5 px-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-95 text-white rounded-xl text-xs sm:text-sm font-medium transition shadow-lg shadow-purple-500/20"
+                  >
+                    知道了 / 完成
+                  </button>
+                </div>
+              </div>
+            ) : tavernMode ? (() => {
   const filteredTavernChars = tavernChars.filter(char => 
     char.name.toLowerCase().includes(tavernSearchQuery.toLowerCase()) || 
     (char.creator_notes && char.creator_notes.toLowerCase().includes(tavernSearchQuery.toLowerCase())) ||
@@ -1343,6 +1494,21 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
                       <FileArchive className="w-4 h-4" /> ZIP
                     </div>
                   </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between px-1 text-xs text-white/70">
+                  <label className="flex items-center gap-2 cursor-pointer select-none hover:text-white transition">
+                    <input
+                      type="checkbox"
+                      checked={autoCategorizeSameName}
+                      onChange={(e) => {
+                        setAutoCategorizeSameName(e.target.checked);
+                        localStorage.setItem("miu_auto_categorize_same_name", e.target.checked ? "true" : "false");
+                      }}
+                      className="rounded border-white/20 bg-black/40 text-purple-600 focus:ring-0 w-3.5 h-3.5 cursor-pointer"
+                    />
+                    <span>导入同名卡自动归入已有分类文件夹</span>
+                  </label>
                 </div>
 
                 {isAndroid() && (

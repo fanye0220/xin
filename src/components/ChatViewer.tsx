@@ -471,12 +471,49 @@ export function ChatViewer({
     loadData();
   };
 
+  const allCharactersRef = useRef<CharacterCard[] | null>(null);
+  const getAllCharactersCached = async (): Promise<CharacterCard[]> => {
+    if (allCharactersRef.current) return allCharactersRef.current;
+    const { getCharacters } = await import("../lib/db");
+    const res = await getCharacters(1, 99999, undefined, "", [], "newest_import", false, false);
+    allCharactersRef.current = res.characters;
+    return res.characters;
+  };
+
+  const [bindableCharacters, setBindableCharacters] = useState<CharacterCard[]>([]);
+
+  useEffect(() => {
+    if (isHeaderExpanded && bindableCharacters.length === 0) {
+      getAllCharactersCached().then(setBindableCharacters);
+    }
+  }, [isHeaderExpanded]);
+
   const loadData = async () => {
-    const chars = await getCharacters(1, 99999, undefined, "", [], "newest_import", false, false);
-    setCharacters(chars.characters);
     const { getAllChatsMetadata } = await import("../lib/db");
     const chats = await getAllChatsMetadata();
-    setSavedChats(chats.sort((a, b) => b.createdAt - a.createdAt));
+    const sortedChats = (chats || []).sort((a, b) => b.createdAt - a.createdAt);
+    setSavedChats(sortedChats);
+
+    // 没有聊天记录时立即返回，彻底避免扫描全量角色库与海量缩略图请求导致的卡顿
+    if (sortedChats.length === 0) {
+      setCharacters([]);
+      setAvatarUrls({});
+      return;
+    }
+
+    // 仅针对有聊天记录的角色提取其 ID 和名称
+    const neededCharIds = new Set<string>();
+    const neededNames = new Set<string>();
+    sortedChats.forEach((c) => {
+      if (c.characterId) neededCharIds.add(c.characterId);
+      if (c.firstAiName) neededNames.add(c.firstAiName.trim().toLowerCase());
+    });
+
+    const allChars = await getAllCharactersCached();
+    const relevantChars = allChars.filter(
+      (c) => neededCharIds.has(c.id) || neededNames.has(c.name.trim().toLowerCase())
+    );
+    setCharacters(relevantChars);
   };
 
   useEffect(() => {
@@ -485,6 +522,7 @@ export function ChatViewer({
 
   useEffect(() => {
     if (refreshKey !== undefined) {
+      allCharactersRef.current = null;
       loadData();
     }
   }, [refreshKey]);
@@ -492,6 +530,11 @@ export function ChatViewer({
   useEffect(() => {
     let active = true;
     const localObjectUrls: string[] = [];
+
+    if (characters.length === 0) {
+      setAvatarUrls({});
+      return;
+    }
 
     const loadUrls = async () => {
       let getLocalImageUrl: any;
@@ -504,7 +547,7 @@ export function ChatViewer({
       const { peekCachedUrl, putCachedBlobUrl } = await import("../lib/thumbCache");
 
       const urls: Record<string, string> = {};
-      const pendingThumbFetches: Promise<void>[] = [];
+      const pendingThumbFetches: Promise<{ charId: string; url: string } | null>[] = [];
 
       characters.forEach((char) => {
         if (char.localFilePath && getLocalImageUrl) {
@@ -517,9 +560,6 @@ export function ChatViewer({
           localObjectUrls.push(objectUrl);
           urls[char.id] = objectUrl;
         } else if (char.hasBlobsSeparated) {
-          // getCharacters() 这里是拿去做列表用的, 没带 avatarBlob(性能考虑),
-          // 真正的头像要么从共享的缩略图 LRU 缓存里拿, 要么现场去数据库按需取一次
-          // ——不能直接当成"没有头像"退回占位图, 参考 CharacterList 的做法。
           const thumbCacheKey = `${char.id}:${char.updatedAt || 0}`;
           const cached = peekCachedUrl(thumbCacheKey);
           if (cached) {
@@ -530,8 +570,9 @@ export function ChatViewer({
               getCharacterThumb(char.id).then((thumbBlob: Blob | null) => {
                 if (thumbBlob && active) {
                   const url = putCachedBlobUrl(thumbCacheKey, thumbBlob);
-                  setAvatarUrls((prev) => ({ ...prev, [char.id]: url }));
+                  return { charId: char.id, url };
                 }
+                return null;
               })
             );
           }
@@ -540,6 +581,20 @@ export function ChatViewer({
         }
       });
       if (active) setAvatarUrls(urls);
+
+      // 批量更新缩略图，避免并发异步解析导致频繁触发重渲染
+      if (pendingThumbFetches.length > 0) {
+        Promise.all(pendingThumbFetches).then((results) => {
+          if (!active) return;
+          const updates: Record<string, string> = {};
+          results.forEach((r) => {
+            if (r) updates[r.charId] = r.url;
+          });
+          if (Object.keys(updates).length > 0) {
+            setAvatarUrls((prev) => ({ ...prev, ...updates }));
+          }
+        });
+      }
     };
 
     loadUrls();
@@ -553,6 +608,7 @@ export function ChatViewer({
   const handleFileUpload = async (files: FileList | File[]) => {
     let imported = 0;
     const pendingChats: ChatLog[] = [];
+    const allCharsForMatching = await getAllCharactersCached();
 
     setImportProgress({
       show: true,
@@ -666,7 +722,7 @@ export function ChatViewer({
                   charNameIndex = pathParts.length - 3;
                 }
                 const parentFolderName = pathParts[charNameIndex];
-                const folderMatch = characters.find(
+                const folderMatch = allCharsForMatching.find(
                   (c) =>
                     c.name.toLowerCase() === parentFolderName.toLowerCase(),
                 );
@@ -678,7 +734,7 @@ export function ChatViewer({
                   (m) => !m.is_user && m.name,
                 );
                 if (aiMessage && aiMessage.name) {
-                  const match = characters.find(
+                  const match = allCharsForMatching.find(
                     (c) =>
                       c.name.toLowerCase() === aiMessage.name?.toLowerCase(),
                   );
@@ -760,7 +816,7 @@ export function ChatViewer({
           const aiMessage = parsedMessages.find((m) => !m.is_user && m.name);
           let charId = "";
           if (aiMessage && aiMessage.name) {
-            const match = characters.find(
+            const match = allCharsForMatching.find(
               (c) => c.name.toLowerCase() === aiMessage.name.toLowerCase(),
             );
             if (match) charId = match.id;
@@ -1347,7 +1403,7 @@ export function ChatViewer({
                              >
                                 暂不绑定
                              </button>
-                             {characters.filter(c => c.name.toLowerCase().includes(characterSearchQuery.toLowerCase())).map(c => (
+                             {(bindableCharacters.length > 0 ? bindableCharacters : characters).filter(c => c.name.toLowerCase().includes(characterSearchQuery.toLowerCase())).map(c => (
                                 <button
                                    key={c.id}
                                    onClick={() => handleUpdateBinding(c.id)}

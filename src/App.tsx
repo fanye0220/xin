@@ -475,6 +475,10 @@ export default function App() {
           setImportModalInitialFiles(null);
         }}
         onImported={() => setRefreshKey(prev => prev + 1)}
+        onNavigateFolder={(id) => {
+          setSelectedFolderId(id);
+          setSelectedCharId(null);
+        }}
         folderId={selectedFolderId}
         initialFiles={importModalInitialFiles}
       />
