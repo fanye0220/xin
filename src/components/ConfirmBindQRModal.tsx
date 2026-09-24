@@ -133,7 +133,7 @@ export function ConfirmBindQRModal({
           {/* Header */}
           <div className="flex items-center justify-between pb-4 border-b border-white/10 relative z-10">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-600 to-pink-600 flex items-center justify-center text-white shadow-md shadow-purple-500/20">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center text-white shadow-md shadow-purple-500/20">
                 <LinkIcon className="w-5 h-5" />
               </div>
               <div>
@@ -168,10 +168,9 @@ export function ConfirmBindQRModal({
               <ItemCardPreview char={targetChar} isQR={false} />
             </div>
 
-            <p className="text-xs text-slate-300 mt-4 leading-relaxed bg-white/5 p-3 rounded-xl border border-white/5">
-              确定要将快速回复「<span className="text-purple-300 font-medium">{qrChar.name}</span>」绑定到角色「<span className="text-blue-300 font-medium">{targetChar.name}</span>」吗？
-              绑定后，该角色的快捷回复集中将包含此内容，在聊天中可直接呼出使用。
-            </p>
+            <div className="confirm-qr-tip text-xs mt-4 leading-relaxed p-3.5 rounded-2xl border font-medium">
+              确定要将快速回复「<span className="confirm-qr-name font-bold">{qrChar.name}</span>」绑定到角色「<span className="confirm-target-name font-bold">{targetChar.name}</span>」吗？
+            </div>
 
             {/* Delete Source Option */}
             <div
@@ -210,7 +209,7 @@ export function ConfirmBindQRModal({
             <button
               type="button"
               onClick={() => onConfirm(deleteSource)}
-              className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-medium shadow-lg shadow-purple-500/25 transition text-sm flex items-center justify-center gap-1.5 active:scale-95"
+              className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-90 text-white font-semibold shadow-lg shadow-purple-500/25 transition text-sm flex items-center justify-center gap-1.5 active:scale-95"
             >
               <LinkIcon className="w-4 h-4" />
               确认绑定

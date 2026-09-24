@@ -16,7 +16,12 @@
   --color-slate-900: #f2f2f7;
   --color-slate-800: #ffffff;
   --color-slate-700: #e5e5ea;
+  --color-slate-600: #636366;
+  --color-slate-500: #8e8e93;
   --color-slate-400: #8e8e93;
+  --color-slate-300: #3a3a3c;
+  --color-slate-200: #2c2c2e;
+  --color-slate-100: #1c1c1e;
   --color-white: #1c1c1e;
   --color-black: #ffffff;
   
@@ -185,4 +190,32 @@ body {
   --tw-prose-pre-bg: var(--color-slate-800);
   --tw-prose-th-borders: var(--color-slate-300);
   --tw-prose-td-borders: var(--color-slate-200);
+}
+
+.confirm-qr-tip {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.light-theme .confirm-qr-tip {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  color: #1c1c1e !important;
+}
+
+.confirm-qr-name {
+  color: #c084fc;
+}
+
+.light-theme .confirm-qr-name {
+  color: #8b2ec2 !important;
+}
+
+.confirm-target-name {
+  color: #60a5fa;
+}
+
+.light-theme .confirm-target-name {
+  color: #0066cc !important;
 }
