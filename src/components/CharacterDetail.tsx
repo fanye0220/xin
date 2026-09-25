@@ -627,7 +627,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         {/* Header */}
         <header className="sticky top-0 p-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] flex items-center justify-between bg-black/20 backdrop-blur-xl border-b border-white/10 z-20">
           <div className="flex items-center gap-2 min-w-0">
-            <button onClick={handleBack} className="p-2 rounded-full btn-glass transition shrink-0" title="返回">
+            <button onClick={handleBack} className="p-2 rounded-full hover:bg-white/10 transition shrink-0" title="返回">
               <ArrowLeft className="w-6 h-6" />
             </button>
           </div>
@@ -635,7 +635,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
             {!isPreset && !isStandaloneWorldbook && !isTheme && (
               <button 
                 onClick={handleSendToST} 
-                className="p-2 rounded-full btn-glass transition relative group" 
+                className="p-2 rounded-full hover:bg-white/10 transition relative group" 
                 title="发送到酒馆"
                 disabled={isSendingToST}
               >
@@ -643,10 +643,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               </button>
             )}
                         
-            <button onClick={() => handleExportPng(true)} className="p-2 rounded-full btn-glass transition" title={getDownloadTooltip("下载")}>
+            <button onClick={() => handleExportPng(true)} className="p-2 rounded-full hover:bg-white/10 transition" title={getDownloadTooltip("下载")}>
               <Download className="w-5 h-5" />
             </button>
-            <button onClick={() => setShowDeleteConfirm(true)} className="p-2 rounded-full btn-glass-danger text-red-300 transition" title="删除">
+            <button onClick={() => setShowDeleteConfirm(true)} className="p-2 rounded-full hover:bg-red-500/20 text-red-400 transition" title="删除">
               <Trash2 className="w-5 h-5" />
             </button>
           </div>
@@ -699,13 +699,13 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                 <div className="flex justify-end gap-3">
                   <button
                     onClick={() => setShowDeleteConfirm(false)}
-                    className="px-4 py-2 rounded-full btn-glass text-white/80 hover:text-white transition"
+                    className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 hover:text-white transition"
                   >
                     取消
                   </button>
                   <button
                     onClick={handleDelete}
-                    className="px-4 py-2 rounded-full btn-glass-danger text-red-200 hover:text-white transition"
+                    className="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white transition shadow-lg shadow-red-500/20"
                   >
                     删除
                   </button>
@@ -757,7 +757,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               />
               <button 
                 onClick={handleNameSave}
-                className="p-1.5 rounded-full btn-glass-green text-green-300"
+                className="p-1.5 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition"
               >
                 <Check className="w-5 h-5" />
               </button>
@@ -766,7 +766,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                   setIsEditingName(false);
                   setEditNameValue(character.name);
                 }}
-                className="p-1.5 rounded-full btn-glass text-white/70"
+                className="p-1.5 bg-white/10 text-white/60 rounded-lg hover:bg-white/20 transition"
               >
                 <XIcon className="w-5 h-5" />
               </button>
@@ -776,7 +776,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               <h1 className="text-2xl sm:text-3xl font-bold text-center break-words max-w-full">{character.name}</h1>
               <button 
                 onClick={() => setIsEditingName(true)}
-                className="p-1.5 text-white/60 hover:text-white btn-glass rounded-full transition shrink-0"
+                className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition shrink-0"
               >
                 <Edit2 className="w-4 h-4" />
               </button>
@@ -888,10 +888,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateCreator(tempCreator)}
                           />
-                          <button onClick={() => handleUpdateCreator(tempCreator)} className="p-2 rounded-full btn-glass-green text-green-300 transition shrink-0">
+                          <button onClick={() => handleUpdateCreator(tempCreator)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
                             <Check className="w-4 h-4" />
                           </button>
-                          <button onClick={() => setIsEditingCreator(false)} className="p-2 rounded-full btn-glass text-white/70 transition shrink-0">
+                          <button onClick={() => setIsEditingCreator(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
                             <XIcon className="w-4 h-4" />
                           </button>
                         </div>
@@ -928,10 +928,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateVersion(tempVersion)}
                           />
-                          <button onClick={() => handleUpdateVersion(tempVersion)} className="p-2 rounded-full btn-glass-green text-green-300 transition shrink-0">
+                          <button onClick={() => handleUpdateVersion(tempVersion)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
                             <Check className="w-4 h-4" />
                           </button>
-                          <button onClick={() => setIsEditingVersion(false)} className="p-2 rounded-full btn-glass text-white/70 transition shrink-0">
+                          <button onClick={() => setIsEditingVersion(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
                             <XIcon className="w-4 h-4" />
                           </button>
                         </div>
@@ -976,10 +976,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateTags(tempTags)}
                           />
-                          <button onClick={() => handleUpdateTags(tempTags)} className="p-2 rounded-full btn-glass-green text-green-300 transition shrink-0">
+                          <button onClick={() => handleUpdateTags(tempTags)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
                             <Check className="w-4 h-4" />
                           </button>
-                          <button onClick={() => setIsEditingTags(false)} className="p-2 rounded-full btn-glass text-white/70 transition shrink-0">
+                          <button onClick={() => setIsEditingTags(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
                             <XIcon className="w-4 h-4" />
                           </button>
                         </div>
@@ -1022,10 +1022,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateSource(tempSource)}
                           />
-                          <button onClick={() => handleUpdateSource(tempSource)} className="p-2 rounded-full btn-glass-green text-green-300 transition shrink-0">
+                          <button onClick={() => handleUpdateSource(tempSource)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
                             <Check className="w-4 h-4" />
                           </button>
-                          <button onClick={() => setIsEditingSource(false)} className="p-2 rounded-full btn-glass text-white/70 transition shrink-0">
+                          <button onClick={() => setIsEditingSource(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
                             <XIcon className="w-4 h-4" />
                           </button>
                         </div>
@@ -1518,16 +1518,16 @@ function FullScreenTextModal({
               <div className="flex items-center gap-2">
                 {onSave && (
                   isEditing ? (
-                    <button onClick={handleSave} className="px-4 py-1.5 text-sm rounded-full btn-glass-accent text-white font-medium">
+                    <button onClick={handleSave} className="px-3 py-1.5 text-sm bg-purple-500 hover:bg-purple-600 text-white rounded-lg transition font-medium shadow-lg shadow-purple-500/20">
                       保存
                     </button>
                   ) : (
-                    <button onClick={() => setIsEditing(true)} className="p-2 text-white/70 hover:text-white btn-glass rounded-full transition">
+                    <button onClick={() => setIsEditing(true)} className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition">
                       <Edit2 className="w-4 h-4" />
                     </button>
                   )
                 )}
-                <button onClick={onClose} className="p-2 rounded-full btn-glass-danger text-white/70 hover:text-red-300 transition ml-2">
+                <button onClick={onClose} className="p-2 rounded-full hover:bg-red-500/20 text-white/60 hover:text-red-400 transition ml-2">
                   <XIcon className="w-5 h-5" />
                 </button>
               </div>
@@ -1599,7 +1599,7 @@ function TextPreview({ title, content, onSave, initialEditMode }: { title: strin
         <div className="text-sm font-medium text-white/50">{title}</div>
         <div className="flex gap-2">
           {isEditing ? (
-             <button onClick={handleSave} className="text-green-300 btn-glass-green p-1.5 rounded-full text-xs font-medium transition cursor-pointer">
+             <button onClick={handleSave} className="text-green-400 hover:bg-green-400/10 p-1.5 rounded-lg text-xs font-medium transition cursor-pointer">
                保存
              </button>
           ) : (
@@ -1664,16 +1664,16 @@ function AlternateGreetingCard({ index, content, onSave, onDelete }: { key?: str
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
           {isExpanded && !isEditing && (
-            <button onClick={handleEdit} className="p-1 rounded-full btn-glass text-white/70 hover:text-white transition">
+            <button onClick={handleEdit} className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition">
               <Edit2 className="w-3.5 h-3.5" />
             </button>
           )}
           {isEditing && (
-            <button onClick={handleSave} className="p-1 rounded-full btn-glass-green text-green-300 transition">
+            <button onClick={handleSave} className="p-1 hover:bg-green-500/20 rounded text-green-400 transition">
               <Check className="w-4 h-4" />
             </button>
           )}
-          <button onClick={onDelete} className="p-1 rounded-full btn-glass-danger text-white/70 hover:text-red-300 transition">
+          <button onClick={onDelete} className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition">
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -1731,7 +1731,7 @@ function Section({ title, content, onSave }: { title: string; content?: string; 
       <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-3">
         <h3 className="text-lg font-semibold text-white/90">{title}</h3>
         {(!content || content.trim() === '') && onSave && (
-          <button onClick={() => setIsAdding(true)} className="text-purple-200 hover:text-white flex items-center gap-1 text-sm btn-glass-accent px-2.5 py-1 rounded-full transition">
+          <button onClick={() => setIsAdding(true)} className="text-purple-400 hover:text-purple-300 flex items-center gap-1 text-sm bg-purple-500/10 px-2 py-1 rounded-lg transition">
             <Plus className="w-4 h-4" /> 添加
           </button>
         )}
@@ -1963,7 +1963,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                 >
                   取消
                 </button>
-                <button onClick={saveEntry} className="px-6 py-2 rounded-full btn-glass-accent text-white transition flex items-center gap-2">
+                <button onClick={saveEntry} className="px-6 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition flex items-center gap-2 shadow-lg shadow-purple-500/20">
                   保存
                 </button>
               </div>
@@ -2085,10 +2085,10 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                       <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded-full text-white/60 whitespace-nowrap">
                         顺序: {order}
                       </span>
-                      <button onClick={() => handleEdit(i)} className="p-1 rounded-full btn-glass text-white/70 hover:text-white transition">
+                      <button onClick={() => handleEdit(i)} className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition">
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
-                      <button onClick={() => handleDelete(i)} className="p-1 rounded-full btn-glass-danger text-white/70 hover:text-red-300 transition">
+                      <button onClick={() => handleDelete(i)} className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition">
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>

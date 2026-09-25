@@ -346,7 +346,7 @@ export default function App() {
 
   if (isMigrating && migrationProgress.total > 0) {
     return (
-      <div className="min-h-screen app-root-bg flex flex-col items-center justify-center text-white p-6">
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-6">
         <div className="w-16 h-16 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mb-6" />
         <h2 className="text-2xl font-bold mb-2">正在优化数据库...</h2>
         <p className="text-slate-400 mb-6 text-center max-w-md">
@@ -366,7 +366,7 @@ export default function App() {
   }
 
   return (
-    <div className="font-sans antialiased text-white app-root-bg fixed inset-0 flex overflow-hidden">
+    <div className="font-sans antialiased text-white bg-slate-900 fixed inset-0 flex overflow-hidden">
       
       {/* Sidebar Drawer */}
       <AnimatePresence>
