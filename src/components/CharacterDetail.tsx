@@ -804,7 +804,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                 title="点击查看历史演进轨迹与快照对比"
               >
                 <History className="w-3 h-3 shrink-0" />
-                <span>{character.versionHistory.length} 个历史版本（点击查看演进）</span>
+                <span>{character.versionHistory.length} 个历史版本</span>
               </button>
             )}
           </div>
@@ -1077,7 +1077,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               { id: 'chats', icon: MessageSquare, label: '聊天记录' },
             ] : []),
             ...(!isPreset && !isStandaloneWorldbook ? [
-              { id: 'versions', icon: History, label: `版本迭代${character?.versionHistory?.length ? ` (${character.versionHistory.length})` : ''}` },
+              { id: 'versions', icon: History, label: '版本迭代' },
             ] : []),
             ...(!isPreset && !isStandaloneWorldbook ? [
               { id: 'memos', icon: StickyNote, label: '备忘录' },

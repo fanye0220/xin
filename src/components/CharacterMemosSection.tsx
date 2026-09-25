@@ -200,24 +200,24 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
         <div className="flex gap-2 self-start sm:self-auto w-full sm:w-auto">
             <button
                 onClick={() => setIsReorderingMode(!isReorderingMode)}
-                className={`flex-1 sm:flex-none justify-center px-3 py-2 ${isReorderingMode ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-white/5 text-white/70 border-white/10'} hover:bg-white/10 border rounded-lg text-sm transition flex items-center gap-1.5`}
+                className={`flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 ${isReorderingMode ? 'bg-green-500/20 text-green-300 border-green-500/30' : 'bg-white/10 text-white border-white/15'} hover:bg-white/15 border rounded-full text-xs font-medium transition active:scale-95 shadow-sm flex items-center gap-1 sm:gap-1.5 cursor-pointer`}
             >
-                <Edit className="w-4 h-4" />
-                {isReorderingMode ? '完成' : '排序'}
+                <Edit className="w-3.5 h-3.5" />
+                <span>{isReorderingMode ? '完成' : '排序'}</span>
             </button>
             <button
                 onClick={() => setIsAddingMode(true)}
-                className="flex-1 sm:flex-none justify-center px-3 py-2 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 rounded-lg text-sm transition flex items-center gap-1.5"
+                className="flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 rounded-full text-xs font-medium transition active:scale-95 shadow-sm flex items-center gap-1 sm:gap-1.5 cursor-pointer"
             >
-                <Plus className="w-4 h-4" />
-                笔记
+                <Plus className="w-3.5 h-3.5" />
+                <span>笔记</span>
             </button>
             <button
                 onClick={() => fileInputRef.current?.click()}
-                className="flex-1 sm:flex-none justify-center px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-lg text-sm transition flex items-center gap-1.5"
+                className="flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 bg-white/10 hover:bg-white/15 text-white border border-white/15 rounded-full text-xs font-medium transition active:scale-95 shadow-sm flex items-center gap-1 sm:gap-1.5 cursor-pointer"
             >
-                <FileUp className="w-4 h-4" />
-                更多
+                <FileUp className="w-3.5 h-3.5" />
+                <span>更多</span>
             </button>
         </div>
         <input 

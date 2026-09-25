@@ -81,80 +81,8 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-
-function FolderCover({
-  folder,
-  previews,
-  viewMode,
-}: {
-  folder: Folder;
-  previews: any[];
-  viewMode: string;
-}) {
-  const [url, setUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (folder.avatarBlob) {
-      const objectUrl = URL.createObjectURL(folder.avatarBlob);
-      setUrl(objectUrl);
-      return () => URL.revokeObjectURL(objectUrl);
-    } else {
-      setUrl(null);
-    }
-  }, [folder.avatarBlob]);
-
-  if (url) {
-    return (
-      <div className="w-full h-full bg-black/20 flex items-center justify-center relative overflow-hidden pointer-events-none">
-        <img
-          src={url}
-          alt=""
-          className="w-full h-full object-cover relative z-10 pointer-events-none"
-        />
-      </div>
-    );
-  }
-
-  if (previews.length > 0) {
-    return (
-      <div
-        className={`w-full h-full grid grid-cols-2 grid-rows-2 gap-1 pointer-events-none ${viewMode === "list" ? "p-1.5" : "p-3"}`}
-      >
-        {[0, 1, 2, 3].map((i) => (
-          <div
-            key={i}
-            className="w-full h-full bg-black/20 rounded-md overflow-hidden pointer-events-none"
-          >
-            {previews[i] && (
-              <img
-                src={typeof previews[i] === 'string' ? previews[i] : previews[i].url}
-                alt=""
-                className="w-full h-full object-cover pointer-events-none"
-                onError={(e) => {
-                    const item = previews[i];
-                    if (item && typeof item !== 'string' && item.seed) {
-                       const category = item.tags?.join(',') || (item.isTool ? 'tool' : undefined);
-                       e.currentTarget.src = getFallbackAvatar(item.seed, category);
-                       e.currentTarget.style.display = 'block';
-                    } else if (!e.currentTarget.src.startsWith('data:image/svg+xml')) {
-                       e.currentTarget.src = getFallbackAvatar(folder.id + i);
-                       e.currentTarget.style.display = 'block';
-                   } else {
-                       e.currentTarget.style.display = 'none';
-                   }
-                }}
-              />
-            )}
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <FolderIcon className="w-1/2 h-1/2 text-white/50 pointer-events-none" />
-  );
-}
+import { FrostedFolderCover, FrostedNewFolderCover } from "./FrostedFolderCover";
+import { FolderCoverPickerModal } from "./FolderCoverPickerModal";
 
 function SortableItemWrapper({
   id,
@@ -427,8 +355,10 @@ export function CharacterList({
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  const [cropAspect, setCropAspect] = useState<number | undefined>(2 / 3);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
   const [isCropping, setIsCropping] = useState(false);
+  const [coverPickerFolder, setCoverPickerFolder] = useState<Folder | null>(null);
 
   const getCroppedImgBlob = async (
     imageSrc: string,
@@ -577,6 +507,51 @@ export function CharacterList({
     },
     [],
   );
+
+  const handleSetCharacterAsFolderCover = async (folder: Folder, char: CharacterCard) => {
+    try {
+      let avatarBlob = char.avatarBlob;
+      if (!avatarBlob && char.hasBlobsSeparated) {
+        const blobs = await getCharacterBlob(char.id);
+        avatarBlob = blobs?.avatarBlob;
+      }
+      if (!avatarBlob && char.avatarUrlFallback) {
+        try {
+          const res = await fetch(char.avatarUrlFallback);
+          if (res.ok) avatarBlob = await res.blob();
+        } catch (e) {}
+      }
+      if (avatarBlob) {
+        let compressedBlob = avatarBlob;
+        try {
+          compressedBlob = await compressImage(new File([avatarBlob], "cover.png", { type: avatarBlob.type || "image/png" }), 400);
+        } catch (e) {}
+        const updatedFolder: Folder = { ...folder, avatarBlob: compressedBlob };
+        await saveFolder(updatedFolder);
+        setFolders((prev) => prev.map((f) => (f.id === folder.id ? updatedFolder : f)));
+        setCoverPickerFolder(null);
+        setSelectionMode(false);
+        setSelectedIds(new Set());
+        loadData();
+      }
+    } catch (err) {
+      console.error("Failed to set character as folder cover:", err);
+    }
+  };
+
+  const handleResetFolderCover = async (folder: Folder) => {
+    try {
+      const updatedFolder: Folder = { ...folder, avatarBlob: undefined };
+      await saveFolder(updatedFolder);
+      setFolders((prev) => prev.map((f) => (f.id === folder.id ? updatedFolder : f)));
+      setCoverPickerFolder(null);
+      setSelectionMode(false);
+      setSelectedIds(new Set());
+      loadData();
+    } catch (err) {
+      console.error("Failed to reset folder cover:", err);
+    }
+  };
   const [currentFolderName, setCurrentFolderName] = useState<string | null>(
     null,
   );
@@ -2386,8 +2361,8 @@ export function CharacterList({
                   )}
                 </div>
               ) : (
-                <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600 truncate">
-                  SillyTavern管理器
+                <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600 truncate tracking-wide">
+                  MIU
                 </h1>
               )}
               <p className="text-slate-400 text-xs mt-0.5 truncate">
@@ -2789,35 +2764,26 @@ export function CharacterList({
                 >
                   {page === 1 && !searchQuery && selectedTags.length === 0 && (
                     <motion.div
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
                       onClick={() => setIsCreatingFolder(true)}
                       className={
                         viewMode === "list"
                           ? "flex items-center gap-4 p-3 bg-white/5 hover:bg-white/10 rounded-2xl cursor-pointer transition border border-dashed border-white/20"
-                          : viewMode === "masonry" 
-                            ? "flex flex-col items-center gap-2 cursor-pointer group break-inside-avoid mb-4" 
-                            : "flex flex-col items-center gap-2 cursor-pointer group break-inside-avoid"
+                          : "flex flex-col items-center cursor-pointer group break-inside-avoid w-full"
                       }
                     >
-                      <div
-                        className={
-                          viewMode === "list"
-                            ? "w-12 h-12 bg-white/5 border-2 border-dashed border-white/20 rounded-xl flex items-center justify-center shrink-0"
-                            : "w-full aspect-square bg-white/5 border-2 border-dashed border-white/20 rounded-3xl flex items-center justify-center group-hover:bg-white/10 group-hover:border-white/40 transition"
-                        }
-                      >
-                        <Plus className="w-8 h-8 text-white/40 group-hover:text-white/60 transition" />
-                      </div>
-                      <span
-                        className={
-                          viewMode === "list"
-                            ? "font-medium text-white/60"
-                            : "text-xs font-medium text-center truncate w-full text-white/60 group-hover:text-white/80"
-                        }
-                      >
-                        新建文件夹
-                      </span>
+                      <FrostedNewFolderCover viewMode={viewMode} />
+                      {viewMode !== "list" && (
+                        <div className="flex flex-col items-center w-full min-w-0 px-1 mt-1.5 text-center">
+                          <span className="text-xs font-semibold text-white/70 group-hover:text-white transition truncate w-full">
+                            新建文件夹
+                          </span>
+                          <span className="text-[10px] text-white/35 group-hover:text-white/50 transition truncate mt-0.5">
+                            点击创建
+                          </span>
+                        </div>
+                      )}
                     </motion.div>
                   )}
 
@@ -2832,8 +2798,8 @@ export function CharacterList({
                         activeDragCharId={activeChar?.id || null}
                       >
                         <motion.div
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
+                          whileHover={{ scale: 1.03 }}
+                          whileTap={{ scale: 0.97 }}
                           onTouchStart={(e) => {
                             longPressRef.current.triggered = false;
                             longPressRef.current.startY = e.touches[0].clientY;
@@ -2904,17 +2870,17 @@ export function CharacterList({
                           }}
                           className={
                             viewMode === "list"
-                              ? "flex items-center gap-4 p-3 bg-white/5 hover:bg-white/10 rounded-2xl cursor-pointer transition relative group select-none"
-                              : "flex flex-col items-center gap-2 cursor-pointer group relative select-none break-inside-avoid"
+                              ? "flex items-center gap-4 p-3 bg-white/5 hover:bg-white/10 rounded-2xl cursor-pointer transition relative group select-none border border-transparent"
+                              : "flex flex-col items-center cursor-pointer group relative select-none break-inside-avoid w-full"
                           }
                         >
                           {selectionMode && (
-                            <div className="absolute top-2 right-2 z-10">
+                            <div className="absolute top-2 right-2 z-20">
                               <div
                                 className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
                                   selectedIds.has(folder.id)
                                     ? "bg-purple-500 border-purple-500"
-                                    : "border-white/40 bg-black/20 backdrop-blur-md"
+                                    : "border-white/40 bg-black/40 backdrop-blur-md"
                                 }`}
                               >
                                 {selectedIds.has(folder.id) && (
@@ -2923,25 +2889,19 @@ export function CharacterList({
                               </div>
                             </div>
                           )}
-                          <div
-                            className={
-                              viewMode === "list"
-                                ? "w-12 h-12 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center border border-white/20 shrink-0 overflow-hidden object-cover relative"
-                                : "w-full aspect-square bg-white/10 backdrop-blur-md rounded-3xl flex items-center justify-center border border-white/20 group-hover:bg-white/20 transition shadow-sm overflow-hidden relative"
-                            }
-                          >
-                            <FolderCover
-                              folder={folder}
-                              previews={previews}
-                              viewMode={viewMode}
-                            />
-                          </div>
+                          
+                          <FrostedFolderCover
+                            folder={folder}
+                            previews={previews}
+                            viewMode={viewMode}
+                          />
+
                           {viewMode === "list" ? (
                             <div className="flex-1 min-w-0 flex flex-col justify-center">
                               <div className="flex items-center gap-2">
-                                <span className="font-medium text-white/90 truncate">{folder.name}</span>
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-normal shrink-0">
-                                  {folderCounts[folder.id]?.chars ?? 0} 张卡片{folderCounts[folder.id]?.subfolders ? ` · ${folderCounts[folder.id]?.subfolders} 个文件夹` : ''}
+                                <span className="font-semibold text-white/90 truncate">{folder.name}</span>
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 font-normal shrink-0">
+                                  {folderCounts[folder.id]?.chars ?? 0} 照片{folderCounts[folder.id]?.subfolders ? ` · ${folderCounts[folder.id]?.subfolders} 文件夹` : ''}
                                 </span>
                               </div>
                               {debouncedSearchQuery && folderPaths[folder.id] && folderPaths[folder.id] !== folder.name && (
@@ -2951,15 +2911,15 @@ export function CharacterList({
                               )}
                             </div>
                           ) : (
-                            <div className="flex flex-col items-center w-full min-w-0">
-                              <span className="text-xs font-medium text-center truncate w-full text-white/80 group-hover:text-white">
+                            <div className="flex flex-col items-center w-full min-w-0 px-1 mt-1.5 text-center">
+                              <span className="text-xs font-semibold text-white/90 group-hover:text-white transition truncate w-full">
                                 {folder.name}
                               </span>
-                              <span className="text-[10px] text-white/40 group-hover:text-white/60 transition truncate">
-                                {folderCounts[folder.id]?.chars ?? 0} 张卡片{folderCounts[folder.id]?.subfolders ? ` · ${folderCounts[folder.id]?.subfolders} 文件夹` : ''}
+                              <span className="text-[11px] text-white/45 group-hover:text-white/65 transition truncate mt-0.5">
+                                {folderCounts[folder.id]?.chars ?? 0} 照片{folderCounts[folder.id]?.subfolders ? ` · ${folderCounts[folder.id]?.subfolders} 文件夹` : ''}
                               </span>
                               {debouncedSearchQuery && folderPaths[folder.id] && folderPaths[folder.id] !== folder.name && (
-                                <span className="text-[10px] text-purple-300/70 truncate w-full text-center px-1">
+                                <span className="text-[10px] text-purple-300/70 truncate w-full text-center px-1 mt-0.5">
                                   {folderPaths[folder.id]}
                                 </span>
                               )}
@@ -3272,7 +3232,17 @@ export function CharacterList({
                     <>
                       <div className="w-px h-8 bg-white/10 shrink-0" />
                       <button
-                        onClick={() => coverInputRef.current?.click()}
+                        onClick={() => {
+                          if (selectedIds.size === 1) {
+                            const selectedFolderId = Array.from(selectedIds)[0];
+                            const targetFolder = folders.find((f) => f.id === selectedFolderId);
+                            if (targetFolder) {
+                              setCoverPickerFolder(targetFolder);
+                              return;
+                            }
+                          }
+                          coverInputRef.current?.click();
+                        }}
                         disabled={selectedIds.size === 0}
                         className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-white/10 text-white/70 hover:text-orange-400 transition disabled:opacity-50 group shrink-0"
                       >
@@ -3425,24 +3395,53 @@ export function CharacterList({
       </AnimatePresence>
 
       {imageToCrop && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-xl flex flex-col shadow-2xl overflow-hidden h-[70vh] max-h-[800px]">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+          <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-xl flex flex-col shadow-2xl overflow-hidden h-[75vh] max-h-[850px]">
             <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
-              <h3 className="text-lg font-bold text-white">调整封面图片</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-bold text-white">调整封面图片</h3>
+                <span className="text-xs text-purple-300 bg-purple-500/15 border border-purple-400/25 px-2 py-0.5 rounded-md font-medium">
+                  {cropAspect === 2 / 3 ? "2:3 标准竖卡" : cropAspect === 3 / 4 ? "3:4 经典比例" : cropAspect === 1 ? "1:1 正方形" : "自由裁剪"}
+                </span>
+              </div>
 
               <button
                 onClick={closeCrop}
-                className="p-1 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition hidden sm:block"
+                className="p-1.5 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="flex-1 relative w-full h-full bg-black/50">
+
+            {/* Aspect Ratio Selector */}
+            <div className="px-4 py-2 border-b border-white/5 bg-black/20 flex items-center gap-2 overflow-x-auto">
+              <span className="text-xs text-white/50 shrink-0 font-medium">裁剪比例:</span>
+              {[
+                { label: "2:3 (竖卡标准)", value: 2 / 3 },
+                { label: "3:4 (经典比例)", value: 3 / 4 },
+                { label: "1:1 (正方形)", value: 1 },
+                { label: "自由裁剪", value: undefined },
+              ].map((opt) => (
+                <button
+                  key={opt.label}
+                  onClick={() => setCropAspect(opt.value)}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition shrink-0 ${
+                    cropAspect === opt.value
+                      ? "bg-purple-500 text-white shadow-sm shadow-purple-500/30"
+                      : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex-1 relative w-full h-full bg-black/60">
               <Cropper
                 image={imageToCrop}
                 crop={crop}
                 zoom={zoom}
-                aspect={1}
+                aspect={cropAspect}
                 cropShape="rect"
                 showGrid={true}
                 onCropChange={setCrop}
@@ -3451,35 +3450,60 @@ export function CharacterList({
               />
             </div>
             <div className="p-4 border-t border-white/10 bg-white/[0.02] flex items-center justify-between gap-4">
-              <input
-                type="range"
-                value={zoom}
-                min={1}
-                max={3}
-                step={0.1}
-                aria-labelledby="Zoom"
-                onChange={(e) => setZoom(Number(e.target.value))}
-                className="flex-1 h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
-              />
+              <div className="flex items-center gap-3 flex-1">
+                <span className="text-xs text-white/50 font-medium shrink-0">缩放</span>
+                <input
+                  type="range"
+                  value={zoom}
+                  min={1}
+                  max={3}
+                  step={0.05}
+                  aria-labelledby="Zoom"
+                  onChange={(e) => setZoom(Number(e.target.value))}
+                  className="flex-1 h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                />
+              </div>
 
               <div className="flex items-center gap-2">
                 <button
                   onClick={closeCrop}
-                  className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white/80 font-medium rounded-xl transition sm:hidden"
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white/80 font-medium rounded-xl transition"
                 >
                   取消
                 </button>
                 <button
                   onClick={handleSaveCrop}
-                  className="px-6 py-2 bg-purple-500 hover:bg-purple-600 text-white font-bold rounded-xl transition"
+                  disabled={isCropping}
+                  className="px-6 py-2 bg-purple-500 hover:bg-purple-600 disabled:opacity-50 text-white font-bold rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-purple-500/25"
                 >
-                  保存封面
+                  {isCropping && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>保存封面</span>
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* Folder Cover Picker Modal */}
+      <FolderCoverPickerModal
+        isOpen={!!coverPickerFolder}
+        folder={coverPickerFolder}
+        onClose={() => setCoverPickerFolder(null)}
+        onSelectCharacterCover={(char) => {
+          if (coverPickerFolder) {
+            handleSetCharacterAsFolderCover(coverPickerFolder, char);
+          }
+        }}
+        onUploadCustomImage={() => {
+          coverInputRef.current?.click();
+        }}
+        onResetCover={() => {
+          if (coverPickerFolder) {
+            handleResetFolderCover(coverPickerFolder);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -3727,14 +3751,16 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
       onMouseDown={handleTouchStart}
       onMouseUp={handleTouchEnd}
       onMouseLeave={handleTouchEnd}
-      className={`relative ${viewMode === "masonry" ? "w-full h-auto min-h-[150px] bg-white/5" : "aspect-[2/3]"} rounded-2xl overflow-hidden cursor-pointer shadow-lg border transition-all duration-300 group select-none ${isSelected ? "border-purple-500 ring-2 ring-purple-500" : "border-white/10"}`}
+      className={`relative ${viewMode === "masonry" ? "w-full min-h-[160px] aspect-[2/3] bg-white/5" : "aspect-[2/3]"} rounded-2xl overflow-hidden cursor-pointer shadow-lg border transition-all duration-300 group select-none ${isSelected ? "border-purple-500 ring-2 ring-purple-500" : "border-white/10"}`}
     >
       <motion.img
         animate={{ scale: isSelected ? 0.9 : 1 }}
         transition={{ duration: 0.2 }}
         src={url || undefined}
         alt={char.name}
-        className={`w-full ${viewMode === "masonry" ? "h-auto block" : "h-full"} object-cover pointer-events-none`}
+        loading="lazy"
+        decoding="async"
+        className="w-full h-full object-cover pointer-events-none"
         onError={() => {
           if (url === defaultFallback) return;
           if (fallbackObjectUrlRef.current) {
@@ -3766,13 +3792,6 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
             ))}
           </div>
         )}
-        {/* <div className="flex items-center gap-1 mt-1.5">
-          {char.autoImportFilename && (
-            <span className="text-[9px] text-[#ffffff]/60 truncate shrink">
-              {char.autoImportFilename}
-            </span>
-          )}
-        </div> */}
       </div>
 
       {badgeInfo && (

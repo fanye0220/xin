@@ -657,57 +657,51 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
   const historyList = character.versionHistory || [];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       {/* Top Banner & Action Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 p-3.5 sm:p-4 rounded-2xl bg-white/5 border border-white/10 shadow-sm [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/10">
-        <div>
-          <div className="flex items-center gap-2 sm:gap-2.5">
-            <h3 className="text-sm sm:text-base font-bold text-white">
+      <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4 p-4 sm:p-5 rounded-3xl bg-white/[0.06] backdrop-blur-2xl border border-white/20 shadow-xl overflow-hidden [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:backdrop-blur-none [.light-theme_&]:!border-black/10 [.light-theme_&]:!shadow-sm">
+        <div className="relative z-10">
+          <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
+            <h3 className="text-base sm:text-lg font-bold text-white tracking-tight [.light-theme_&]:!text-[#1c1c1e]">
               <span>版本迭代</span><span className="hidden sm:inline">与溯源</span>
             </h3>
-            <span className="text-[11px] sm:text-xs px-2 sm:px-2.5 py-0.5 rounded-full bg-white/10 text-white/80 font-medium border border-white/15 whitespace-nowrap [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]">
+            <span className="text-xs px-3 py-1 rounded-full bg-white/10 text-white/90 font-medium border border-white/20 backdrop-blur-md whitespace-nowrap shadow-xs [.light-theme_&]:!bg-black/[0.04] [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#1c1c1e]">
               {historyList.length > 0 ? (
-                <>
-                  <span className="sm:hidden">{historyList.length + 1}个版本</span>
-                  <span className="hidden sm:inline">共 {historyList.length + 1} 个演进版本</span>
-                </>
+                <>共 {historyList.length + 1} 个版本</>
               ) : (
-                <>
-                  <span className="sm:hidden">单版本</span>
-                  <span className="hidden sm:inline">当前为单版本</span>
-                </>
+                <>当前为单版本</>
               )}
             </span>
           </div>
-          <p className="text-xs text-white/60 mt-1 line-clamp-2 sm:line-clamp-none">
+          <p className="text-xs text-white/60 mt-1 line-clamp-2 sm:line-clamp-none [.light-theme_&]:!text-[#1c1c1e]/60">
             记录新旧版本的演变轨迹，支持历史快照对比、一键回滚以及关联绑定卡库中的旧版本。
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 relative z-10 w-full sm:w-auto">
           <button
             onClick={() => setIsCreatingSnapshot(true)}
-            className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-xs font-medium transition active:scale-95 shadow-sm cursor-pointer [.light-theme_&]:bg-purple-50 [.light-theme_&]:text-purple-700 [.light-theme_&]:border-purple-300 [.light-theme_&]:hover:bg-purple-100"
+            className="flex-1 sm:flex-none justify-center items-center gap-1 sm:gap-1.5 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-full bg-white/10 hover:bg-white/15 text-white/90 border border-white/20 text-[11px] sm:text-xs font-medium backdrop-blur-md transition active:scale-95 shadow-sm cursor-pointer flex whitespace-nowrap [.light-theme_&]:!bg-black/[0.04] [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/10 [.light-theme_&]:hover:!bg-black/[0.08]"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5 shrink-0" />
             <span className="sm:hidden">快照</span>
             <span className="hidden sm:inline">创建当前快照</span>
           </button>
 
           <button
             onClick={() => setIsLinkModalOpen(true)}
-            className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white border border-white/15 text-xs font-medium transition active:scale-95 shadow-sm cursor-pointer [.light-theme_&]:bg-black/5 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-black/10"
+            className="flex-1 sm:flex-none justify-center items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-full bg-white/10 hover:bg-white/15 text-white/90 border border-white/20 text-[11px] sm:text-xs font-medium backdrop-blur-md transition active:scale-95 shadow-sm cursor-pointer flex whitespace-nowrap [.light-theme_&]:!bg-black/[0.04] [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/10 [.light-theme_&]:hover:!bg-black/[0.08]"
           >
-            <Link className="w-3.5 h-3.5" />
-            <span className="sm:hidden">绑定旧版</span>
+            <Link className="w-3.5 h-3.5 shrink-0" />
+            <span className="sm:hidden">绑定</span>
             <span className="hidden sm:inline">绑定卡库旧版本</span>
           </button>
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white border border-white/15 text-xs font-medium transition active:scale-95 shadow-sm cursor-pointer [.light-theme_&]:bg-black/5 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-black/10"
+            className="flex-1 sm:flex-none justify-center items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-full bg-white/10 hover:bg-white/15 text-white/90 border border-white/20 text-[11px] sm:text-xs font-medium backdrop-blur-md transition active:scale-95 shadow-sm cursor-pointer flex whitespace-nowrap [.light-theme_&]:!bg-black/[0.04] [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/10 [.light-theme_&]:hover:!bg-black/[0.08]"
           >
-            <Upload className="w-3.5 h-3.5" />
+            <Upload className="w-3.5 h-3.5 shrink-0" />
             <span className="sm:hidden">导入</span>
             <span className="hidden sm:inline">导入文件版本</span>
           </button>
@@ -730,23 +724,23 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
             exit={{ opacity: 0, height: 0 }}
             className="overflow-hidden"
           >
-            <div className="p-4 rounded-2xl bg-white/5 border border-white/15 space-y-3 shadow-md [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/10">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-white/70" />
+            <div className="relative p-4 sm:p-5 rounded-3xl bg-white/[0.06] backdrop-blur-2xl border border-white/20 space-y-4 shadow-xl overflow-hidden [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-black/10">
+              <div className="flex items-center justify-between relative z-10">
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2 [.light-theme_&]:!text-[#1c1c1e]">
+                  <Sparkles className="w-4 h-4 text-white/80 [.light-theme_&]:!text-[#1c1c1e]" />
                   保存当前卡片为历史版本快照
                 </h4>
                 <button 
                   onClick={() => setIsCreatingSnapshot(false)}
-                  className="p-1 rounded-full text-white/40 hover:text-white transition cursor-pointer [.light-theme_&]:hover:bg-black/5 [.light-theme_&]:text-[#1c1c1e]/60"
+                  className="p-1 rounded-full text-white/40 hover:text-white transition cursor-pointer [.light-theme_&]:hover:!bg-black/5 [.light-theme_&]:!text-[#1c1c1e]/60"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 relative z-10">
                 <div>
-                  <label className="block text-[11px] font-medium text-white/80 mb-1">
+                  <label className="block text-[11px] font-medium text-white/80 mb-1 [.light-theme_&]:!text-[#1c1c1e]/80">
                     版本标识 / 版本号
                   </label>
                   <input
@@ -754,11 +748,11 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
                     value={snapshotName}
                     onChange={e => setSnapshotName(e.target.value)}
                     placeholder={`例如 v${currentVersionStr} 或 初版备份`}
-                    className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-xs text-white placeholder-white/40 focus:outline-none focus:border-white/40 transition [.light-theme_&]:bg-black/[0.03] [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:placeholder-black/40"
+                    className="w-full bg-white/5 border border-white/15 rounded-2xl px-3.5 py-2 text-xs text-white placeholder-white/40 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 transition [.light-theme_&]:!bg-black/[0.03] [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!placeholder-black/40 [.light-theme_&]:focus:!border-black/30 [.light-theme_&]:focus:!ring-black/5"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-white/80 mb-1">
+                  <label className="block text-[11px] font-medium text-white/80 mb-1 [.light-theme_&]:!text-[#1c1c1e]/80">
                     修改说明 / 迭代备注
                   </label>
                   <input
@@ -766,21 +760,21 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
                     value={snapshotNote}
                     onChange={e => setSnapshotNote(e.target.value)}
                     placeholder="例如：优化人设提示词与第2段开场白"
-                    className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-xs text-white placeholder-white/40 focus:outline-none focus:border-white/40 transition [.light-theme_&]:bg-black/[0.03] [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:placeholder-black/40"
+                    className="w-full bg-white/5 border border-white/15 rounded-2xl px-3.5 py-2 text-xs text-white placeholder-white/40 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 transition [.light-theme_&]:!bg-black/[0.03] [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!placeholder-black/40 [.light-theme_&]:focus:!border-black/30 [.light-theme_&]:focus:!ring-black/5"
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-1">
+              <div className="flex justify-end gap-2 pt-1 relative z-10">
                 <button
                   onClick={() => setIsCreatingSnapshot(false)}
-                  className="px-3 py-1.5 rounded-xl text-xs text-white/70 hover:text-white bg-white/5 hover:bg-white/10 transition cursor-pointer [.light-theme_&]:bg-black/5 [.light-theme_&]:border [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/10"
+                  className="px-4 py-2 rounded-full text-xs text-white/70 hover:text-white bg-white/10 hover:bg-white/15 border border-white/15 transition cursor-pointer [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:hover:!bg-black/10"
                 >
                   取消
                 </button>
                 <button
                   onClick={handleCreateSnapshot}
-                  className="px-4 py-1.5 rounded-xl text-xs font-semibold text-white bg-purple-600 hover:bg-purple-500 shadow-md shadow-purple-500/20 transition active:scale-95 cursor-pointer"
+                  className="px-5 py-2 rounded-full text-xs font-medium text-white/90 bg-white/15 hover:bg-white/20 border border-white/25 shadow-sm transition active:scale-95 cursor-pointer [.light-theme_&]:!bg-black/[0.06] [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/15 [.light-theme_&]:hover:!bg-black/[0.1]"
                 >
                   保存快照
                 </button>
@@ -792,76 +786,80 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
 
       {/* Timeline Section */}
       <div className="space-y-4">
-        {/* Node 1: Current Active Version (Selected / Highlighted with UI Accent) */}
-        <div className="relative pl-6 sm:pl-8 before:absolute before:left-2 sm:before:left-3 before:top-[38px] sm:before:top-[48px] before:bottom-0 before:w-0.5 before:bg-purple-500/40 [.light-theme_&]:before:bg-purple-300">
-          {/* Node Dot - Centered vertically with card header avatar */}
-          <div className="absolute left-0 sm:left-1 top-[38px] sm:top-[48px] -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-purple-500 border-2 border-slate-900 [.light-theme_&]:border-white shadow-md shadow-purple-500/50 flex items-center justify-center z-10">
+        {/* Node 1: Current Active Version (Identical Unified Layout) */}
+        <div className="relative pl-5 sm:pl-8 before:absolute before:left-1 sm:before:left-3 before:top-[28px] sm:before:top-[32px] before:bottom-0 before:w-0.5 before:bg-white/15 [.light-theme_&]:before:!bg-black/10">
+          {/* Node Dot */}
+          <div className="absolute -left-1 sm:left-1 top-[28px] sm:top-[32px] -translate-y-1/2 w-4 h-4 sm:w-4.5 sm:h-4.5 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 border-2 border-slate-900 [.light-theme_&]:!border-white shadow-md shadow-purple-500/30 flex items-center justify-center z-10">
             <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
           </div>
 
-          <div className="p-3.5 sm:p-5 rounded-2xl bg-purple-500/[0.08] border-2 border-purple-500/50 shadow-lg shadow-purple-500/10 ring-1 ring-purple-500/30 relative overflow-hidden [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-purple-400 [.light-theme_&]:shadow-purple-500/10 [.light-theme_&]:ring-purple-200">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl overflow-hidden shrink-0 bg-white/10 border-2 border-purple-500/40 shadow-inner [.light-theme_&]:border-purple-300 [.light-theme_&]:bg-black/5">
-                  <ActiveAvatar character={character} avatarUrl={avatarUrl} />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                    <span className="font-bold text-sm sm:text-base text-white">
-                      v{currentVersionStr}
-                    </span>
-                    <span className="px-2 sm:px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-bold border border-purple-500/40 text-[10px] sm:text-xs flex items-center gap-1 sm:gap-1.5 shadow-sm [.light-theme_&]:bg-purple-100 [.light-theme_&]:text-purple-800 [.light-theme_&]:border-purple-300">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                      <span className="sm:hidden">当前版本</span>
-                      <span className="hidden sm:inline">当前活跃版本</span>
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-white/60 mt-1 flex items-center gap-1 sm:gap-2">
-                    <Clock className="w-3 h-3 text-white/60 shrink-0" />
-                    <span className="sm:hidden">更新: {new Date(character.updatedAt || character.createdAt).toLocaleDateString()}</span>
-                    <span className="hidden sm:inline">更新时间: {new Date(character.updatedAt || character.createdAt).toLocaleString()}</span>
-                  </p>
-                </div>
-              </div>
+          <div className="relative p-3.5 sm:p-4.5 pl-4 sm:pl-5 rounded-3xl bg-white/[0.06] backdrop-blur-2xl border border-white/20 hover:border-white/35 transition-all duration-300 space-y-2 sm:space-y-2.5 overflow-hidden shadow-xl [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:backdrop-blur-none [.light-theme_&]:!border-black/10 [.light-theme_&]:!shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
+            {/* Apple Reminders Style Left Vertical Accent Strip (Active) */}
+            <div className="absolute left-0 top-3 bottom-3 w-1.5 rounded-r-full bg-gradient-to-b from-purple-500 to-pink-500 shadow-sm [.light-theme_&]:!from-[#a855f7] [.light-theme_&]:!to-[#ec4899]" />
 
-              <div className="flex items-center gap-1 shrink-0">
-                <span className="text-[10px] text-purple-300 bg-purple-500/15 border border-purple-500/25 [.light-theme_&]:bg-purple-100/70 [.light-theme_&]:text-purple-800 [.light-theme_&]:border-purple-200 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg font-mono font-medium max-w-[90px] sm:max-w-[160px] truncate" title={character.name}>
-                  {character.name}
+            {/* Top Row: Name on Left + Status Pill on Right */}
+            <div className="flex items-center justify-between gap-2 sm:gap-3 relative z-10">
+              <h4 className="text-sm sm:text-base font-bold text-white tracking-tight flex items-center gap-1.5 min-w-0 truncate [.light-theme_&]:!text-[#1c1c1e]">
+                <span className="truncate">{character.name}</span>
+                <span className="text-[11px] font-normal text-white/50 shrink-0 [.light-theme_&]:!text-black/50">v{currentVersionStr}</span>
+              </h4>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="px-2.5 sm:px-3 py-0.5 rounded-full text-[11px] font-semibold bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-pink-300 border border-pink-400/35 backdrop-blur-md shadow-xs flex items-center gap-1.5 [.light-theme_&]:!from-purple-100 [.light-theme_&]:!to-pink-100 [.light-theme_&]:!text-purple-700 [.light-theme_&]:!border-purple-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                  <span>当前活跃</span>
                 </span>
               </div>
             </div>
 
-            {/* Quick Metrics */}
-            <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2.5 sm:mt-3 pt-2.5 sm:pt-3 border-t border-purple-500/20 [.light-theme_&]:border-purple-200/60 text-[11px] text-white/80">
-              <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-white/5 border border-purple-500/20 [.light-theme_&]:bg-purple-50/70 [.light-theme_&]:border-purple-200 flex items-center gap-1 sm:gap-1.5 font-medium text-white/80 [.light-theme_&]:text-[#1c1c1e]">
-                <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-purple-400 [.light-theme_&]:text-purple-600 shrink-0" />
-                <span className="sm:hidden">描述 {currentDescription.length}字</span>
-                <span className="hidden sm:inline">设定描述: {currentDescription.length} 字</span>
-              </span>
-              <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-white/5 border border-purple-500/20 [.light-theme_&]:bg-purple-50/70 [.light-theme_&]:border-purple-200 flex items-center gap-1 sm:gap-1.5 font-medium text-white/80 [.light-theme_&]:text-[#1c1c1e]">
-                <MessageSquare className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-400 [.light-theme_&]:text-blue-600 shrink-0" />
-                <span className="sm:hidden">开场白 {currentGreetingsCount}篇</span>
-                <span className="hidden sm:inline">开场白: {currentGreetingsCount} 篇</span>
-              </span>
-              {currentWeatherBookCount > 0 && (
-                <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-white/5 border border-purple-500/20 [.light-theme_&]:bg-purple-50/70 [.light-theme_&]:border-purple-200 flex items-center gap-1 sm:gap-1.5 font-medium text-white/80 [.light-theme_&]:text-[#1c1c1e]">
-                  <Book className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400 [.light-theme_&]:text-emerald-600 shrink-0" />
-                  <span className="sm:hidden">世界书 {currentWeatherBookCount}条</span>
-                  <span className="hidden sm:inline">世界书: {currentWeatherBookCount} 条</span>
+            {/* Middle: Description Body */}
+            <div className="relative z-10 space-y-2">
+              <p className="text-[11px] sm:text-xs text-white/70 leading-relaxed font-normal line-clamp-2 [.light-theme_&]:!text-[#1c1c1e]/75">
+                {currentDescription || "当前卡片设定完整生效中，开场白与世界书随时可供溯源。"}
+              </p>
+
+              {/* Middle Row: Metrics Pills (Right below description, perfectly fitting without crowding bottom) */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="px-2.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] sm:text-[11px] text-white/80 font-medium [.light-theme_&]:!bg-black/[0.04] [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/10">
+                  {currentDescription.length} 字
                 </span>
-              )}
+                <span className="px-2.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] sm:text-[11px] text-white/80 font-medium [.light-theme_&]:!bg-black/[0.04] [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/10">
+                  {currentGreetingsCount} 篇开场白
+                </span>
+                {currentWeatherBookCount > 0 && (
+                  <span className="px-2.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] sm:text-[11px] text-white/80 font-medium [.light-theme_&]:!bg-black/[0.04] [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/10">
+                    {currentWeatherBookCount} 条世界书
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom Row: Timestamp on Left + Avatar on Right */}
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10 relative z-10 [.light-theme_&]:!border-black/5">
+              {/* Bottom Left Timestamp */}
+              <div className="flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-xs font-semibold text-white/75 [.light-theme_&]:!text-[#1c1c1e]/75">
+                <Clock className="w-3.5 h-3.5 text-pink-300/90 shrink-0 [.light-theme_&]:!text-purple-600" />
+                <span>{new Date(character.updatedAt || character.createdAt).toLocaleDateString()} {new Date(character.updatedAt || character.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
+
+              {/* Bottom Right Avatar */}
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden shrink-0 border-2 border-white/30 shadow-md bg-white/10 [.light-theme_&]:!border-black/10">
+                <ActiveAvatar character={character} avatarUrl={avatarUrl} />
+              </div>
             </div>
           </div>
         </div>
 
         {/* Nodes 2..N: Historical Snapshots */}
         {historyList.length === 0 ? (
-          <div className="ml-6 sm:ml-8 p-8 rounded-2xl bg-white/5 border border-dashed border-white/15 text-center text-white/60 text-xs space-y-2 [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/10">
-            <GitBranch className="w-8 h-8 mx-auto opacity-40 text-white/60" />
-            <p className="font-semibold text-sm text-white">暂无关联的历史旧版本</p>
-            <p className="text-white/60 max-w-md mx-auto">
-              若您在卡库中存有该角色的旧版本或备用开场白卡片，可点击上方的「绑定卡库旧版本」进行融合溯源，亦可随时创建当前快照。
-            </p>
+          <div className="ml-5 sm:ml-8 relative p-6 sm:p-8 rounded-3xl bg-white/[0.04] backdrop-blur-2xl border border-white/15 text-center text-white/60 text-xs space-y-2 overflow-hidden shadow-sm [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:backdrop-blur-none [.light-theme_&]:!border-black/10">
+            <div className="relative z-10 space-y-1.5">
+              <GitBranch className="w-8 h-8 mx-auto opacity-40 text-white/60 [.light-theme_&]:!text-[#1c1c1e]/60" />
+              <p className="font-semibold text-sm text-white [.light-theme_&]:!text-[#1c1c1e]">暂无关联的历史旧版本</p>
+              <p className="text-white/60 max-w-md mx-auto leading-relaxed [.light-theme_&]:!text-[#1c1c1e]/60">
+                若您在卡库中存有该角色的旧版本或备用开场白卡片，可点击上方的「绑定卡库旧版本」进行融合溯源，亦可随时创建当前快照。
+              </p>
+            </div>
           </div>
         ) : (
           historyList.map((snapshot) => {
@@ -874,104 +872,100 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
             return (
               <div 
                 key={snapshot.id}
-                className="relative pl-6 sm:pl-8 before:absolute before:left-2 sm:before:left-3 before:top-0 before:bottom-0 before:w-0.5 before:bg-white/10 [.light-theme_&]:before:bg-black/10 last:before:bottom-auto last:before:h-[34px] sm:last:before:h-[44px]"
+                className="relative pl-5 sm:pl-8 before:absolute before:left-1 sm:before:left-3 before:top-0 before:bottom-0 before:w-0.5 before:bg-white/15 [.light-theme_&]:before:!bg-black/10 last:before:bottom-auto last:before:h-[34px] sm:last:before:h-[44px]"
               >
-                {/* Node Dot - Centered vertically with snapshot card avatar */}
-                <div className="absolute left-0.5 sm:left-1.5 top-[34px] sm:top-[44px] -translate-y-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-slate-800 border-2 border-white/40 shadow-sm flex items-center justify-center [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/30 z-10">
-                  <div className="w-1.5 h-1.5 rounded-full bg-white/60 [.light-theme_&]:bg-black/40" />
+                {/* Node Dot */}
+                <div className="absolute -left-0.5 sm:left-1.5 top-[28px] sm:top-[32px] -translate-y-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-slate-800 border-2 border-white/40 shadow-sm flex items-center justify-center [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-black/30 z-10">
+                  <div className="w-1.5 h-1.5 rounded-full bg-white/60 [.light-theme_&]:!bg-black/40" />
                 </div>
 
-                <div className="p-3.5 sm:p-5 rounded-2xl bg-white/5 border border-white/10 hover:border-white/20 transition space-y-3 [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/10 [.light-theme_&]:shadow-sm [.light-theme_&]:hover:border-black/20">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl overflow-hidden shrink-0 bg-black/40 border border-white/10 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10">
-                        <SnapshotAvatar snapshot={snapshot} fallbackName={snapshot.cardName || character.name} />
-                      </div>
+                <div className="relative p-3.5 sm:p-4.5 pl-4 sm:pl-5 rounded-3xl bg-white/[0.06] backdrop-blur-2xl border border-white/20 hover:border-white/35 transition-all duration-300 space-y-2 sm:space-y-2.5 shadow-lg hover:shadow-xl group overflow-hidden [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:backdrop-blur-none [.light-theme_&]:!border-black/10 [.light-theme_&]:!shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
+                  {/* Apple Reminders Style Left Vertical Accent Strip (History) */}
+                  <div className="absolute left-0 top-3 bottom-3 w-1 rounded-r-full bg-white/20 [.light-theme_&]:!bg-[#d8d8dc]" />
 
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                          <h4 className="font-bold text-sm text-white truncate max-w-[140px] sm:max-w-none">
-                            {snapshot.versionName || '未命名版本'}
-                          </h4>
-                          <span className="text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full bg-white/10 text-white/70 font-mono shrink-0 [.light-theme_&]:bg-black/5 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border [.light-theme_&]:border-black/10">
-                            {new Date(snapshot.createdAt).toLocaleDateString()}
-                          </span>
-                        </div>
-                        {snapshot.note && (
-                          <p className="text-xs text-white/60 mt-0.5 truncate max-w-[200px] sm:max-w-none">
-                            {snapshot.note}
-                          </p>
-                        )}
-                      </div>
-                    </div>
+                  {/* Top Row: Name on Left + Right Action Pills */}
+                  <div className="flex items-center justify-between gap-2 sm:gap-3 relative z-10">
+                    <h4 className="text-sm sm:text-base font-bold text-white tracking-tight flex items-center gap-1.5 min-w-0 truncate [.light-theme_&]:!text-[#1c1c1e]">
+                      <span className="truncate">{snapshot.versionName || '未命名版本'}</span>
+                    </h4>
 
-                    {/* Action buttons */}
+                    {/* Right Action Pills */}
                     <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
                       <button
                         onClick={() => setExpandedDiffId(isExpanded ? null : snapshot.id)}
-                        className={`p-1.5 rounded-lg border text-xs transition flex items-center gap-1 ${
+                        className={`px-2 sm:px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-medium transition-all flex items-center gap-1 active:scale-95 cursor-pointer ${
                           isExpanded 
-                            ? 'bg-purple-600/20 text-purple-300 border-purple-500/30 [.light-theme_&]:bg-purple-100 [.light-theme_&]:text-purple-800 [.light-theme_&]:border-purple-300' 
-                            : 'bg-white/5 text-white/70 hover:text-white border-white/10 hover:bg-white/10 [.light-theme_&]:bg-black/5 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-black/10'
+                            ? 'bg-white text-[#121316] font-semibold shadow-sm border border-white/40 [.light-theme_&]:!bg-black/[0.1] [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/20' 
+                            : 'bg-white/10 hover:bg-white/20 text-white/80 hover:text-white border border-white/20 backdrop-blur-md [.light-theme_&]:!bg-black/[0.04] [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/10 [.light-theme_&]:hover:!bg-black/[0.08]'
                         }`}
                         title="查看与当前版本差异对比"
                       >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span className="sm:hidden">对比</span>
-                        <span className="hidden sm:inline">对比预览</span>
+                        <Eye className="w-3 h-3" />
+                        <span className="hidden sm:inline">对比</span>
                         {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                       </button>
 
                       <button
                         onClick={() => handleRollback(snapshot)}
-                        className="p-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-white border border-white/15 text-xs transition flex items-center gap-1 active:scale-95 [.light-theme_&]:bg-black/5 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-black/10"
+                        className="px-2 sm:px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/90 hover:text-white border border-white/20 text-[11px] sm:text-xs font-medium transition-all flex items-center gap-1 active:scale-95 shadow-xs backdrop-blur-md cursor-pointer [.light-theme_&]:!bg-black/[0.04] [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/10 [.light-theme_&]:hover:!bg-black/[0.08]"
                         title="恢复为当前生效版本（当前版本将自动备份）"
                       >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        <span className="sm:hidden">回滚</span>
-                        <span className="hidden sm:inline">回滚恢复</span>
+                        <RotateCcw className="w-3 h-3 text-white/80 [.light-theme_&]:!text-[#1c1c1e]/80" />
+                        <span className="hidden sm:inline">回滚</span>
                       </button>
 
                       <button
                         onClick={() => handleExportSnapshot(snapshot)}
-                        className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 text-xs transition [.light-theme_&]:bg-black/5 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-black/10"
+                        className="p-1 sm:p-1.5 rounded-full bg-white/5 hover:bg-white/15 text-white/70 hover:text-white border border-white/15 text-xs transition active:scale-95 cursor-pointer [.light-theme_&]:!bg-black/[0.04] [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/10 [.light-theme_&]:hover:!bg-black/[0.08]"
                         title="导出为此历史版本的 PNG 角色卡"
                       >
-                        <Download className="w-3.5 h-3.5" />
+                        <Download className="w-3 h-3" />
                       </button>
 
                       <button
                         onClick={() => handleDeleteSnapshot(snapshot.id, snapshot.versionName)}
-                        className="p-1.5 rounded-lg bg-white/5 hover:bg-red-500/20 text-white/60 hover:text-red-400 border border-white/10 text-xs transition [.light-theme_&]:bg-black/5 [.light-theme_&]:text-white/60 [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-red-50 [.light-theme_&]:hover:text-red-600"
+                        className="p-1 sm:p-1.5 rounded-full bg-white/5 hover:bg-red-500/20 text-white/50 hover:text-red-400 border border-white/15 text-xs transition active:scale-95 cursor-pointer [.light-theme_&]:!bg-black/[0.04] [.light-theme_&]:!text-white/60 [.light-theme_&]:!border-black/10 [.light-theme_&]:hover:!bg-red-50 [.light-theme_&]:hover:!text-red-600"
                         title="删除该版本快照"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3 h-3" />
                       </button>
                     </div>
                   </div>
 
-                  {/* Metrics bar */}
-                  <div className="flex flex-wrap gap-1.5 sm:gap-2 text-[11px] text-white/70">
-                    {(() => {
-                      const diff = snapDesc.length - currentDescription.length;
-                      const diffStr = diff > 0 ? `+${diff}` : String(diff);
-                      return (
-                        <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-white/80 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]">
-                          <span className="sm:hidden">字数 {snapDesc.length} ({diffStr})</span>
-                          <span className="hidden sm:inline">字数: {snapDesc.length} (与当前相差 {diffStr})</span>
-                        </span>
-                      );
-                    })()}
-                    <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-white/80 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]">
-                      <span className="sm:hidden">开场白 {snapGreetingsCount}篇</span>
-                      <span className="hidden sm:inline">开场白: {snapGreetingsCount} 篇</span>
-                    </span>
-                    {snapWbCount > 0 && (
-                      <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-white/80 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]">
-                        <span className="sm:hidden">世界书 {snapWbCount}条</span>
-                        <span className="hidden sm:inline">世界书: {snapWbCount} 条</span>
+                  {/* Middle: Note / Description Body & Metrics Pills */}
+                  <div className="relative z-10 space-y-2">
+                    <p className="text-[11px] sm:text-xs text-white/70 leading-relaxed font-normal line-clamp-2 [.light-theme_&]:!text-[#1c1c1e]/75">
+                      {snapshot.note || snapDesc || '历史快照数据已完整存档'}
+                    </p>
+
+                    {/* Middle Row: Metrics Pills (Right below description) */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] sm:text-[11px] text-white/80 font-medium [.light-theme_&]:!bg-black/[0.04] [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/10">
+                        {snapDesc.length} 字
                       </span>
-                    )}
+                      <span className="px-2.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] sm:text-[11px] text-white/80 font-medium [.light-theme_&]:!bg-black/[0.04] [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/10">
+                        {snapGreetingsCount} 篇开场白
+                      </span>
+                      {snapWbCount > 0 && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] sm:text-[11px] text-white/80 font-medium [.light-theme_&]:!bg-black/[0.04] [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/10">
+                          {snapWbCount} 条世界书
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Bottom Row: Timestamp on Left + Snapshot Avatar on Right */}
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10 relative z-10 [.light-theme_&]:!border-black/5">
+                    {/* Bottom Left Timestamp */}
+                    <div className="flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-xs font-semibold text-white/75 [.light-theme_&]:!text-[#1c1c1e]/75">
+                      <Clock className="w-3.5 h-3.5 text-purple-300/80 shrink-0 [.light-theme_&]:!text-purple-600" />
+                      <span>{new Date(snapshot.createdAt).toLocaleDateString()} {new Date(snapshot.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+
+                    {/* Snapshot Avatar */}
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden shrink-0 border-2 border-white/20 shadow-md bg-black/40 [.light-theme_&]:!border-black/10">
+                      <SnapshotAvatar snapshot={snapshot} fallbackName={snapshot.cardName || character.name} />
+                    </div>
                   </div>
 
                   {/* Collapsible Diff / Comparison Area */}
@@ -983,23 +977,23 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
                         exit={{ opacity: 0, height: 0 }}
                         className="overflow-hidden"
                       >
-                        <div className="mt-3 pt-3 border-t border-white/10 [.light-theme_&]:border-black/10 space-y-4 text-xs">
+                        <div className="mt-3 pt-4 border-t border-white/10 [.light-theme_&]:!border-black/10 space-y-4 text-xs">
                           {/* First message comparison */}
                           <div>
-                            <div className="font-semibold text-white mb-1.5 flex items-center gap-1.5">
-                              <MessageSquare className="w-3.5 h-3.5 text-white/70" />
+                            <div className="font-semibold text-white mb-2 flex items-center gap-1.5 [.light-theme_&]:!text-[#1c1c1e]">
+                              <MessageSquare className="w-3.5 h-3.5 text-pink-300 [.light-theme_&]:!text-purple-600" />
                               <span>默认开场白对比</span>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div className="p-3 rounded-xl bg-black/20 [.light-theme_&]:bg-black/[0.03] border border-white/10 [.light-theme_&]:border-black/10 space-y-1">
-                                <span className="text-[10px] text-white/70 font-bold block">当前版本</span>
-                                <p className="text-white/90 whitespace-pre-wrap max-h-36 overflow-y-auto font-mono text-[11px] leading-relaxed">
+                              <div className="p-3.5 rounded-2xl bg-black/30 [.light-theme_&]:bg-black/[0.03] border border-white/10 [.light-theme_&]:border-black/10 space-y-1">
+                                <span className="text-[10px] text-pink-300 font-bold block [.light-theme_&]:!text-purple-700">当前版本</span>
+                                <p className="text-white/90 whitespace-pre-wrap max-h-36 overflow-y-auto font-mono text-[11px] leading-relaxed [.light-theme_&]:!text-[#1c1c1e]">
                                   {currentData.first_mes || '（无开场白）'}
                                 </p>
                               </div>
-                              <div className="p-3 rounded-xl bg-black/20 [.light-theme_&]:bg-black/[0.03] border border-white/10 [.light-theme_&]:border-black/10 space-y-1">
-                                <span className="text-[10px] text-white/70 font-bold block">历史版本 ({snapshot.versionName})</span>
-                                <p className="text-white/90 whitespace-pre-wrap max-h-36 overflow-y-auto font-mono text-[11px] leading-relaxed">
+                              <div className="p-3.5 rounded-2xl bg-black/30 [.light-theme_&]:bg-black/[0.03] border border-white/10 [.light-theme_&]:border-black/10 space-y-1">
+                                <span className="text-[10px] text-purple-300 font-bold block [.light-theme_&]:!text-purple-700">历史版本 ({snapshot.versionName})</span>
+                                <p className="text-white/90 whitespace-pre-wrap max-h-36 overflow-y-auto font-mono text-[11px] leading-relaxed [.light-theme_&]:!text-[#1c1c1e]">
                                   {snapData.first_mes || '（无开场白）'}
                                 </p>
                               </div>
@@ -1008,12 +1002,12 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
 
                           {/* Description summary */}
                           <div>
-                            <div className="font-semibold text-white mb-1.5 flex items-center gap-1.5">
-                              <FileText className="w-3.5 h-3.5 text-white/70" />
+                            <div className="font-semibold text-white mb-2 flex items-center gap-1.5 [.light-theme_&]:!text-[#1c1c1e]">
+                              <FileText className="w-3.5 h-3.5 text-pink-300 [.light-theme_&]:!text-purple-600" />
                               <span>历史人设描述 (前 200 字)</span>
                             </div>
-                            <div className="p-3 rounded-xl bg-black/20 [.light-theme_&]:bg-black/[0.03] border border-white/10 [.light-theme_&]:border-black/10">
-                              <p className="text-white/80 whitespace-pre-wrap line-clamp-4 font-mono text-[11px] leading-relaxed">
+                            <div className="p-3.5 rounded-2xl bg-black/30 [.light-theme_&]:bg-black/[0.03] border border-white/10 [.light-theme_&]:border-black/10">
+                              <p className="text-white/80 whitespace-pre-wrap line-clamp-4 font-mono text-[11px] leading-relaxed [.light-theme_&]:!text-[#1c1c1e]/80">
                                 {snapDesc || '（无描述）'}
                               </p>
                             </div>
@@ -1166,7 +1160,7 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
                   <button
                     type="button"
                     onClick={() => { setIsLinkModalOpen(false); setSelectedCandidate(null); }}
-                    className="flex-1 py-2.5 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-white font-medium transition text-xs cursor-pointer [.light-theme_&]:bg-black/5 [.light-theme_&]:hover:bg-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border [.light-theme_&]:border-black/10"
+                    className="flex-1 py-2.5 px-3 rounded-full bg-white/10 hover:bg-white/15 text-white font-medium transition text-xs cursor-pointer [.light-theme_&]:bg-black/5 [.light-theme_&]:hover:bg-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border [.light-theme_&]:border-black/10"
                   >
                     取消
                   </button>
@@ -1174,7 +1168,7 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
                     type="button"
                     disabled={!selectedCandidate}
                     onClick={handleConfirmLink}
-                    className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 hover:opacity-90 disabled:opacity-40 text-white font-semibold shadow-lg shadow-purple-500/25 transition text-xs flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                    className="flex-1 py-2.5 px-3 rounded-full bg-white/15 hover:bg-white/20 disabled:opacity-40 font-medium text-white shadow-sm transition text-xs flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer border border-white/25 [.light-theme_&]:!bg-black/[0.06] [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/15 [.light-theme_&]:hover:!bg-black/[0.1]"
                   >
                     <Link className="w-3.5 h-3.5" />
                     确认关联为此卡历史版本
