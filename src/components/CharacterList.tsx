@@ -18,6 +18,7 @@ import {
   List,
   Filter,
   Folder as FolderIcon,
+  Home,
   Menu,
   Edit2,
   MoreVertical,
@@ -188,10 +189,16 @@ function SortableItemWrapper({
     !isDragging &&
     ((activeDragIsQR && !isQR) || (!!activeDragCharId && !activeDragIsQR && isQR));
 
-  // 跨类型拖拽绑定交互时，禁止目标卡片和同屏其他卡片位移（禁止卡片逃跑）
+  // 判断是否拖拽角色卡到文件夹目标上
+  const isFolderDropTarget =
+    !isDragging &&
+    !!activeDragCharId &&
+    id.startsWith("folder-");
+
+  // 跨类型拖拽（绑定或移动进文件夹）交互时，禁止目标卡片和同屏其他卡片位移（禁止卡片逃跑）
   const shouldSuppressDisplacement =
     !isDragging &&
-    (activeDragIsQR || (!!activeDragCharId && isQR));
+    (activeDragIsQR || (!!activeDragCharId && isQR) || isFolderDropTarget);
 
   const style = {
     transform: isDragging
@@ -200,7 +207,7 @@ function SortableItemWrapper({
         ? undefined
         : CSS.Transform.toString(transform),
     transition: shouldSuppressDisplacement ? undefined : transition,
-    zIndex: isDragging ? 50 : isOver && isQRBindingTarget ? 30 : undefined,
+    zIndex: isDragging ? 50 : isOver && (isQRBindingTarget || isFolderDropTarget) ? 30 : undefined,
     position: "relative" as const,
     userSelect: "none" as const,
     WebkitUserSelect: "none" as const,
@@ -208,6 +215,7 @@ function SortableItemWrapper({
   };
 
   const showDropHighlight = isOver && isQRBindingTarget;
+  const showFolderDropHighlight = isOver && isFolderDropTarget;
 
   return (
     <div
@@ -218,7 +226,9 @@ function SortableItemWrapper({
       className={`select-none relative transition-transform duration-150 ${className} ${
         showDropHighlight
           ? "ring-4 ring-purple-500 ring-offset-2 ring-offset-slate-900 rounded-2xl shadow-[0_0_25px_rgba(168,85,247,0.7)] scale-[1.04]"
-          : ""
+          : showFolderDropHighlight
+            ? "ring-4 ring-blue-500 ring-offset-2 ring-offset-slate-900 rounded-2xl shadow-[0_0_25px_rgba(59,130,246,0.7)] scale-[1.04]"
+            : ""
       }`}
     >
       {children}
@@ -227,6 +237,14 @@ function SortableItemWrapper({
           <Link className="w-8 h-8 text-white drop-shadow-lg mb-1" />
           <span className="text-[11px] font-bold text-white bg-purple-800/90 px-2.5 py-1 rounded-full shadow-lg border border-purple-400/30">
             松手立即绑定
+          </span>
+        </div>
+      )}
+      {showFolderDropHighlight && (
+        <div className="absolute inset-0 z-30 bg-blue-600/35 backdrop-blur-[1px] rounded-2xl flex flex-col items-center justify-center border-2 border-blue-400 pointer-events-none animate-pulse shadow-inner">
+          <FolderInput className="w-8 h-8 text-white drop-shadow-lg mb-1" />
+          <span className="text-[11px] font-bold text-white bg-blue-800/90 px-2.5 py-1 rounded-full shadow-lg border border-blue-400/30">
+            松手移入文件夹
           </span>
         </div>
       )}
@@ -282,7 +300,11 @@ interface Props {
   onSelectFolder?: (id: string | null) => void;
   onOpenSidebar?: () => void;
   refreshTrigger?: number;
+  isDetailOpen?: boolean;
 }
+
+// 记忆每个文件夹所在的分页位置，避免在卡片详情或子文件夹返回时丢失第5页等当前页码
+const folderPageMemory = new Map<string, number>();
 
 export function CharacterList({
   folderId,
@@ -291,10 +313,18 @@ export function CharacterList({
   onSelectFolder,
   onOpenSidebar,
   refreshTrigger,
+  isDetailOpen = false,
 }: Props) {
   const [characters, setCharacters] = useState<CharacterCard[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [paginatedFolders, setPaginatedFolders] = useState<Folder[]>([]);
+  const [folderPaths, setFolderPaths] = useState<Record<string, string>>({});
+  const [folderCounts, setFolderCounts] = useState<
+    Record<string, { chars: number; subfolders: number }>
+  >({});
+  const [folderAncestors, setFolderAncestors] = useState<
+    Record<string, Array<{ id: string; name: string }>>
+  >({});
   const [totalItems, setTotalItems] = useState(0);
   const [folderPreviews, setFolderPreviews] = useState<
     Record<string, any[]>
@@ -323,8 +353,14 @@ export function CharacterList({
     };
   }, []);
   const [totalCharacters, setTotalCharacters] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageInputValue, setPageInputValue] = useState("1");
+
+  const folderKey = folderId || "root";
+  const [page, setPage] = useState<number>(() => {
+    return folderPageMemory.get(folderKey) || 1;
+  });
+  const [pageInputValue, setPageInputValue] = useState(() =>
+    String(folderPageMemory.get(folderKey) || 1),
+  );
 
   useEffect(() => {
     setPageInputValue(page.toString());
@@ -355,6 +391,12 @@ export function CharacterList({
   const [allTags, setAllTags] = useState<string[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+
+  useEffect(() => {
+    if (!debouncedSearchQuery && selectedTags.length === 0) {
+      folderPageMemory.set(folderKey, page);
+    }
+  }, [folderKey, page, debouncedSearchQuery, selectedTags.length]);
   const [isEditingTags, setIsEditingTags] = useState(false);
   const [editingTagValue, setEditingTagValue] = useState<{
     old: string;
@@ -561,7 +603,8 @@ export function CharacterList({
   const sortRef = useRef<HTMLDivElement>(null);
 
   // 如果进入了子文件夹，按返回键（网页后退/安卓返回键/侧滑手势）时返回上一级目录
-  useBackHandler(!!folderId, () => {
+  // 核心安全保障：如果角色卡详情正处于打开状态，必须由详情自身处理返回，严禁穿透触发退出文件夹！
+  useBackHandler(!!folderId && !isDetailOpen, () => {
     handleBack();
     return true;
   });
@@ -841,6 +884,40 @@ export function CharacterList({
       const activeId = activeIdStr.replace("char-", "");
       const overId = overIdStr.replace("char-", "");
 
+      // 拖拽角色卡到文件夹上：直接移动到该文件夹
+      if (overIdStr.startsWith("folder-")) {
+        const targetFolderId = overIdStr.replace("folder-", "");
+        const targetFolder = folders.find((f) => f.id === targetFolderId);
+        if (targetFolder) {
+          const idsToMove =
+            selectedIds.has(activeId) && selectedIds.size > 1
+              ? Array.from(selectedIds).filter(
+                  (id) => !folders.some((f) => f.id === id),
+                )
+              : [activeId];
+
+          const movedCharIds = new Set(idsToMove);
+          setCharacters((prev) => prev.filter((c) => !movedCharIds.has(c.id)));
+          setTotalCharacters((prev) => Math.max(0, prev - movedCharIds.size));
+          setTotalItems((prev) => Math.max(0, prev - movedCharIds.size));
+          if (selectedIds.has(activeId)) {
+            setSelectedIds(new Set());
+            setSelectionMode(false);
+          }
+
+          for (const cId of idsToMove) {
+            const char = await getCharacter(cId);
+            if (char) {
+              char.folderId = targetFolderId;
+              await saveCharacter(char);
+            }
+          }
+          invalidateCache();
+          loadData();
+        }
+        return;
+      }
+
       const charA = characters.find((c) => c.id === activeId);
       const charB = characters.find((c) => c.id === overId);
 
@@ -882,36 +959,144 @@ export function CharacterList({
     const reqId = ++loadDataReqIdRef.current;
     try {
       const allFoldersData = await getFolders();
+      // 构建文件夹映射与完整路径生成
+      const folderMap = new Map<string, Folder>();
+      allFoldersData.forEach((f) => folderMap.set(f.id, f));
+
+      const getFolderPath = (fId: string): string => {
+        const parts: string[] = [];
+        let curr: Folder | undefined = folderMap.get(fId);
+        const visited = new Set<string>();
+        while (curr && !visited.has(curr.id)) {
+          visited.add(curr.id);
+          parts.unshift(curr.name);
+          curr = curr.parentId ? folderMap.get(curr.parentId) : undefined;
+        }
+        return parts.join(" / ");
+      };
+
+      const pathMap: Record<string, string> = {};
+      const ancestorMap: Record<string, Array<{ id: string; name: string }>> = {};
+      const getFolderAncestors = (fId: string): Array<{ id: string; name: string }> => {
+        const list: Array<{ id: string; name: string }> = [];
+        let curr: Folder | undefined = folderMap.get(fId);
+        const visited = new Set<string>();
+        while (curr && !visited.has(curr.id)) {
+          visited.add(curr.id);
+          list.unshift({ id: curr.id, name: curr.name });
+          curr = curr.parentId ? folderMap.get(curr.parentId) : undefined;
+        }
+        return list;
+      };
+
+      for (const f of allFoldersData) {
+        pathMap[f.id] = getFolderPath(f.id);
+        ancestorMap[f.id] = getFolderAncestors(f.id);
+      }
+      setFolderPaths(pathMap);
+      setFolderAncestors(ancestorMap);
+
+      // 计算每个文件夹的子文件夹数和卡片数
+      const subfolderCountMap: Record<string, number> = {};
+      for (const f of allFoldersData) {
+        if (f.parentId) {
+          subfolderCountMap[f.parentId] = (subfolderCountMap[f.parentId] || 0) + 1;
+        }
+      }
+      const countsMap: Record<string, { chars: number; subfolders: number }> = {};
+      for (const f of allFoldersData) {
+        countsMap[f.id] = {
+          chars: 0,
+          subfolders: subfolderCountMap[f.id] || 0,
+        };
+      }
+      try {
+        const { getFolderItemCounts } = await import("../lib/db");
+        const charCounts = await getFolderItemCounts(allFoldersData.map((f) => f.id));
+        for (const f of allFoldersData) {
+          countsMap[f.id].chars = charCounts[f.id] || 0;
+        }
+      } catch (err) {
+        console.error("Failed to load folder item counts", err);
+      }
+      if (reqId !== loadDataReqIdRef.current) return;
+      setFolderCounts(countsMap);
+
       let currentFolders: Folder[] = [];
+      const hasSearch = !!debouncedSearchQuery.trim();
+      const q = debouncedSearchQuery.trim().toLowerCase();
+
       if (folderId === null) {
-        currentFolders = allFoldersData.filter((f) => !f.parentId);
+        if (hasSearch) {
+          // 在根目录搜索时：全局跨文件夹搜索所有匹配的文件夹（匹配名称或完整路径）
+          currentFolders = allFoldersData.filter((f) => {
+            const p = pathMap[f.id]?.toLowerCase() || "";
+            return f.name.toLowerCase().includes(q) || p.includes(q);
+          });
+        } else {
+          currentFolders = allFoldersData.filter((f) => !f.parentId);
+        }
         setCurrentFolderName(null);
       } else {
-        currentFolders = allFoldersData.filter((f) => f.parentId === folderId);
         const currentFolder = allFoldersData.find((f) => f.id === folderId);
         if (currentFolder) setCurrentFolderName(currentFolder.name);
+
+        if (hasSearch) {
+          // 在子文件夹中搜索时：递归搜索当前文件夹下所有层级的子孙文件夹
+          const descendantIds = new Set<string>();
+          const collectDescendants = (pid: string) => {
+            for (const f of allFoldersData) {
+              if (f.parentId === pid) {
+                descendantIds.add(f.id);
+                collectDescendants(f.id);
+              }
+            }
+          };
+          collectDescendants(folderId);
+
+          currentFolders = allFoldersData.filter((f) =>
+            descendantIds.has(f.id) && (
+              f.name.toLowerCase().includes(q) ||
+              (pathMap[f.id]?.toLowerCase() || "").includes(q)
+            )
+          );
+        } else {
+          currentFolders = allFoldersData.filter((f) => f.parentId === folderId);
+        }
       }
 
+      // 彻底修复：文件夹必须全面适配所有排序模式（新旧、名称、最近修改、自定义等）！
       currentFolders.sort((a, b) => {
-        if (sortBy === "custom") {
-          if (a.sortOrder !== undefined && b.sortOrder !== undefined)
-            return a.sortOrder - b.sortOrder;
-          if (a.sortOrder !== undefined) return -1;
-          if (b.sortOrder !== undefined) return 1;
+        switch (sortBy) {
+          case "custom":
+            if (a.sortOrder !== undefined && b.sortOrder !== undefined)
+              return a.sortOrder - b.sortOrder;
+            if (a.sortOrder !== undefined) return -1;
+            if (b.sortOrder !== undefined) return 1;
+            return b.createdAt - a.createdAt;
+          case "newest_import":
+            return b.createdAt - a.createdAt;
+          case "oldest_import":
+            return a.createdAt - b.createdAt;
+          case "recently_modified": {
+            const timeA = (a as any).updatedAt || a.createdAt;
+            const timeB = (b as any).updatedAt || b.createdAt;
+            return timeB - timeA;
+          }
+          case "a_z":
+            return a.name.localeCompare(b.name, "zh-CN");
+          case "z_a":
+            return b.name.localeCompare(a.name, "zh-CN");
+          default:
+            return b.createdAt - a.createdAt;
         }
-        return b.createdAt - a.createdAt;
       });
 
       if (reqId !== loadDataReqIdRef.current) return;
       setFolders(currentFolders);
 
       let currentVisibleFolders = currentFolders;
-      if (debouncedSearchQuery) {
-        const q = debouncedSearchQuery.toLowerCase();
-        currentVisibleFolders = currentFolders.filter((f) =>
-          f.name.toLowerCase().includes(q),
-        );
-      } else if (selectedTags.length > 0) {
+      if (selectedTags.length > 0) {
         currentVisibleFolders = [];
       }
 
@@ -2144,16 +2329,60 @@ export function CharacterList({
           >
             <div className="flex-1 min-w-0 px-1">
               {folderId ? (
-                <div className="flex items-center gap-2 mb-1">
-                  <button
-                    onClick={handleBack}
-                    className="p-1 -ml-1 rounded-lg hover:bg-white/10 transition text-white/60 hover:text-white"
-                  >
-                    <ChevronLeft className="w-6 h-6" />
-                  </button>
-                  <h1 className="text-2xl font-bold text-white truncate">
-                    {folderId === "all" ? "全部角色" : currentFolderName}
-                  </h1>
+                <div className="flex flex-col gap-1 mb-1">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleBack}
+                      className="p-1 -ml-1 rounded-lg hover:bg-white/10 transition text-white/60 hover:text-white"
+                      title="返回上一层"
+                    >
+                      <ChevronLeft className="w-6 h-6" />
+                    </button>
+                    <h1 className="text-2xl font-bold text-white truncate">
+                      {folderId === "all" ? "全部角色" : currentFolderName}
+                    </h1>
+                  </div>
+
+                  {folderId !== "all" && folderAncestors[folderId] && folderAncestors[folderId].length > 0 && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-xs text-white/50">
+                      <button
+                        onClick={() => {
+                          if (searchQuery) {
+                            setSearchQuery("");
+                            setDebouncedSearchQuery("");
+                          }
+                          onSelectFolder?.(null);
+                        }}
+                        className="hover:text-purple-400 transition flex items-center gap-1 shrink-0"
+                      >
+                        <Home className="w-3.5 h-3.5" />
+                        <span>主页</span>
+                      </button>
+                      {folderAncestors[folderId].map((crumb, idx) => (
+                        <React.Fragment key={crumb.id || idx}>
+                          <ChevronRight className="w-3 h-3 text-white/30 shrink-0" />
+                          {idx === folderAncestors[folderId].length - 1 ? (
+                            <span className="font-semibold text-white/90 truncate max-w-[150px] sm:max-w-[220px]">
+                              {crumb.name}
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                if (searchQuery) {
+                                  setSearchQuery("");
+                                  setDebouncedSearchQuery("");
+                                }
+                                onSelectFolder?.(crumb.id);
+                              }}
+                              className="hover:text-purple-400 transition truncate max-w-[120px] shrink-0"
+                            >
+                              {crumb.name}
+                            </button>
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600 truncate">
@@ -2599,6 +2828,7 @@ export function CharacterList({
                         id={`folder-${folder.id}`}
                         disabled={!!searchQuery || selectedTags.length > 0}
                         activeDragIsQR={activeIsQR}
+                        activeDragCharId={activeChar?.id || null}
                       >
                         <motion.div
                           whileHover={{ scale: 1.05 }}
@@ -2664,6 +2894,10 @@ export function CharacterList({
                             if (selectionMode) {
                               toggleSelection(folder.id);
                             } else {
+                              if (searchQuery) {
+                                setSearchQuery("");
+                                setDebouncedSearchQuery("");
+                              }
                               onSelectFolder?.(folder.id);
                             }
                           }}
@@ -2701,19 +2935,49 @@ export function CharacterList({
                               viewMode={viewMode}
                             />
                           </div>
-                          <span
-                            className={
-                              viewMode === "list"
-                                ? "font-medium text-white/90 flex-1"
-                                : "text-xs font-medium text-center truncate w-full text-white/80 group-hover:text-white"
-                            }
-                          >
-                            {folder.name}
-                          </span>
+                          {viewMode === "list" ? (
+                            <div className="flex-1 min-w-0 flex flex-col justify-center">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-white/90 truncate">{folder.name}</span>
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-normal shrink-0">
+                                  {folderCounts[folder.id]?.chars ?? 0} 张卡片{folderCounts[folder.id]?.subfolders ? ` · ${folderCounts[folder.id]?.subfolders} 个文件夹` : ''}
+                                </span>
+                              </div>
+                              {debouncedSearchQuery && folderPaths[folder.id] && folderPaths[folder.id] !== folder.name && (
+                                <span className="text-xs text-purple-300/70 truncate mt-0.5">
+                                  路径: {folderPaths[folder.id]}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center w-full min-w-0">
+                              <span className="text-xs font-medium text-center truncate w-full text-white/80 group-hover:text-white">
+                                {folder.name}
+                              </span>
+                              <span className="text-[10px] text-white/40 group-hover:text-white/60 transition truncate">
+                                {folderCounts[folder.id]?.chars ?? 0} 张卡片{folderCounts[folder.id]?.subfolders ? ` · ${folderCounts[folder.id]?.subfolders} 文件夹` : ''}
+                              </span>
+                              {debouncedSearchQuery && folderPaths[folder.id] && folderPaths[folder.id] !== folder.name && (
+                                <span className="text-[10px] text-purple-300/70 truncate w-full text-center px-1">
+                                  {folderPaths[folder.id]}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </motion.div>
                       </SortableItemWrapper>
                     );
                   })}
+                </div>
+              )}
+
+              {paginatedFolders.length === 0 && characters.length === 0 && (searchQuery || selectedTags.length > 0) && (
+                <div className="flex flex-col items-center justify-center py-20 text-white/40">
+                  <Search className="w-12 h-12 mb-3 text-white/20 stroke-1" />
+                  <p className="text-base font-medium">未找到匹配的角色卡或文件夹</p>
+                  <p className="text-xs mt-1 text-white/30">
+                    已搜索全部目录，尝试更换关键词或清除筛选标签
+                  </p>
                 </div>
               )}
 

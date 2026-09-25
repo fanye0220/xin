@@ -321,15 +321,41 @@ export async function exportAllDataForBackup(onProgress: (msg: string) => void):
     
     zip.file(`${folderPath}/${safeCharName}.json`, JSON.stringify(char.data || {}));
     
+    const versionHistory = (char.versionHistory || []).map(v => ({
+      id: v.id,
+      versionName: v.versionName,
+      note: v.note,
+      createdAt: v.createdAt,
+      fileModifiedAt: v.fileModifiedAt,
+      cardName: v.cardName,
+      sourceCharId: v.sourceCharId,
+      tags: v.tags,
+      data: v.data,
+    }));
+
     zip.file(`${folderPath}/character.json`, JSON.stringify({
       id: char.id,
       name: char.name,
       createdAt: char.createdAt,
+      updatedAt: char.updatedAt,
+      fileModifiedAt: char.fileModifiedAt,
       folderId: char.folderId,
       sortOrder: char.sortOrder,
       autoImportFilename: char.autoImportFilename,
+      tags: char.tags,
+      versionHistory,
       data: char.data || {}
     }));
+
+    if (char.versionHistory && char.versionHistory.length > 0) {
+      for (const snap of char.versionHistory) {
+        if (snap.completeCardPngBlob) {
+          zip.file(`${folderPath}/Versions/${snap.id}.png`, snap.completeCardPngBlob, { compression: "STORE" });
+        } else if (snap.avatarBlob) {
+          zip.file(`${folderPath}/Versions/${snap.id}.png`, snap.avatarBlob, { compression: "STORE" });
+        }
+      }
+    }
     
     if (charAvatarBlob && !charOriginalFile) {
        zip.file(`${folderPath}/avatar.png`, new Blob([charAvatarBlob], { type: charAvatarBlob.type || 'image/png' }), { compression: "STORE" });
@@ -607,7 +633,7 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
   }
 
   const filesToProcess = Object.values(loadedZip.files);
-  const characterFolders = new Map<string, { meta?: any, card?: any, avatar?: Blob }>();
+  const characterFolders = new Map<string, { meta?: any, card?: any, avatar?: Blob, versions?: Map<string, Blob> }>();
 
   for (const file of filesToProcess) {
     if (file.dir) continue;
@@ -618,24 +644,29 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
         const folderName = parts[1];
         const fileName = parts[parts.length - 1];
         if (!characterFolders.has(folderName)) characterFolders.set(folderName, {});
+        const folderEntry = characterFolders.get(folderName)!;
         
-        if (fileName === "character.json") {
+        if (lowerName.includes("/versions/")) {
+          const vId = fileName.replace(/\.[^/.]+$/, "");
+          if (!folderEntry.versions) folderEntry.versions = new Map();
+          folderEntry.versions.set(vId, await file.async("blob"));
+        } else if (fileName === "character.json") {
           const content = await file.async("string");
           try {
-            characterFolders.get(folderName)!.meta = JSON.parse(content);
+            folderEntry.meta = JSON.parse(content);
           } catch(e) {}
         } else if (fileName === "card.json" || fileName.endsWith(".json")) {
           const content = await file.async("string");
           try {
              if (fileName === "card.json") {
-                characterFolders.get(folderName)!.card = JSON.parse(content);
-             } else if (!characterFolders.get(folderName)!.meta) {
-                characterFolders.get(folderName)!.meta = JSON.parse(content);
+                folderEntry.card = JSON.parse(content);
+             } else if (!folderEntry.meta) {
+                folderEntry.meta = JSON.parse(content);
              }
           } catch(e) {}
         } else if (fileName === "avatar.png" || fileName.endsWith(".png") || fileName.endsWith(".webp") || fileName.endsWith(".jpg")) {
           const content = await file.async("blob");
-          characterFolders.get(folderName)!.avatar = content;
+          folderEntry.avatar = content;
         }
       }
     }
@@ -690,6 +721,16 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
 
       if (data.avatar) {
         charToSave.avatarBlob = data.avatar;
+      }
+
+      if (charToSave.versionHistory && Array.isArray(charToSave.versionHistory)) {
+        for (const snap of charToSave.versionHistory) {
+          if (data.versions && data.versions.has(snap.id)) {
+            const vBlob = data.versions.get(snap.id)!;
+            snap.avatarBlob = vBlob;
+            snap.completeCardPngBlob = vBlob;
+          }
+        }
       }
       
       try {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Folder as FolderIcon, Plus, MoreVertical, Edit2, Trash2, Home, X, Check, Copy, Trash, ChevronRight, Tag, Settings, Sparkles, MessageSquare } from 'lucide-react';
+import { Folder as FolderIcon, Plus, Edit2, Trash2, X, ChevronRight, Tag, Settings, Sparkles, MessageSquare, Copy, Trash } from 'lucide-react';
 import { Folder, getFolders, saveFolder, deleteFolder } from '../lib/db';
 
 interface Props {
@@ -13,7 +13,7 @@ interface Props {
 
 export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpenSettings, onFolderChanged }: Props) {
   const [folders, setFolders] = useState<Folder[]>([]);
-  const [isEditing, setIsEditing] = useState(false);
+  const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
@@ -24,6 +24,13 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
   const loadFolders = async () => {
     const data = await getFolders();
     setFolders(data.sort((a, b) => b.createdAt - a.createdAt));
+    try {
+      const { getFolderItemCounts } = await import('../lib/db');
+      const counts = await getFolderItemCounts(data.map(f => f.id));
+      setItemCounts(counts);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   useEffect(() => {
@@ -140,7 +147,14 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
                         autoFocus
                       />
                     ) : (
-                      <span className="font-medium truncate text-sm">{folder.name}</span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-medium truncate text-sm">{folder.name}</span>
+                        {itemCounts[folder.id] !== undefined && itemCounts[folder.id] > 0 && (
+                          <span className="text-[10px] text-white/40 bg-white/5 px-1.5 py-0.5 rounded-full shrink-0">
+                            {itemCounts[folder.id]}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </button>
                 </div>
@@ -368,7 +382,7 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
-                className="overflow-hidden space-y-1"
+                className="overflow-hidden space-y-2"
               >
                 {renderFolderTree()}
               </motion.div>

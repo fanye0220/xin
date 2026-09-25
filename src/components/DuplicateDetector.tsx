@@ -447,9 +447,8 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                       const hasQR = targetData.extensions?.quick_replies?.length > 0;
                       const hasSource = !!(targetData.extensions?.source || targetData.source);
                       const hasNotes = !!targetData.creator_notes;
-                      const modifiedDate = char.originalFile?.lastModified 
-                        ? new Date(char.originalFile.lastModified) 
-                        : new Date(char.updatedAt || char.createdAt);
+                      const modifiedTime = char.fileModifiedAt || char.originalFile?.lastModified || char.updatedAt || char.createdAt;
+                      const modifiedDate = new Date(modifiedTime);
 
                       const isSelected = selectedIds.has(char.id);
 

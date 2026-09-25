@@ -10,6 +10,7 @@ import {
   FileArchive,
   Cloud,
   CheckCircle,
+  Check,
   Search,
   Folder,
   ArrowRight,
@@ -52,6 +53,8 @@ interface ParsedItem {
   data?: any;
   isImage: boolean;
   isChatLog?: boolean;
+  isVersion?: boolean;
+  isMeta?: boolean;
   errorMsg?: string;
 }
 
@@ -544,7 +547,11 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               !isChatData &&
               !!(data.name || data.char_name || data.character_name || data.data?.name || data.data?.char_name || data.data?.character_name);
 
-            if (
+            const isStudioMeta = file.name.toLowerCase() === "studio_meta.json";
+
+            if (isStudioMeta) {
+              isMain = false;
+            } else if (
               isTheme ||
               isAIPreset ||
               isWorldbook ||
@@ -575,16 +582,20 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
       }
 
       const isChatLog = !isMain && data !== null && Array.isArray(data);
+      const isStudioMetaFile = file.name.toLowerCase() === "studio_meta.json";
+      const isVersionFile = folder.toLowerCase().split("/").some(p => ["版本历史", "versions", "version_history", "history"].includes(p));
 
       parsedItems.push({
         file,
         path,
         folder,
-        isMain,
+        isMain: isVersionFile || isStudioMetaFile ? false : isMain,
         data,
         isImage,
         isChatLog,
-        errorMsg: isMain || isChatLog ? undefined : errorMsg,
+        isVersion: isVersionFile,
+        isMeta: isStudioMetaFile,
+        errorMsg: isMain || isChatLog || isVersionFile || isStudioMetaFile ? undefined : errorMsg,
       });
 
       setProgress({
@@ -617,33 +628,38 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
     errors: { file: string; error: string }[],
     extractedRoots: string[],
   ) => {
-    let mainItems = parsedItems.filter((item) => item.isMain);
+    let mainItems = parsedItems.filter((item) => item.isMain && !item.isVersion && !item.isMeta);
     let altImages = parsedItems.filter(
-      (item) => !item.isMain && item.isImage && !item.isChatLog,
+      (item) => !item.isMain && item.isImage && !item.isChatLog && !item.isVersion && !item.isMeta,
     );
     const chatLogs = parsedItems.filter((item) => item.isChatLog);
+    const versionItems = parsedItems.filter((item) => item.isVersion);
+    const metaItems = parsedItems.filter((item) => item.isMeta);
     const otherItems = parsedItems.filter(
-      (item) => !item.isMain && !item.isImage && !item.isChatLog,
+      (item) => !item.isMain && !item.isImage && !item.isChatLog && !item.isVersion && !item.isMeta,
     );
 
-    // Demote mainItems that are likely alternate avatars
+    // Demote mainItems that are likely alternate avatars or version files
     const itemsToDemote = new Set<ParsedItem>();
     const ALT_FOLDERS = ["替换卡面", "替换头像", "avatars", "alt", "alternate"];
+    const VERSION_FOLDERS = ["版本历史", "versions", "version_history", "history"];
 
     for (const item of mainItems) {
-      // 1. ONLY demote if it is explicitly inside a replacement avatar folder
       const folderParts = item.folder.split("/");
-      const lastFolder = folderParts[folderParts.length - 1];
-      if (ALT_FOLDERS.includes(lastFolder.toLowerCase())) {
+      const lastFolder = folderParts[folderParts.length - 1]?.toLowerCase();
+      if (ALT_FOLDERS.includes(lastFolder)) {
+        itemsToDemote.add(item);
+      } else if (VERSION_FOLDERS.includes(lastFolder)) {
+        versionItems.push(item);
         itemsToDemote.add(item);
       }
     }
 
     mainItems = mainItems.filter((item) => !itemsToDemote.has(item));
     for (const item of itemsToDemote) {
-      if (item.isImage) {
+      if (item.isImage && !versionItems.includes(item)) {
         altImages.push(item);
-      } else {
+      } else if (!versionItems.includes(item)) {
         otherItems.push(item);
       }
     }
@@ -679,6 +695,35 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
         altImagesByMain.get(closestMain)!.push(alt.file);
       } else {
         unassignedAltImages.push(alt);
+      }
+    }
+
+    // Match historical versions to their main card
+    const versionsByMain = new Map<ParsedItem, ParsedItem[]>();
+    for (const vItem of versionItems) {
+      const possibleMains = mainItems.filter((main) => {
+        const mainPrefix = main.folder ? main.folder + "/" : "";
+        return vItem.folder.startsWith(mainPrefix) || vItem.folder === main.folder;
+      });
+      possibleMains.sort((a, b) => b.folder.length - a.folder.length);
+      if (possibleMains.length > 0) {
+        const closestMain = possibleMains[0];
+        if (!versionsByMain.has(closestMain)) {
+          versionsByMain.set(closestMain, []);
+        }
+        versionsByMain.get(closestMain)!.push(vItem);
+      }
+    }
+
+    // Match studio_meta.json to main card
+    const metaByMain = new Map<ParsedItem, any>();
+    for (const mItem of metaItems) {
+      const possibleMains = mainItems.filter((main) => {
+        const mainPrefix = main.folder ? main.folder + "/" : "";
+        return mItem.folder.startsWith(mainPrefix) || mItem.folder === main.folder;
+      });
+      if (possibleMains.length > 0) {
+        metaByMain.set(possibleMains[0], mItem.data);
       }
     }
 
@@ -849,27 +894,55 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
           targetFilePath = pathParts.join("/") + "/" + file.name;
         }
 
+        const { extractImageTimestamp, extractDateFromCardData } = await import("../lib/fileDate");
+        let buffer: ArrayBuffer | null = null;
+        try {
+          buffer = await file.arrayBuffer();
+        } catch (e) {}
+
+        const embeddedDate = extractDateFromCardData(data);
+        const imageTimestamp = (buffer && (file.type.startsWith("image/") || file.name.match(/\.(png|jpe?g|webp)$/i)))
+          ? extractImageTimestamp(buffer)
+          : null;
+
+        const now = Date.now();
+        const fileLastMod = file.lastModified;
+        const isFreshCacheCopy = fileLastMod && Math.abs(now - fileLastMod) < 120000;
+
+        let authenticModifiedTime: number | undefined;
+        if (imageTimestamp) {
+          authenticModifiedTime = imageTimestamp;
+        } else if (embeddedDate) {
+          authenticModifiedTime = embeddedDate;
+        } else if (fileLastMod && !isFreshCacheCopy) {
+          authenticModifiedTime = fileLastMod;
+        } else {
+          authenticModifiedTime = fileLastMod || now;
+        }
+
         if (isAndroid()) {
           if ((file as any).androidAbsPath) {
             // Already unzipped natively!
             localFilePath = (file as any).androidAbsPath;
-            const buffer = await file.arrayBuffer(); // read it locally just strictly if needed, but wait!
-            // Actually, we don't need to read it if we skip setting avatarBlob, but we already read it during `parseChunk` to get metadata.
-            // By NOT setting avatarBlob, we prevent it from being loaded into IDB blobs table!
             avatarBlob = undefined;
-            originalFile = file;
+            originalFile = authenticModifiedTime && buffer && authenticModifiedTime !== file.lastModified
+              ? new File([buffer], file.name, { type: file.type || "application/octet-stream", lastModified: authenticModifiedTime })
+              : file;
           } else {
-            const buffer = await file.arrayBuffer();
             if (file.type === "image/png" || file.name.endsWith(".png")) {
               avatarBlob = file;
             }
-            originalFile = file;
+            originalFile = authenticModifiedTime && buffer && authenticModifiedTime !== file.lastModified
+              ? new File([buffer], file.name, { type: file.type || "application/octet-stream", lastModified: authenticModifiedTime })
+              : file;
           }
         } else {
           if (file.type === "image/png" || file.name.endsWith(".png")) {
             avatarBlob = file;
           }
-          originalFile = file;
+          originalFile = authenticModifiedTime && buffer && authenticModifiedTime !== file.lastModified
+            ? new File([buffer], file.name, { type: file.type || "application/octet-stream", lastModified: authenticModifiedTime })
+            : file;
         }
 
         const useCharacterName = isCharacter;
@@ -900,6 +973,39 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
           newNameCounts.set(nameKey, (newNameCounts.get(nameKey) || 0) + 1);
         }
 
+        // Assemble version history
+        const studioMeta = metaByMain.get(item);
+        let versionHistory: any[] = [];
+        if (studioMeta && Array.isArray(studioMeta.versionHistory)) {
+          versionHistory = studioMeta.versionHistory.map((v: any) => ({ ...v }));
+        }
+
+        const assignedVersions = versionsByMain.get(item) || [];
+        for (const vItem of assignedVersions) {
+          const vName = vItem.file.name.replace(/\.[^/.]+$/, "");
+          const existingSnap = versionHistory.find((s: any) => s.id === vName || s.versionName === vName || s.versionName?.includes(vName));
+          if (existingSnap) {
+            existingSnap.avatarBlob = vItem.file;
+            existingSnap.completeCardPngBlob = vItem.file;
+            if (!existingSnap.data && vItem.data) {
+              existingSnap.data = vItem.data;
+            }
+          } else {
+            versionHistory.push({
+              id: crypto.randomUUID(),
+              versionName: vName,
+              note: "从版本历史归档导入",
+              createdAt: vItem.file.lastModified || Date.now(),
+              fileModifiedAt: vItem.file.lastModified,
+              data: vItem.data || {},
+              avatarBlob: vItem.file,
+              completeCardPngBlob: vItem.file,
+              cardName: (vItem.data?.data?.name || vItem.data?.name || vName),
+            });
+          }
+        }
+        versionHistory.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
         const newChar: CharacterCard & { autoImportFilename?: string } = {
           id: crypto.randomUUID(),
           name: charName,
@@ -910,8 +1016,10 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
           data: data,
           originalFile,
           createdAt: Date.now(),
+          fileModifiedAt: authenticModifiedTime,
           folderId: targetFolderId,
           avatarHistory: altImagesByMain.get(item) || [],
+          versionHistory: versionHistory.length > 0 ? versionHistory : undefined,
         } as any;
 
         charsToSave.push(newChar);
@@ -1105,10 +1213,11 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               else if (relativePath.toLowerCase().endsWith(".js"))
                 type = "text/javascript";
 
+              const entryDate = zipEntry.date ? zipEntry.date.getTime() : (f.lastModified || Date.now());
               const extractedFile = new File(
                 [arrayBuffer],
                 zipEntry.name.split("/").pop() || "file",
-                { type },
+                { type, lastModified: entryDate },
               );
               // Mock webkitRelativePath to preserve folder structure from ZIP
               Object.defineProperty(extractedFile, "webkitRelativePath", {
@@ -1496,19 +1605,26 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   </div>
                 </div>
 
-                <div className="mt-3 flex items-center justify-between px-1 text-xs text-white/70">
-                  <label className="flex items-center gap-2 cursor-pointer select-none hover:text-white transition">
-                    <input
-                      type="checkbox"
-                      checked={autoCategorizeSameName}
-                      onChange={(e) => {
-                        setAutoCategorizeSameName(e.target.checked);
-                        localStorage.setItem("miu_auto_categorize_same_name", e.target.checked ? "true" : "false");
-                      }}
-                      className="rounded border-white/20 bg-black/40 text-purple-600 focus:ring-0 w-3.5 h-3.5 cursor-pointer"
-                    />
-                    <span>导入同名卡自动归入已有分类文件夹</span>
-                  </label>
+                <div className="mt-3 flex items-center justify-between px-1 text-xs text-white/70 [.light-theme_&]:text-slate-600">
+                  <div
+                    onClick={() => {
+                      const next = !autoCategorizeSameName;
+                      setAutoCategorizeSameName(next);
+                      localStorage.setItem("miu_auto_categorize_same_name", next ? "true" : "false");
+                    }}
+                    className="flex items-center gap-2.5 cursor-pointer select-none hover:text-white [.light-theme_&]:hover:text-slate-900 transition py-1"
+                  >
+                    <div
+                      className={`w-4 h-4 rounded flex items-center justify-center border transition shrink-0 ${
+                        autoCategorizeSameName
+                          ? "bg-purple-600 border-purple-500 text-white shadow-sm shadow-purple-500/30"
+                          : "border-white/30 bg-black/30 [.light-theme_&]:border-black/20 [.light-theme_&]:bg-white"
+                      }`}
+                    >
+                      {autoCategorizeSameName && <Check className="w-3 h-3 text-white stroke-[2.5]" />}
+                    </div>
+                    <span className="font-medium text-xs">导入同名卡自动归入已有分类文件夹</span>
+                  </div>
                 </div>
 
                 {isAndroid() && (

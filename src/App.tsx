@@ -431,6 +431,7 @@ export default function App() {
             }}
             onOpenSidebar={() => setIsSidebarOpen(true)}
             refreshTrigger={refreshKey}
+            isDetailOpen={!!selectedCharId}
           />
         )}
 

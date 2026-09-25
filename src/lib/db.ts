@@ -143,6 +143,22 @@ export interface Folder {
   deletedAt?: number;
 }
 
+export interface CardVersionSnapshot {
+  id: string;
+  versionName?: string;
+  note?: string;
+  createdAt: number;
+  fileModifiedAt?: number;
+  data: any;
+  avatarBlob?: Blob;
+  avatarHistory?: Blob[];
+  avatarUrlFallback?: string;
+  cardName: string;
+  sourceCharId?: string;
+  completeCardPngBlob?: Blob;
+  tags?: string[];
+}
+
 export interface CharacterCard {
   id: string;
   name: string;
@@ -151,10 +167,12 @@ export interface CharacterCard {
   localFilePath?: string;
   avatarUrlFallback?: string;
   avatarHistory?: Blob[];
+  versionHistory?: CardVersionSnapshot[];
   data: any;
   originalFile?: File;
   createdAt: number;
   updatedAt?: number;
+  fileModifiedAt?: number;
   deletedAt?: number;
   folderId?: string;
   hasBlobsSeparated?: boolean;
@@ -660,6 +678,23 @@ export async function getFolderPreviews(
   return previews;
 }
 
+export async function getFolderItemCounts(
+  folderIds: string[],
+): Promise<Record<string, number>> {
+  if (folderIds.length === 0) return {};
+  const db = await initDB();
+  const tx = db.transaction("char_meta", "readonly");
+  const index = tx.store.index("by-folder");
+  const counts: Record<string, number> = {};
+  await Promise.all(
+    folderIds.map(async (folderId) => {
+      const metas = await index.getAll(folderId);
+      counts[folderId] = metas.filter((m) => !m.deletedAt).length;
+    }),
+  );
+  return counts;
+}
+
 export async function resolveFolderPath(
   folderId?: string | null,
 ): Promise<string> {
@@ -926,6 +961,7 @@ export interface CharMeta {
   id: string;
   createdAt: number;
   updatedAt?: number;
+  fileModifiedAt?: number;
   name: string;
   autoImportFilename?: string;
   sortOrder?: number;
@@ -954,6 +990,7 @@ function buildCharMeta(val: any): CharMeta {
     id: val.id,
     createdAt: val.createdAt,
     updatedAt: val.updatedAt,
+    fileModifiedAt: val.fileModifiedAt || val.originalFile?.lastModified,
     name: val.name || "",
     autoImportFilename: val.autoImportFilename,
     sortOrder: val.sortOrder,
@@ -1444,7 +1481,10 @@ export async function saveCharacters(
       const existingBlobs = await blobStore1.get(character.id);
       finalBlobs = {
         avatarBlob: existingBlobs?.avatarBlob,
-        originalFile: undefined,
+        originalFile:
+          character.originalFile !== undefined
+            ? character.originalFile
+            : existingBlobs?.originalFile,
         avatarHistory:
           character.avatarHistory !== undefined
             ? character.avatarHistory

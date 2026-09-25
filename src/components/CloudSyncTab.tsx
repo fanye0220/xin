@@ -1,9 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Cloud, Download, Upload, Trash2, Github, Loader2, Search, Folder, ChevronRight, MessageSquare, FileText, FolderSync } from 'lucide-react';
-import { listCloudCharacters, downloadCloudCharacter, deleteCloudCharacter, syncFolderStructureToCloud } from '../lib/cloudDrive';
-import { getCachedMeta, saveCharacter, getFolders, saveFolder, saveChat, getCharacterCategoryPrefix } from '../lib/db';
-import { getFallbackAvatar } from '../lib/avatar';
+import { listCloudCharacters, deleteCloudCharacter, syncFolderStructureToCloud } from '../lib/cloudDrive';
 import { initAuth, googleSignIn, logout, getAccessToken, listBackupsFromDrive, deleteBackupFromDrive, triggerManualBackup, triggerRestore, onSyncStateChange, SyncState } from '../lib/drive';
 
 const formatCloudName = (name: string) => name.replace(/_[a-f0-9-]{36}$/i, "");
@@ -74,189 +72,37 @@ export function CloudSyncTab() {
   }, [token, activeTab]);
 
   
-  const handleDownloadCloudChar = async (fileId: string, charName: string, fileName: string, appProperties?: any) => {
+  const handleDownloadCloudFile = async (
+    fileId: string,
+    rawFileName: string,
+    displayCharName: string,
+    isChatFile: boolean = false
+  ) => {
     if (!token) return;
     setDownloadingId(fileId);
     try {
-        const { jsonData, avatarBlob, studioMeta, avatarHistory, chats } = await downloadCloudCharacter(token, fileId, fileName, (msg) => console.log(msg));
-        const existingChars = await getCachedMeta();
-        const extractedName =
-          appProperties?.charName ||
-          jsonData.name ||
-          jsonData.data?.name ||
-          charName;
-        const cloudCharId = appProperties?.charId;
-        const existing = cloudCharId
-          ? existingChars.find(c => c.id === cloudCharId)
-          : existingChars.find(c => c.name?.trim() === extractedName?.trim());
-        
-        let targetId: string = crypto.randomUUID();
-        let folderId: string | undefined = undefined;
-        let createTime = Date.now();
-        
-        const historyList: Blob[] = avatarHistory ? [...avatarHistory] : [];
-        if (avatarBlob) {
-            const hasAvatar = historyList.some(b => b.size === avatarBlob.size && b.type === avatarBlob.type);
-            if (!hasAvatar) {
-                historyList.unshift(avatarBlob);
-            }
+      const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
         }
+      );
+      if (!response.ok) throw new Error("从云端下载失败: HTTP " + response.status);
 
-        if (existing) {
-            targetId = existing.id;
-            folderId = existing.folderId;
-            createTime = existing.createdAt || Date.now();
-            try {
-                const { getCharacterBlob } = await import('../lib/db');
-                const existingBlobs = await getCharacterBlob(existing.id);
-                if (existingBlobs?.avatarHistory) {
-                    for (const eb of existingBlobs.avatarHistory) {
-                        if (!historyList.some(b => b.size === eb.size && b.type === eb.type)) {
-                            historyList.push(eb);
-                        }
-                    }
-                }
-                if (existingBlobs?.avatarBlob && !historyList.some(b => b.size === existingBlobs.avatarBlob.size && b.type === existingBlobs.avatarBlob.type)) {
-                    historyList.push(existingBlobs.avatarBlob);
-                }
-            } catch(e) {}
-        }
-        
-        let mergedMeta = { ...studioMeta, ...appProperties };
-        const cardCategory = getCharacterCategoryPrefix(jsonData);
-        if (!mergedMeta.folderPath) {
-           if (cardCategory !== '未归类') {
-             mergedMeta.folderPath = `工具区/${cardCategory}`;
-           }
-        }
-        
-        if (mergedMeta?.folderPath) {
-           const allFolders = await getFolders();
-           let parts = (mergedMeta.folderPath as string).split('/').filter(Boolean);
-           
-           const isBundle = mergedMeta.hasBundle === 'true' || mergedMeta.hasBundle === true;
-           // If it's a bundle, the Google Drive folder path includes the character's own directory at the end.
-           // We remove it so we don't create a local folder named after the character.
-           if (isBundle && parts.length > 0) {
-               parts.pop();
-           }
-           
-           // 1. "角色卡" 顶层分类对应 App 根目录（主页），不建同名文件夹
-           if (parts.length > 0 && parts[0] === '角色卡') {
-               parts = parts.slice(1);
-           }
-           // 2. "工具区" 顶层分类对应 App 工具分类，不建同名文件夹
-           if (parts.length > 0 && parts[0] === '工具区') {
-               parts = parts.slice(1);
-           }
-           
-           let currentParentId: string | undefined = undefined;
-           for (const part of parts) {
-               let found = allFolders.find(f => f.name === part && f.parentId === currentParentId);
-               if (!found) {
-                   const newFolder = {
-                       id: crypto.randomUUID(),
-                       name: part,
-                       parentId: currentParentId,
-                       createdAt: Date.now(),
-                       updatedAt: Date.now(),
-                       sortOrder: 0
-                   };
-                   await saveFolder(newFolder);
-                   allFolders.push(newFolder);
-                   currentParentId = newFolder.id;
-               } else {
-                   currentParentId = found.id;
-               }
-           }
-           folderId = currentParentId;
-        }
+      const blob = await response.blob();
 
-        if (mergedMeta?.createdAt) {
-           createTime = parseInt(mergedMeta.createdAt as string) || mergedMeta.createdAt;
-        }
-        
-        jsonData.id = targetId;
-        const sourceUrl = (mergedMeta as any)?.sourceUrl || '';
-        if (sourceUrl) {
-          const sourceTarget = jsonData.data && typeof jsonData.data === 'object' ? jsonData.data : jsonData;
-          sourceTarget.extensions = { ...(sourceTarget.extensions || {}), source: sourceUrl };
-        }
-        
-        const charToSave: any = {
-            id: targetId,
-            name: extractedName,
-            data: jsonData,
-            createdAt: createTime,
-            folderId,
-            avatarHistory: historyList,
-            avatarUrlFallback: avatarBlob ? undefined : getFallbackAvatar(extractedName, cardCategory !== '未归类' ? cardCategory : (mergedMeta as any)?.cardType)
-        };
-        
-        if (avatarBlob) {
-            charToSave.avatarBlob = avatarBlob;
-        }
-        
-        await saveCharacter(charToSave);
+      let ext = rawFileName?.split('.').pop()?.toLowerCase() || '';
+      if (!ext || ext === rawFileName?.toLowerCase()) {
+        ext = isChatFile ? 'jsonl' : 'png';
+      }
+      let base = displayCharName || rawFileName || 'file';
+      base = base.replace(/[\\/:*?"<>|]/g, '_').trim();
+      const downloadFileName = base.toLowerCase().endsWith('.' + ext) ? base : `${base}.${ext}`;
 
-        // 如果云端包内捆绑了聊天记录，一并安全恢复到本地
-        if (chats && chats.length > 0) {
-           try {
-               const { saveChat } = await import('../lib/db');
-               for (const chat of chats) {
-                   await saveChat({
-                       ...chat,
-                       characterId: targetId
-                   });
-               }
-           } catch(e) {
-               console.warn("Failed to restore bundled chats", e);
-           }
-        }
-
-        import('../lib/thumbCache').then(({ evictCharacterThumb }) => {
-            evictCharacterThumb(targetId);
-        }).catch(() => {});
-        window.dispatchEvent(new CustomEvent('charactersUpdated'));
-        alert(`「${charToSave.name}」已成功同步回App！`);
+      const { downloadOrShareFile } = await import('../lib/appBridge');
+      await downloadOrShareFile(downloadFileName, blob, blob.type, false);
     } catch (err: any) {
-        alert("下载失败: " + err.message);
-    } finally {
-        setDownloadingId(null);
-    }
-  };
-  const handleDownloadCloudChat = async (fileId: string, fileName: string, appProperties?: any) => {
-    if (!token) return;
-    setDownloadingId(fileId);
-    try {
-      const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("下载聊天记录失败");
-
-      const text = await response.text();
-      const messages = text
-        .split(/\r?\n/)
-        .filter((line) => line.trim())
-        .map((line) => JSON.parse(line));
-
-      const chatName = (fileName || "云聊天").replace(/\.jsonl$/i, '');
-      const characterId = appProperties?.charId || '';
-      const createdAt = Number(appProperties?.createdAt) || Date.now();
-
-      await saveChat({
-        id: crypto.randomUUID(),
-        characterId,
-        name: chatName,
-        messages,
-        createdAt,
-        firstAiName: appProperties?.charName || '',
-      });
-
-      window.dispatchEvent(new CustomEvent('charactersUpdated'));
-      alert(`聊天记录「${chatName}」已成功同步回App！`);
-    } catch (err: any) {
-      alert("下载聊天记录失败: " + err.message);
+      alert("下载失败: " + err.message);
     } finally {
       setDownloadingId(null);
     }
@@ -855,10 +701,10 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                         </div>
                         <div className="flex items-center gap-1.5 sm:gap-2 mt-2">
                            <button 
-                             onClick={() => char.appProperties?.isChat === 'true' ? handleDownloadCloudChat(char.id, char.name, char.appProperties) : handleDownloadCloudChar(char.id, charName, char.name, char.appProperties)}
+                             onClick={() => handleDownloadCloudFile(char.id, char.name, charName, isChat)}
                              disabled={downloadingId === char.id}
                              className="flex-1 py-1 sm:py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/30 flex items-center justify-center gap-1 active:bg-blue-500/40 transition disabled:opacity-50"
-                             title="同步回App（直接保存至应用库，无需分享）"
+                             title="下载到本地"
                            >
                              {downloadingId === char.id ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> : <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
                              <span className="text-[10px] sm:text-xs font-medium whitespace-nowrap">下载</span>

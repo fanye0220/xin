@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Folder as FolderIcon, X } from 'lucide-react';
+import { Folder as FolderIcon, X, Search } from 'lucide-react';
 import { getFolders, Folder } from '../lib/db';
 import { useBackHandler } from '../lib/useBackHandler';
 
@@ -12,6 +12,7 @@ interface Props {
 
 export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
   const [folders, setFolders] = useState<Folder[]>([]);
+  const [search, setSearch] = useState('');
 
   useBackHandler(isOpen, () => {
     onClose();
@@ -20,9 +21,37 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
 
   useEffect(() => {
     if (isOpen) {
+      setSearch('');
       getFolders().then(f => setFolders(f.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))));
     }
   }, [isOpen]);
+
+  const folderPathMap = useMemo(() => {
+    const fMap = new Map<string, Folder>();
+    folders.forEach(f => fMap.set(f.id, f));
+    const pathMap: Record<string, string> = {};
+    for (const f of folders) {
+      const parts: string[] = [];
+      let curr: Folder | undefined = f;
+      const visited = new Set<string>();
+      while (curr && !visited.has(curr.id)) {
+        visited.add(curr.id);
+        parts.unshift(curr.name);
+        curr = curr.parentId ? fMap.get(curr.parentId) : undefined;
+      }
+      pathMap[f.id] = parts.join(' / ');
+    }
+    return pathMap;
+  }, [folders]);
+
+  const filteredFolders = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return null;
+    return folders.filter(f => 
+      f.name.toLowerCase().includes(q) || 
+      (folderPathMap[f.id] || '').toLowerCase().includes(q)
+    );
+  }, [folders, search, folderPathMap]);
 
   if (!isOpen) return null;
 
@@ -69,19 +98,62 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
               <X className="w-5 h-5" />
             </button>
           </div>
+
+          {folders.length > 5 && (
+            <div className="px-3 pt-3 pb-1 border-b border-white/5">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                <input
+                  type="text"
+                  placeholder="搜索目标文件夹..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-1.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/50 transition"
+                />
+              </div>
+            </div>
+          )}
           
           <div className="overflow-y-auto p-2">
-            <button
-              onClick={() => onMove(null)}
-              className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition text-left"
-            >
-              <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center text-white/50 shrink-0">
-                <FolderIcon className="w-5 h-5" />
-              </div>
-              <span className="font-medium text-white">主页 (移除文件夹)</span>
-            </button>
+            {!search && (
+              <button
+                onClick={() => onMove(null)}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition text-left"
+              >
+                <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center text-white/50 shrink-0">
+                  <FolderIcon className="w-5 h-5" />
+                </div>
+                <span className="font-medium text-white">主页 (移除文件夹)</span>
+              </button>
+            )}
             
-            {renderFolderOptions()}
+            {filteredFolders ? (
+              filteredFolders.length > 0 ? (
+                filteredFolders.map(folder => (
+                  <button
+                    key={folder.id}
+                    onClick={() => onMove(folder.id)}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition text-left"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+                      <FolderIcon className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-white truncate">{folder.name}</div>
+                      {folderPathMap[folder.id] && folderPathMap[folder.id] !== folder.name && (
+                        <div className="text-xs text-blue-300/70 truncate">{folderPathMap[folder.id]}</div>
+                      )}
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <div className="p-8 text-center text-white/40 text-sm">
+                  未找到匹配的文件夹
+                </div>
+              )
+            ) : (
+              renderFolderOptions()
+            )}
             
             {folders.length === 0 && (
               <div className="p-8 text-center text-white/40 text-sm">

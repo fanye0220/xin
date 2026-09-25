@@ -97,7 +97,10 @@ export function ConfirmBindQRModal({
   qrChar,
   targetChar,
 }: Props) {
-  const [deleteSource, setDeleteSource] = useState(true);
+  const [deleteSource, setDeleteSource] = useState(() => {
+    const saved = localStorage.getItem('tavern_bind_qr_delete_source');
+    return saved !== null ? saved === 'true' : true;
+  });
 
   useBackHandler(isOpen, () => {
     onClose();
@@ -106,9 +109,29 @@ export function ConfirmBindQRModal({
 
   useEffect(() => {
     if (isOpen) {
-      setDeleteSource(true);
+      const saved = localStorage.getItem('tavern_bind_qr_delete_source');
+      if (saved !== null) {
+        setDeleteSource(saved === 'true');
+      }
     }
   }, [isOpen, qrChar?.id, targetChar?.id]);
+
+  const handleToggleDeleteSource = () => {
+    setDeleteSource((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('tavern_bind_qr_delete_source', String(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  const handleConfirm = () => {
+    try {
+      localStorage.setItem('tavern_bind_qr_delete_source', String(deleteSource));
+    } catch (e) {}
+    onConfirm(deleteSource);
+  };
 
   if (!isOpen || !qrChar || !targetChar) return null;
 
@@ -174,23 +197,23 @@ export function ConfirmBindQRModal({
 
             {/* Delete Source Option */}
             <div
-              onClick={() => setDeleteSource(!deleteSource)}
-              className="flex items-start gap-3 p-3.5 mt-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition cursor-pointer select-none"
+              onClick={handleToggleDeleteSource}
+              className="flex items-start gap-3 p-3.5 mt-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition cursor-pointer select-none [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10"
             >
               <div
                 className={`w-5 h-5 rounded-md flex items-center justify-center border transition shrink-0 mt-0.5 ${
                   deleteSource
-                    ? "bg-purple-600 border-purple-500 text-white"
-                    : "border-white/30 bg-black/30"
+                    ? "bg-purple-600 border-purple-500 text-white shadow-sm shadow-purple-500/30"
+                    : "border-white/30 bg-black/30 [.light-theme_&]:border-black/20 [.light-theme_&]:bg-white"
                 }`}
               >
-                {deleteSource && <Check className="w-3.5 h-3.5" />}
+                {deleteSource && <Check className="w-3.5 h-3.5 text-white stroke-[2.5]" />}
               </div>
               <div className="flex-1 min-w-0">
-                <span className="text-sm font-medium text-white block">
+                <span className="text-sm font-medium text-white block [.light-theme_&]:text-slate-800">
                   绑定后将独立 QR 卡片移至回收站
                 </span>
-                <span className="text-xs text-white/50 block mt-0.5">
+                <span className="text-xs text-white/50 block mt-0.5 [.light-theme_&]:text-slate-500">
                   推荐勾选，避免在列表中残留重复冗余的独立快速回复卡
                 </span>
               </div>
@@ -208,7 +231,7 @@ export function ConfirmBindQRModal({
             </button>
             <button
               type="button"
-              onClick={() => onConfirm(deleteSource)}
+              onClick={handleConfirm}
               className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-90 text-white font-semibold shadow-lg shadow-purple-500/25 transition text-sm flex items-center justify-center gap-1.5 active:scale-95"
             >
               <LinkIcon className="w-4 h-4" />
