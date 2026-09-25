@@ -55,6 +55,7 @@ import { useInView } from "../lib/useInView";
 import { useContinuousInView } from "../lib/useContinuousInView";
 import { peekCachedUrl, putCachedBlobUrl } from "../lib/thumbCache";
 import { useBackHandler } from "../lib/useBackHandler";
+import { getCardBadgeInfo } from "../lib/cardBadge";
 import { MoveToFolderModal } from "./MoveToFolderModal";
 import { BindQRModal } from "./BindQRModal";
 import { ConfirmBindQRModal } from "./ConfirmBindQRModal";
@@ -3617,6 +3618,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
 
   const charTags = (char as any).tags || char.data?.data?.tags || char.data?.tags;
   const hasTags = charTags && Array.isArray(charTags) && charTags.length > 0;
+  const badgeInfo = getCardBadgeInfo(char);
 
   if (viewMode === "list") {
     return (
@@ -3658,6 +3660,12 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="font-medium text-white/90 truncate">{char.name}</h3>
+            {badgeInfo && (
+              <span className="text-[10px] bg-black/60 backdrop-blur-md border border-white/10 text-white/90 px-1.5 py-0.5 rounded-md flex-shrink-0 flex items-center gap-1 font-medium select-none">
+                <span className={`w-1.5 h-1.5 rounded-full ${badgeInfo.dotColor} shrink-0`} />
+                <span>{badgeInfo.label}</span>
+              </span>
+            )}
             {hasTags && (
               <div className="flex gap-1 overflow-hidden shrink-0">
                 {charTags.slice(0, 3).map((t: string) => (
@@ -3766,6 +3774,13 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
           )}
         </div> */}
       </div>
+
+      {badgeInfo && (
+        <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-md text-[10px] font-medium text-white/90 border border-white/10 flex items-center gap-1.5 shadow-sm pointer-events-none select-none">
+          <span className={`w-1.5 h-1.5 rounded-full ${badgeInfo.dotColor} shrink-0`} />
+          <span>{badgeInfo.label}</span>
+        </div>
+      )}
 
       <AnimatePresence>
         {selectionMode && (

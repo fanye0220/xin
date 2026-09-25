@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Cloud, Download, Upload, Trash2, Github, Loader2, Search, Folder, ChevronRight, MessageSquare, FileText, FolderSync } from 'lucide-react';
 import { listCloudCharacters, deleteCloudCharacter, syncFolderStructureToCloud } from '../lib/cloudDrive';
+import { getCardBadgeInfo } from '../lib/cardBadge';
 import { initAuth, googleSignIn, logout, getAccessToken, listBackupsFromDrive, deleteBackupFromDrive, triggerManualBackup, triggerRestore, onSyncStateChange, SyncState } from '../lib/drive';
 
 const formatCloudName = (name: string) => name.replace(/_[a-f0-9-]{36}$/i, "");
@@ -678,16 +679,16 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                           </div>
                         )}
                         
-                        {((char.appProperties?.cardType && char.appProperties.cardType !== 'character') || char.appProperties?.isChat === 'true') && (
-                          <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-md text-[10px] font-medium text-white/90 border border-white/10 uppercase">
-                            {char.appProperties?.isChat === 'true' ? '聊天记录' :
-                             char.appProperties.cardType === 'worldbook' ? '世界书' :
-                             char.appProperties.cardType === 'qr' ? '快速回复' :
-                             char.appProperties.cardType === 'preset' ? '预设' :
-                             char.appProperties.cardType === 'theme' ? '美化' :
-                             char.appProperties.cardType === 'script' ? '脚本' : char.appProperties.cardType}
-                          </div>
-                        )}
+                        {(() => {
+                          const badge = getCardBadgeInfo(char);
+                          if (!badge) return null;
+                          return (
+                            <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-md text-[10px] font-medium text-white/90 border border-white/10 uppercase flex items-center gap-1.5 shadow-sm pointer-events-none select-none">
+                              <span className={`w-1.5 h-1.5 rounded-full ${badge.dotColor} shrink-0`} />
+                              <span>{badge.label}</span>
+                            </div>
+                          );
+                        })()}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-60 group-hover:opacity-80 transition pointer-events-none" />
                       </div>
                       

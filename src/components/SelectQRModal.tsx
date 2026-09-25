@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search, Check } from 'lucide-react';
 import { CharacterCard, getCharacters, getCharacterCategoryPrefix } from '../lib/db';
@@ -49,30 +50,30 @@ export function SelectQRModal({ isOpen, onClose, onSelect }: Props) {
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+  return createPortal(
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm [.light-theme_&]:bg-black/40">
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="bg-slate-800/90 backdrop-blur-2xl rounded-3xl w-full max-w-md border border-white/10 shadow-2xl overflow-hidden flex flex-col h-[70vh] sm:h-[60vh] max-h-[600px]"
+        className="bg-slate-800/90 backdrop-blur-2xl rounded-3xl w-full max-w-md border border-white/10 shadow-2xl overflow-hidden flex flex-col h-[70vh] sm:h-[60vh] max-h-[600px] [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/10 [.light-theme_&]:shadow-2xl"
       >
-        <div className="flex items-center justify-between p-4 border-b border-white/10 shrink-0">
-          <h3 className="font-semibold text-white">从库中选择快速回复</h3>
-          <button onClick={onClose} className="p-2 -mr-2 rounded-full hover:bg-white/10 text-white/60 hover:text-white transition">
+        <div className="flex items-center justify-between p-4 border-b border-white/10 shrink-0 [.light-theme_&]:border-black/10">
+          <h3 className="font-semibold text-white [.light-theme_&]:text-[#1c1c1e]">从库中选择快速回复</h3>
+          <button onClick={onClose} className="p-2 -mr-2 rounded-full hover:bg-white/10 text-white/60 hover:text-white transition cursor-pointer [.light-theme_&]:text-black/50 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/5">
             <X className="w-5 h-5" />
           </button>
         </div>
         
-        <div className="p-4 border-b border-white/5 shrink-0">
+        <div className="p-4 border-b border-white/5 shrink-0 [.light-theme_&]:border-black/10">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 [.light-theme_&]:text-black/40" />
             <input 
               type="text" 
               placeholder="搜索快速回复..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-black/20 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/50 transition"
+              className="w-full bg-black/20 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/50 transition [.light-theme_&]:bg-black/[0.03] [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:placeholder-black/40"
             />
           </div>
         </div>
@@ -80,26 +81,34 @@ export function SelectQRModal({ isOpen, onClose, onSelect }: Props) {
         <div className="flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-white/10">
           {filteredQRs.length === 0 ? (
              <div className="flex flex-col items-center justify-center h-40 text-center">
-               <p className="text-white/50 text-sm">暂无匹配的快速回复</p>
+               <p className="text-white/50 text-sm [.light-theme_&]:text-black/40">暂无匹配的快速回复</p>
              </div>
           ) : (
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1.5">
               {filteredQRs.map(char => {
                 const isSelected = selectedIds.has(char.id);
                 return (
                   <button
                     key={char.id}
                     onClick={() => toggleSelection(char.id)}
-                    className={`flex items-center gap-3 p-2 rounded-xl transition text-left ${isSelected ? 'bg-purple-500/20 shadow-inner' : 'hover:bg-white/5'}`}
+                    className={`flex items-center gap-3 p-2.5 rounded-xl transition text-left cursor-pointer ${
+                      isSelected 
+                        ? 'bg-purple-500/20 shadow-inner border border-purple-500/30' 
+                        : 'hover:bg-white/5 border border-transparent [.light-theme_&]:hover:bg-black/[0.04]'
+                    }`}
                   >
-                    <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 border transition ${isSelected ? 'bg-purple-500 border-purple-500 text-white' : 'border-white/20'}`}>
-                      {isSelected && <Check className="w-3 h-3" />}
+                    <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 border transition ${
+                      isSelected 
+                        ? 'bg-purple-500 border-purple-500 text-white' 
+                        : 'border-white/20'
+                    }`}>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
                     </div>
                     <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 bg-white/10 text-white/80">
                       <span className="text-xl">💬</span>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-white text-sm truncate">{char.name}</h4>
+                      <h4 className="font-medium text-white text-sm truncate [.light-theme_&]:text-[#1c1c1e]">{char.name}</h4>
                     </div>
                   </button>
                 );
@@ -108,22 +117,23 @@ export function SelectQRModal({ isOpen, onClose, onSelect }: Props) {
           )}
         </div>
 
-        <div className="p-4 border-t border-white/10 shrink-0 flex gap-3">
+        <div className="p-4 border-t border-white/10 shrink-0 flex gap-3 [.light-theme_&]:border-black/10">
            <button 
              onClick={onClose}
-             className="flex-1 py-2.5 rounded-xl font-medium text-white/70 hover:text-white bg-white/5 hover:bg-white/10 transition"
+             className="flex-1 py-2.5 rounded-xl font-medium text-white/70 hover:text-white bg-white/5 hover:bg-white/10 transition cursor-pointer [.light-theme_&]:bg-black/[0.05] [.light-theme_&]:hover:bg-black/[0.08] [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border [.light-theme_&]:border-black/10"
            >
              取消
            </button>
            <button 
              onClick={handleConfirm}
              disabled={selectedIds.size === 0}
-             className="flex-1 py-2.5 rounded-xl font-medium text-white bg-purple-500 hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition"
+             className="flex-1 py-2.5 rounded-xl font-medium text-white bg-purple-500 hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition cursor-pointer"
            >
              确认 ({selectedIds.size})
            </button>
         </div>
       </motion.div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -1,7 +1,7 @@
 import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Copy, Trash2, X, AlertTriangle, CheckCircle2, Merge, MessageSquarePlus, Link, FileText, CheckCircle, Folder } from 'lucide-react';
+import { Copy, Trash2, X, AlertTriangle, CheckCircle2, Merge, MessageSquarePlus, Link, FileText, CheckCircle, Folder, Lock, Unlock } from 'lucide-react';
 import { CharacterCard, DuplicateGroup, findDuplicates, deleteCharacter, saveCharacter } from '../lib/db';
 import { getLocalImageUrl } from '../lib/appBridge';
 

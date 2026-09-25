@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   History, GitBranch, Plus, Link, Upload, RotateCcw, 
   Trash2, Download, Eye, ChevronDown, ChevronUp, Check, 
   X, Search, Sparkles, Book, MessageSquare, AlertCircle,
-  Clock, ArrowRight, FileText, CheckCircle2
+  Clock, ArrowRight, FileText, CheckCircle2, User
 } from 'lucide-react';
 import { 
   CharacterCard, CardVersionSnapshot, saveCharacter, 
-  getCharacters, deleteCharacter, getCharacter 
+  getCharacters, deleteCharacter, getCharacter, getCharacterBlob,
+  getCharacterThumb, getCharacterCategoryPrefix
 } from '../lib/db';
+import { getCardTypeBadgeInfo } from '../lib/cardType';
 import { injectTavernData, extractTavernData } from '../lib/png';
 import { downloadOrShareFile } from '../lib/appBridge';
 import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
@@ -18,6 +21,161 @@ interface Props {
   character: CharacterCard;
   onUpdateCharacter: (updated: CharacterCard) => void;
   onRefreshDetail?: () => void;
+  avatarUrl?: string;
+}
+
+// Helper to strictly filter out tools, worldbooks, presets, scripts, etc. and keep only actual character cards
+function isCharacterCardOnly(c: CharacterCard): boolean {
+  if (c.deletedAt) return false;
+  if (c.isTool || c.isQR) return false;
+  if (getCardTypeBadgeInfo(c) !== null) return false;
+  const cat = c.category || getCharacterCategoryPrefix(c);
+  if (cat && ["世界书", "预设", "工具区", "美化", "快速回复", "脚本", "聊天记录"].includes(cat)) {
+    return false;
+  }
+  const raw = c.data?.data || c.data || {};
+  if (Array.isArray(c.data) || Array.isArray(raw)) return false;
+  if (raw.quick_replies || raw.qrList) return false;
+  return true;
+}
+
+// Standalone lazy-loaded avatar component for candidate cards with viewport-driven loading
+const CandidateAvatar = React.memo(function CandidateAvatar({ char }: { char: CharacterCard }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isInView, setIsInView] = useState(false);
+  const [imgSrc, setImgSrc] = useState<string | null>(null);
+  const defaultFallback = useMemo(() => getFallbackAvatar(char.name || char.id), [char.name, char.id]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    if (!('IntersectionObserver' in window)) {
+      setIsInView(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setIsInView(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '100px' }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!isInView) return;
+    let isMounted = true;
+    let objectUrl: string | null = null;
+
+    if (char.localFilePath) {
+      import('../lib/appBridge').then(({ getLocalImageUrl }) => {
+        if (isMounted) setImgSrc(getLocalImageUrl(char.localFilePath!, char.updatedAt || char.createdAt));
+      });
+    } else if (char.avatarBlob) {
+      objectUrl = URL.createObjectURL(char.avatarBlob);
+      if (isMounted) setImgSrc(objectUrl);
+    } else if (char.hasBlobsSeparated) {
+      getCharacterThumb(char.id).then((thumb) => {
+        if (!isMounted) return;
+        if (thumb) {
+          objectUrl = URL.createObjectURL(thumb);
+          setImgSrc(objectUrl);
+        } else {
+          getCharacterBlob(char.id).then((blobs) => {
+            if (blobs?.avatarBlob && isMounted) {
+              objectUrl = URL.createObjectURL(blobs.avatarBlob);
+              setImgSrc(objectUrl);
+            }
+          });
+        }
+      }).catch(() => {
+        if (isMounted) setImgSrc(defaultFallback);
+      });
+    } else {
+      setImgSrc(char.avatarUrlFallback || resolveAvatarUrl(undefined, char.name));
+    }
+
+    return () => {
+      isMounted = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [isInView, char, defaultFallback]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-black/40 border border-white/10 relative flex items-center justify-center [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10"
+    >
+      {imgSrc ? (
+        <img
+          src={imgSrc}
+          alt={char.name}
+          loading="lazy"
+          decoding="async"
+          className="w-full h-full object-cover"
+          onError={(e) => {
+            if (e.currentTarget.src !== defaultFallback) {
+              e.currentTarget.src = defaultFallback;
+            }
+          }}
+        />
+      ) : (
+        <User className="w-4 h-4 text-white/30 [.light-theme_&]:text-black/30" />
+      )}
+    </div>
+  );
+});
+
+// Standalone component to securely render active character avatar with memory management
+function ActiveAvatar({ character, avatarUrl }: { character: CharacterCard; avatarUrl?: string }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (avatarUrl) {
+      setBlobUrl(null);
+      return;
+    }
+    let objectUrl: string | null = null;
+    let isCancelled = false;
+
+    if (character.avatarBlob) {
+      objectUrl = URL.createObjectURL(character.avatarBlob);
+      setBlobUrl(objectUrl);
+    } else if (character.hasBlobsSeparated) {
+      getCharacterBlob(character.id).then((b) => {
+        if (!isCancelled && b?.avatarBlob) {
+          objectUrl = URL.createObjectURL(b.avatarBlob);
+          setBlobUrl(objectUrl);
+        }
+      });
+    } else {
+      setBlobUrl(null);
+    }
+
+    return () => {
+      isCancelled = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [character.id, character.avatarBlob, character.hasBlobsSeparated, avatarUrl]);
+
+  const finalSrc = avatarUrl || blobUrl || character.avatarUrlFallback || resolveAvatarUrl(undefined, character.name);
+
+  return (
+    <img
+      src={finalSrc}
+      alt={character.name}
+      className="w-full h-full object-cover"
+      onError={(e) => {
+        e.currentTarget.src = getFallbackAvatar(character.name);
+      }}
+    />
+  );
 }
 
 // Standalone component to securely render snapshot avatar with memory management
@@ -47,7 +205,7 @@ function SnapshotAvatar({ snapshot, fallbackName }: { snapshot: CardVersionSnaps
 
   if (!url) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-purple-500/10 text-purple-300 font-bold text-xs">
+      <div className="w-full h-full flex items-center justify-center bg-white/10 text-white/80 font-bold text-xs">
         {snapshot.versionName?.slice(0, 2) || '旧版'}
       </div>
     );
@@ -122,7 +280,7 @@ async function resolveFullCardBinaryAssets(char: CharacterCard): Promise<{
   return { avatarBlob, completeCardPngBlob, avatarHistory };
 }
 
-export function CharacterVersionsSection({ character, onUpdateCharacter, onRefreshDetail }: Props) {
+export function CharacterVersionsSection({ character, onUpdateCharacter, onRefreshDetail, avatarUrl }: Props) {
   const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
   const [snapshotName, setSnapshotName] = useState('');
   const [snapshotNote, setSnapshotNote] = useState('');
@@ -156,12 +314,19 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
     let isMounted = true;
     getCharacters(1, 10000, undefined, "", [], "newest_import", false, true).then(res => {
       if (!isMounted) return;
-      // Filter out self and deleted cards
-      const available = res.characters.filter(c => c.id !== character.id && !c.deletedAt);
+      // Filter out self and non-character cards (tools, worldbooks, presets, scripts, themes, etc.)
+      const available = res.characters.filter(c => c.id !== character.id && isCharacterCardOnly(c));
       setCandidateCards(available);
     });
     return () => { isMounted = false; };
   }, [isLinkModalOpen, character.id]);
+
+  // Progressive rendering for candidate cards to prevent modal opening lag
+  const [displayLimit, setDisplayLimit] = useState(40);
+
+  useEffect(() => {
+    setDisplayLimit(40);
+  }, [linkSearchQuery, isLinkModalOpen]);
 
   // Sort candidate cards: put same-name or similar-name cards first
   const filteredCandidates = useMemo(() => {
@@ -193,6 +358,19 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
       return (b.createdAt || 0) - (a.createdAt || 0);
     });
   }, [candidateCards, linkSearchQuery, character.name]);
+
+  const visibleCandidates = useMemo(() => {
+    return filteredCandidates.slice(0, displayLimit);
+  }, [filteredCandidates, displayLimit]);
+
+  const handleCandidateScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollTop + clientHeight >= scrollHeight - 80) {
+      if (displayLimit < filteredCandidates.length) {
+        setDisplayLimit(prev => Math.min(prev + 40, filteredCandidates.length));
+      }
+    }
+  };
 
   // Create snapshot of current version
   const handleCreateSnapshot = async () => {
@@ -481,47 +659,57 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
   return (
     <div className="space-y-6">
       {/* Top Banner & Action Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-white/5 border border-white/10 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 p-3.5 sm:p-4 rounded-2xl bg-white/5 border border-white/10 shadow-sm [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/10">
         <div>
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-md shadow-purple-500/20">
-              <History className="w-5 h-5" />
-            </div>
-            <h3 className="text-base font-bold text-white [.light-theme_&]:text-slate-900">
-              版本迭代与溯源
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            <h3 className="text-sm sm:text-base font-bold text-white">
+              <span>版本迭代</span><span className="hidden sm:inline">与溯源</span>
             </h3>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-medium border border-purple-500/30">
-              {historyList.length > 0 ? `共 ${historyList.length + 1} 个演进版本` : '当前为单版本'}
+            <span className="text-[11px] sm:text-xs px-2 sm:px-2.5 py-0.5 rounded-full bg-white/10 text-white/80 font-medium border border-white/15 whitespace-nowrap [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]">
+              {historyList.length > 0 ? (
+                <>
+                  <span className="sm:hidden">{historyList.length + 1}个版本</span>
+                  <span className="hidden sm:inline">共 {historyList.length + 1} 个演进版本</span>
+                </>
+              ) : (
+                <>
+                  <span className="sm:hidden">单版本</span>
+                  <span className="hidden sm:inline">当前为单版本</span>
+                </>
+              )}
             </span>
           </div>
-          <p className="text-xs text-white/50 [.light-theme_&]:text-slate-500 mt-1">
+          <p className="text-xs text-white/60 mt-1 line-clamp-2 sm:line-clamp-none">
             记录新旧版本的演变轨迹，支持历史快照对比、一键回滚以及关联绑定卡库中的旧版本。
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           <button
             onClick={() => setIsCreatingSnapshot(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 text-xs font-semibold transition active:scale-95 shadow-sm"
+            className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-xs font-medium transition active:scale-95 shadow-sm cursor-pointer [.light-theme_&]:bg-purple-50 [.light-theme_&]:text-purple-700 [.light-theme_&]:border-purple-300 [.light-theme_&]:hover:bg-purple-100"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>创建当前快照</span>
+            <span className="sm:hidden">快照</span>
+            <span className="hidden sm:inline">创建当前快照</span>
           </button>
 
           <button
             onClick={() => setIsLinkModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600/30 hover:bg-blue-600/50 text-blue-200 border border-blue-500/40 text-xs font-semibold transition active:scale-95 shadow-sm"
+            className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white border border-white/15 text-xs font-medium transition active:scale-95 shadow-sm cursor-pointer [.light-theme_&]:bg-black/5 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-black/10"
           >
             <Link className="w-3.5 h-3.5" />
-            <span>绑定卡库旧版本</span>
+            <span className="sm:hidden">绑定旧版</span>
+            <span className="hidden sm:inline">绑定卡库旧版本</span>
           </button>
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white/80 text-xs font-semibold transition active:scale-95 [.light-theme_&]:bg-black/10 [.light-theme_&]:text-slate-700"
+            className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white border border-white/15 text-xs font-medium transition active:scale-95 shadow-sm cursor-pointer [.light-theme_&]:bg-black/5 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-black/10"
           >
             <Upload className="w-3.5 h-3.5" />
-            <span>导入文件版本</span>
+            <span className="sm:hidden">导入</span>
+            <span className="hidden sm:inline">导入文件版本</span>
           </button>
           <input
             ref={fileInputRef}
@@ -542,15 +730,15 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
             exit={{ opacity: 0, height: 0 }}
             className="overflow-hidden"
           >
-            <div className="p-4 rounded-2xl bg-purple-950/30 border border-purple-500/30 space-y-3 [.light-theme_&]:bg-purple-50 [.light-theme_&]:border-purple-200">
+            <div className="p-4 rounded-2xl bg-white/5 border border-white/15 space-y-3 shadow-md [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/10">
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-purple-300 [.light-theme_&]:text-purple-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5" />
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-white/70" />
                   保存当前卡片为历史版本快照
                 </h4>
                 <button 
                   onClick={() => setIsCreatingSnapshot(false)}
-                  className="p-1 rounded-full text-white/40 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-slate-800"
+                  className="p-1 rounded-full text-white/40 hover:text-white transition cursor-pointer [.light-theme_&]:hover:bg-black/5 [.light-theme_&]:text-[#1c1c1e]/60"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -558,7 +746,7 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-medium text-white/70 [.light-theme_&]:text-slate-700 mb-1">
+                  <label className="block text-[11px] font-medium text-white/80 mb-1">
                     版本标识 / 版本号
                   </label>
                   <input
@@ -566,11 +754,11 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
                     value={snapshotName}
                     onChange={e => setSnapshotName(e.target.value)}
                     placeholder={`例如 v${currentVersionStr} 或 初版备份`}
-                    className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/40 focus:outline-none focus:border-purple-500 transition [.light-theme_&]:bg-white [.light-theme_&]:border-black/15 [.light-theme_&]:text-slate-900"
+                    className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-xs text-white placeholder-white/40 focus:outline-none focus:border-white/40 transition [.light-theme_&]:bg-black/[0.03] [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:placeholder-black/40"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-white/70 [.light-theme_&]:text-slate-700 mb-1">
+                  <label className="block text-[11px] font-medium text-white/80 mb-1">
                     修改说明 / 迭代备注
                   </label>
                   <input
@@ -578,7 +766,7 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
                     value={snapshotNote}
                     onChange={e => setSnapshotNote(e.target.value)}
                     placeholder="例如：优化人设提示词与第2段开场白"
-                    className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/40 focus:outline-none focus:border-purple-500 transition [.light-theme_&]:bg-white [.light-theme_&]:border-black/15 [.light-theme_&]:text-slate-900"
+                    className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-xs text-white placeholder-white/40 focus:outline-none focus:border-white/40 transition [.light-theme_&]:bg-black/[0.03] [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:placeholder-black/40"
                   />
                 </div>
               </div>
@@ -586,13 +774,13 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
               <div className="flex justify-end gap-2 pt-1">
                 <button
                   onClick={() => setIsCreatingSnapshot(false)}
-                  className="px-3 py-1.5 rounded-xl text-xs text-white/60 hover:text-white bg-white/5 hover:bg-white/10 transition"
+                  className="px-3 py-1.5 rounded-xl text-xs text-white/70 hover:text-white bg-white/5 hover:bg-white/10 transition cursor-pointer [.light-theme_&]:bg-black/5 [.light-theme_&]:border [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/10"
                 >
                   取消
                 </button>
                 <button
                   onClick={handleCreateSnapshot}
-                  className="px-4 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-purple-500 to-blue-500 hover:opacity-90 shadow-md shadow-purple-500/20 transition active:scale-95"
+                  className="px-4 py-1.5 rounded-xl text-xs font-semibold text-white bg-purple-600 hover:bg-purple-500 shadow-md shadow-purple-500/20 transition active:scale-95 cursor-pointer"
                 >
                   保存快照
                 </button>
@@ -604,64 +792,62 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
 
       {/* Timeline Section */}
       <div className="space-y-4">
-        {/* Node 1: Current Active Version */}
-        <div className="relative pl-6 sm:pl-8 before:absolute before:left-2 sm:before:left-3 before:top-4 before:bottom-0 before:w-0.5 before:bg-gradient-to-b before:from-purple-500 before:to-white/10">
-          {/* Node Dot */}
-          <div className="absolute left-0 sm:left-1 top-2.5 w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-gradient-to-tr from-purple-600 to-pink-500 border-2 border-slate-900 shadow-md shadow-purple-500/50 flex items-center justify-center">
+        {/* Node 1: Current Active Version (Selected / Highlighted with UI Accent) */}
+        <div className="relative pl-6 sm:pl-8 before:absolute before:left-2 sm:before:left-3 before:top-[38px] sm:before:top-[48px] before:bottom-0 before:w-0.5 before:bg-purple-500/40 [.light-theme_&]:before:bg-purple-300">
+          {/* Node Dot - Centered vertically with card header avatar */}
+          <div className="absolute left-0 sm:left-1 top-[38px] sm:top-[48px] -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-purple-500 border-2 border-slate-900 [.light-theme_&]:border-white shadow-md shadow-purple-500/50 flex items-center justify-center z-10">
             <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
           </div>
 
-          <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-900/30 via-slate-900/40 to-blue-900/20 border border-purple-500/40 shadow-xl relative overflow-hidden [.light-theme_&]:from-purple-50/80 [.light-theme_&]:via-white [.light-theme_&]:to-blue-50/50 [.light-theme_&]:border-purple-300">
+          <div className="p-3.5 sm:p-5 rounded-2xl bg-purple-500/[0.08] border-2 border-purple-500/50 shadow-lg shadow-purple-500/10 ring-1 ring-purple-500/30 relative overflow-hidden [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-purple-400 [.light-theme_&]:shadow-purple-500/10 [.light-theme_&]:ring-purple-200">
             <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 bg-black/40 border border-purple-500/30 shadow-inner">
-                  <img
-                    src={character.avatarUrlFallback || resolveAvatarUrl(undefined, character.name)}
-                    alt={character.name}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.src = getFallbackAvatar(character.name);
-                    }}
-                  />
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl overflow-hidden shrink-0 bg-white/10 border-2 border-purple-500/40 shadow-inner [.light-theme_&]:border-purple-300 [.light-theme_&]:bg-black/5">
+                  <ActiveAvatar character={character} avatarUrl={avatarUrl} />
                 </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-sm text-white [.light-theme_&]:text-slate-900">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                    <span className="font-bold text-sm sm:text-base text-white">
                       v{currentVersionStr}
                     </span>
-                    <span className="px-2 py-0.5 rounded-full bg-green-500/20 text-green-300 text-[10px] font-bold border border-green-500/30 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      当前活跃版本
+                    <span className="px-2 sm:px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-bold border border-purple-500/40 text-[10px] sm:text-xs flex items-center gap-1 sm:gap-1.5 shadow-sm [.light-theme_&]:bg-purple-100 [.light-theme_&]:text-purple-800 [.light-theme_&]:border-purple-300">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                      <span className="sm:hidden">当前版本</span>
+                      <span className="hidden sm:inline">当前活跃版本</span>
                     </span>
                   </div>
-                  <p className="text-[11px] text-white/50 [.light-theme_&]:text-slate-500 mt-0.5 flex items-center gap-2">
-                    <Clock className="w-3 h-3" />
-                    <span>更新时间: {new Date(character.updatedAt || character.createdAt).toLocaleString()}</span>
+                  <p className="text-[11px] text-white/60 mt-1 flex items-center gap-1 sm:gap-2">
+                    <Clock className="w-3 h-3 text-white/60 shrink-0" />
+                    <span className="sm:hidden">更新: {new Date(character.updatedAt || character.createdAt).toLocaleDateString()}</span>
+                    <span className="hidden sm:inline">更新时间: {new Date(character.updatedAt || character.createdAt).toLocaleString()}</span>
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] text-purple-300/80 bg-purple-500/10 border border-purple-500/20 px-2 py-1 rounded-lg font-mono">
+              <div className="flex items-center gap-1 shrink-0">
+                <span className="text-[10px] text-purple-300 bg-purple-500/15 border border-purple-500/25 [.light-theme_&]:bg-purple-100/70 [.light-theme_&]:text-purple-800 [.light-theme_&]:border-purple-200 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg font-mono font-medium max-w-[90px] sm:max-w-[160px] truncate" title={character.name}>
                   {character.name}
                 </span>
               </div>
             </div>
 
             {/* Quick Metrics */}
-            <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-white/5 [.light-theme_&]:border-black/5 text-[11px] text-white/70 [.light-theme_&]:text-slate-600">
-              <span className="px-2.5 py-1 rounded-lg bg-white/5 [.light-theme_&]:bg-black/5 flex items-center gap-1.5 font-medium">
-                <FileText className="w-3.5 h-3.5 text-purple-400" />
-                设定描述: {currentDescription.length} 字
+            <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2.5 sm:mt-3 pt-2.5 sm:pt-3 border-t border-purple-500/20 [.light-theme_&]:border-purple-200/60 text-[11px] text-white/80">
+              <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-white/5 border border-purple-500/20 [.light-theme_&]:bg-purple-50/70 [.light-theme_&]:border-purple-200 flex items-center gap-1 sm:gap-1.5 font-medium text-white/80 [.light-theme_&]:text-[#1c1c1e]">
+                <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-purple-400 [.light-theme_&]:text-purple-600 shrink-0" />
+                <span className="sm:hidden">描述 {currentDescription.length}字</span>
+                <span className="hidden sm:inline">设定描述: {currentDescription.length} 字</span>
               </span>
-              <span className="px-2.5 py-1 rounded-lg bg-white/5 [.light-theme_&]:bg-black/5 flex items-center gap-1.5 font-medium">
-                <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
-                开场白: {currentGreetingsCount} 篇
+              <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-white/5 border border-purple-500/20 [.light-theme_&]:bg-purple-50/70 [.light-theme_&]:border-purple-200 flex items-center gap-1 sm:gap-1.5 font-medium text-white/80 [.light-theme_&]:text-[#1c1c1e]">
+                <MessageSquare className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-400 [.light-theme_&]:text-blue-600 shrink-0" />
+                <span className="sm:hidden">开场白 {currentGreetingsCount}篇</span>
+                <span className="hidden sm:inline">开场白: {currentGreetingsCount} 篇</span>
               </span>
               {currentWeatherBookCount > 0 && (
-                <span className="px-2.5 py-1 rounded-lg bg-white/5 [.light-theme_&]:bg-black/5 flex items-center gap-1.5 font-medium">
-                  <Book className="w-3.5 h-3.5 text-emerald-400" />
-                  世界书: {currentWeatherBookCount} 条
+                <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-white/5 border border-purple-500/20 [.light-theme_&]:bg-purple-50/70 [.light-theme_&]:border-purple-200 flex items-center gap-1 sm:gap-1.5 font-medium text-white/80 [.light-theme_&]:text-[#1c1c1e]">
+                  <Book className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400 [.light-theme_&]:text-emerald-600 shrink-0" />
+                  <span className="sm:hidden">世界书 {currentWeatherBookCount}条</span>
+                  <span className="hidden sm:inline">世界书: {currentWeatherBookCount} 条</span>
                 </span>
               )}
             </div>
@@ -670,15 +856,15 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
 
         {/* Nodes 2..N: Historical Snapshots */}
         {historyList.length === 0 ? (
-          <div className="ml-6 sm:ml-8 p-8 rounded-2xl border border-dashed border-white/10 text-center text-white/40 text-xs space-y-2 [.light-theme_&]:border-black/10 [.light-theme_&]:text-slate-400">
-            <GitBranch className="w-8 h-8 mx-auto opacity-30 text-purple-400" />
-            <p className="font-medium text-sm text-white/60 [.light-theme_&]:text-slate-600">暂无关联的历史旧版本</p>
-            <p>
+          <div className="ml-6 sm:ml-8 p-8 rounded-2xl bg-white/5 border border-dashed border-white/15 text-center text-white/60 text-xs space-y-2 [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/10">
+            <GitBranch className="w-8 h-8 mx-auto opacity-40 text-white/60" />
+            <p className="font-semibold text-sm text-white">暂无关联的历史旧版本</p>
+            <p className="text-white/60 max-w-md mx-auto">
               若您在卡库中存有该角色的旧版本或备用开场白卡片，可点击上方的「绑定卡库旧版本」进行融合溯源，亦可随时创建当前快照。
             </p>
           </div>
         ) : (
-          historyList.map((snapshot, index) => {
+          historyList.map((snapshot) => {
             const snapData = snapshot.data?.data || snapshot.data || {};
             const snapDesc = snapData.description || '';
             const snapGreetingsCount = 1 + (snapData.alternate_greetings?.length || 0);
@@ -688,31 +874,31 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
             return (
               <div 
                 key={snapshot.id}
-                className="relative pl-6 sm:pl-8 before:absolute before:left-2 sm:before:left-3 before:top-0 before:bottom-0 before:w-0.5 before:bg-white/10 last:before:bottom-6"
+                className="relative pl-6 sm:pl-8 before:absolute before:left-2 sm:before:left-3 before:top-0 before:bottom-0 before:w-0.5 before:bg-white/10 [.light-theme_&]:before:bg-black/10 last:before:bottom-auto last:before:h-[34px] sm:last:before:h-[44px]"
               >
-                {/* Node Dot */}
-                <div className="absolute left-0.5 sm:left-1.5 top-3 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-slate-800 border-2 border-white/40 shadow-sm flex items-center justify-center [.light-theme_&]:bg-white [.light-theme_&]:border-slate-400">
-                  <div className="w-1.5 h-1.5 rounded-full bg-white/60" />
+                {/* Node Dot - Centered vertically with snapshot card avatar */}
+                <div className="absolute left-0.5 sm:left-1.5 top-[34px] sm:top-[44px] -translate-y-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-slate-800 border-2 border-white/40 shadow-sm flex items-center justify-center [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/30 z-10">
+                  <div className="w-1.5 h-1.5 rounded-full bg-white/60 [.light-theme_&]:bg-black/40" />
                 </div>
 
-                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 hover:border-white/20 transition space-y-3 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10">
+                <div className="p-3.5 sm:p-5 rounded-2xl bg-white/5 border border-white/10 hover:border-white/20 transition space-y-3 [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/10 [.light-theme_&]:shadow-sm [.light-theme_&]:hover:border-black/20">
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-black/40 border border-white/10">
+                    <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl overflow-hidden shrink-0 bg-black/40 border border-white/10 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10">
                         <SnapshotAvatar snapshot={snapshot} fallbackName={snapshot.cardName || character.name} />
                       </div>
 
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h4 className="font-bold text-sm text-white [.light-theme_&]:text-slate-900">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                          <h4 className="font-bold text-sm text-white truncate max-w-[140px] sm:max-w-none">
                             {snapshot.versionName || '未命名版本'}
                           </h4>
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/60 [.light-theme_&]:bg-black/10 [.light-theme_&]:text-slate-600 font-mono">
+                          <span className="text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full bg-white/10 text-white/70 font-mono shrink-0 [.light-theme_&]:bg-black/5 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border [.light-theme_&]:border-black/10">
                             {new Date(snapshot.createdAt).toLocaleDateString()}
                           </span>
                         </div>
                         {snapshot.note && (
-                          <p className="text-xs text-white/50 [.light-theme_&]:text-slate-500 mt-0.5">
+                          <p className="text-xs text-white/60 mt-0.5 truncate max-w-[200px] sm:max-w-none">
                             {snapshot.note}
                           </p>
                         )}
@@ -720,33 +906,35 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
                     </div>
 
                     {/* Action buttons */}
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
                       <button
                         onClick={() => setExpandedDiffId(isExpanded ? null : snapshot.id)}
                         className={`p-1.5 rounded-lg border text-xs transition flex items-center gap-1 ${
                           isExpanded 
-                            ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' 
-                            : 'bg-white/5 text-white/60 hover:text-white border-white/10 hover:bg-white/10 [.light-theme_&]:border-black/10 [.light-theme_&]:text-slate-600'
+                            ? 'bg-purple-600/20 text-purple-300 border-purple-500/30 [.light-theme_&]:bg-purple-100 [.light-theme_&]:text-purple-800 [.light-theme_&]:border-purple-300' 
+                            : 'bg-white/5 text-white/70 hover:text-white border-white/10 hover:bg-white/10 [.light-theme_&]:bg-black/5 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-black/10'
                         }`}
                         title="查看与当前版本差异对比"
                       >
                         <Eye className="w-3.5 h-3.5" />
+                        <span className="sm:hidden">对比</span>
                         <span className="hidden sm:inline">对比预览</span>
                         {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                       </button>
 
                       <button
                         onClick={() => handleRollback(snapshot)}
-                        className="p-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/20 text-xs transition flex items-center gap-1 active:scale-95"
+                        className="p-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-white border border-white/15 text-xs transition flex items-center gap-1 active:scale-95 [.light-theme_&]:bg-black/5 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-black/10"
                         title="恢复为当前生效版本（当前版本将自动备份）"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
+                        <span className="sm:hidden">回滚</span>
                         <span className="hidden sm:inline">回滚恢复</span>
                       </button>
 
                       <button
                         onClick={() => handleExportSnapshot(snapshot)}
-                        className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white border border-white/10 text-xs transition [.light-theme_&]:border-black/10 [.light-theme_&]:text-slate-600"
+                        className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 text-xs transition [.light-theme_&]:bg-black/5 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-black/10"
                         title="导出为此历史版本的 PNG 角色卡"
                       >
                         <Download className="w-3.5 h-3.5" />
@@ -754,7 +942,7 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
 
                       <button
                         onClick={() => handleDeleteSnapshot(snapshot.id, snapshot.versionName)}
-                        className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-xs transition"
+                        className="p-1.5 rounded-lg bg-white/5 hover:bg-red-500/20 text-white/60 hover:text-red-400 border border-white/10 text-xs transition [.light-theme_&]:bg-black/5 [.light-theme_&]:text-white/60 [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-red-50 [.light-theme_&]:hover:text-red-600"
                         title="删除该版本快照"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -763,16 +951,25 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
                   </div>
 
                   {/* Metrics bar */}
-                  <div className="flex flex-wrap gap-2 text-[11px] text-white/60 [.light-theme_&]:text-slate-600">
-                    <span className="px-2 py-0.5 rounded bg-white/5 [.light-theme_&]:bg-black/5">
-                      字数: {snapDesc.length} (与当前相差 {snapDesc.length - currentDescription.length > 0 ? `+${snapDesc.length - currentDescription.length}` : snapDesc.length - currentDescription.length})
-                    </span>
-                    <span className="px-2 py-0.5 rounded bg-white/5 [.light-theme_&]:bg-black/5">
-                      开场白: {snapGreetingsCount} 篇
+                  <div className="flex flex-wrap gap-1.5 sm:gap-2 text-[11px] text-white/70">
+                    {(() => {
+                      const diff = snapDesc.length - currentDescription.length;
+                      const diffStr = diff > 0 ? `+${diff}` : String(diff);
+                      return (
+                        <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-white/80 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]">
+                          <span className="sm:hidden">字数 {snapDesc.length} ({diffStr})</span>
+                          <span className="hidden sm:inline">字数: {snapDesc.length} (与当前相差 {diffStr})</span>
+                        </span>
+                      );
+                    })()}
+                    <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-white/80 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]">
+                      <span className="sm:hidden">开场白 {snapGreetingsCount}篇</span>
+                      <span className="hidden sm:inline">开场白: {snapGreetingsCount} 篇</span>
                     </span>
                     {snapWbCount > 0 && (
-                      <span className="px-2 py-0.5 rounded bg-white/5 [.light-theme_&]:bg-black/5">
-                        世界书: {snapWbCount} 条
+                      <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-white/80 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]">
+                        <span className="sm:hidden">世界书 {snapWbCount}条</span>
+                        <span className="hidden sm:inline">世界书: {snapWbCount} 条</span>
                       </span>
                     )}
                   </div>
@@ -789,20 +986,20 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
                         <div className="mt-3 pt-3 border-t border-white/10 [.light-theme_&]:border-black/10 space-y-4 text-xs">
                           {/* First message comparison */}
                           <div>
-                            <div className="font-semibold text-white/80 [.light-theme_&]:text-slate-800 mb-1.5 flex items-center gap-1.5">
-                              <MessageSquare className="w-3.5 h-3.5 text-purple-400" />
+                            <div className="font-semibold text-white mb-1.5 flex items-center gap-1.5">
+                              <MessageSquare className="w-3.5 h-3.5 text-white/70" />
                               <span>默认开场白对比</span>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div className="p-3 rounded-xl bg-black/40 border border-white/10 [.light-theme_&]:bg-white [.light-theme_&]:border-black/10 space-y-1">
-                                <span className="text-[10px] text-green-400 font-bold block">当前版本</span>
-                                <p className="text-white/70 [.light-theme_&]:text-slate-700 whitespace-pre-wrap max-h-36 overflow-y-auto font-mono text-[11px]">
+                              <div className="p-3 rounded-xl bg-black/20 [.light-theme_&]:bg-black/[0.03] border border-white/10 [.light-theme_&]:border-black/10 space-y-1">
+                                <span className="text-[10px] text-white/70 font-bold block">当前版本</span>
+                                <p className="text-white/90 whitespace-pre-wrap max-h-36 overflow-y-auto font-mono text-[11px] leading-relaxed">
                                   {currentData.first_mes || '（无开场白）'}
                                 </p>
                               </div>
-                              <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-500/20 [.light-theme_&]:bg-purple-50/50 [.light-theme_&]:border-purple-200 space-y-1">
-                                <span className="text-[10px] text-purple-400 font-bold block">历史版本 ({snapshot.versionName})</span>
-                                <p className="text-white/70 [.light-theme_&]:text-slate-700 whitespace-pre-wrap max-h-36 overflow-y-auto font-mono text-[11px]">
+                              <div className="p-3 rounded-xl bg-black/20 [.light-theme_&]:bg-black/[0.03] border border-white/10 [.light-theme_&]:border-black/10 space-y-1">
+                                <span className="text-[10px] text-white/70 font-bold block">历史版本 ({snapshot.versionName})</span>
+                                <p className="text-white/90 whitespace-pre-wrap max-h-36 overflow-y-auto font-mono text-[11px] leading-relaxed">
                                   {snapData.first_mes || '（无开场白）'}
                                 </p>
                               </div>
@@ -811,12 +1008,12 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
 
                           {/* Description summary */}
                           <div>
-                            <div className="font-semibold text-white/80 [.light-theme_&]:text-slate-800 mb-1.5 flex items-center gap-1.5">
-                              <FileText className="w-3.5 h-3.5 text-blue-400" />
+                            <div className="font-semibold text-white mb-1.5 flex items-center gap-1.5">
+                              <FileText className="w-3.5 h-3.5 text-white/70" />
                               <span>历史人设描述 (前 200 字)</span>
                             </div>
-                            <div className="p-3 rounded-xl bg-black/30 border border-white/10 [.light-theme_&]:bg-white [.light-theme_&]:border-black/10">
-                              <p className="text-white/60 [.light-theme_&]:text-slate-600 whitespace-pre-wrap line-clamp-4 font-mono text-[11px]">
+                            <div className="p-3 rounded-xl bg-black/20 [.light-theme_&]:bg-black/[0.03] border border-white/10 [.light-theme_&]:border-black/10">
+                              <p className="text-white/80 whitespace-pre-wrap line-clamp-4 font-mono text-[11px] leading-relaxed">
                                 {snapDesc || '（无描述）'}
                               </p>
                             </div>
@@ -832,158 +1029,163 @@ export function CharacterVersionsSection({ character, onUpdateCharacter, onRefre
         )}
       </div>
 
-      {/* Link Existing Card Modal */}
-      <AnimatePresence>
-        {isLinkModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-slate-900 border border-white/15 rounded-3xl p-5 w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh] [.light-theme_&]:bg-[#FCFCFC] [.light-theme_&]:border-black/10"
-            >
-              <div className="flex items-center justify-between pb-3 border-b border-white/10 [.light-theme_&]:border-black/10">
-                <div>
-                  <h3 className="text-base font-bold text-white [.light-theme_&]:text-slate-900 flex items-center gap-2">
-                    <Link className="w-4 h-4 text-purple-400" />
-                    关联已有卡片为历史版本
-                  </h3>
-                  <p className="text-xs text-white/50 [.light-theme_&]:text-slate-500 mt-0.5">
-                    将卡库中的旧版本完整归档为当前角色的迭代分支，便于对比和随心回滚
-                  </p>
-                </div>
-                <button
-                  onClick={() => { setIsLinkModalOpen(false); setSelectedCandidate(null); }}
-                  className="p-1.5 rounded-full hover:bg-white/10 text-white/60 hover:text-white transition"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Search input */}
-              <div className="pt-3 pb-2">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-                  <input
-                    type="text"
-                    placeholder="搜索卡库角色..."
-                    value={linkSearchQuery}
-                    onChange={e => setLinkSearchQuery(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-white/40 focus:outline-none focus:border-purple-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-slate-900"
-                  />
-                </div>
-              </div>
-
-              {/* Candidate list */}
-              <div className="flex-1 overflow-y-auto space-y-2 pr-1 my-2 max-h-[40vh]">
-                {filteredCandidates.length === 0 ? (
-                  <div className="py-8 text-center text-xs text-white/40 [.light-theme_&]:text-slate-400">
-                    没有找到符合条件的卡片
-                  </div>
-                ) : (
-                  filteredCandidates.map(c => {
-                    const isSelected = selectedCandidate?.id === c.id;
-                    const cData = c.data?.data || c.data || {};
-                    const ver = cData.character_version || c.data?.character_version || '1.0';
-
-                    return (
-                      <div
-                        key={c.id}
-                        onClick={() => setSelectedCandidate(isSelected ? null : c)}
-                        className={`p-3 rounded-2xl border transition cursor-pointer flex items-center justify-between gap-3 ${
-                          isSelected
-                            ? 'bg-purple-600/20 border-purple-500/60 shadow-inner'
-                            : 'bg-white/5 border-white/10 hover:bg-white/10 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-black/40 border border-white/10">
-                            <img
-                              src={c.avatarUrlFallback || resolveAvatarUrl(undefined, c.name)}
-                              alt={c.name}
-                              className="w-full h-full object-cover"
-                              onError={(e) => { e.currentTarget.src = getFallbackAvatar(c.name); }}
-                            />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-semibold text-xs text-white [.light-theme_&]:text-slate-900 truncate">
-                                {c.name}
-                              </h4>
-                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono">
-                                v{ver}
-                              </span>
-                            </div>
-                            <p className="text-[10px] text-white/50 [.light-theme_&]:text-slate-500 truncate mt-0.5">
-                              修改: {new Date(c.fileModifiedAt || c.updatedAt || c.createdAt).toLocaleDateString()} · 描述: {(cData.description || '').length}字
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className={`w-5 h-5 rounded-full flex items-center justify-center border transition shrink-0 ${
-                          isSelected 
-                            ? 'bg-purple-600 border-purple-500 text-white' 
-                            : 'border-white/30 bg-black/20 [.light-theme_&]:border-black/20'
-                        }`}>
-                          {isSelected && <Check className="w-3 h-3" />}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* Delete candidate checkbox */}
-              <div 
-                onClick={() => {
-                  const next = !deleteCandidateAfterLink;
-                  setDeleteCandidateAfterLink(next);
-                  localStorage.setItem('tavern_version_delete_candidate', String(next));
-                }}
-                className="flex items-start gap-2.5 p-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition cursor-pointer select-none my-2 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10"
+      {/* Link Existing Card Modal - Portaled to document.body */}
+      {createPortal(
+        <AnimatePresence>
+          {isLinkModalOpen && (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm [.light-theme_&]:bg-black/40">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                className="bg-slate-900 border border-white/15 rounded-3xl p-5 w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh] [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/10 [.light-theme_&]:shadow-2xl"
               >
-                <div
-                  className={`w-4 h-4 rounded flex items-center justify-center border transition shrink-0 mt-0.5 ${
-                    deleteCandidateAfterLink
-                      ? "bg-purple-600 border-purple-500 text-white shadow-sm shadow-purple-500/30"
-                      : "border-white/30 bg-black/30 [.light-theme_&]:border-black/20 [.light-theme_&]:bg-white"
-                  }`}
-                >
-                  {deleteCandidateAfterLink && <Check className="w-3 h-3 text-white stroke-[2.5]" />}
+                <div className="flex items-center justify-between pb-3 border-b border-white/10 [.light-theme_&]:border-black/10">
+                  <div>
+                    <h3 className="text-base font-bold text-white flex items-center gap-2">
+                      <Link className="w-4 h-4 text-purple-400 [.light-theme_&]:text-purple-600" />
+                      关联已有卡片为历史版本
+                    </h3>
+                    <p className="text-xs text-white/60 mt-0.5">
+                      将卡库中的旧版本完整归档为当前角色的迭代分支，便于对比和随心回滚
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { setIsLinkModalOpen(false); setSelectedCandidate(null); }}
+                    className="p-1.5 rounded-full hover:bg-white/10 text-white/60 hover:text-white transition cursor-pointer [.light-theme_&]:hover:bg-black/5 [.light-theme_&]:text-white/60 [.light-theme_&]:hover:text-[#1c1c1e]"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <span className="text-xs font-medium text-white block [.light-theme_&]:text-slate-800">
-                    绑定后将原独立卡片移至回收站
-                  </span>
-                  <span className="text-[10px] text-white/50 block [.light-theme_&]:text-slate-500">
-                    推荐勾选，避免在列表中留有重复同名卡片，旧卡所有数据均完整封存在版本历史中
-                  </span>
-                </div>
-              </div>
 
-              {/* Modal footer */}
-              <div className="flex gap-2 pt-2 border-t border-white/10 [.light-theme_&]:border-black/10">
-                <button
-                  type="button"
-                  onClick={() => { setIsLinkModalOpen(false); setSelectedCandidate(null); }}
-                  className="flex-1 py-2.5 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-white/80 font-medium transition text-xs"
+                {/* Search input */}
+                <div className="pt-3 pb-2">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 [.light-theme_&]:text-black/40" />
+                    <input
+                      type="text"
+                      placeholder="搜索卡库角色..."
+                      value={linkSearchQuery}
+                      onChange={e => setLinkSearchQuery(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-white/40 focus:outline-none focus:border-purple-500/50 transition [.light-theme_&]:bg-black/[0.03] [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:placeholder-black/40"
+                    />
+                  </div>
+                </div>
+
+                {/* Candidate list */}
+                <div 
+                  onScroll={handleCandidateScroll}
+                  className="flex-1 overflow-y-auto space-y-2 pr-1 my-2 max-h-[40vh] custom-scrollbar"
                 >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  disabled={!selectedCandidate}
-                  onClick={handleConfirmLink}
-                  className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 hover:opacity-90 disabled:opacity-40 text-white font-semibold shadow-lg shadow-purple-500/25 transition text-xs flex items-center justify-center gap-1.5 active:scale-95"
+                  {filteredCandidates.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-white/40 [.light-theme_&]:text-black/40">
+                      没有找到符合条件的角色卡片
+                    </div>
+                  ) : (
+                    visibleCandidates.map(c => {
+                      const isSelected = selectedCandidate?.id === c.id;
+                      const cData = c.data?.data || c.data || {};
+                      const ver = cData.character_version || c.data?.character_version || '1.0';
+
+                      return (
+                        <div
+                          key={c.id}
+                          onClick={() => setSelectedCandidate(isSelected ? null : c)}
+                          className={`p-3 rounded-2xl border transition cursor-pointer flex items-center justify-between gap-3 ${
+                            isSelected
+                              ? 'bg-purple-600/20 border-purple-500/60 shadow-inner [.light-theme_&]:bg-purple-50 [.light-theme_&]:border-purple-400'
+                              : 'bg-white/5 border-white/10 hover:bg-white/10 [.light-theme_&]:bg-black/[0.03] [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-black/[0.06]'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <CandidateAvatar char={c} />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <h4 className="font-semibold text-xs text-white truncate">
+                                  {c.name}
+                                </h4>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-white/80 font-mono [.light-theme_&]:bg-black/5 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border [.light-theme_&]:border-black/10">
+                                  v{ver}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-white/60 truncate mt-0.5">
+                                修改: {new Date(c.fileModifiedAt || c.updatedAt || c.createdAt).toLocaleDateString()} · 描述: {(cData.description || '').length}字
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className={`w-5 h-5 rounded-full flex items-center justify-center border transition shrink-0 ${
+                            isSelected 
+                              ? 'bg-purple-600 border-purple-500 text-white' 
+                              : 'border-white/30 bg-black/20 [.light-theme_&]:border-black/20 [.light-theme_&]:bg-black/5'
+                          }`}>
+                            {isSelected && <Check className="w-3 h-3" />}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+
+                  {visibleCandidates.length < filteredCandidates.length && (
+                    <div className="py-2.5 text-center text-[10px] text-white/40 [.light-theme_&]:text-black/40">
+                      下滑查看更多角色卡 ({visibleCandidates.length} / {filteredCandidates.length})...
+                    </div>
+                  )}
+                </div>
+
+                {/* Delete candidate checkbox */}
+                <div 
+                  onClick={() => {
+                    const next = !deleteCandidateAfterLink;
+                    setDeleteCandidateAfterLink(next);
+                    localStorage.setItem('tavern_version_delete_candidate', String(next));
+                  }}
+                  className="flex items-start gap-2.5 p-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition cursor-pointer select-none my-2 [.light-theme_&]:bg-black/[0.03] [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-black/[0.06]"
                 >
-                  <Link className="w-3.5 h-3.5" />
-                  确认关联为此卡历史版本
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+                  <div
+                    className={`w-4 h-4 rounded flex items-center justify-center border transition shrink-0 mt-0.5 ${
+                      deleteCandidateAfterLink
+                        ? "bg-purple-600 border-purple-500 text-white shadow-sm shadow-purple-500/30"
+                        : "border-white/30 bg-black/30 [.light-theme_&]:border-black/20 [.light-theme_&]:bg-black/5"
+                    }`}
+                  >
+                    {deleteCandidateAfterLink && <Check className="w-3 h-3 text-white stroke-[2.5]" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-medium text-white block">
+                      绑定后将原独立卡片移至回收站
+                    </span>
+                    <span className="text-[10px] text-white/60 block">
+                      推荐勾选，避免在列表中留有重复同名卡片，旧卡所有数据均完整封存在版本历史中
+                    </span>
+                  </div>
+                </div>
+
+                {/* Modal footer */}
+                <div className="flex gap-2 pt-2 border-t border-white/10 [.light-theme_&]:border-black/10">
+                  <button
+                    type="button"
+                    onClick={() => { setIsLinkModalOpen(false); setSelectedCandidate(null); }}
+                    className="flex-1 py-2.5 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-white font-medium transition text-xs cursor-pointer [.light-theme_&]:bg-black/5 [.light-theme_&]:hover:bg-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border [.light-theme_&]:border-black/10"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!selectedCandidate}
+                    onClick={handleConfirmLink}
+                    className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 hover:opacity-90 disabled:opacity-40 text-white font-semibold shadow-lg shadow-purple-500/25 transition text-xs flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                  >
+                    <Link className="w-3.5 h-3.5" />
+                    确认关联为此卡历史版本
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }

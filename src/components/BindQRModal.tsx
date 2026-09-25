@@ -1,5 +1,6 @@
 import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search } from 'lucide-react';
 import { CharacterCard } from '../lib/db';
@@ -46,14 +47,14 @@ function CharacterOption({ char, onClick }: { char: CharacterCard, onClick: () =
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 transition text-left"
+      className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 transition text-left cursor-pointer [.light-theme_&]:hover:bg-black/[0.04]"
     >
-      <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-black/40">
+      <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-black/40 border border-white/10 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10">
         <img src={url || undefined} alt={char.name} className="w-full h-full object-cover" onError={(e) => { if (e.currentTarget.src !== defaultFallback) e.currentTarget.src = defaultFallback; }} />
       </div>
       <div className="flex-1 min-w-0">
-        <h4 className="font-medium text-white text-sm truncate">{char.name}</h4>
-        {char.data?.creator && <p className="text-[10px] text-white/40 truncate">by {char.data.creator}</p>}
+        <h4 className="font-medium text-white text-sm truncate [.light-theme_&]:text-[#1c1c1e]">{char.name}</h4>
+        {char.data?.creator && <p className="text-[10px] text-white/40 truncate [.light-theme_&]:text-black/50">by {char.data.creator}</p>}
       </div>
     </button>
   );
@@ -84,9 +85,9 @@ export function BindQRModal({ isOpen, onClose, onBind, characters, qrChar }: Pro
 
   if (!isOpen || !qrChar) return null;
 
-  return (
+  return createPortal(
     <div 
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm [.light-theme_&]:bg-black/40"
       onTouchStart={(e) => e.stopPropagation()}
       onTouchEnd={(e) => e.stopPropagation()}
     >
@@ -94,24 +95,24 @@ export function BindQRModal({ isOpen, onClose, onBind, characters, qrChar }: Pro
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="bg-slate-800/90 backdrop-blur-2xl rounded-3xl w-full max-w-md border border-white/10 shadow-2xl overflow-hidden flex flex-col h-[70vh] sm:h-[60vh] max-h-[600px]"
+        className="bg-slate-800/90 backdrop-blur-2xl rounded-3xl w-full max-w-md border border-white/10 shadow-2xl overflow-hidden flex flex-col h-[70vh] sm:h-[60vh] max-h-[600px] [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/10 [.light-theme_&]:shadow-2xl"
       >
-        <div className="flex items-center justify-between p-4 border-b border-white/10 shrink-0">
-          <h3 className="font-semibold text-white">将 {qrChar.name} 绑定至...</h3>
-          <button onClick={onClose} className="p-2 -mr-2 rounded-full hover:bg-white/10 text-white/60 hover:text-white transition">
+        <div className="flex items-center justify-between p-4 border-b border-white/10 shrink-0 [.light-theme_&]:border-black/10">
+          <h3 className="font-semibold text-white [.light-theme_&]:text-[#1c1c1e]">将 {qrChar.name} 绑定至...</h3>
+          <button onClick={onClose} className="p-2 -mr-2 rounded-full hover:bg-white/10 text-white/60 hover:text-white transition cursor-pointer [.light-theme_&]:text-black/50 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/5">
             <X className="w-5 h-5" />
           </button>
         </div>
         
-        <div className="p-4 border-b border-white/5 shrink-0">
+        <div className="p-4 border-b border-white/5 shrink-0 [.light-theme_&]:border-black/10">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 [.light-theme_&]:text-black/40" />
             <input 
               type="text" 
               placeholder="搜索角色..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-black/20 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/50 transition"
+              className="w-full bg-black/20 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/50 transition [.light-theme_&]:bg-black/[0.03] [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:placeholder-black/40"
             />
           </div>
         </div>
@@ -119,7 +120,7 @@ export function BindQRModal({ isOpen, onClose, onBind, characters, qrChar }: Pro
         <div className="flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-white/10">
           {filteredCharacters.length === 0 ? (
              <div className="flex flex-col items-center justify-center h-40 text-center">
-               <p className="text-white/50 text-sm">暂无匹配的角色</p>
+               <p className="text-white/50 text-sm [.light-theme_&]:text-black/40">暂无匹配的角色</p>
              </div>
           ) : (
             <div className="flex flex-col gap-1">
@@ -134,6 +135,7 @@ export function BindQRModal({ isOpen, onClose, onBind, characters, qrChar }: Pro
           )}
         </div>
       </motion.div>
-    </div>
+    </div>,
+    document.body,
   );
 }

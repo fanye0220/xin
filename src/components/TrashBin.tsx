@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Trash2, RotateCcw, X, AlertTriangle, CheckCircle2, CheckCircle } from 'lucide-react';
 import { CharacterCard, getTrashedCharacters, restoreCharacter, deleteCharacter, emptyTrash, cleanupOldTrash } from '../lib/db';
+import { getCardBadgeInfo } from '../lib/cardBadge';
 
 interface Props {
   onClose: () => void;
@@ -109,7 +110,19 @@ const TrashedCharacterCard = ({
         />
       </div>
       <div className="flex-1 min-w-0">
-        <h3 className="font-semibold text-white truncate text-base">{char.name}</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="font-semibold text-white truncate text-base">{char.name}</h3>
+          {(() => {
+            const badge = getCardBadgeInfo(char);
+            if (!badge) return null;
+            return (
+              <span className="text-[10px] bg-black/60 backdrop-blur-md border border-white/10 text-white/90 px-1.5 py-0.5 rounded-md flex-shrink-0 flex items-center gap-1 font-medium select-none">
+                <span className={`w-1.5 h-1.5 rounded-full ${badge.dotColor} shrink-0`} />
+                <span>{badge.label}</span>
+              </span>
+            );
+          })()}
+        </div>
         <p className="text-xs text-red-400/80 mt-1 flex items-center gap-1.5">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
           <span className="truncate">{daysLeft} 天后永久删除</span>

@@ -25,6 +25,7 @@ import {
   saveFolder,
   Folder as DBFolder,
   ChatLog,
+  isActualCharacterCard,
 } from "../lib/db";
 import { normalizeWorldbookEntries } from "../lib/worldbook";
 import { parseTavernCard } from "../types/tavern";
@@ -520,32 +521,38 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             isMain = true;
           } else {
             data = JSON.parse(text);
+            const isActualChar = isActualCharacterCard(data);
             const isTheme =
-              data.blur_strength !== undefined ||
+              !isActualChar &&
+              (data.blur_strength !== undefined ||
               data.main_text_color !== undefined ||
-              data.chat_display !== undefined;
+              data.chat_display !== undefined);
             const isAIPreset =
-              data.temperature !== undefined ||
+              !isActualChar &&
+              (data.temperature !== undefined ||
               data.prompts !== undefined ||
-              data.top_p !== undefined;
+              data.top_p !== undefined ||
+              data.preset_type !== undefined);
             const isWorldbook =
-              data.entries !== undefined ||
-              (data.data && data.data.entries !== undefined);
-            const isQR = Array.isArray(data) ? (data.length > 0 && data[0]?.label !== undefined && data[0]?.message !== undefined) : ((data?.quick_replies !== undefined || data?.qrList !== undefined) && data?.spec !== "chara_card_v2" && data?.spec !== "chara_card_v3" && data?.first_mes === undefined && data?.personality === undefined);
-            const isScript = data?.type === "script" && data?.content !== undefined && data?.name !== undefined;
+              !isActualChar &&
+              (data.entries !== undefined ||
+              (data.data && data.data.entries !== undefined));
+            const isQR = !isActualChar && (Array.isArray(data) ? (data.length > 0 && (data[0]?.label !== undefined || data[0]?.message !== undefined || data[0]?.set !== undefined)) : ((data?.quick_replies !== undefined || data?.qrList !== undefined) && data?.spec !== "chara_card_v2" && data?.spec !== "chara_card_v3" && data?.first_mes === undefined && data?.personality === undefined));
+            const isScript = !isActualChar && (data?.type === "script" && data?.content !== undefined && data?.name !== undefined);
 
             const isChatData = Array.isArray(data)
               ? data.some((item) => item && (item.mes !== undefined || item.text !== undefined || item.is_user !== undefined || item.send_date !== undefined))
               : !!(data.chat && Array.isArray(data.chat) && !data.name && !data.char_name && !data.character_name && !data.data?.name && !data.data?.char_name && !data.data?.character_name);
 
             const isCharacter =
-              !isTheme &&
+              isActualChar ||
+              (!isTheme &&
               !isAIPreset &&
               !isWorldbook &&
               !isQR &&
               !isScript &&
               !isChatData &&
-              !!(data.name || data.char_name || data.character_name || data.data?.name || data.data?.char_name || data.data?.character_name);
+              !!(data.name || data.char_name || data.character_name || data.data?.name || data.data?.char_name || data.data?.character_name));
 
             const isStudioMeta = file.name.toLowerCase() === "studio_meta.json";
 

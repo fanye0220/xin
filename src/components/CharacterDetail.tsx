@@ -3,7 +3,8 @@ import { useState, useEffect, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, ChevronRight, Plus, Edit2, Power, X as XIcon, ChevronDown, ChevronUp, ExternalLink, Check, Upload, Send, Loader2, Share2, Folder as FolderIcon, History } from 'lucide-react';
-import { getCharacter, deleteCharacter, saveCharacter, CharacterCard, getFolders, resolveFolderPath, getCachedMeta, getCharacterCategoryPrefix } from '../lib/db';
+import { getCharacter, deleteCharacter, saveCharacter, CharacterCard, getFolders, resolveFolderPath, getCachedMeta, getCharacterCategoryPrefix, isActualCharacterCard } from '../lib/db';
+import { getCardTypeBadgeInfo } from '../lib/cardType';
 import { parseTavernCard } from '../types/tavern';
 import { injectTavernData } from '../lib/png';
 import { normalizeWorldbookEntries } from '../lib/worldbook';
@@ -136,7 +137,8 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     getCharacter(id).then(async (char) => {
       setCharacter(char);
       if (char) {
-        const category = getCharacterCategoryPrefix(char);
+        const isActual = isActualCharacterCard(char.data || char);
+        const category = isActual ? '未归类' : getCharacterCategoryPrefix(char);
         if (category === '世界书') {
             setActiveTab('worldbook');
         } else if (category !== '未归类') {
@@ -157,7 +159,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         }
         
         // If it's a standalone worldbook, default to the worldbook tab
-        if (char.data?.entries !== undefined) {
+        if (!isActual && char.data?.entries !== undefined) {
           setActiveTab('worldbook');
         }
 
@@ -380,25 +382,27 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     // 保证酒馆能识别：普通角色卡若无 data 包装则补 V2 信封；标签统一放进 data.tags。
     // 世界书/美化/预设/QR/脚本等特殊数据不套角色卡信封，保持原样。
     const isCharacterLike =
-      !Array.isArray(exportData) &&
-      typeof exportData === 'object' &&
-      exportData !== null &&
-      exportData.type !== 'script' &&
-      exportData.entries === undefined &&
-      exportData.blur_strength === undefined &&
-      exportData.main_text_color === undefined &&
-      exportData.temperature === undefined &&
-      exportData.prompts === undefined &&
-      exportData.quick_replies === undefined &&
-      exportData.qrList === undefined &&
-      (
-        exportData.spec === 'chara_card_v2' ||
-        exportData.spec === 'chara_card_v3' ||
-        !!exportData.data ||
-        !!exportData.name ||
-        !!exportData.char_name ||
-        !!exportData.character_name
-      );
+      isActualCharacterCard(exportData) ||
+      category === '未归类' ||
+      (!Array.isArray(exportData) &&
+        typeof exportData === 'object' &&
+        exportData !== null &&
+        exportData.type !== 'script' &&
+        exportData.entries === undefined &&
+        exportData.blur_strength === undefined &&
+        exportData.main_text_color === undefined &&
+        exportData.temperature === undefined &&
+        exportData.prompts === undefined &&
+        exportData.quick_replies === undefined &&
+        exportData.qrList === undefined &&
+        (
+          exportData.spec === 'chara_card_v2' ||
+          exportData.spec === 'chara_card_v3' ||
+          !!exportData.data ||
+          !!exportData.name ||
+          !!exportData.char_name ||
+          !!exportData.character_name
+        ));
     if (isCharacterLike) {
       if (!exportData.data || typeof exportData.data !== 'object' || Array.isArray(exportData.data)) {
         exportData = { spec: 'chara_card_v2', spec_version: '2.0', data: exportData };
@@ -623,7 +627,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         {/* Header */}
         <header className="sticky top-0 p-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] flex items-center justify-between bg-black/20 backdrop-blur-xl border-b border-white/10 z-20">
           <div className="flex items-center gap-2 min-w-0">
-            <button onClick={handleBack} className="p-2 rounded-full hover:bg-white/10 transition shrink-0" title="返回">
+            <button onClick={handleBack} className="p-2 rounded-full btn-glass transition shrink-0" title="返回">
               <ArrowLeft className="w-6 h-6" />
             </button>
           </div>
@@ -631,7 +635,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
             {!isPreset && !isStandaloneWorldbook && !isTheme && (
               <button 
                 onClick={handleSendToST} 
-                className="p-2 rounded-full hover:bg-white/10 transition relative group" 
+                className="p-2 rounded-full btn-glass transition relative group" 
                 title="发送到酒馆"
                 disabled={isSendingToST}
               >
@@ -639,10 +643,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               </button>
             )}
                         
-            <button onClick={() => handleExportPng(true)} className="p-2 rounded-full hover:bg-white/10 transition" title={getDownloadTooltip("下载")}>
+            <button onClick={() => handleExportPng(true)} className="p-2 rounded-full btn-glass transition" title={getDownloadTooltip("下载")}>
               <Download className="w-5 h-5" />
             </button>
-            <button onClick={() => setShowDeleteConfirm(true)} className="p-2 rounded-full hover:bg-red-500/20 text-red-400 transition" title="删除">
+            <button onClick={() => setShowDeleteConfirm(true)} className="p-2 rounded-full btn-glass-danger text-red-300 transition" title="删除">
               <Trash2 className="w-5 h-5" />
             </button>
           </div>
@@ -695,13 +699,13 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                 <div className="flex justify-end gap-3">
                   <button
                     onClick={() => setShowDeleteConfirm(false)}
-                    className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 hover:text-white transition"
+                    className="px-4 py-2 rounded-full btn-glass text-white/80 hover:text-white transition"
                   >
                     取消
                   </button>
                   <button
                     onClick={handleDelete}
-                    className="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white transition shadow-lg shadow-red-500/20"
+                    className="px-4 py-2 rounded-full btn-glass-danger text-red-200 hover:text-white transition"
                   >
                     删除
                   </button>
@@ -753,7 +757,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               />
               <button 
                 onClick={handleNameSave}
-                className="p-1.5 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition"
+                className="p-1.5 rounded-full btn-glass-green text-green-300"
               >
                 <Check className="w-5 h-5" />
               </button>
@@ -762,47 +766,61 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                   setIsEditingName(false);
                   setEditNameValue(character.name);
                 }}
-                className="p-1.5 bg-white/10 text-white/60 rounded-lg hover:bg-white/20 transition"
+                className="p-1.5 rounded-full btn-glass text-white/70"
               >
                 <XIcon className="w-5 h-5" />
               </button>
             </div>
           ) : (
-            <div className="flex items-center justify-center gap-2 mt-4 w-full px-4">
+            <div className="flex items-center justify-center gap-2 mt-4 w-full px-4 flex-wrap">
               <h1 className="text-2xl sm:text-3xl font-bold text-center break-words max-w-full">{character.name}</h1>
               <button 
                 onClick={() => setIsEditingName(true)}
-                className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition shrink-0"
+                className="p-1.5 text-white/60 hover:text-white btn-glass rounded-full transition shrink-0"
               >
                 <Edit2 className="w-4 h-4" />
               </button>
             </div>
           )}
-          <div className="text-white/60 text-sm mt-1 flex items-center justify-center gap-2 flex-wrap">
-            <button
-              onClick={() => setActiveTab('versions')}
-              className="hover:text-purple-300 transition underline underline-offset-4 decoration-purple-500/40 hover:decoration-purple-400 flex items-center gap-1.5 group cursor-pointer"
-              title="点击查看此角色的版本迭代与溯源历史"
-            >
-              <span className="font-medium text-white/80 group-hover:text-purple-300">v{data.character_version || '1.0'}</span>
-              {character?.versionHistory && character.versionHistory.length > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 group-hover:bg-purple-500/30 font-medium">
-                  {character.versionHistory.length}个历史版本
-                </span>
-              )}
-            </button>
-            <span>•</span>
-            <span>{data.creator || 'Unknown Creator'}</span>
+          {/* Version, Creator & Historical Version Badge (Vertically arranged to avoid horizontal crowding) */}
+          <div className="mt-1 flex flex-col items-center justify-center gap-1.5">
+            <div className="text-white/70 text-sm flex items-center justify-center gap-2 flex-wrap [.light-theme_&]:text-slate-600">
+              <button
+                onClick={() => setActiveTab('versions')}
+                className="font-medium text-white/90 hover:text-white transition underline underline-offset-4 decoration-white/25 hover:decoration-white/70 flex items-center gap-1 group cursor-pointer active:scale-95 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:decoration-black/20 [.light-theme_&]:hover:text-purple-600 [.light-theme_&]:hover:decoration-purple-400"
+                title="点击查看此角色的版本迭代与溯源历史"
+              >
+                <span>v{data.character_version || '1.0'}</span>
+              </button>
+              <span>•</span>
+              <span>{data.creator || 'Unknown Creator'}</span>
+            </div>
+
+            {/* Historical version hint arranged vertically to prevent horizontal crowding */}
+            {character?.versionHistory && character.versionHistory.length > 0 && (
+              <button
+                onClick={() => setActiveTab('versions')}
+                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 hover:border-purple-500/50 text-[11px] text-purple-300 hover:text-purple-200 transition cursor-pointer active:scale-95 shadow-sm shadow-purple-500/10 [.light-theme_&]:bg-purple-50 [.light-theme_&]:border-purple-200 [.light-theme_&]:text-purple-700 [.light-theme_&]:hover:bg-purple-100"
+                title="点击查看历史演进轨迹与快照对比"
+              >
+                <History className="w-3 h-3 shrink-0" />
+                <span>{character.versionHistory.length} 个历史版本（点击查看演进）</span>
+              </button>
+            )}
           </div>
           
+          {/* Folder Capsule Badge - Unified with iOS/Glassmorphism UI */}
           <div className="flex items-center justify-center gap-2 mt-2">
             <button
               onClick={() => setIsMoveFolderOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 text-xs text-purple-300/90 border border-purple-500/20 hover:border-purple-500/40 transition cursor-pointer"
+              className="group inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 hover:border-white/25 text-xs text-white/90 transition cursor-pointer active:scale-95 backdrop-blur-md shadow-sm [.light-theme_&]:bg-white [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/[0.03] [.light-theme_&]:shadow-sm"
               title="点击更改分类文件夹"
             >
-              <FolderIcon className="w-3.5 h-3.5 text-purple-400" />
-              <span>{currentFolderPath ? `文件夹: ${currentFolderPath}` : '未分类（点击归类）'}</span>
+              <FolderIcon className="w-3.5 h-3.5 text-blue-400 [.light-theme_&]:text-[#007aff] shrink-0 transition-transform group-hover:scale-105" />
+              <span className="font-medium tracking-wide">
+                {currentFolderPath ? `文件夹: ${currentFolderPath}` : '未分类（点击归类）'}
+              </span>
+              <ChevronRight className="w-3 h-3 text-white/40 [.light-theme_&]:text-black/30 group-hover:translate-x-0.5 transition-transform" />
             </button>
           </div>
           
@@ -870,10 +888,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateCreator(tempCreator)}
                           />
-                          <button onClick={() => handleUpdateCreator(tempCreator)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
+                          <button onClick={() => handleUpdateCreator(tempCreator)} className="p-2 rounded-full btn-glass-green text-green-300 transition shrink-0">
                             <Check className="w-4 h-4" />
                           </button>
-                          <button onClick={() => setIsEditingCreator(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
+                          <button onClick={() => setIsEditingCreator(false)} className="p-2 rounded-full btn-glass text-white/70 transition shrink-0">
                             <XIcon className="w-4 h-4" />
                           </button>
                         </div>
@@ -889,27 +907,16 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                         <div className="text-xs text-white/40 font-medium uppercase tracking-wider flex items-center gap-1">
                           版本 (VERSION)
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab('versions')}
-                            className="text-[11px] text-purple-400 hover:text-purple-300 transition flex items-center gap-1 cursor-pointer"
-                            title="前往版本迭代与溯源面板"
-                          >
-                            <History className="w-3 h-3" />
-                            <span>迭代溯源{character?.versionHistory?.length ? ` (${character.versionHistory.length})` : ''}</span>
-                          </button>
-                          <button onClick={() => {
-                            if (isEditingVersion) {
-                              handleUpdateVersion(tempVersion);
-                            } else {
-                              setTempVersion(data.character_version || '');
-                              setIsEditingVersion(true);
-                            }
-                          }}>
-                            {isEditingVersion ? <Check className="w-3 h-3 text-green-400"/> : <Edit2 className="w-3 h-3 text-white/40 hover:text-white"/>}
-                          </button>
-                        </div>
+                        <button onClick={() => {
+                          if (isEditingVersion) {
+                            handleUpdateVersion(tempVersion);
+                          } else {
+                            setTempVersion(data.character_version || '');
+                            setIsEditingVersion(true);
+                          }
+                        }}>
+                          {isEditingVersion ? <Check className="w-3 h-3 text-green-400"/> : <Edit2 className="w-3 h-3 text-white/40 hover:text-white"/>}
+                        </button>
                       </div>
                       {isEditingVersion ? (
                         <div className="flex items-center gap-2">
@@ -921,10 +928,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateVersion(tempVersion)}
                           />
-                          <button onClick={() => handleUpdateVersion(tempVersion)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
+                          <button onClick={() => handleUpdateVersion(tempVersion)} className="p-2 rounded-full btn-glass-green text-green-300 transition shrink-0">
                             <Check className="w-4 h-4" />
                           </button>
-                          <button onClick={() => setIsEditingVersion(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
+                          <button onClick={() => setIsEditingVersion(false)} className="p-2 rounded-full btn-glass text-white/70 transition shrink-0">
                             <XIcon className="w-4 h-4" />
                           </button>
                         </div>
@@ -969,10 +976,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateTags(tempTags)}
                           />
-                          <button onClick={() => handleUpdateTags(tempTags)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
+                          <button onClick={() => handleUpdateTags(tempTags)} className="p-2 rounded-full btn-glass-green text-green-300 transition shrink-0">
                             <Check className="w-4 h-4" />
                           </button>
-                          <button onClick={() => setIsEditingTags(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
+                          <button onClick={() => setIsEditingTags(false)} className="p-2 rounded-full btn-glass text-white/70 transition shrink-0">
                             <XIcon className="w-4 h-4" />
                           </button>
                         </div>
@@ -1015,10 +1022,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateSource(tempSource)}
                           />
-                          <button onClick={() => handleUpdateSource(tempSource)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
+                          <button onClick={() => handleUpdateSource(tempSource)} className="p-2 rounded-full btn-glass-green text-green-300 transition shrink-0">
                             <Check className="w-4 h-4" />
                           </button>
-                          <button onClick={() => setIsEditingSource(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
+                          <button onClick={() => setIsEditingSource(false)} className="p-2 rounded-full btn-glass text-white/70 transition shrink-0">
                             <XIcon className="w-4 h-4" />
                           </button>
                         </div>
@@ -1401,6 +1408,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                 >
                   <CharacterVersionsSection 
                     character={character}
+                    avatarUrl={avatarUrl}
                     onUpdateCharacter={(updated) => {
                       setCharacter(updated);
                       window.dispatchEvent(new CustomEvent('charactersUpdated'));
@@ -1510,16 +1518,16 @@ function FullScreenTextModal({
               <div className="flex items-center gap-2">
                 {onSave && (
                   isEditing ? (
-                    <button onClick={handleSave} className="px-3 py-1.5 text-sm bg-purple-500 hover:bg-purple-600 text-white rounded-lg transition font-medium shadow-lg shadow-purple-500/20">
+                    <button onClick={handleSave} className="px-4 py-1.5 text-sm rounded-full btn-glass-accent text-white font-medium">
                       保存
                     </button>
                   ) : (
-                    <button onClick={() => setIsEditing(true)} className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition">
+                    <button onClick={() => setIsEditing(true)} className="p-2 text-white/70 hover:text-white btn-glass rounded-full transition">
                       <Edit2 className="w-4 h-4" />
                     </button>
                   )
                 )}
-                <button onClick={onClose} className="p-2 rounded-full hover:bg-red-500/20 text-white/60 hover:text-red-400 transition ml-2">
+                <button onClick={onClose} className="p-2 rounded-full btn-glass-danger text-white/70 hover:text-red-300 transition ml-2">
                   <XIcon className="w-5 h-5" />
                 </button>
               </div>
@@ -1591,7 +1599,7 @@ function TextPreview({ title, content, onSave, initialEditMode }: { title: strin
         <div className="text-sm font-medium text-white/50">{title}</div>
         <div className="flex gap-2">
           {isEditing ? (
-             <button onClick={handleSave} className="text-green-400 hover:bg-green-400/10 p-1.5 rounded-lg text-xs font-medium transition cursor-pointer">
+             <button onClick={handleSave} className="text-green-300 btn-glass-green p-1.5 rounded-full text-xs font-medium transition cursor-pointer">
                保存
              </button>
           ) : (
@@ -1656,16 +1664,16 @@ function AlternateGreetingCard({ index, content, onSave, onDelete }: { key?: str
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
           {isExpanded && !isEditing && (
-            <button onClick={handleEdit} className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition">
+            <button onClick={handleEdit} className="p-1 rounded-full btn-glass text-white/70 hover:text-white transition">
               <Edit2 className="w-3.5 h-3.5" />
             </button>
           )}
           {isEditing && (
-            <button onClick={handleSave} className="p-1 hover:bg-green-500/20 rounded text-green-400 transition">
+            <button onClick={handleSave} className="p-1 rounded-full btn-glass-green text-green-300 transition">
               <Check className="w-4 h-4" />
             </button>
           )}
-          <button onClick={onDelete} className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition">
+          <button onClick={onDelete} className="p-1 rounded-full btn-glass-danger text-white/70 hover:text-red-300 transition">
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -1723,7 +1731,7 @@ function Section({ title, content, onSave }: { title: string; content?: string; 
       <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-3">
         <h3 className="text-lg font-semibold text-white/90">{title}</h3>
         {(!content || content.trim() === '') && onSave && (
-          <button onClick={() => setIsAdding(true)} className="text-purple-400 hover:text-purple-300 flex items-center gap-1 text-sm bg-purple-500/10 px-2 py-1 rounded-lg transition">
+          <button onClick={() => setIsAdding(true)} className="text-purple-200 hover:text-white flex items-center gap-1 text-sm btn-glass-accent px-2.5 py-1 rounded-full transition">
             <Plus className="w-4 h-4" /> 添加
           </button>
         )}
@@ -1955,7 +1963,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                 >
                   取消
                 </button>
-                <button onClick={saveEntry} className="px-6 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition flex items-center gap-2 shadow-lg shadow-purple-500/20">
+                <button onClick={saveEntry} className="px-6 py-2 rounded-full btn-glass-accent text-white transition flex items-center gap-2">
                   保存
                 </button>
               </div>
@@ -2077,10 +2085,10 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                       <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded-full text-white/60 whitespace-nowrap">
                         顺序: {order}
                       </span>
-                      <button onClick={() => handleEdit(i)} className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition">
+                      <button onClick={() => handleEdit(i)} className="p-1 rounded-full btn-glass text-white/70 hover:text-white transition">
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
-                      <button onClick={() => handleDelete(i)} className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition">
+                      <button onClick={() => handleDelete(i)} className="p-1 rounded-full btn-glass-danger text-white/70 hover:text-red-300 transition">
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
