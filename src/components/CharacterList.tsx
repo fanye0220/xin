@@ -3154,7 +3154,7 @@ export function CharacterList({
             onClick={onImport}
             className="fixed bottom-20 right-8 w-14 h-14 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-xl shadow-purple-500/30 text-white z-40"
           >
-            <Plus className="w-6 h-6" />
+            <Plus className="w-5 h-5" />
           </motion.button>
         ) : (
           <motion.div
