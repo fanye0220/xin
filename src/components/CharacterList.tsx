@@ -264,18 +264,75 @@ export function CharacterList({
   // 每次刷新文件夹预览图都会重新生成一批 blob URL, 这里记一份"当前挂着的"
   // 引用, 下次覆盖前先批量释放旧的, 避免每次翻页/切换文件夹都泄漏一批。
   const folderPreviewUrlsRef = useRef<string[]>([]);
-  const setFolderPreviewsWithCleanup = (previews: Record<string, any[]>) => {
-    const oldUrls = folderPreviewUrlsRef.current;
-    const newUrls = Object.values(previews).flat().map(p => typeof p === 'string' ? p : p.url);
-    folderPreviewUrlsRef.current = newUrls;
-    setFolderPreviews(previews);
-    if (oldUrls.length > 0) {
-      requestAnimationFrame(() => {
-        oldUrls.forEach((u) => {
-          if (u && u.startsWith("blob:")) URL.revokeObjectURL(u);
+  const setFolderPreviewsWithCleanup = (newPreviews: Record<string, any[]>) => {
+    setFolderPreviews((prevPreviews) => {
+      const mergedPreviews: Record<string, any[]> = {};
+      const urlsToRevoke: string[] = [];
+
+      const allFolderIds = new Set([
+        ...Object.keys(prevPreviews || {}),
+        ...Object.keys(newPreviews || {}),
+      ]);
+
+      for (const fId of allFolderIds) {
+        const oldItems = prevPreviews[fId] || [];
+        const newItems = newPreviews[fId] || [];
+
+        if (newItems.length === 0) {
+          oldItems.forEach((it) => {
+            const u = typeof it === "string" ? it : it?.url;
+            if (u && u.startsWith("blob:")) urlsToRevoke.push(u);
+          });
+          continue;
+        }
+
+        if (oldItems.length === 0) {
+          mergedPreviews[fId] = newItems;
+          continue;
+        }
+
+        // 检查新旧预览项的特征/Seed/路径是否完全一致
+        const isIdentical =
+          oldItems.length === newItems.length &&
+          oldItems.every((oldIt, idx) => {
+            const newIt = newItems[idx];
+            const oldSeed = typeof oldIt === "string" ? oldIt : oldIt?.seed || oldIt?.url;
+            const newSeed = typeof newIt === "string" ? newIt : newIt?.seed || newIt?.url;
+            return oldSeed && newSeed && oldSeed === newSeed;
+          });
+
+        if (isIdentical) {
+          // 文件夹预览无变化: 保留原 URL 引用, 绝不触发相邻文件夹封面的刷新/闪烁!
+          mergedPreviews[fId] = oldItems;
+          newItems.forEach((it) => {
+            const u = typeof it === "string" ? it : it?.url;
+            if (u && u.startsWith("blob:")) urlsToRevoke.push(u);
+          });
+        } else {
+          // 真正的封面修改: 使用新 URL, 释放旧 URL
+          mergedPreviews[fId] = newItems;
+          oldItems.forEach((it) => {
+            const u = typeof it === "string" ? it : it?.url;
+            if (u && u.startsWith("blob:")) urlsToRevoke.push(u);
+          });
+        }
+      }
+
+      const allCurrentUrls = Object.values(mergedPreviews)
+        .flat()
+        .map((p) => (typeof p === "string" ? p : p.url));
+      folderPreviewUrlsRef.current = allCurrentUrls;
+
+      if (urlsToRevoke.length > 0) {
+        requestAnimationFrame(() => {
+          urlsToRevoke.forEach((u) => {
+            if (u && u.startsWith("blob:")) URL.revokeObjectURL(u);
+          });
         });
-      });
-    }
+      }
+
+      return mergedPreviews;
+    });
   };
   useEffect(() => {
     return () => {
@@ -3154,7 +3211,7 @@ export function CharacterList({
             onClick={onImport}
             className="fixed bottom-20 right-8 w-14 h-14 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-xl shadow-purple-500/30 text-white z-40"
           >
-            <Plus className="w-5 h-5" />
+            <Plus className="w-6 h-6" />
           </motion.button>
         ) : (
           <motion.div
@@ -3824,5 +3881,22 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
       </AnimatePresence>
     </motion.div>
   );
+},
+(prevProps, nextProps) => {
+  if (prevProps.viewMode !== nextProps.viewMode) return false;
+  if (prevProps.selectionMode !== nextProps.selectionMode) return false;
+  if (prevProps.isSelected !== nextProps.isSelected) return false;
+
+  const p = prevProps.char;
+  const n = nextProps.char;
+  if (p.id !== n.id) return false;
+  if (p.updatedAt !== n.updatedAt) return false;
+  if (p.name !== n.name) return false;
+  if (p.folderId !== n.folderId) return false;
+  if (p.deletedAt !== n.deletedAt) return false;
+  if (p.avatarBlob !== n.avatarBlob) return false;
+  if (p.localFilePath !== n.localFilePath) return false;
+
+  return true;
 }
 );

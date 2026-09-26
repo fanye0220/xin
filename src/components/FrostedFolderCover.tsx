@@ -186,6 +186,23 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
       </div>
     </div>
   );
+}, (prevProps, nextProps) => {
+  if (prevProps.viewMode !== nextProps.viewMode) return false;
+  if (prevProps.className !== nextProps.className) return false;
+  if (prevProps.folder.id !== nextProps.folder.id) return false;
+  if (prevProps.folder.name !== nextProps.folder.name) return false;
+  if (prevProps.folder.avatarBlob !== nextProps.folder.avatarBlob) return false;
+
+  const p1 = prevProps.previews || [];
+  const p2 = nextProps.previews || [];
+  if (p1.length !== p2.length) return false;
+  for (let i = 0; i < p1.length; i++) {
+    const u1 = typeof p1[i] === "string" ? p1[i] : (p1[i] as any)?.url;
+    const u2 = typeof p2[i] === "string" ? p2[i] : (p2[i] as any)?.url;
+    if (u1 !== u2) return false;
+  }
+
+  return true;
 });
 
 /**
@@ -198,8 +215,8 @@ export const FrostedNewFolderCover = React.memo(function FrostedNewFolderCover({
 }) {
   if (viewMode === "list") {
     return (
-      <div className="w-12 h-12 rounded-xl bg-white/5 border-2 border-dashed border-white/20 flex items-center justify-center shrink-0">
-        <Plus className="w-5 h-5 text-white/50" />
+      <div className="w-10 h-10 rounded-lg bg-white/5 border border-dashed border-white/20 flex items-center justify-center shrink-0">
+        <Plus className="w-4 h-4 text-white/50" />
       </div>
     );
   }
@@ -223,8 +240,8 @@ export const FrostedNewFolderCover = React.memo(function FrostedNewFolderCover({
           className="absolute w-[94%] h-[95%] rounded-2xl border-2 border-dashed border-white/25 bg-white/[0.04] backdrop-blur-xs flex flex-col items-center justify-center p-3 text-center transition-all duration-300 group-hover:border-purple-400/50 group-hover:bg-purple-500/10 group-hover:scale-[1.02] group-hover:-translate-y-1 shadow-lg"
           style={{ zIndex: 2, willChange: "transform" }}
         >
-          <div className="w-10 h-10 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center text-white/60 group-hover:scale-110 group-hover:bg-purple-500/20 group-hover:border-purple-400/50 group-hover:text-purple-200 transition-all shadow-md">
-            <Plus className="w-5 h-5" />
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-white/60 group-hover:scale-110 group-hover:bg-purple-500/20 group-hover:border-purple-400/50 group-hover:text-purple-200 transition-all shadow-md">
+            <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </div>
         </div>
       </div>
