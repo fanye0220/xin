@@ -1610,7 +1610,7 @@ export async function getCharacterThumb(id: string): Promise<Blob | null> {
   const { generateThumbnail } = await import("./avatar");
   let thumb: Blob;
   try {
-    thumb = await generateThumbnail(avatarBlob, 200, 0.82);
+    thumb = await generateThumbnail(avatarBlob, 480, 0.88);
   } catch {
     return null;
   }

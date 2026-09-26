@@ -45,38 +45,9 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
   const [page, setPage] = useState(1);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [lockedIds, setLockedIds] = useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem('miu_locked_duplicate_char_ids');
-      return stored ? new Set(JSON.parse(stored)) : new Set();
-    } catch {
-      return new Set();
-    }
-  });
   const pageSize = 10;
   
   const longPressRef = useRef<{ timer: NodeJS.Timeout | null, triggered: boolean, startY?: number }>({ timer: null, triggered: false });
-
-  const toggleLock = (id: string, e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    setLockedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-        if (selectedIds.has(id)) {
-          setSelectedIds(s => {
-            const updated = new Set(s);
-            updated.delete(id);
-            return updated;
-          });
-        }
-      }
-      localStorage.setItem('miu_locked_duplicate_char_ids', JSON.stringify(Array.from(next)));
-      return next;
-    });
-  };
 
   const loadDuplicates = async () => {
     setLoading(true);
@@ -123,10 +94,6 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
   }, []);
 
   const handleDelete = async (id: string) => {
-    if (lockedIds.has(id)) {
-      alert("该卡片已被锁定（免删保护），请先取消锁定后再删除。");
-      return;
-    }
     if (confirm('确定要删除此重复角色吗？')) {
       await deleteCharacter(id);
       loadDuplicates();
@@ -237,26 +204,16 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
 
   const handleMergeAndKeep = async (keptChar: CharacterCard, group: DuplicateGroup) => {
     let destFolder = keptChar.folderId ? folderPathMap[keptChar.id] : undefined;
-    const allOtherChars = group.characters.map(c => c.char).filter(c => c.id !== keptChar.id);
-    const otherChars = allOtherChars.filter(c => !lockedIds.has(c.id));
-    
-    if (otherChars.length === 0) {
-      alert("组内其他卡片均已被锁定（免删保护），无可合并删除的卡片。");
-      return;
-    }
-
-    const lockedCount = allOtherChars.length - otherChars.length;
-    const lockNotice = lockedCount > 0 ? `\n\n🔒 已自动跳过 ${lockedCount} 张被锁定的卡片` : '';
-
+    const otherChars = group.characters.map(c => c.char).filter(c => c.id !== keptChar.id);
     if (!destFolder) {
       const otherWithFolder = otherChars.find(c => !!c.folderId);
       if (otherWithFolder) {
         destFolder = folderPathMap[otherWithFolder.id];
       }
     }
-    const folderNotice = destFolder ? `\n📁 卡片将保留并归类在文件夹：「${destFolder}」` : '';
+    const folderNotice = destFolder ? `\n\n📁 卡片将保留并归类在文件夹：「${destFolder}」` : '';
 
-    if (!confirm(`确定要保留此卡，合并其他未锁定卡片的快捷回复(QR)、替换头像、来源链接和标签，并删除其他卡片吗？${lockNotice}${folderNotice}`)) return;
+    if (!confirm(`确定要保留此卡，合并其他卡片的快捷回复(QR)、替换头像、来源链接和标签，并删除其他卡片吗？${folderNotice}`)) return;
 
     await mergeAndSave(keptChar, otherChars);
 
@@ -274,7 +231,6 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
   };
 
   const toggleSelection = (id: string) => {
-    if (lockedIds.has(id)) return; // 🔒 已锁定的卡片不可被选中操作
     const newSet = new Set(selectedIds);
     if (newSet.has(id)) newSet.delete(id);
     else newSet.add(id);
@@ -292,7 +248,6 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
       for (let i = 0; i < sorted.length; i++) {
         const c = sorted[i];
         if (c.id === charToKeep.id) continue;
-        if (lockedIds.has(c.id)) continue; // 🔒 智能选中排除被自动锁定的卡片
         
         const cData = c.data?.data || c.data || {};
         const kData = charToKeep.data?.data || charToKeep.data || {};
@@ -320,20 +275,17 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
   };
 
   const handleBatchDelete = async () => {
-    // 过滤掉任何锁定的卡片
-    const validIds = Array.from(selectedIds).filter(id => !lockedIds.has(id));
-    if (validIds.length === 0) {
-      alert("选中的卡片均已处于锁定保护状态，无法删除。");
-      return;
-    }
-    const validSelectedSet = new Set(validIds);
-
-    if (confirm(`确定要删除选中的 ${validIds.length} 张重复卡片吗？\n（已自动跳过并保护锁定的卡片；删除过程中会自动合并快捷回复(QR)、替换头像、来源和标签，并自动保留卡片已归类的嵌套文件夹路径）`)) {
+    if (selectedIds.size === 0) return;
+    if (confirm(`确定要删除选中的 ${selectedIds.size} 张重复卡片吗？\n（删除过程中会自动合并快捷回复(QR)、替换头像、来源和标签，并自动保留卡片已归类的嵌套文件夹路径）`)) {
       setLoading(true);
 
+      // 批量操作保留 miu 这边效率更高的写法(一次性合并/批量删,而不是安卓
+      // 那边一个个查一个个调原生接口的老写法),但不再"乐观更新": 老实等
+      // 合并+删除都做完, 用数据库的真实结果刷新界面, 避免界面显示"已经没
+      // 了"但数据库其实还没删完的中间状态。
       for (const group of duplicateGroups) {
-        const charsToDelete = group.characters.map(c => c.char).filter(c => validSelectedSet.has(c.id));
-        const charsToKeep = group.characters.map(c => c.char).filter(c => !validSelectedSet.has(c.id));
+        const charsToDelete = group.characters.map(c => c.char).filter(c => selectedIds.has(c.id));
+        const charsToKeep = group.characters.map(c => c.char).filter(c => !selectedIds.has(c.id));
 
         if (charsToDelete.length > 0) {
           let winnerId = charsToKeep.length > 0 ? charsToKeep[0].id : undefined;
@@ -499,24 +451,17 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                       const modifiedDate = new Date(modifiedTime);
 
                       const isSelected = selectedIds.has(char.id);
-                      const isLocked = lockedIds.has(char.id);
 
                       return (
                       <div 
                         key={char.id} 
-                        className={`flex flex-col p-3 sm:p-4 bg-black/20 rounded-xl border transition-all duration-200 ${
-                          isLocked 
-                            ? 'border-amber-500/40 bg-amber-500/10 ring-1 ring-amber-500/20' 
-                            : isSelected 
-                              ? 'border-purple-500 bg-purple-500/10 ring-1 ring-purple-500/30' 
-                              : 'border-white/5 opacity-90 hover:opacity-100 hover:border-white/20'
-                        }`}
+                        className={`flex flex-col p-3 sm:p-4 bg-black/20 rounded-xl border transition-all duration-200 ${isSelected ? 'border-purple-500 bg-purple-500/10 ring-1 ring-purple-500/30' : 'border-white/5 opacity-90 hover:opacity-100 hover:border-white/20'}`}
                         onTouchStart={(e) => {
                           longPressRef.current.triggered = false;
                           longPressRef.current.startY = e.touches[0].clientY;
                           longPressRef.current.timer = setTimeout(() => {
                             longPressRef.current.triggered = true;
-                            if (!selectionMode && !isLocked) {
+                            if (!selectionMode) {
                               setSelectionMode(true);
                               setSelectedIds(new Set([char.id]));
                             }
@@ -541,7 +486,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                           longPressRef.current.triggered = false;
                           longPressRef.current.timer = setTimeout(() => {
                             longPressRef.current.triggered = true;
-                            if (!selectionMode && !isLocked) {
+                            if (!selectionMode) {
                               setSelectionMode(true);
                               setSelectedIds(new Set([char.id]));
                             }
@@ -561,7 +506,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                         }}
                         onClick={() => {
                           if (longPressRef.current.triggered) return;
-                          if (selectionMode && !isLocked) {
+                          if (selectionMode) {
                             toggleSelection(char.id);
                           }
                         }}
@@ -571,43 +516,22 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                           onClick={(e) => {
                             if (selectionMode) {
                               e.stopPropagation();
-                              if (!isLocked) toggleSelection(char.id);
+                              toggleSelection(char.id);
                             } else {
                               onSelectChar(char.id);
                             }
                           }}
                         >
                           {selectionMode && (
-                            <div className={`absolute top-2 right-2 z-10 p-0.5 rounded-full shadow-md transition-all ${
-                              isLocked
-                                ? 'bg-amber-500/20 text-amber-400'
-                                : isSelected
-                                  ? 'bg-purple-500 text-white scale-110'
-                                  : 'bg-white/10 text-white/20'
-                            }`}>
-                              {isLocked ? <Lock className="w-4 h-4 text-amber-400" /> : <CheckCircle className="w-5 h-5" />}
+                            <div className={`absolute top-2 right-2 z-10 p-0.5 rounded-full shadow-md transition-all ${isSelected ? 'bg-purple-500 text-white scale-110' : 'bg-white/10 text-white/20'}`}>
+                              <CheckCircle className="w-5 h-5" />
                             </div>
                           )}
                           <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0 bg-black/50 mt-1 shadow-inner ring-1 ring-white/5">
                             <CharAvatarImg char={char} className="w-full h-full object-cover" />
                           </div>
-                          <div className="flex-1 min-w-0 pr-2">
-                            <div className="flex items-center justify-between min-w-0 gap-2">
-                              <h4 className="font-bold text-white truncate text-base flex-1 min-w-0">{char.name}</h4>
-                              <button
-                                type="button"
-                                onClick={(e) => toggleLock(char.id, e)}
-                                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1 shrink-0 active:scale-95 ${
-                                  isLocked
-                                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
-                                    : "bg-white/5 text-white/50 border border-white/10 hover:bg-white/10 hover:text-white"
-                                }`}
-                                title={isLocked ? "已锁定免删，点击解锁" : "锁定此卡片，防止误删或被快捷智能批量选中"}
-                              >
-                                {isLocked ? <Lock className="w-3 h-3 text-amber-400" /> : <Unlock className="w-3 h-3 text-white/40" />}
-                                <span>{isLocked ? "已锁定" : "锁定"}</span>
-                              </button>
-                            </div>
+                          <div className="flex-1 min-w-0 pr-6 sm:pr-0">
+                            <h4 className="font-bold text-white truncate text-base">{char.name}</h4>
                             <p className="text-[11px] text-white/50 [.light-theme_&]:text-white/80 mt-1 flex flex-wrap gap-x-3 gap-y-1">
                               <span>修改: {modifiedDate.toLocaleDateString()}</span>
                               <span title="设定字数">描: {(targetData.description || '').length}字</span>
@@ -615,12 +539,6 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                               {(targetData.character_book?.entries?.length > 0) && <span>世界书: {targetData.character_book.entries.length}项</span>}
                             </p>
                             <div className="flex flex-wrap gap-1.5 mt-2">
-                              {isLocked && (
-                                <span className="text-[10px] px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-md font-bold flex items-center gap-1 shrink-0">
-                                  <Lock className="w-3 h-3 text-amber-400" />
-                                  免删保护
-                                </span>
-                              )}
                               <span
                                 className="text-[10px] px-2 py-0.5 bg-purple-500/15 text-purple-300 border border-purple-500/20 rounded-md inline-flex items-center gap-1 max-w-full font-medium"
                                 title={folderPathMap[char.id] || (char.folderId ? "分类文件夹" : "主页 (未分类)")}
@@ -640,30 +558,22 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                           </div>
                         </div>
                         
-                        <div className="mt-auto flex flex-col gap-2 pt-2">
+                        <div className="mt-auto flex flex-col gap-3">
                           <button
-                            disabled={selectionMode || isLocked}
+                            disabled={selectionMode}
                             onClick={() => handleMergeAndKeep(char, group)}
-                            className={`w-full py-2.5 flex items-center justify-center gap-2 rounded-xl transition text-xs sm:text-sm font-bold ring-1 active:scale-95 ${
-                              isLocked
-                                ? "bg-white/5 text-white/30 ring-white/5 cursor-not-allowed"
-                                : "bg-purple-500/20 text-purple-200 hover:bg-purple-500/30 ring-purple-500/30 shadow-lg shadow-purple-500/10 [.light-theme_&]:bg-purple-400/10 [.light-theme_&]:text-purple-400 [.light-theme_&]:hover:bg-purple-400/20 [.light-theme_&]:ring-purple-400/30"
-                            }`}
+                            className="w-full py-3 flex items-center justify-center gap-2 bg-purple-500/20 text-purple-200 hover:bg-purple-500/30 disabled:opacity-30 rounded-xl transition text-sm font-bold ring-1 ring-purple-500/30 shadow-lg shadow-purple-500/10 active:scale-95 [.light-theme_&]:bg-purple-400/10 [.light-theme_&]:text-purple-400 [.light-theme_&]:hover:bg-purple-400/20 [.light-theme_&]:ring-purple-400/30"
                           >
                             <Merge className="w-4 h-4" />
-                            {isLocked ? "已锁定 (受保护)" : "保留并合并"}
+                            保留并合并
                           </button>
                           <button
-                            disabled={selectionMode || isLocked}
+                            disabled={selectionMode}
                             onClick={() => handleDelete(char.id)}
-                            className={`w-full py-2.5 flex items-center justify-center gap-2 rounded-xl transition text-xs sm:text-sm font-bold ring-1 active:scale-95 ${
-                              isLocked
-                                ? "bg-white/5 text-white/30 ring-white/5 cursor-not-allowed"
-                                : "bg-red-500/10 text-red-400 hover:bg-red-500/20 ring-red-500/20"
-                            }`}
+                            className="w-full py-3 flex items-center justify-center gap-2 bg-red-500/10 text-red-400 hover:bg-red-500/20 disabled:opacity-30 rounded-xl transition text-sm font-bold ring-1 ring-red-500/20 active:scale-95"
                           >
                             <Trash2 className="w-4 h-4" />
-                            {isLocked ? "已锁定 (免删保护)" : "删除此卡"}
+                            删除此卡
                           </button>
                         </div>
                       </div>
