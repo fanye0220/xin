@@ -129,14 +129,17 @@ function SortableItemWrapper({
     !isDragging &&
     (activeDragIsQR || (!!activeDragCharId && isQR) || isFolderDropTarget);
 
-  const style = {
+  const style: React.CSSProperties = {
     transform: isDragging
-      ? CSS.Transform.toString(transform)
+      ? CSS.Translate.toString(transform)
       : shouldSuppressDisplacement
         ? undefined
-        : CSS.Transform.toString(transform),
-    transition: shouldSuppressDisplacement ? undefined : transition,
-    zIndex: isDragging ? 50 : isOver && (isQRBindingTarget || isFolderDropTarget) ? 30 : undefined,
+        : CSS.Translate.toString(transform),
+    transition: isDragging ? undefined : shouldSuppressDisplacement ? undefined : transition,
+    zIndex: isDragging ? 70 : isOver && (isQRBindingTarget || isFolderDropTarget) ? 30 : undefined,
+    opacity: isDragging ? 0.85 : undefined,
+    touchAction: "none",
+    willChange: isDragging ? "transform" : undefined,
     position: "relative" as const,
     userSelect: "none" as const,
     WebkitUserSelect: "none" as const,
@@ -152,7 +155,7 @@ function SortableItemWrapper({
       style={style}
       {...attributes}
       {...listeners}
-      className={`select-none relative transition-transform duration-150 ${className} ${
+      className={`select-none relative ${!isDragging && !shouldSuppressDisplacement ? "transition-transform duration-150" : ""} ${className} ${
         showDropHighlight
           ? "ring-4 ring-purple-500 ring-offset-2 ring-offset-slate-900 rounded-2xl shadow-[0_0_25px_rgba(168,85,247,0.7)] scale-[1.04]"
           : showFolderDropHighlight

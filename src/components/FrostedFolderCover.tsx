@@ -179,7 +179,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
             /* Empty Card Background */
             <div className="w-full h-full rounded-2xl border-2 border-dashed border-white/25 bg-white/[0.04] backdrop-blur-xs flex flex-col items-center justify-center text-white/30">
               <Sparkles className="w-7 h-7 opacity-40 mb-1.5 group-hover:scale-110 group-hover:text-purple-300 transition-all" />
-              <span className="text-[11px] font-medium tracking-wide text-white/40">空文件夹</span>
+              <span className="text-[11px] font-medium tracking-wide text-white/40">无封面</span>
             </div>
           )}
         </div>

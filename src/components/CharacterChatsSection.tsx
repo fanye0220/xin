@@ -273,6 +273,15 @@ export function CharacterChatsSection({
                 const entryChatName = (zipEntry.name.split("/").pop() || zipEntry.name).replace(/\.[^/.]+$/, "");
                 const parsed = parseTextChatLog(text, entryChatName);
                 parsedMessages = parsed.messages;
+              } else if (false) {
+                const lines = text.trim().split("\n");
+                for (let k = 0; k < lines.length; k++) {
+                  try {
+                    const parsed = JSON.parse(lines[k]);
+                    if (parsed) parsedMessages.push(parsed);
+                  } catch (e) {}
+                  if (k % 500 === 0) await new Promise((r) => setTimeout(r, 0));
+                }
               } else {
                 try {
                   const data = JSON.parse(text);
@@ -363,6 +372,14 @@ export function CharacterChatsSection({
           let parsedMessages: any[] = [];
 
           if (file.name.toLowerCase().endsWith(".jsonl")) {
+            const { parseJsonlChat } = await import("../lib/chatParse");
+            parsedMessages = parseJsonlChat(text);
+          } else if (file.name.toLowerCase().endsWith(".txt")) {
+            const { parseTextChatLog } = await import("../lib/chatParse");
+            const fileChatName = file.name.replace(/\.[^/.]+$/, "");
+            const parsed = parseTextChatLog(text, fileChatName);
+            parsedMessages = parsed.messages;
+          } else if (false) {
             const lines = text.trim().split("\n");
             for (let k = 0; k < lines.length; k++) {
               try {
@@ -560,10 +577,10 @@ export function CharacterChatsSection({
         <div className="flex gap-2 self-start sm:self-auto w-full sm:w-auto mt-2 sm:mt-0">
           <button
             onClick={() => setIsCleanerOpen(true)}
-            className="flex-1 sm:flex-none justify-center px-3 py-2 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 text-purple-400 rounded-lg text-sm transition flex items-center gap-1.5"
+            className="flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 bg-white/10 hover:bg-white/15 border border-white/15 text-white/80 hover:text-white rounded-full text-xs font-medium transition active:scale-95 shadow-sm flex items-center gap-1 sm:gap-1.5 cursor-pointer"
             title="清理记录和分支"
           >
-            <Trash2 className="w-4 h-4 shrink-0" />
+            <Trash2 className="w-3.5 h-3.5 shrink-0 text-red-400" />
             <span>清理</span>
           </button>
           <button
@@ -574,9 +591,9 @@ export function CharacterChatsSection({
                 fileInputRef.current?.click();
               }
             }}
-            className="flex-1 sm:flex-none justify-center px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-lg text-sm transition flex items-center gap-1.5"
+            className="flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 rounded-full text-xs font-medium transition active:scale-95 shadow-sm flex items-center gap-1 sm:gap-1.5 cursor-pointer"
           >
-            <UploadCloud className="w-4 h-4 shrink-0" />
+            <UploadCloud className="w-3.5 h-3.5 shrink-0" />
             <span>导入</span>
           </button>
         </div>
@@ -584,7 +601,7 @@ export function CharacterChatsSection({
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".json,.jsonl,.zip"
+            accept=".json,.jsonl,.txt,.zip"
             className="hidden"
             onChange={(e) => {
               if (e.target.files?.length) {
