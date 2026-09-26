@@ -78,62 +78,23 @@ export function CloudSyncTab() {
     rawFileName: string,
     displayCharName: string,
     isChatFile: boolean = false,
-    cloudCharAppProps?: any
+    cloudFolderPath?: string
   ) => {
     if (!token) return;
     setDownloadingId(fileId);
     try {
-      const { downloadCloudCharacter } = await import('../lib/cloudDrive');
-      const { saveCharacter, getFolders, saveFolder, saveChat, invalidateCache } = await import('../lib/db');
+      const { downloadCloudCharacter, resolveAppFolderFromCloudPath } = await import('../lib/cloudDrive');
+      const { saveCharacter, saveChat, invalidateCache } = await import('../lib/db');
       
       const res = await downloadCloudCharacter(token, fileId, rawFileName);
       const { jsonData, avatarBlob, studioMeta, avatarHistory, chats, versionHistory, memos } = res;
 
-      // 自动按云端 folderPath 找到/创建对应嵌套文件夹（自动剥离云端虚拟分类顶层：角色卡 / 工具区/*）
-      let targetFolderId: string | null = null;
-      const folderPathStr = studioMeta?.folderPath || cloudCharAppProps?.folderPath;
-      if (folderPathStr) {
-        const rawParts = folderPathStr.split('/').filter(Boolean);
-        const parts = [...rawParts];
-
-        // 1. 如果是以云端虚拟分类「角色卡」开头，剥离「角色卡」
-        if (parts.length > 0 && parts[0] === '角色卡') {
-          parts.shift();
-        }
-        // 2. 如果是以云端虚拟分类「工具区」开头，剥离「工具区」及其二级分类（世界书/预设/美化/快速回复/脚本）
-        else if (parts.length > 0 && parts[0] === '工具区') {
-          parts.shift();
-          if (parts.length > 0 && ['世界书', '预设', '美化', '快速回复', '脚本'].includes(parts[0])) {
-            parts.shift();
-          }
-        }
-
-        if (parts.length > 0) {
-          const allFolders = await getFolders();
-          let currentParentId: string | null = null;
-          for (const part of parts) {
-            let found = allFolders.find(
-              (f) => f.name === part && (f.parentId || null) === currentParentId
-            );
-            if (!found) {
-              const newFolder = {
-                id: crypto.randomUUID(),
-                name: part,
-                parentId: currentParentId,
-                createdAt: Date.now(),
-              };
-              await saveFolder(newFolder);
-              allFolders.push(newFolder);
-              found = newFolder;
-            }
-            currentParentId = found.id;
-          }
-          targetFolderId = currentParentId;
-        }
-      }
-
       const targetData = jsonData?.data ? jsonData.data : jsonData;
       const name = displayCharName || targetData?.name || targetData?.char_name || targetData?.character_name || rawFileName.replace(/\.[^/.]+$/, "") || "未命名角色";
+
+      // 自动从云端 folderPath 路径解析出 App 本地真正的目标用户文件夹 (自动剥离"角色卡"、"工具区"、"聊天记录"等系统大类，并兼容同名卡自动跟随分类)
+      const folderPathStr = studioMeta?.folderPath || cloudFolderPath || null;
+      const targetFolderId = await resolveAppFolderFromCloudPath(folderPathStr, name);
       
       const charId = crypto.randomUUID();
       const newChar: any = {
@@ -779,7 +740,7 @@ export function CloudSyncTab() {
                         </div>
                         <div className="flex items-center gap-1.5 sm:gap-2 mt-2">
                            <button 
-                             onClick={() => handleRestoreCloudFileToApp(char.id, char.name, charName, isChat, char.appProperties)}
+                             onClick={() => handleRestoreCloudFileToApp(char.id, char.name, charName, isChat, char.appProperties?.folderPath)}
                              disabled={downloadingId === char.id}
                              className="flex-1 py-1 sm:py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/30 flex items-center justify-center gap-1 active:bg-blue-500/40 transition disabled:opacity-50"
                              title="下载并解包恢复至 App 角色库"

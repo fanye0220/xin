@@ -42,16 +42,16 @@ export function resolveAvatarUrl(avatarFallback: string | undefined | null, seed
 
 /**
  * 把一张原图压成高清缩略图, 专门给列表/卡片展示场景用,
- * 既保证视网膜屏高清画质，又避免列表解码多张大尺寸原图 (仅 ~20-30KB)。
+ * 既保证 2K/3K 视网膜屏极致清澈无损画质，又避免列表解码多张大尺寸原图 (仅 ~30-50KB)。
  *
  * @param blob 原图
- * @param maxSize 缩略图长边最大像素, 默认 480(高分屏无损高清)
- * @param quality JPEG 压缩质量, 默认 0.88
+ * @param maxSize 缩略图长边最大像素, 默认 800(高分屏/瀑布流超高清)
+ * @param quality JPEG 压缩质量, 默认 0.90
  */
 export async function generateThumbnail(
   blob: Blob,
-  maxSize: number = 480,
-  quality: number = 0.88,
+  maxSize: number = 800,
+  quality: number = 0.90,
 ): Promise<Blob> {
   const objectUrl = URL.createObjectURL(blob);
   try {

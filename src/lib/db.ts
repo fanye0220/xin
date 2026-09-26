@@ -1588,7 +1588,10 @@ export function getCharacterBlob(id: string): Promise<any> {
 export async function getCharacterThumb(id: string): Promise<Blob | null> {
   const db = await initDB();
   const blobs = await db.get("blobs", id);
-  if (blobs?.thumbBlob) return blobs.thumbBlob;
+  if (blobs?.thumbBlob && (blobs as any).thumbVersion === 3) {
+    return blobs.thumbBlob;
+  }
+
   let avatarBlob = blobs?.avatarBlob;
   if (!avatarBlob) {
     const char = await db.get("characters", id);
@@ -1605,25 +1608,28 @@ export async function getCharacterThumb(id: string): Promise<Blob | null> {
       } catch (e) {}
     }
   }
-  if (!avatarBlob) return null;
+  if (!avatarBlob) {
+    // 若原图也没有, 但有旧缩略图则暂用旧缩略图
+    return blobs?.thumbBlob || null;
+  }
 
   const { generateThumbnail } = await import("./avatar");
   let thumb: Blob;
   try {
-    thumb = await generateThumbnail(avatarBlob, 480, 0.88);
+    thumb = await generateThumbnail(avatarBlob, 800, 0.90);
   } catch {
-    return null;
+    return blobs?.thumbBlob || null;
   }
 
-  // 存回去, 下次直接读缓存, 不用重新生成
+  // 存回去(带上 thumbVersion: 3 标记), 下次直接读高清缓存, 不用重新生成
   try {
     const tx = db.transaction("blobs", "readwrite");
     const store = tx.objectStore("blobs");
     const current = (await store.get(id)) || {};
-    await store.put({ ...current, thumbBlob: thumb }, id);
+    await store.put({ ...current, thumbBlob: thumb, thumbVersion: 3 } as any, id);
     await tx.done;
   } catch (e) {
-    console.warn("Failed to persist generated thumbnail:", e);
+    console.warn("Failed to persist generated HD thumbnail:", e);
   }
   return thumb;
 }

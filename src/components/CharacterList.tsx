@@ -1,6 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { getFallbackAvatar, resolveAvatarUrl } from "../lib/avatar";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Masonry from 'react-masonry-css';
 import {
@@ -67,8 +67,7 @@ import {
   DndContext,
   closestCenter,
   KeyboardSensor,
-  MouseSensor,
-  TouchSensor,
+  PointerSensor,
   useSensor,
   useSensors,
   DragEndEvent,
@@ -131,19 +130,18 @@ function SortableItemWrapper({
 
   const style: React.CSSProperties = {
     transform: isDragging
-      ? CSS.Translate.toString(transform)
+      ? CSS.Transform.toString(transform)
       : shouldSuppressDisplacement
         ? undefined
-        : CSS.Translate.toString(transform),
-    transition: isDragging ? undefined : shouldSuppressDisplacement ? undefined : transition,
-    zIndex: isDragging ? 70 : isOver && (isQRBindingTarget || isFolderDropTarget) ? 30 : undefined,
-    opacity: isDragging ? 0.85 : undefined,
-    touchAction: isDragging ? "none" : undefined,
+        : CSS.Transform.toString(transform),
+    transition: isDragging ? 'none' : (shouldSuppressDisplacement ? undefined : transition),
+    opacity: isDragging ? 0.7 : 1,
+    zIndex: isDragging ? 50 : isOver && (isQRBindingTarget || isFolderDropTarget) ? 30 : undefined,
+    position: "relative",
+    userSelect: "none",
+    WebkitUserSelect: "none",
+    WebkitTouchCallout: "none",
     willChange: isDragging ? "transform" : undefined,
-    position: "relative" as const,
-    userSelect: "none" as const,
-    WebkitUserSelect: "none" as const,
-    WebkitTouchCallout: "none" as const,
   };
 
   const showDropHighlight = isOver && isQRBindingTarget;
@@ -155,7 +153,7 @@ function SortableItemWrapper({
       style={style}
       {...attributes}
       {...listeners}
-      className={`select-none relative ${!isDragging && !shouldSuppressDisplacement ? "transition-transform duration-150" : ""} ${className} ${
+      className={`select-none relative transition-transform duration-150 ${className} ${
         showDropHighlight
           ? "ring-4 ring-purple-500 ring-offset-2 ring-offset-slate-900 rounded-2xl shadow-[0_0_25px_rgba(168,85,247,0.7)] scale-[1.04]"
           : showFolderDropHighlight
@@ -415,7 +413,6 @@ export function CharacterList({
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
-  const [cropAspect, setCropAspect] = useState<number | undefined>(2 / 3);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
   const [isCropping, setIsCropping] = useState(false);
   const [coverPickerFolder, setCoverPickerFolder] = useState<Folder | null>(null);
@@ -857,15 +854,9 @@ export function CharacterList({
   };
 
   const sensors = useSensors(
-    useSensor(MouseSensor, {
+    useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 10,
-      },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: {
-        delay: 250,
-        tolerance: 8,
+        distance: 5,
       },
     }),
     useSensor(KeyboardSensor, {
@@ -881,9 +872,17 @@ export function CharacterList({
     return false;
   };
 
+  const characterMap = useMemo(() => {
+    const map = new Map<string, CharacterCard>();
+    for (const c of characters) {
+      map.set(c.id, c);
+    }
+    return map;
+  }, [characters]);
+
   const activeChar =
     activeDragId && activeDragId.startsWith("char-")
-      ? characters.find((c) => c.id === activeDragId.replace("char-", ""))
+      ? characterMap.get(activeDragId.replace("char-", "")) || null
       : null;
   const activeIsQR = activeChar ? checkIsQR(activeChar) : false;
 
@@ -3460,13 +3459,13 @@ export function CharacterList({
       </AnimatePresence>
 
       {imageToCrop && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
-          <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-xl flex flex-col shadow-2xl overflow-hidden h-[75vh] max-h-[850px]">
-            <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="bg-slate-900 border border-white/10 rounded-3xl w-full max-w-lg flex flex-col shadow-2xl overflow-hidden max-h-[92vh] sm:max-h-[85vh]">
+            <div className="p-3.5 sm:p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
               <div className="flex items-center gap-2">
-                <h3 className="text-lg font-bold text-white">调整封面图片</h3>
-                <span className="text-xs text-purple-300 bg-purple-500/15 border border-purple-400/25 px-2 py-0.5 rounded-md font-medium">
-                  {cropAspect === 2 / 3 ? "2:3 标准竖卡" : cropAspect === 3 / 4 ? "3:4 经典比例" : cropAspect === 1 ? "1:1 正方形" : "自由裁剪"}
+                <h3 className="text-base sm:text-lg font-bold text-white">调整封面图片</h3>
+                <span className="text-[10px] text-purple-300 bg-purple-500/15 border border-purple-400/25 px-2 py-0.5 rounded-md font-medium">
+                  2:3 标准竖卡
                 </span>
               </div>
 
@@ -3478,35 +3477,12 @@ export function CharacterList({
               </button>
             </div>
 
-            {/* Aspect Ratio Selector */}
-            <div className="px-4 py-2 border-b border-white/5 bg-black/20 flex items-center gap-2 overflow-x-auto">
-              <span className="text-xs text-white/50 shrink-0 font-medium">裁剪比例:</span>
-              {[
-                { label: "2:3 (竖卡标准)", value: 2 / 3 },
-                { label: "3:4 (经典比例)", value: 3 / 4 },
-                { label: "1:1 (正方形)", value: 1 },
-                { label: "自由裁剪", value: undefined },
-              ].map((opt) => (
-                <button
-                  key={opt.label}
-                  onClick={() => setCropAspect(opt.value)}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium transition shrink-0 ${
-                    cropAspect === opt.value
-                      ? "bg-purple-500 text-white shadow-sm shadow-purple-500/30"
-                      : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex-1 relative w-full h-full bg-black/60">
+            <div className="flex-1 min-h-[260px] relative w-full bg-black/60">
               <Cropper
                 image={imageToCrop}
                 crop={crop}
                 zoom={zoom}
-                aspect={cropAspect}
+                aspect={2 / 3}
                 cropShape="rect"
                 showGrid={true}
                 onCropChange={setCrop}
@@ -3514,8 +3490,9 @@ export function CharacterList({
                 onZoomChange={setZoom}
               />
             </div>
-            <div className="p-4 border-t border-white/10 bg-white/[0.02] flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 flex-1">
+
+            <div className="p-3.5 sm:p-4 border-t border-white/10 bg-white/[0.02] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
                 <span className="text-xs text-white/50 font-medium shrink-0">缩放</span>
                 <input
                   type="range"
@@ -3529,17 +3506,17 @@ export function CharacterList({
                 />
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 justify-end">
                 <button
                   onClick={closeCrop}
-                  className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white/80 font-medium rounded-xl transition"
+                  className="flex-1 sm:flex-none px-4 py-2 bg-white/5 hover:bg-white/10 text-white/80 font-medium rounded-xl text-xs sm:text-sm transition"
                 >
                   取消
                 </button>
                 <button
                   onClick={handleSaveCrop}
                   disabled={isCropping}
-                  className="px-6 py-2 bg-purple-500 hover:bg-purple-600 disabled:opacity-50 text-white font-bold rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-purple-500/25"
+                  className="flex-1 sm:flex-none px-6 py-2 bg-purple-500 hover:bg-purple-600 disabled:opacity-50 text-white font-bold rounded-xl text-xs sm:text-sm transition flex items-center justify-center gap-1.5 shadow-lg shadow-purple-500/25"
                 >
                   {isCropping && <Loader2 className="w-4 h-4 animate-spin" />}
                   <span>保存封面</span>

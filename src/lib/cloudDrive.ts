@@ -646,6 +646,87 @@ function guessMimeFromExt(ext: string): string {
 
 
 
+/**
+ * 从云端路径 (如 "角色卡", "角色卡/日常生活", "工具区/预设", "工具区/预设/自定义文件夹")
+ * 映射解析出 App 本地的真正目标用户文件夹 ID。
+ *
+ * 核心规则：
+ * 1. 顶层系统大类 ("角色卡", "工具区", "聊天记录") 并非用户文件夹，还原回 App 时一律剔除；
+ * 2. 工具区小类头 ("预设", "世界书", "美化", "快速回复", "脚本") 属于类型归类，若其后没有更深层的用户子文件夹，也不作为 App 本地文件夹创建；
+ * 3. 只有真正包含用户自定义文件夹路径时，才在 App 中自动查找/创建对应文件夹；
+ * 4. 若无指定文件夹，但存在同名卡自动分类设置，自动继承本地同名卡片的文件夹分类。
+ */
+export async function resolveAppFolderFromCloudPath(
+  folderPathStr?: string | null,
+  charName?: string
+): Promise<string | null> {
+  let targetFolderId: string | null = null;
+
+  if (folderPathStr) {
+    let parts = folderPathStr.split('/').filter(Boolean);
+
+    // 1. 剥离云端顶层系统大类 ("角色卡", "工具区", "聊天记录")
+    const systemBuckets = ['角色卡', 'characters', '工具区', 'tools', '聊天记录', 'chats'];
+    if (parts.length > 0 && systemBuckets.includes(parts[0].toLowerCase())) {
+      parts.shift();
+    }
+
+    // 2. 剥离工具区顶层小类 ("预设", "世界书", "美化", "快速回复", "脚本", "正则脚本")
+    const toolSubHeaders = ['预设', 'preset', '世界书', 'worldbook', '美化', 'theme', '快速回复', 'qr', '脚本', 'script', '正则脚本'];
+    if (parts.length > 0 && toolSubHeaders.includes(parts[0].toLowerCase())) {
+      parts.shift();
+    }
+
+    // 3. 在 App 本地按剩余路径查找或递归创建嵌套文件夹
+    if (parts.length > 0) {
+      const { getFolders, saveFolder } = await import('./db');
+      const allFolders = await getFolders();
+      let currentParentId: string | null = null;
+
+      for (const part of parts) {
+        let found = allFolders.find(
+          (f) => f.name === part && (f.parentId || null) === currentParentId
+        );
+        if (!found) {
+          const newFolder = {
+            id: crypto.randomUUID(),
+            name: part,
+            parentId: currentParentId,
+            createdAt: Date.now(),
+          };
+          await saveFolder(newFolder);
+          allFolders.push(newFolder);
+          found = newFolder;
+        }
+        currentParentId = found.id;
+      }
+      targetFolderId = currentParentId;
+    }
+  }
+
+  // 4. 若无指定文件夹，且开启了「同名卡自动跟随分类」，继承本地已有同名卡的分类文件夹
+  if (!targetFolderId && charName) {
+    const autoCategorizeSameName = localStorage.getItem("miu_auto_categorize_same_name") !== "false";
+    if (autoCategorizeSameName) {
+      const { getCachedMeta } = await import('./db');
+      const existingMeta = await getCachedMeta();
+      const cleanName = charName.trim().toLowerCase();
+      const existingWithFolder = existingMeta.find(
+        (m) =>
+          !m.deletedAt &&
+          m.folderId &&
+          m.name &&
+          m.name.trim().toLowerCase() === cleanName,
+      );
+      if (existingWithFolder && existingWithFolder.folderId) {
+        targetFolderId = existingWithFolder.folderId;
+      }
+    }
+  }
+
+  return targetFolderId;
+}
+
 export async function computeCharacterCloudPathParts(
   char: any,
   allFolders?: any[]
