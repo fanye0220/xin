@@ -16,6 +16,8 @@ import { AIRecommender } from './components/AIRecommender';
 import { SettingsModal } from './components/SettingsModal';
 import { ChatViewer } from './components/ChatViewer';
 import { SyncWidget } from './components/SyncWidget';
+import { UpdateModal } from './components/UpdateModal';
+import { checkForAppUpdates, VersionInfo } from './config/version';
 import { migrateDatabase, getFolders } from './lib/db';
 import { useTaggerState } from './lib/taggerState';
 import { isAndroid } from './lib/appBridge';
@@ -186,6 +188,24 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [globalChatViewerId, setGlobalChatViewerId] = useState<string | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<VersionInfo | null>(null);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+
+  useEffect(() => {
+    // 启动 3 秒后静默检测远端版本更新（仅在安卓移动端运行）
+    if (!isAndroid()) return;
+    const timer = setTimeout(async () => {
+      const ignoredVer = localStorage.getItem('miu_ignored_version');
+      const res = await checkForAppUpdates();
+      if (res.hasUpdate && res.latestVersion) {
+        if (ignoredVer !== res.latestVersion.version) {
+          setUpdateInfo(res.latestVersion);
+          setIsUpdateModalOpen(true);
+        }
+      }
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, []);
   
   const [isMigrating, setIsMigrating] = useState(true);
   const [migrationProgress, setMigrationProgress] = useState({ current: 0, total: 0 });
@@ -279,12 +299,18 @@ export default function App() {
     migrateDatabase((current, total) => {
       setMigrationProgress({ current, total });
     }).then(() => {
-      import('./lib/db').then(({ cleanupEmptyFolders }) => {
-        cleanupEmptyFolders().then(() => {
-          setIsMigrating(false);
-          // Removed startup background scanning per user request
+      setIsMigrating(false);
+      // Run background maintenance asynchronously without blocking app startup
+      setTimeout(() => {
+        import('./lib/db').then(({ cleanupEmptyFolders, cleanupGhostCards }) => {
+          cleanupEmptyFolders();
+          cleanupGhostCards().then(({ cleanedCount }) => {
+            if (cleanedCount > 0) {
+              console.log(`[Startup] Cleaned ${cleanedCount} ghost card entries from database.`);
+            }
+          });
         });
-      });
+      }, 500);
     });
 
     return () => {
@@ -488,6 +514,15 @@ export default function App() {
         isOpen={isSettingsOpen}
         onClose={() => { setIsSettingsOpen(false); setRefreshKey(prev => prev + 1); }}
       />
+
+      {isAndroid() && (
+        <UpdateModal
+          isOpen={isUpdateModalOpen}
+          versionInfo={updateInfo}
+          onClose={() => setIsUpdateModalOpen(false)}
+          onIgnoreVersion={(ver) => localStorage.setItem('miu_ignored_version', ver)}
+        />
+      )}
 
       <AnimatePresence>
         {selectedFolderId !== 'autotagger' && (

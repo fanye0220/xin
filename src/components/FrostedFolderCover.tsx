@@ -152,7 +152,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
             </>
           ) : (
             /* Ghost Silhouette Frame */
-            <div className="w-full h-full rounded-2xl border-2 border-dashed border-white/20 bg-white/[0.02]" />
+            <div className="w-full h-full rounded-2xl border-2 border-dashed border-white/20 bg-white/[0.04]" />
           )}
         </div>
 
@@ -177,9 +177,9 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
             />
           ) : (
             /* Empty Card Background */
-            <div className="w-full h-full rounded-2xl border-2 border-dashed border-white/25 bg-white/[0.04] backdrop-blur-xs flex flex-col items-center justify-center text-white/30">
-              <Sparkles className="w-7 h-7 opacity-40 mb-1.5 group-hover:scale-110 group-hover:text-purple-300 transition-all" />
-              <span className="text-[11px] font-medium tracking-wide text-white/40">无封面</span>
+            <div className="w-full h-full rounded-2xl border-2 border-dashed border-white/25 bg-white/[0.04] backdrop-blur-xs flex flex-col items-center justify-center text-white/40">
+              <Sparkles className="w-7 h-7 opacity-50 mb-1.5 group-hover:scale-110 group-hover:text-purple-300 transition-all" />
+              <span className="text-[11px] font-medium tracking-wide text-white/50">无封面</span>
             </div>
           )}
         </div>
@@ -215,7 +215,7 @@ export const FrostedNewFolderCover = React.memo(function FrostedNewFolderCover({
 }) {
   if (viewMode === "list") {
     return (
-      <div className="w-10 h-10 rounded-lg bg-white/5 border border-dashed border-white/20 flex items-center justify-center shrink-0">
+      <div className="w-10 h-10 rounded-lg bg-white/[0.04] border border-dashed border-white/25 flex items-center justify-center shrink-0">
         <Plus className="w-4 h-4 text-white/50" />
       </div>
     );
@@ -228,7 +228,7 @@ export const FrostedNewFolderCover = React.memo(function FrostedNewFolderCover({
       <div className="relative w-full h-full flex items-center justify-center transform-gpu">
         {/* Back Ghost Card */}
         <div
-          className="absolute w-[94%] h-[95%] rounded-2xl border-2 border-dashed border-white/15 bg-white/[0.02] transition-transform duration-300 origin-bottom-left group-hover:-rotate-6 group-hover:-translate-x-1"
+          className="absolute w-[94%] h-[95%] rounded-2xl border-2 border-dashed border-white/20 bg-white/[0.04] transition-transform duration-300 origin-bottom-left group-hover:-rotate-6 group-hover:-translate-x-1"
           style={{
             transform: "rotate(-3.5deg) translate(-2.5px, 2px)",
             zIndex: 1,
@@ -237,12 +237,11 @@ export const FrostedNewFolderCover = React.memo(function FrostedNewFolderCover({
         />
         {/* Front Ghost Card */}
         <div
-          className="absolute w-[94%] h-[95%] rounded-2xl border-2 border-dashed border-white/25 bg-white/[0.04] backdrop-blur-xs flex flex-col items-center justify-center p-3 text-center transition-all duration-300 group-hover:border-purple-400/50 group-hover:bg-purple-500/10 group-hover:scale-[1.02] group-hover:-translate-y-1 shadow-lg"
+          className="absolute w-[94%] h-[95%] rounded-2xl border-2 border-dashed border-white/25 bg-white/[0.04] backdrop-blur-xs flex flex-col items-center justify-center p-3 text-center transition-all duration-300 group-hover:border-purple-400/50 group-hover:bg-purple-500/10 group-hover:scale-[1.02] group-hover:-translate-y-1 shadow-lg text-white/40"
           style={{ zIndex: 2, willChange: "transform" }}
         >
-          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-white/60 group-hover:scale-110 group-hover:bg-purple-500/20 group-hover:border-purple-400/50 group-hover:text-purple-200 transition-all shadow-md">
-            <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-          </div>
+          <Plus className="w-7 h-7 opacity-50 mb-1.5 group-hover:scale-110 group-hover:text-purple-300 transition-all" />
+          <span className="text-[11px] font-medium tracking-wide text-white/50 group-hover:text-purple-200 transition-colors">新建</span>
         </div>
       </div>
     </div>

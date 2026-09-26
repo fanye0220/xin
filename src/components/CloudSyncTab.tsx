@@ -73,7 +73,7 @@ export function CloudSyncTab() {
   }, [token, activeTab]);
 
   
-  const handleDownloadCloudFile = async (
+  const handleRestoreCloudFileToApp = async (
     fileId: string,
     rawFileName: string,
     displayCharName: string,
@@ -82,33 +82,95 @@ export function CloudSyncTab() {
     if (!token) return;
     setDownloadingId(fileId);
     try {
-      const response = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
+      const { downloadCloudCharacter } = await import('../lib/cloudDrive');
+      const { saveCharacter, getFolders, saveFolder, saveChat, invalidateCache } = await import('../lib/db');
+      
+      const res = await downloadCloudCharacter(token, fileId, rawFileName);
+      const { jsonData, avatarBlob, studioMeta, avatarHistory, chats, versionHistory, memos } = res;
+
+      // 自动按云端 folderPath 找到/创建对应嵌套文件夹
+      let targetFolderId: string | null = null;
+      const folderPathStr = studioMeta?.folderPath;
+      if (folderPathStr) {
+        const parts = folderPathStr.split('/').filter(Boolean);
+        if (parts.length > 0) {
+          const allFolders = await getFolders();
+          let currentParentId: string | null = null;
+          for (const part of parts) {
+            let found = allFolders.find(
+              (f) => f.name === part && (f.parentId || null) === currentParentId
+            );
+            if (!found) {
+              const newFolder = {
+                id: crypto.randomUUID(),
+                name: part,
+                parentId: currentParentId,
+                createdAt: Date.now(),
+              };
+              await saveFolder(newFolder);
+              allFolders.push(newFolder);
+              found = newFolder;
+            }
+            currentParentId = found.id;
+          }
+          targetFolderId = currentParentId;
         }
-      );
-      if (!response.ok) throw new Error("从云端下载失败: HTTP " + response.status);
-
-      const blob = await response.blob();
-
-      let ext = rawFileName?.split('.').pop()?.toLowerCase() || '';
-      if (!ext || ext === rawFileName?.toLowerCase()) {
-        ext = isChatFile ? 'jsonl' : 'png';
       }
-      let base = displayCharName || rawFileName || 'file';
-      base = base.replace(/[\\/:*?"<>|]/g, '_').trim();
-      const downloadFileName = base.toLowerCase().endsWith('.' + ext) ? base : `${base}.${ext}`;
 
-      const { downloadOrShareFile } = await import('../lib/appBridge');
-      await downloadOrShareFile(downloadFileName, blob, blob.type, false);
+      const targetData = jsonData?.data ? jsonData.data : jsonData;
+      const name = displayCharName || targetData?.name || targetData?.char_name || targetData?.character_name || rawFileName.replace(/\.[^/.]+$/, "") || "未命名角色";
+      
+      const charId = crypto.randomUUID();
+      const newChar: any = {
+        id: charId,
+        name,
+        folderId: targetFolderId,
+        data: jsonData || { name, description: '' },
+        avatarBlob: avatarBlob || undefined,
+        avatarHistory: avatarHistory && avatarHistory.length > 0 ? avatarHistory : undefined,
+        versionHistory: versionHistory && versionHistory.length > 0 ? versionHistory : undefined,
+        createdAt: studioMeta?.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      await saveCharacter(newChar);
+
+      if (chats && chats.length > 0) {
+        for (const chat of chats) {
+          await saveChat({
+            ...chat,
+            id: chat.id || crypto.randomUUID(),
+            characterId: charId,
+          });
+        }
+      }
+
+      if (memos && memos.length > 0) {
+        const { saveMemo } = await import('../lib/db');
+        for (const memo of memos) {
+          await saveMemo({
+            ...memo,
+            id: memo.id || crypto.randomUUID(),
+            characterId: charId,
+          });
+        }
+      }
+
+      invalidateCache();
+      const extraCountNotice = [
+        chats && chats.length > 0 ? `${chats.length} 条对话` : null,
+        memos && memos.length > 0 ? `${memos.length} 条备忘录/剧场` : null,
+      ].filter(Boolean).join('、');
+      alert(`🎉 成功将「${name}」复原/导入回 App 中！${extraCountNotice ? `\n(已同步恢复: ${extraCountNotice})` : ''}`);
     } catch (err: any) {
-      alert("下载失败: " + err.message);
+      console.error("恢复导入至 App 失败:", err);
+      alert("恢复导入至 App 失败: " + (err.message || String(err)));
     } finally {
       setDownloadingId(null);
     }
   };
-const handleDeleteCloudChar = async (fileId: string, name: string) => {
+
+  const handleDeleteCloudChar = async (fileId: string, name: string) => {
       if (!token) return;
       if (!window.confirm(`确定要从云盘彻底删除「${name}」吗？`)) return;
       try {
@@ -702,10 +764,10 @@ const handleDeleteCloudChar = async (fileId: string, name: string) => {
                         </div>
                         <div className="flex items-center gap-1.5 sm:gap-2 mt-2">
                            <button 
-                             onClick={() => handleDownloadCloudFile(char.id, char.name, charName, isChat)}
+                             onClick={() => handleRestoreCloudFileToApp(char.id, char.name, charName, isChat)}
                              disabled={downloadingId === char.id}
                              className="flex-1 py-1 sm:py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/30 flex items-center justify-center gap-1 active:bg-blue-500/40 transition disabled:opacity-50"
-                             title="下载到本地"
+                             title="下载并解包恢复至 App 角色库"
                            >
                              {downloadingId === char.id ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> : <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
                              <span className="text-[10px] sm:text-xs font-medium whitespace-nowrap">下载</span>

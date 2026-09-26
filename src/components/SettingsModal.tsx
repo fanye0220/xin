@@ -3,10 +3,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Key, ExternalLink, Save, Globe, CheckCircle2, AlertCircle, Loader2, RefreshCw, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { AISettings, CustomEndpoint, getAISettings, saveAISettings, testConnection, fetchCustomModels } from '../lib/ai';
 import { CloudSyncTab } from './CloudSyncTab';
+import { isAndroid } from '../lib/appBridge';
 
 export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [settings, setSettings] = useState<AISettings>(getAISettings());
-  const [activeTab, setActiveTab] = useState<'api' | 'st' | 'cloud'>('api');
+  const [activeTab, setActiveTab] = useState<'api' | 'st' | 'cloud' | 'about'>('api');
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateResult, setUpdateResult] = useState<{ msg: string; isError?: boolean; downloadUrl?: string } | null>(null);
   const [isStSetupOpen, setIsStSetupOpen] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
@@ -152,6 +155,14 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
             >
               云端同步
             </button>
+            {isAndroid() && (
+              <button 
+                onClick={() => setActiveTab('about')}
+                className={`pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'about' ? 'border-blue-500 text-blue-400' : 'border-transparent text-white/50 hover:text-white/80'}`}
+              >
+                关于与更新
+              </button>
+            )}
           </div>
           
           <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-6 overflow-y-auto">
@@ -367,6 +378,83 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
             {activeTab === 'cloud' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
                 <CloudSyncTab />
+              </motion.div>
+            )}
+
+            {isAndroid() && activeTab === 'about' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+                <div className="flex flex-col items-center justify-center py-6 text-center bg-white/5 border border-white/10 rounded-2xl p-6">
+                  <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center font-black text-2xl !text-white shadow-lg shadow-purple-500/30 mb-3 select-none" style={{ color: '#ffffff' }}>
+                    MIU
+                  </div>
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    MIU 角色管理器
+                  </h3>
+                  <div className="inline-flex items-center gap-2 px-3 py-1 bg-purple-500/20 border border-purple-500/30 rounded-full text-xs font-semibold text-purple-300 mt-2">
+                    当前版本 v3.0.4
+                  </div>
+                  <p className="text-xs text-white/50 max-w-xs mt-3 leading-relaxed">
+                    专为酒馆与 AI 角色卡打造的高效角色与资源管理工具。
+                  </p>
+                </div>
+
+                <div className="p-4 bg-white/5 border border-white/10 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-medium text-white">版本自动检查</h4>
+                      <p className="text-xs text-white/50">随时检测远端发布的新版本</p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        setCheckingUpdate(true);
+                        setUpdateResult(null);
+                        try {
+                          const { checkForAppUpdates } = await import('../config/version');
+                          const res = await checkForAppUpdates();
+                          if (res.hasUpdate && res.latestVersion) {
+                            setUpdateResult({
+                              msg: `发现新版本 v${res.latestVersion.version}！`,
+                              downloadUrl: res.latestVersion.downloadUrl,
+                            });
+                          } else if (res.error) {
+                            setUpdateResult({ msg: `检查失败: ${res.error}`, isError: true });
+                          } else {
+                            setUpdateResult({ msg: '目前已是最新版本 (v3.0.4) 🎉' });
+                          }
+                        } catch (e: any) {
+                          setUpdateResult({ msg: '检查出错: ' + e.message, isError: true });
+                        } finally {
+                          setCheckingUpdate(false);
+                        }
+                      }}
+                      disabled={checkingUpdate}
+                      className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-xs font-medium transition disabled:opacity-50 flex items-center gap-2 shrink-0"
+                    >
+                      {checkingUpdate && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>检查更新</span>
+                    </button>
+                  </div>
+
+                  {updateResult && (
+                    <div className={`p-3 rounded-xl text-xs flex items-center justify-between gap-2 ${
+                      updateResult.isError ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'bg-purple-500/20 text-purple-200 border border-purple-500/30'
+                    }`}>
+                      <span>{updateResult.msg}</span>
+                      {updateResult.downloadUrl && (
+                        <a
+                          href={updateResult.downloadUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-3 py-1 bg-purple-500 text-white rounded-lg text-xs font-semibold hover:bg-purple-600 transition shrink-0"
+                        >
+                          下载
+                        </a>
+                      )}
+                    </div>
+                  )}
+
+
+                </div>
               </motion.div>
             )}
 

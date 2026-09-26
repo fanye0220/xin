@@ -2421,9 +2421,14 @@ export function CharacterList({
                   )}
                 </div>
               ) : (
-                <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600 truncate tracking-wide">
-                  MIU
-                </h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600 truncate tracking-wide">
+                    MIU
+                  </h1>
+                  <span className="text-[10px] font-bold tracking-wider text-purple-300 bg-purple-500/15 border border-purple-500/30 px-2 py-0.5 rounded-full select-none shadow-sm">
+                    v3.0.4
+                  </span>
+                </div>
               )}
               <p className="text-slate-400 text-xs mt-0.5 truncate">
                 {folders.length > 0 && totalCharacters > 0

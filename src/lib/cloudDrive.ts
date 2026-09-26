@@ -732,11 +732,13 @@ export async function uploadCharacterToCloud(
   }
 
   const { pathParts, folderPath } = await computeCharacterCloudPathParts(char);
-  const { getChatsForCharacter } = await import('./db');
+  const { getChatsForCharacter, getMemosForCharacter } = await import('./db');
   const extraAvatars = (char.avatarHistory || []).filter(b => !char.avatarBlob || !(b.size === char.avatarBlob.size && b.type === char.avatarBlob.type));
   
   const hasExtraAvatars = extraAvatars.length > 0;
   const chats = await getChatsForCharacter(char.id);
+  const memos = await getMemosForCharacter(char.id);
+  const hasMemos = memos.length > 0;
   const versionHistory = char.versionHistory || [];
   const hasVersions = versionHistory.length > 0;
 
@@ -816,9 +818,33 @@ export async function uploadCharacterToCloud(
       }
     }
     
+    if (hasMemos) {
+      const memosFolder = zip.folder("备忘录与剧场");
+      if (memosFolder) {
+        for (let i = 0; i < memos.length; i++) {
+          const m = memos[i];
+          const mSafeName = (m.content || 'memo').replace(/[\\/:*?"<>|]/g, "_");
+          if (m.type === 'text') {
+            memosFolder.file(`memo_${i + 1}_${m.id}.md`, m.content);
+          } else if (m.blob) {
+            memosFolder.file(`memo_${i + 1}_${mSafeName}`, m.blob);
+          }
+        }
+      }
+    }
+    
     const studioMeta: any = {
       folderPath,
       createdAt: char.createdAt,
+      memos: memos.map((m, i) => ({
+        id: m.id,
+        type: m.type,
+        content: m.content,
+        isPinned: m.isPinned,
+        order: m.order,
+        createdAt: m.createdAt,
+        fileRef: m.type === 'text' ? `memo_${i + 1}_${m.id}.md` : `memo_${i + 1}_${(m.content || 'memo').replace(/[\\/:*?"<>|]/g, "_")}`
+      })),
       versionHistory: versionHistory.map(v => ({
         id: v.id,
         versionName: v.versionName,
@@ -847,7 +873,7 @@ export async function uploadCharacterToCloud(
   
   const hasHistory = extraAvatars.length > 0;
   const hasChats = Boolean(chats && chats.length > 0);
-  if (!hasHistory && !hasChats && !hasVersions && char.avatarBlob && (char.avatarBlob.type === 'image/png' || !char.avatarBlob.type)) {
+  if (!hasHistory && !hasChats && !hasVersions && !hasMemos && char.avatarBlob && (char.avatarBlob.type === 'image/png' || !char.avatarBlob.type)) {
     if (onProgress) onProgress("打包角色数据(PNG)...");
     try {
       const buffer = await char.avatarBlob.arrayBuffer();
@@ -1242,14 +1268,60 @@ export async function downloadCloudCharacter(token: string, fileId: string, file
          };
        });
      }
+
+     let zipMemos: any[] = [];
+     const memoFiles = new Map<string, { file: any, isText: boolean }>();
+     for (const [filename, file] of Object.entries(zip.files)) {
+       if (file.dir) continue;
+       const lowerName = filename.toLowerCase();
+       if (
+         lowerName.startsWith('备忘录与剧场/') ||
+         lowerName.includes('/备忘录与剧场/') ||
+         lowerName.startsWith('memos/') ||
+         lowerName.includes('/memos/')
+       ) {
+         const mBase = filename.split('/').pop() || '';
+         memoFiles.set(mBase, { file, isText: lowerName.endsWith('.md') || lowerName.endsWith('.txt') });
+       }
+     }
+
+     if (zipMeta && Array.isArray(zipMeta.memos)) {
+       for (const mMeta of zipMeta.memos) {
+         let memoBlob: Blob | undefined = undefined;
+         let memoContent = mMeta.content || '';
+         if (mMeta.fileRef) {
+           const entry = memoFiles.get(mMeta.fileRef);
+           if (entry) {
+             if (mMeta.type === 'text') {
+               try {
+                 memoContent = await entry.file.async('text');
+               } catch (e) {}
+             } else {
+               memoBlob = await entry.file.async('blob');
+             }
+           }
+         }
+         zipMemos.push({
+           id: mMeta.id || crypto.randomUUID(),
+           characterId: '',
+           type: mMeta.type || 'text',
+           content: memoContent,
+           blob: memoBlob,
+           isPinned: mMeta.isPinned,
+           order: mMeta.order,
+           createdAt: mMeta.createdAt || Date.now(),
+         });
+       }
+     }
      
-     return { jsonData: zipJson, avatarBlob: zipAvatar, studioMeta: zipMeta, avatarHistory: zipAvatarHistory, chats: zipChats, versionHistory: zipVersionHistory };
+     return { jsonData: zipJson, avatarBlob: zipAvatar, studioMeta: zipMeta, avatarHistory: zipAvatarHistory, chats: zipChats, versionHistory: zipVersionHistory, memos: zipMemos };
   };
 
   let versionHistory: any[] = [];
+  let memos: any[] = [];
 
   if (fName.endsWith('.zip')) {
-     if (onProgress) onProgress("正在解压卡片...");
+     if (onProgress) onProgress("正在解压卡片与备忘录...");
      const res = await tryParseZip(blob);
      jsonData = res.jsonData;
      avatarBlob = res.avatarBlob;
@@ -1257,6 +1329,7 @@ export async function downloadCloudCharacter(token: string, fileId: string, file
      if (res.avatarHistory) avatarHistory = res.avatarHistory;
      if (res.chats) chats = res.chats;
      if (res.versionHistory) versionHistory = res.versionHistory;
+     if (res.memos) memos = res.memos;
   } else if (fName.endsWith('.json')) {
      const text = await blob.text();
      jsonData = JSON.parse(text);
@@ -1372,7 +1445,7 @@ export async function downloadCloudCharacter(token: string, fileId: string, file
   }
 
   if (!jsonData) throw new Error("无效的云端卡片格式或未找到卡片数据");
-  return { jsonData, avatarBlob, studioMeta, avatarHistory, chats, versionHistory };
+  return { jsonData, avatarBlob, studioMeta, avatarHistory, chats, versionHistory, memos };
 }
 export async function syncLibraryToCloud(token: string, onProgress?: (msg: string) => void) {
   if (onProgress) onProgress('准备同步到云端卡库...');

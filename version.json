@@ -1,0 +1,6 @@
+{
+  "version": "3.0.4",
+  "releaseNotes": "【MIU v3.0.4 更新日志】\n1. 新增版本在线更新检测与更新日志弹窗\n2. 云端卡库全面支持备忘录与小剧场完整备份与恢复\n3. 重复卡片免删锁定保护与智能批量清理优化\n4. 文件夹封面智能差异缓存与防闪烁优化\n5. 触控滑动与长按拖拽全面硬件加速",
+  "downloadUrl": "https://github.com/fanye0220/APP/releases",
+  "forceUpdate": false
+}

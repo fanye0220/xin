@@ -1143,6 +1143,40 @@ let cachedMeta: CharMeta[] | null = null;
 let isBuildingCache = false;
 const REPAIR_CATEGORY_FLAG = "tavern_category_repair_v6_revert_stitcher";
 
+export async function cleanupGhostCards(): Promise<{ cleanedCount: number }> {
+  try {
+    const db = await initDB();
+    const tx = db.transaction(["characters", "char_meta", "blobs"], "readwrite");
+    const charStore = tx.objectStore("characters");
+    const metaStore = tx.objectStore("char_meta");
+    const blobStore = tx.objectStore("blobs");
+
+    // Ultra-fast check using only primary keys (0.001s, zero RAM overhead)
+    const metaKeys = await metaStore.getAllKeys();
+    const charKeys = await charStore.getAllKeys();
+
+    const charKeySet = new Set(charKeys);
+    let cleanedCount = 0;
+
+    for (const key of metaKeys) {
+      if (!charKeySet.has(key)) {
+        await metaStore.delete(key);
+        await blobStore.delete(key);
+        cleanedCount++;
+      }
+    }
+
+    await tx.done;
+    if (cleanedCount > 0) {
+      invalidateCache();
+    }
+    return { cleanedCount };
+  } catch (err) {
+    console.warn("Error running cleanupGhostCards:", err);
+    return { cleanedCount: 0 };
+  }
+}
+
 export async function getCachedMeta(): Promise<CharMeta[]> {
   if (cachedMeta) return cachedMeta;
 
@@ -1184,6 +1218,14 @@ export async function getCachedMeta(): Promise<CharMeta[]> {
     newMeta = [];
 
     for (const char of allChars) {
+      // 过滤空无内容的无效幽灵数据
+      const data = char.data?.data || char.data || {};
+      const charName = char.name || data.name || data.char_name;
+      const hasContent = !!(data.description || data.first_mes || data.scenario || data.creator_notes || Object.keys(data).length > 0);
+      if (!charName && !hasContent) {
+        continue;
+      }
+
       const isActualChar = isActualCharacterCard(char.data || char);
       let changed = false;
 
@@ -1414,7 +1456,7 @@ export async function getCharacters(
 
   for (const meta of paginatedMeta) {
     const fullChar = await fetchStore.get(meta.id);
-    if (fullChar) {
+    if (fullChar && !fullChar.deletedAt) {
       delete (fullChar as any)._isExplicitAvatarUpdate;
       delete (fullChar as any)._oldFolderId;
       delete (fullChar as any)._wasDeleted;
@@ -2110,8 +2152,16 @@ export async function deleteCharacter(id: string): Promise<void> {
   invalidateCache();
   const db = await initDB();
   const char = await db.get("characters", id);
-  if (char) {
-    if (char.deletedAt) {
+  if (!char) {
+    // If character store record doesn't exist, purge any dangling meta/blobs for this ID
+    const tx = db.transaction(["char_meta", "blobs"], "readwrite");
+    await tx.objectStore("char_meta").delete(id);
+    await tx.objectStore("blobs").delete(id);
+    await tx.done;
+    return;
+  }
+
+  if (char.deletedAt) {
       // Hard delete if already in trash
       if (ENABLE_ANDROID_FILE_SYNC && isAndroid()) {
         const { deleteCharacterFromAndroid } = await import("./androidSync");
@@ -2169,7 +2219,6 @@ export async function deleteCharacter(id: string): Promise<void> {
         }).catch(() => {});
       }
     }
-  }
   invalidateCache();
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("charactersUpdated"));

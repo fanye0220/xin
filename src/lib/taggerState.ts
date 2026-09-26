@@ -54,21 +54,34 @@ class TaggerState {
   }
 
   async loadCharacters() {
-    const response = await getCharacters(1, 10000, 'all', '', [], 'newest_import', false);
+    const response = await getCharacters(1, 10000, 'all', '', [], 'newest_import', false, true);
     const allChars = response.characters;
     
     this.untaggedCharacters = [];
     this.taggedCharacters = [];
 
     allChars.forEach(c => {
-      const data = c.data?.data || c.data;
-      const rawData = c.data;
+      // 1. Skip soft-deleted / trash characters
+      if (c.deletedAt) return;
+
+      // 2. Skip tool / QR / non-character cards
+      if (c.isTool || c.isQR || (c.category && c.category !== '未归类')) return;
+
+      const data = c.data?.data || c.data || {};
+      const rawData = c.data || {};
+
+      // 3. Skip empty ghost cards without character content
+      const charName = c.name || data.name || data.char_name;
+      if (!charName || (!data.description && !data.scenario && !data.first_mes && !data.creator_notes && Object.keys(rawData).length === 0)) {
+        return;
+      }
+
       const isPreset = !!(rawData.prompts || rawData.temperature !== undefined || rawData.top_p !== undefined);
       const isStandaloneWorldbook = rawData.entries !== undefined;
       const isTheme = rawData.blur_strength !== undefined || rawData.main_text_color !== undefined || rawData.chat_display !== undefined;
-      const isQR = Array.isArray(rawData) ? rawData.length > 0 && rawData[0].label !== undefined : (rawData.quick_replies !== undefined || rawData.qrList !== undefined);
+      const isQR = Array.isArray(rawData) ? rawData.length > 0 && rawData[0]?.label !== undefined : (rawData.quick_replies !== undefined || rawData.qrList !== undefined);
       const isScript = rawData.type === 'script' && rawData.content !== undefined && rawData.name !== undefined;
-      const tags = data.tags || [];
+      const tags = (Array.isArray(data.tags) ? data.tags : c.tags) || [];
       const isBeautify = tags.some((t: string) => t.includes('美化') || t.includes('预设') || t.includes('UI') || t.includes('主题') || t.includes('工具') || t.includes('插件') || t.includes('正则') || t.includes('组件') || t.includes('工作流'));
       
       if (isPreset || isBeautify || isStandaloneWorldbook || isTheme || isQR || isScript) return;
