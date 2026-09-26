@@ -138,7 +138,7 @@ function SortableItemWrapper({
     transition: isDragging ? undefined : shouldSuppressDisplacement ? undefined : transition,
     zIndex: isDragging ? 70 : isOver && (isQRBindingTarget || isFolderDropTarget) ? 30 : undefined,
     opacity: isDragging ? 0.85 : undefined,
-    touchAction: "none",
+    touchAction: isDragging ? "none" : undefined,
     willChange: isDragging ? "transform" : undefined,
     position: "relative" as const,
     userSelect: "none" as const,
@@ -808,7 +808,7 @@ export function CharacterList({
     useSensor(TouchSensor, {
       activationConstraint: {
         delay: 250,
-        tolerance: 5,
+        tolerance: 8,
       },
     }),
     useSensor(KeyboardSensor, {
