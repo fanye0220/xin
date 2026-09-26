@@ -77,7 +77,8 @@ export function CloudSyncTab() {
     fileId: string,
     rawFileName: string,
     displayCharName: string,
-    isChatFile: boolean = false
+    isChatFile: boolean = false,
+    cloudCharAppProps?: any
   ) => {
     if (!token) return;
     setDownloadingId(fileId);
@@ -88,11 +89,25 @@ export function CloudSyncTab() {
       const res = await downloadCloudCharacter(token, fileId, rawFileName);
       const { jsonData, avatarBlob, studioMeta, avatarHistory, chats, versionHistory, memos } = res;
 
-      // 自动按云端 folderPath 找到/创建对应嵌套文件夹
+      // 自动按云端 folderPath 找到/创建对应嵌套文件夹（自动剥离云端虚拟分类顶层：角色卡 / 工具区/*）
       let targetFolderId: string | null = null;
-      const folderPathStr = studioMeta?.folderPath;
+      const folderPathStr = studioMeta?.folderPath || cloudCharAppProps?.folderPath;
       if (folderPathStr) {
-        const parts = folderPathStr.split('/').filter(Boolean);
+        const rawParts = folderPathStr.split('/').filter(Boolean);
+        const parts = [...rawParts];
+
+        // 1. 如果是以云端虚拟分类「角色卡」开头，剥离「角色卡」
+        if (parts.length > 0 && parts[0] === '角色卡') {
+          parts.shift();
+        }
+        // 2. 如果是以云端虚拟分类「工具区」开头，剥离「工具区」及其二级分类（世界书/预设/美化/快速回复/脚本）
+        else if (parts.length > 0 && parts[0] === '工具区') {
+          parts.shift();
+          if (parts.length > 0 && ['世界书', '预设', '美化', '快速回复', '脚本'].includes(parts[0])) {
+            parts.shift();
+          }
+        }
+
         if (parts.length > 0) {
           const allFolders = await getFolders();
           let currentParentId: string | null = null;
@@ -764,7 +779,7 @@ export function CloudSyncTab() {
                         </div>
                         <div className="flex items-center gap-1.5 sm:gap-2 mt-2">
                            <button 
-                             onClick={() => handleRestoreCloudFileToApp(char.id, char.name, charName, isChat)}
+                             onClick={() => handleRestoreCloudFileToApp(char.id, char.name, charName, isChat, char.appProperties)}
                              disabled={downloadingId === char.id}
                              className="flex-1 py-1 sm:py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/30 flex items-center justify-center gap-1 active:bg-blue-500/40 transition disabled:opacity-50"
                              title="下载并解包恢复至 App 角色库"
