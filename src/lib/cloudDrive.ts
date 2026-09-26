@@ -794,6 +794,7 @@ export async function uploadCharacterToCloud(
   token: string,
   charId: string,
   onProgress?: (msg: string) => void,
+  forceOverwrite: boolean = false,
 ): Promise<'uploaded' | 'skipped' | 'moved'> {
   if (onProgress) onProgress("准备云端数据...");
   const char = await getCharacter(charId);
@@ -913,6 +914,11 @@ export async function uploadCharacterToCloud(
         }
       }
     }
+
+    const qrExport = buildQuickRepliesExport(char.data, safeName);
+    if (qrExport) {
+      zip.file(`${safeName}_qr.json`, JSON.stringify(qrExport, null, 2));
+    }
     
     const studioMeta: any = {
       folderPath,
@@ -982,11 +988,27 @@ export async function uploadCharacterToCloud(
 
   
   if (onProgress) onProgress("计算数据指纹...");
-  const dataStr = JSON.stringify(char.data);
-  const avatarInfo = char.avatarBlob ? char.avatarBlob.size.toString() : 'no-avatar';
-  const historyInfo = extraAvatars.length > 0 ? extraAvatars.map(b => b.size.toString()).join(',') : 'no-history';
-  const versionInfo = hasVersions ? versionHistory.map(v => v.id + (v.fileModifiedAt || v.createdAt)).join(',') : 'no-versions';
-  const rawHashData = dataStr + "|" + avatarInfo + "|" + historyInfo + "|" + versionInfo;
+  const dataStr = JSON.stringify(char.data || {});
+  const avatarInfo = char.avatarBlob ? `${char.avatarBlob.size}_${char.avatarBlob.type}` : 'no-avatar';
+  const historyInfo = extraAvatars.length > 0 ? extraAvatars.map(b => `${b.size}_${b.type}`).join(',') : 'no-history';
+  const versionInfo = hasVersions ? versionHistory.map(v => `${v.id}_${v.fileModifiedAt || v.createdAt}_${v.versionName || ''}`).join(',') : 'no-versions';
+  const memoInfo = hasMemos ? memos.map(m => `${m.id}_${m.content || ''}_${m.isPinned ? 1 : 0}_${m.order || 0}_${m.blob ? m.blob.size : 0}_${m.createdAt || 0}`).join(',') : 'no-memos';
+  const chatInfo = chats.length > 0 ? chats.map(c => `${c.id}_${c.messages?.length || 0}_${c.name || ''}`).join(',') : 'no-chats';
+  
+  const rawHashData = [
+    char.id,
+    char.name || '',
+    char.updatedAt || 0,
+    (char.tags || []).join(','),
+    folderPath,
+    dataStr,
+    avatarInfo,
+    historyInfo,
+    versionInfo,
+    memoInfo,
+    chatInfo
+  ].join("|");
+
   const hashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawHashData));
   const contentHash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 
@@ -1051,7 +1073,7 @@ export async function uploadCharacterToCloud(
     const currentCloudFolder = existingFile.appProperties?.folderPath || '';
     const folderChanged = currentCloudFolder !== folderPath || existingParents.length !== 1 || existingParents[0] !== targetParentId;
 
-    if (existingFile.appProperties?.contentHash === contentHash) {
+    if (!forceOverwrite && existingFile.appProperties?.contentHash === contentHash) {
       if (folderChanged) {
         if (onProgress) onProgress("内容一致，正在同步移动并更新云端文件夹嵌套...");
         await moveCloudFileToParent(existingFile.id, existingParents);
@@ -1110,7 +1132,7 @@ export async function uploadCharacterToCloud(
        const exactMatches = searchDataName.files.filter((f:any) => f.appProperties?.charName === finalCharName || f.appProperties?.charName?.startsWith(finalCharName + '_'));
        if (exactMatches.length > 0) {
           const identical = exactMatches.find((f:any) => f.appProperties?.contentHash === contentHash);
-          if (identical) {
+          if (!forceOverwrite && identical) {
              const idParents = Array.isArray(identical.parents) ? identical.parents : [];
              const idFolder = identical.appProperties?.folderPath || '';
              const idFolderChanged = idFolder !== folderPath || idParents.length !== 1 || idParents[0] !== targetParentId;
