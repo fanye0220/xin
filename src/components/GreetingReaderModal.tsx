@@ -5,7 +5,8 @@ import {
   X, ChevronLeft, ChevronRight, Edit3, Check, Copy, 
   Sliders, Sun, Moon, Coffee, Palette, 
   Plus, Star, Trash2, CheckCircle2, BookOpen, Sparkles,
-  Code, MessageSquareText
+  Code, MessageSquareText, ArrowLeft, Undo, Redo, Eye, EyeOff,
+  Wand2, AlignLeft
 } from 'lucide-react';
 import { CharacterCard } from '../lib/db';
 import { resolveAvatarUrl, getFallbackAvatar } from '../lib/avatar';
@@ -184,6 +185,7 @@ interface GreetingReaderModalProps {
   character: CharacterCard;
   avatarUrl?: string | null;
   initialIndex?: number;
+  initialEditMode?: boolean;
   onClose: () => void;
   onUpdateGreeting?: (firstMes: string, altGreetings: string[]) => Promise<void> | void;
 }
@@ -193,6 +195,7 @@ export function GreetingReaderModal({
   character,
   avatarUrl,
   initialIndex = 0,
+  initialEditMode = false,
   onClose,
   onUpdateGreeting,
 }: GreetingReaderModalProps) {
@@ -250,9 +253,13 @@ export function GreetingReaderModal({
   // Immersive controls toggle: clicking blank canvas hides/shows top & bottom bars
   const [showControls, setShowControls] = useState(true);
 
-  // In-reader editing mode
+  // In-reader editing mode (Novel / Shimo / WPS Style Writer)
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Toast feedback & Page turn cues
   const [copyToast, setCopyToast] = useState(false);
@@ -263,17 +270,26 @@ export function GreetingReaderModal({
   const containerRef = useRef<HTMLDivElement>(null);
   const pointerStartPos = useRef<{ x: number; y: number; time: number } | null>(null);
 
-  // Sync initialIndex when modal opens or initialIndex changes
+  // Sync initialIndex and edit mode when modal opens or initialIndex changes
   useEffect(() => {
     if (isOpen) {
       const target = Math.max(0, Math.min(initialIndex, greetingsList.length - 1));
       setCurrentIndex(target);
-      setIsEditing(false);
+      if (initialEditMode) {
+        const val = greetingsList[target]?.content || '';
+        setEditValue(val);
+        setHistory([val]);
+        setHistoryIndex(0);
+        setIsEditing(true);
+        setIsPreviewMode(false);
+      } else {
+        setIsEditing(false);
+      }
       setShowSettingsDrawer(false);
       setShowGreetingPicker(false);
       setShowControls(true);
     }
-  }, [isOpen, initialIndex, greetingsList.length]);
+  }, [isOpen, initialIndex, initialEditMode, greetingsList.length]);
 
   // Save settings when changed
   const updateSetting = <K extends keyof GreetingReaderSettings>(
@@ -471,10 +487,131 @@ export function GreetingReaderModal({
     }
   };
 
-  // Start editing
+  // Novel / Shimo Editor Real-time Stats
+  const stats = useMemo(() => {
+    const text = editValue || '';
+    const charCount = text.length;
+    const nonSpaceCount = text.replace(/\s/g, '').length;
+    const paraCount = text.split(/\n+/).filter((p) => p.trim().length > 0).length;
+    const readMins = Math.max(1, Math.ceil(nonSpaceCount / 350));
+    return { charCount, nonSpaceCount, paraCount, readMins };
+  }, [editValue]);
+
+  // History tracking for Undo / Redo
+  const pushHistory = (newVal: string) => {
+    setHistory((prev) => {
+      const trimmed = prev.slice(0, historyIndex + 1);
+      if (trimmed[trimmed.length - 1] === newVal) return prev;
+      return [...trimmed, newVal];
+    });
+    setHistoryIndex((prev) => prev + 1);
+  };
+
+  const handleUndo = () => {
+    if (historyIndex > 0) {
+      const prevVal = history[historyIndex - 1];
+      setEditValue(prevVal);
+      setHistoryIndex((prev) => prev - 1);
+    }
+  };
+
+  const handleRedo = () => {
+    if (historyIndex < history.length - 1) {
+      const nextVal = history[historyIndex + 1];
+      setEditValue(nextVal);
+      setHistoryIndex((prev) => prev + 1);
+    }
+  };
+
+  // Insert or wrap text at cursor position (e.g. quotes, brackets, variables)
+  const insertTextAtCursor = (prefix: string, suffix: string = '') => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = editValue.substring(start, end);
+    const replacement = prefix + selectedText + suffix;
+    const newText = editValue.substring(0, start) + replacement + editValue.substring(end);
+    setEditValue(newText);
+    pushHistory(newText);
+
+    setTimeout(() => {
+      textarea.focus();
+      if (selectedText.length > 0) {
+        textarea.setSelectionRange(start + prefix.length, end + prefix.length);
+      } else {
+        textarea.setSelectionRange(start + prefix.length, start + prefix.length);
+      }
+    }, 15);
+  };
+
+  // Chinese novel auto-indent: Add 　　 (2 full-width spaces) to each non-empty paragraph
+  const handleNovelIndent = () => {
+    const lines = editValue.split('\n');
+    const formatted = lines
+      .map((line) => {
+        const trimmed = line.trimStart();
+        if (!trimmed) return '';
+        return '　　' + trimmed.replace(/^(?:\s|　)+/, '');
+      })
+      .join('\n');
+    setEditValue(formatted);
+    pushHistory(formatted);
+    setActionFeedback('已应用标准小说段落缩进');
+    setTimeout(() => setActionFeedback(null), 2000);
+  };
+
+  // Clean redundant blank lines & trim trailing spaces
+  const handleCleanParagraphs = () => {
+    const cleaned = editValue
+      .split('\n')
+      .map((line) => line.trimEnd())
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n');
+    setEditValue(cleaned);
+    pushHistory(cleaned);
+    setActionFeedback('已优化段落间距与空行');
+    setTimeout(() => setActionFeedback(null), 2000);
+  };
+
+  // Flush left (remove leading indentations)
+  const handleFlushLeft = () => {
+    const lines = editValue.split('\n');
+    const formatted = lines.map((line) => line.replace(/^(?:\s|　)+/, '')).join('\n');
+    setEditValue(formatted);
+    pushHistory(formatted);
+    setActionFeedback('已清除首行缩进');
+    setTimeout(() => setActionFeedback(null), 2000);
+  };
+
+  // Keyboard shortcut handler in novel textarea
+  const handleKeyDownInTextarea = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      insertTextAtCursor('　　'); // Standard Chinese 2 full-width spaces
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      handleSaveEdit();
+    }
+  };
+
+  // Auto-resize novel textarea to fit content and eliminate double scrollbars
+  useEffect(() => {
+    if (isEditing && textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.max(450, textareaRef.current.scrollHeight)}px`;
+    }
+  }, [editValue, isEditing, isPreviewMode]);
+
+  // Start editing (Novel / Document Mode)
   const handleStartEdit = () => {
-    setEditValue(currentGreeting.content || '');
+    const val = currentGreeting.content || '';
+    setEditValue(val);
+    setHistory([val]);
+    setHistoryIndex(0);
     setIsEditing(true);
+    setIsPreviewMode(false);
     setShowControls(true);
   };
 
@@ -494,6 +631,7 @@ export function GreetingReaderModal({
     }
 
     setIsEditing(false);
+    setIsPreviewMode(false);
     setActionFeedback('已保存正文修改');
     setTimeout(() => setActionFeedback(null), 2000);
   };
@@ -589,32 +727,32 @@ export function GreetingReaderModal({
   const themeStyles = useMemo(() => {
     if (isPaper) {
       return {
-        bg: '#ffffff',
+        bg: '#f4f4f6', // Warm soft desk workspace background
         text: '#0f172a', // Rich readable charcoal black
-        name: '#0284c7', // Sky Blue 600
-        subtitle: '#0284c7',
-        dashed: '#7dd3fc',
+        name: '#0f172a',
+        subtitle: '#475569',
+        dashed: '#cbd5e1',
         action: '#475569',
         thought: '#64748b',
-        footer: '#0284c7',
-        headerBg: 'rgba(255, 255, 255, 0.95)',
+        footer: '#475569',
+        headerBg: 'rgba(255, 255, 255, 0.96)',
         headerBorder: '#e2e8f0',
         headerText: '#0f172a',
         headerBtnHover: 'hover:bg-black/[0.06] active:bg-black/[0.1]',
-        primaryBtnBg: '#0284c7',
+        primaryBtnBg: '#18181b',
         primaryBtnText: '#ffffff',
-        primaryBtnHover: 'hover:bg-sky-600',
-        cancelBtnBg: 'rgba(0, 0, 0, 0.04)',
+        primaryBtnHover: 'hover:bg-zinc-800',
+        cancelBtnBg: '#f1f5f9',
         cancelBtnBorder: '#cbd5e1',
         cancelBtnText: '#0f172a',
-        cancelBtnHover: 'hover:bg-black/[0.08]',
+        cancelBtnHover: 'hover:bg-slate-200',
         floatingBarBg: 'rgba(255, 255, 255, 0.96)',
         floatingBarBorder: '#cbd5e1',
         floatingBarText: '#0f172a',
         floatingBarShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.08)',
         floatingBarDivider: '#e2e8f0',
         floatingBarBtnHover: 'hover:bg-black/[0.06] active:bg-black/[0.1]',
-        floatingBarAddBtn: 'text-sky-600 hover:bg-sky-500/10 active:bg-sky-500/20',
+        floatingBarAddBtn: 'text-zinc-800 hover:bg-black/5 active:bg-black/10',
         drawerBg: '#ffffff',
         drawerBorder: '#e2e8f0',
         drawerText: '#0f172a',
@@ -624,7 +762,14 @@ export function GreetingReaderModal({
         drawerBtnBg: '#f1f5f9',
         drawerBtnBorder: '#cbd5e1',
         drawerBtnHover: 'hover:bg-black/[0.06] active:bg-black/[0.1]',
-        themeAccentColor: '#0284c7',
+        themeAccentColor: '#18181b',
+        editorPaperBg: '#ffffff',
+        editorPaperBorder: '#e2e8f0',
+        editorPaperShadow: '0 4px 24px -2px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04)',
+        chipBg: '#f1f5f9',
+        chipBorder: '#e2e8f0',
+        chipText: '#334155',
+        chipHover: 'hover:bg-slate-200',
       };
     }
     if (isSepia) {
@@ -665,6 +810,13 @@ export function GreetingReaderModal({
         drawerBtnBorder: '#dfd1bd',
         drawerBtnHover: 'hover:bg-black/[0.06] active:bg-black/[0.1]',
         themeAccentColor: '#8b4513',
+        editorPaperBg: '#fbf7ee',
+        editorPaperBorder: '#e5d8c5',
+        editorPaperShadow: '0 4px 20px rgba(139, 69, 19, 0.06)',
+        chipBg: '#f4ecdc',
+        chipBorder: '#e0d1bb',
+        chipText: '#2d2417',
+        chipHover: 'hover:bg-[#ede2ce]',
       };
     }
     if (isTavern) {
@@ -705,15 +857,22 @@ export function GreetingReaderModal({
         drawerBtnBorder: 'rgba(99, 102, 241, 0.2)',
         drawerBtnHover: 'hover:bg-white/[0.08] active:bg-white/[0.12]',
         themeAccentColor: '#818cf8',
+        editorPaperBg: '#131926',
+        editorPaperBorder: 'rgba(99, 102, 241, 0.25)',
+        editorPaperShadow: '0 10px 30px rgba(0, 0, 0, 0.5)',
+        chipBg: 'rgba(99, 102, 241, 0.14)',
+        chipBorder: 'rgba(99, 102, 241, 0.25)',
+        chipText: '#e0e7ff',
+        chipHover: 'hover:bg-indigo-500/20',
       };
     }
     // Default Dark Night
     return {
       bg: '#111216',
       text: '#f1f5f9',
-      name: '#38bdf8',
-      subtitle: '#38bdf8',
-      dashed: 'rgba(56, 189, 248, 0.4)',
+      name: '#f1f5f9',
+      subtitle: '#94a3b8',
+      dashed: 'rgba(255, 255, 255, 0.15)',
       action: '#94a3b8',
       thought: '#94a3b8',
       footer: '#64748b',
@@ -721,9 +880,9 @@ export function GreetingReaderModal({
       headerBorder: 'rgba(255, 255, 255, 0.08)',
       headerText: '#f1f5f9',
       headerBtnHover: 'hover:bg-white/[0.08] active:bg-white/[0.12]',
-      primaryBtnBg: '#0284c7',
-      primaryBtnText: '#ffffff',
-      primaryBtnHover: 'hover:bg-sky-500',
+      primaryBtnBg: '#ffffff',
+      primaryBtnText: '#09090b',
+      primaryBtnHover: 'hover:bg-zinc-200',
       cancelBtnBg: 'rgba(255, 255, 255, 0.08)',
       cancelBtnBorder: 'rgba(255, 255, 255, 0.15)',
       cancelBtnText: '#f1f5f9',
@@ -734,7 +893,7 @@ export function GreetingReaderModal({
       floatingBarShadow: '0 15px 35px -5px rgba(0, 0, 0, 0.8)',
       floatingBarDivider: 'rgba(255, 255, 255, 0.15)',
       floatingBarBtnHover: 'hover:bg-white/[0.08] active:bg-white/[0.12]',
-      floatingBarAddBtn: 'text-sky-400 hover:bg-sky-500/20 active:bg-sky-500/30',
+      floatingBarAddBtn: 'text-zinc-200 hover:bg-white/10 active:bg-white/20',
       drawerBg: '#15171e',
       drawerBorder: 'rgba(255, 255, 255, 0.1)',
       drawerText: '#f1f5f9',
@@ -744,7 +903,14 @@ export function GreetingReaderModal({
       drawerBtnBg: 'rgba(255, 255, 255, 0.05)',
       drawerBtnBorder: 'rgba(255, 255, 255, 0.1)',
       drawerBtnHover: 'hover:bg-white/[0.08] active:bg-white/[0.12]',
-      themeAccentColor: '#38bdf8',
+      themeAccentColor: '#f1f5f9',
+      editorPaperBg: '#16171d',
+      editorPaperBorder: 'rgba(255, 255, 255, 0.08)',
+      editorPaperShadow: '0 10px 30px rgba(0, 0, 0, 0.6)',
+      chipBg: 'rgba(255, 255, 255, 0.08)',
+      chipBorder: 'rgba(255, 255, 255, 0.12)',
+      chipText: '#f1f5f9',
+      chipHover: 'hover:bg-white/[0.12]',
     };
   }, [isPaper, isDark, isTavern, isSepia]);
 
@@ -876,6 +1042,43 @@ export function GreetingReaderModal({
     themeStyles
   ]);
 
+  // Processed content for live preview in novel editor
+  const previewProcessedContent = useMemo(() => {
+    let text = editValue || '';
+    if (settings.enableMacros) {
+      text = text.replace(/\{\{user\}\}/gi, '你');
+      text = text.replace(/\{\{char\}\}/gi, character.name || '角色');
+    }
+    if (settings.enableCustomTags) {
+      const thinkRegex =
+        /(?:<|&lt;|\[+|\\\[+|\{+)\s*(?:think|thought|thinking)\s*(?:>|&gt;|\]+|\\\]+|\}+)([\s\S]*?)(?:<|&lt;|\[+|\\\[+|\{+)\/\s*(?:think|thought|thinking)\s*(?:>|&gt;|\]+|\\\]+|\}+)/gi;
+      const thinkBorderColor = isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)';
+      const thinkBgColor = isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.04)';
+      const thinkSummaryColor = themeStyles.themeAccentColor;
+      text = text.replace(
+        thinkRegex,
+        `<details class="text-sm rounded-xl p-3 my-3 border overflow-hidden max-w-full" style="background-color: ${thinkBgColor}; border-color: ${thinkBorderColor};"><summary class="cursor-pointer font-bold select-none transition-opacity hover:opacity-80" style="color: ${thinkSummaryColor};">🤔 思维链 / 心理活动</summary><div class="mt-2.5 pt-2 border-t text-sm leading-relaxed whitespace-pre-wrap break-words opacity-90 overflow-x-auto" style="border-color: ${thinkBorderColor};">$1</div></details>`
+      );
+    }
+    if (settings.highlightDialogue) {
+      const dialogueClass = getDialogueHighlightStyle();
+      if (dialogueClass) {
+        text = applySafeDialogueHighlight(text, dialogueClass);
+      }
+    }
+    return text;
+  }, [
+    editValue,
+    character,
+    settings.enableMacros,
+    settings.enableCustomTags,
+    settings.highlightDialogue,
+    settings.colorTheme,
+    settings.highlightSoftBg,
+    isLight,
+    themeStyles
+  ]);
+
   if (!isOpen) return null;
 
   return createPortal(
@@ -899,7 +1102,7 @@ export function GreetingReaderModal({
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: -60, opacity: 0 }}
               transition={{ duration: 0.2, ease: 'easeOut' }}
-              className="fixed top-0 left-0 right-0 z-40 px-4 sm:px-8 py-2.5 sm:py-3.5 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] backdrop-blur-xl border-b flex items-center justify-between transition-colors shadow-xs"
+              className="fixed top-0 left-0 right-0 z-40 backdrop-blur-xl border-b flex flex-col transition-colors shadow-xs"
               style={{
                 backgroundColor: themeStyles.headerBg,
                 borderColor: themeStyles.headerBorder,
@@ -907,85 +1110,322 @@ export function GreetingReaderModal({
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Left: Close & Greeting Title (Click to open list picker) */}
-              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                <button
-                  onClick={onClose}
-                  className={`p-2 -ml-1 rounded-full transition-colors cursor-pointer active:scale-95 ${themeStyles.headerBtnHover}`}
-                  style={{ color: themeStyles.headerText }}
-                  title="退出全屏阅读 (Esc)"
-                  aria-label="返回"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+              {/* Header Top Row */}
+              <div className="px-4 sm:px-8 py-2.5 sm:py-3 pt-[max(1rem,env(safe-area-inset-top))] flex items-center justify-between">
+                {/* Left: Close & Greeting Title (Click to open list picker) */}
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                  {!isEditing ? (
+                    <>
+                      <button
+                        onClick={onClose}
+                        className={`p-2 -ml-1 rounded-full transition-colors cursor-pointer active:scale-95 ${themeStyles.headerBtnHover}`}
+                        style={{ color: themeStyles.headerText }}
+                        title="退出全屏阅读 (Esc)"
+                        aria-label="返回"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
 
-                <button
-                  onClick={() => setShowGreetingPicker((v) => !v)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors cursor-pointer text-xs sm:text-sm font-medium ${themeStyles.headerBtnHover}`}
-                  style={{ color: themeStyles.headerText }}
-                  title="点击展开全部开场白列表"
-                >
-                  <BookOpen className="w-4 h-4 opacity-75" />
-                  <span className="truncate max-w-[130px] sm:max-w-[200px]">
-                    {currentGreeting.label}
-                  </span>
-                  <span className="opacity-60 text-xs font-mono">
-                    ({safeIndex + 1}/{greetingsList.length})
-                  </span>
-                </button>
+                      <button
+                        onClick={() => setShowGreetingPicker((v) => !v)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors cursor-pointer text-xs sm:text-sm font-medium ${themeStyles.headerBtnHover}`}
+                        style={{ color: themeStyles.headerText }}
+                        title="点击展开全部开场白列表"
+                      >
+                        <BookOpen className="w-4 h-4 opacity-75" />
+                        <span className="truncate max-w-[130px] sm:max-w-[200px]">
+                          {currentGreeting.label}
+                        </span>
+                        <span className="opacity-60 text-xs font-mono">
+                          ({safeIndex + 1}/{greetingsList.length})
+                        </span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => setIsEditing(false)}
+                        className={`p-2 -ml-1 rounded-full transition-colors cursor-pointer active:scale-95 ${themeStyles.headerBtnHover}`}
+                        style={{ color: themeStyles.headerText }}
+                        title="退出编辑返回阅读 (Esc)"
+                        aria-label="返回"
+                      >
+                        <ArrowLeft className="w-5 h-5" />
+                      </button>
+
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs sm:text-sm tracking-wide">
+                          编辑 · {currentGreeting.label}
+                        </span>
+                        <span
+                          className="text-[11px] px-2 py-0.5 rounded-full font-mono font-medium hidden sm:inline"
+                          style={{
+                            backgroundColor: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
+                            color: isLight ? '#475569' : '#cbd5e1',
+                          }}
+                        >
+                          {stats.nonSpaceCount} 字 · {stats.paraCount} 段
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Right: Keep only Edit/Save and Controls */}
+                <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                  {!isEditing ? (
+                    <>
+                      <button
+                        onClick={handleStartEdit}
+                        className={`p-2 rounded-lg transition-colors cursor-pointer active:scale-95 ${themeStyles.headerBtnHover}`}
+                        style={{ color: themeStyles.headerText }}
+                        title="进入小说写作编辑模式"
+                      >
+                        <Edit3 className="w-4.5 h-4.5" />
+                      </button>
+                      {/* More / Settings Button */}
+                      <button
+                        onClick={() => setShowSettingsDrawer((v) => !v)}
+                        className={`p-2 rounded-lg transition-colors cursor-pointer active:scale-95 ${themeStyles.headerBtnHover}`}
+                        style={{ color: themeStyles.headerText }}
+                        title="高亮设置、渲染选项、阅读主题与更多操作"
+                      >
+                        <Sliders className="w-4.5 h-4.5" />
+                      </button>
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-1.5 sm:gap-2">
+                      {/* Live Preview Toggle */}
+                      <button
+                        type="button"
+                        onClick={() => setIsPreviewMode(!isPreviewMode)}
+                        className={`px-3 py-1.5 rounded-full border text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 ${themeStyles.cancelBtnHover}`}
+                        style={{
+                          backgroundColor: isPreviewMode ? themeStyles.primaryBtnBg : themeStyles.cancelBtnBg,
+                          borderColor: isPreviewMode ? themeStyles.primaryBtnBg : themeStyles.cancelBtnBorder,
+                          color: isPreviewMode ? themeStyles.primaryBtnText : themeStyles.cancelBtnText,
+                        }}
+                        title={isPreviewMode ? '切换回写作编辑状态' : '实时预览小说排版与富文本渲染'}
+                      >
+                        {isPreviewMode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        <span className="hidden sm:inline">{isPreviewMode ? '继续编写' : '实时预览'}</span>
+                        <span className="sm:hidden">{isPreviewMode ? '编辑' : '预览'}</span>
+                      </button>
+
+                      {/* Undo / Redo */}
+                      <button
+                        type="button"
+                        onClick={handleUndo}
+                        disabled={historyIndex <= 0}
+                        className={`p-1.5 sm:p-2 rounded-full border text-xs transition-all cursor-pointer active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed ${themeStyles.cancelBtnHover}`}
+                        style={{
+                          backgroundColor: themeStyles.cancelBtnBg,
+                          borderColor: themeStyles.cancelBtnBorder,
+                          color: themeStyles.cancelBtnText,
+                        }}
+                        title="撤销 (Ctrl+Z)"
+                      >
+                        <Undo className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRedo}
+                        disabled={historyIndex >= history.length - 1}
+                        className={`p-1.5 sm:p-2 rounded-full border text-xs transition-all cursor-pointer active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed ${themeStyles.cancelBtnHover}`}
+                        style={{
+                          backgroundColor: themeStyles.cancelBtnBg,
+                          borderColor: themeStyles.cancelBtnBorder,
+                          color: themeStyles.cancelBtnText,
+                        }}
+                        title="重做 (Ctrl+Y)"
+                      >
+                        <Redo className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Themed Cancel Button */}
+                      <button
+                        type="button"
+                        onClick={() => setIsEditing(false)}
+                        className={`hidden sm:inline-flex px-3.5 py-1.5 rounded-full border text-xs font-medium cursor-pointer transition-all active:scale-95 ${themeStyles.cancelBtnHover}`}
+                        style={{ 
+                          backgroundColor: themeStyles.cancelBtnBg,
+                          borderColor: themeStyles.cancelBtnBorder,
+                          color: themeStyles.cancelBtnText,
+                        }}
+                      >
+                        取消
+                      </button>
+
+                      {/* Themed Save Button */}
+                      <button
+                        type="button"
+                        onClick={handleSaveEdit}
+                        className={`px-4 sm:px-4.5 py-1.5 rounded-full font-medium text-xs flex items-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer ${themeStyles.primaryBtnHover}`}
+                        style={{
+                          backgroundColor: themeStyles.primaryBtnBg,
+                          color: themeStyles.primaryBtnText,
+                        }}
+                        title="保存修改并应用 (Ctrl+S)"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>保存</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Right: Keep only Edit and More/Settings */}
-              <div className="flex items-center gap-2 shrink-0">
-                {/* Edit Button or Themed Action Buttons */}
-                {!isEditing ? (
-                  <button
-                    onClick={handleStartEdit}
-                    className={`p-2 rounded-lg transition-colors cursor-pointer active:scale-95 ${themeStyles.headerBtnHover}`}
-                    style={{ color: themeStyles.headerText }}
-                    title="编辑当前开场白正文"
-                  >
-                    <Edit3 className="w-4.5 h-4.5" />
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    {/* Themed Cancel Button */}
+              {/* WPS / 石墨 Style Format Ribbon Toolbar (When Editing) */}
+              {isEditing && (
+                <div 
+                  className="px-3 sm:px-8 py-1.5 border-t flex items-center gap-1 sm:gap-1.5 overflow-x-auto hide-scrollbar select-none text-xs"
+                  style={{
+                    borderColor: themeStyles.headerBorder,
+                    backgroundColor: isLight ? 'rgba(0, 0, 0, 0.02)' : 'rgba(255, 255, 255, 0.02)',
+                  }}
+                >
+                  {/* Dialogue Quotes */}
+                  {[
+                    { label: '“” 对话', prefix: '“', suffix: '”', title: '插入或包裹双引号对白' },
+                    { label: '『』', prefix: '『', suffix: '』', title: '插入或包裹直角引号' },
+                    { label: '（）', prefix: '（', suffix: '）', title: '插入或包裹动作/心声括号' },
+                    { label: '——', prefix: '——', suffix: '', title: '插入破折号' },
+                    { label: '……', prefix: '……', suffix: '', title: '插入省略号' },
+                    { label: '《》', prefix: '《', suffix: '》', title: '插入书名号' },
+                  ].map((btn) => (
                     <button
-                      onClick={() => setIsEditing(false)}
-                      className={`px-3.5 py-1.5 rounded-full border text-xs font-medium cursor-pointer transition-all active:scale-95 ${themeStyles.cancelBtnHover}`}
-                      style={{ 
-                        backgroundColor: themeStyles.cancelBtnBg,
-                        borderColor: themeStyles.cancelBtnBorder,
-                        color: themeStyles.cancelBtnText,
-                      }}
-                    >
-                      取消
-                    </button>
-                    {/* Themed Save Button */}
-                    <button
-                      onClick={handleSaveEdit}
-                      className={`px-3.5 py-1.5 rounded-full font-medium text-xs flex items-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer ${themeStyles.primaryBtnHover}`}
+                      key={btn.label}
+                      type="button"
+                      onClick={() => insertTextAtCursor(btn.prefix, btn.suffix)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer active:scale-95 shrink-0 ${themeStyles.chipHover}`}
                       style={{
-                        backgroundColor: themeStyles.primaryBtnBg,
-                        color: themeStyles.primaryBtnText,
+                        backgroundColor: themeStyles.chipBg,
+                        borderColor: themeStyles.chipBorder,
+                        color: themeStyles.chipText,
                       }}
+                      title={btn.title}
                     >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>保存</span>
+                      {btn.label}
                     </button>
-                  </div>
-                )}
+                  ))}
 
-                {/* More / Settings Button */}
-                <button
-                  onClick={() => setShowSettingsDrawer((v) => !v)}
-                  className={`p-2 rounded-lg transition-colors cursor-pointer active:scale-95 ${themeStyles.headerBtnHover}`}
-                  style={{ color: themeStyles.headerText }}
-                  title="高亮设置、渲染选项、阅读主题与更多操作"
-                >
-                  <Sliders className="w-4.5 h-4.5" />
-                </button>
-              </div>
+                  {/* Divider */}
+                  <div className="h-4 w-px shrink-0 mx-0.5 opacity-30" style={{ backgroundColor: themeStyles.headerBorder }} />
+
+                  {/* Typesetting Tools */}
+                  <button
+                    type="button"
+                    onClick={handleNovelIndent}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer active:scale-95 shrink-0 flex items-center gap-1 ${themeStyles.chipHover}`}
+                    style={{
+                      backgroundColor: themeStyles.chipBg,
+                      borderColor: themeStyles.chipBorder,
+                      color: themeStyles.chipText,
+                    }}
+                    title="标准小说排版：全文段落首行缩进两个全角空格"
+                  >
+                    <AlignLeft className="w-3 h-3 opacity-70" />
+                    <span>首行缩进</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCleanParagraphs}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer active:scale-95 shrink-0 flex items-center gap-1 ${themeStyles.chipHover}`}
+                    style={{
+                      backgroundColor: themeStyles.chipBg,
+                      borderColor: themeStyles.chipBorder,
+                      color: themeStyles.chipText,
+                    }}
+                    title="合并多余空行、规范段落排版"
+                  >
+                    <Wand2 className="w-3 h-3 opacity-70" />
+                    <span>整理空行</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleFlushLeft}
+                    className={`px-2 py-1 rounded-lg text-xs font-medium border transition cursor-pointer active:scale-95 shrink-0 ${themeStyles.chipHover}`}
+                    style={{
+                      backgroundColor: themeStyles.chipBg,
+                      borderColor: themeStyles.chipBorder,
+                      color: themeStyles.chipText,
+                    }}
+                    title="清除所有段落首行缩进"
+                  >
+                    顶格
+                  </button>
+
+                  {/* Divider */}
+                  <div className="h-4 w-px shrink-0 mx-0.5 opacity-30" style={{ backgroundColor: themeStyles.headerBorder }} />
+
+                  {/* RP Variables & Tags */}
+                  <button
+                    type="button"
+                    onClick={() => insertTextAtCursor('{{user}}')}
+                    className={`px-2 py-1 rounded-lg text-xs font-mono font-medium border transition cursor-pointer active:scale-95 shrink-0 ${themeStyles.chipHover}`}
+                    style={{
+                      backgroundColor: themeStyles.chipBg,
+                      borderColor: themeStyles.chipBorder,
+                      color: themeStyles.themeAccentColor,
+                    }}
+                    title="插入用户变量 {{user}}"
+                  >
+                    &#123;&#123;user&#125;&#125;
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => insertTextAtCursor('{{char}}')}
+                    className={`px-2 py-1 rounded-lg text-xs font-mono font-medium border transition cursor-pointer active:scale-95 shrink-0 ${themeStyles.chipHover}`}
+                    style={{
+                      backgroundColor: themeStyles.chipBg,
+                      borderColor: themeStyles.chipBorder,
+                      color: themeStyles.themeAccentColor,
+                    }}
+                    title="插入角色变量 {{char}}"
+                  >
+                    &#123;&#123;char&#125;&#125;
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => insertTextAtCursor('<think>\n', '\n</think>')}
+                    className={`px-2 py-1 rounded-lg text-xs font-mono font-medium border transition cursor-pointer active:scale-95 shrink-0 ${themeStyles.chipHover}`}
+                    style={{
+                      backgroundColor: themeStyles.chipBg,
+                      borderColor: themeStyles.chipBorder,
+                      color: themeStyles.chipText,
+                    }}
+                    title="插入思维链标签 <think>"
+                  >
+                    &lt;think&gt;
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => insertTextAtCursor('*', '*')}
+                    className={`px-2 py-1 rounded-lg text-xs font-serif italic border transition cursor-pointer active:scale-95 shrink-0 ${themeStyles.chipHover}`}
+                    style={{
+                      backgroundColor: themeStyles.chipBg,
+                      borderColor: themeStyles.chipBorder,
+                      color: themeStyles.chipText,
+                    }}
+                    title="插入或包裹动作斜体 *动作*"
+                  >
+                    *动作*
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => insertTextAtCursor('**', '**')}
+                    className={`px-2 py-1 rounded-lg text-xs font-bold border transition cursor-pointer active:scale-95 shrink-0 ${themeStyles.chipHover}`}
+                    style={{
+                      backgroundColor: themeStyles.chipBg,
+                      borderColor: themeStyles.chipBorder,
+                      color: themeStyles.chipText,
+                    }}
+                    title="插入或包裹粗体 **重点**"
+                  >
+                    **粗体**
+                  </button>
+                </div>
+              )}
             </motion.header>
           )}
         </AnimatePresence>
@@ -1005,212 +1445,291 @@ export function GreetingReaderModal({
           )}
         </AnimatePresence>
 
-        {/* Main Content Area - True Full-Screen Edge-to-Edge Canvas without Card Containers */}
+        {/* Main Content Area */}
         <div
           ref={containerRef}
-          className="flex-1 overflow-y-auto pt-[max(4.5rem,calc(env(safe-area-inset-top)+3rem))] sm:pt-[max(5rem,calc(env(safe-area-inset-top)+3.5rem))] pb-28 px-5 sm:px-8 md:px-12 custom-scrollbar flex flex-col items-center cursor-default"
+          className={`flex-1 overflow-y-auto pb-28 sm:pb-32 px-4 sm:px-8 md:px-12 custom-scrollbar flex flex-col items-center cursor-default ${
+            isEditing 
+              ? 'pt-[max(7.5rem,calc(env(safe-area-inset-top)+6.25rem))] sm:pt-[max(8rem,calc(env(safe-area-inset-top)+6.75rem))]' 
+              : 'pt-[max(4.5rem,calc(env(safe-area-inset-top)+3rem))] sm:pt-[max(5rem,calc(env(safe-area-inset-top)+3.5rem))]'
+          }`}
         >
-          {/* Centered Reading Column with comfortable readability */}
-          <div className="w-full max-w-2xl sm:max-w-3xl flex flex-col items-center my-4 sm:my-8">
-            
-            {/* Top Section: Avatar, Character Name, Opening Subtitle, Dashed Line */}
-            <div className="flex flex-col items-center text-center w-full">
-              {/* Circular Avatar */}
-              <div className="relative group select-none">
-                <img
-                  src={displayAvatar}
-                  alt={character.name || 'Character'}
-                  className="w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover shadow-xl border-2 transition-transform duration-300 group-hover:scale-105"
-                  style={{
-                    borderColor: isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)',
-                  }}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = getFallbackAvatar(character.name || 'Character');
-                  }}
-                />
-                <div className="absolute inset-0 rounded-full ring-2 ring-sky-400/20 pointer-events-none" />
-              </div>
-
-              {/* Character Name */}
-              <h1 className="mt-5 text-2xl sm:text-3xl tracking-wide font-bold" style={{ color: themeStyles.name }}>
-                {character.name || '无名'}
-              </h1>
-
-              {/* Subtitle - matching screenshot "开场白1" */}
-              <div className="mt-3 flex items-center gap-2">
-                <span className="text-sm sm:text-base tracking-widest font-semibold" style={{ color: themeStyles.subtitle }}>
-                  {currentGreeting.isFirst ? '开场白1' : `开场白${safeIndex + 1}`}
-                </span>
-                {!currentGreeting.isFirst && (
-                  <span
-                    className="text-[11px] px-1.5 py-0.5 rounded font-medium"
-                    style={{
-                      backgroundColor: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)',
-                      color: isLight ? '#475569' : '#cbd5e1',
-                    }}
-                  >
-                    备用
-                  </span>
-                )}
-                {settings.enableMarkdown && (
-                  <span
-                    className="text-[10px] px-1.5 py-0.5 rounded font-mono font-medium flex items-center gap-1 opacity-70"
-                    style={{
-                      backgroundColor: isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.08)',
-                      color: isLight ? '#64748b' : '#94a3b8',
-                    }}
-                    title="富文本 / Markdown 渲染已开启"
-                  >
-                    <Sparkles className="w-2.5 h-2.5" />
-                    渲染
-                  </span>
-                )}
-              </div>
-
-              {/* Dashed Separator Line */}
+          {isEditing ? (
+            /* Novel / Shimo / WPS Style Writer Manuscript Paper Canvas */
+            <div 
+              className="w-full max-w-3xl flex flex-col my-1 sm:my-3 rounded-2xl sm:rounded-3xl border transition-all"
+              style={{
+                backgroundColor: themeStyles.editorPaperBg,
+                borderColor: themeStyles.editorPaperBorder,
+                boxShadow: themeStyles.editorPaperShadow,
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Manuscript Top Title & Live Stats Header */}
               <div 
-                className="w-44 sm:w-64 my-6 border-t border-dashed" 
-                style={{ borderColor: themeStyles.dashed }} 
-              />
-            </div>
-
-            {/* Body Content (正文) */}
-            <div className="w-full mt-2 min-h-[160px]" onClick={(e) => isEditing && e.stopPropagation()}>
-              {isEditing ? (
-                <div className="flex flex-col gap-3 w-full">
-                  <div className="flex items-center justify-between text-xs opacity-70 px-1" style={{ color: themeStyles.text }}>
-                    <span>编辑正文 (支持 Markdown、表格、HTML、对话“”高亮与思维链 &lt;think&gt;)</span>
-                    <span>共 {editValue.length} 字</span>
-                  </div>
-                  <textarea
-                    value={editValue}
-                    onChange={(e) => setEditValue(e.target.value)}
-                    rows={14}
-                    className="w-full p-4 sm:p-5 rounded-2xl border border-sky-400/50 focus:outline-none focus:ring-2 focus:ring-sky-400/50 text-base leading-relaxed resize-y font-sans shadow-xs"
+                className="px-5 sm:px-8 py-3.5 border-b flex flex-wrap items-center justify-between gap-2 select-none"
+                style={{ borderColor: themeStyles.editorPaperBorder }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="font-bold text-sm sm:text-base tracking-wide" style={{ color: themeStyles.name }}>
+                    {currentGreeting.label}
+                  </span>
+                  <span 
+                    className="text-xs px-2.5 py-0.5 rounded-full font-mono font-medium shadow-2xs"
                     style={{
-                      backgroundColor: isLight ? '#ffffff' : 'rgba(0, 0, 0, 0.4)',
-                      color: isLight ? '#0f172a' : '#f8fafc',
+                      backgroundColor: themeStyles.chipBg,
+                      color: themeStyles.chipText,
+                      border: `1px solid ${themeStyles.chipBorder}`,
                     }}
-                    placeholder="在此输入角色开场白正文..."
-                    autoFocus
-                  />
-                  <div className="flex justify-end gap-2.5 pt-2">
-                    <button
-                      onClick={() => setIsEditing(false)}
-                      className={`px-4 py-2 rounded-full border text-xs sm:text-sm font-medium transition-all cursor-pointer active:scale-95 ${themeStyles.cancelBtnHover}`}
-                      style={{
-                        backgroundColor: themeStyles.cancelBtnBg,
-                        borderColor: themeStyles.cancelBtnBorder,
-                        color: themeStyles.cancelBtnText,
-                      }}
-                    >
-                      取消
-                    </button>
-                    <button
-                      onClick={handleSaveEdit}
-                      className={`px-5 py-2 rounded-full text-xs sm:text-sm font-medium shadow-sm transition-all cursor-pointer active:scale-95 ${themeStyles.primaryBtnHover}`}
-                      style={{
-                        backgroundColor: themeStyles.primaryBtnBg,
-                        color: themeStyles.primaryBtnText,
-                      }}
-                    >
-                      保存并应用
-                    </button>
-                  </div>
+                  >
+                    {stats.nonSpaceCount} 汉字 · {stats.paraCount} 段
+                  </span>
                 </div>
-              ) : currentGreeting.content && currentGreeting.content.trim() !== '' ? (
-                settings.enableMarkdown ? (
-                  /* Rich Markdown / HTML / Tags / Macros rendering mode */
-                  <div
-                    onClick={handleContainerClick}
-                    className={`greeting-reader-prose text-justify [text-align:justify] [text-justify:inter-ideograph] break-words break-all sm:break-words tracking-normal ${lineHeightClass} w-full`}
+
+                <div className="flex items-center gap-3 text-xs opacity-75 font-sans" style={{ color: themeStyles.drawerSubText }}>
+                  <span>共 {stats.charCount} 字符</span>
+                  <span>·</span>
+                  <span>预计阅读约 {stats.readMins} 分钟</span>
+                </div>
+              </div>
+
+              {/* Manuscript Canvas Area */}
+              <div className="p-5 sm:p-8 md:p-10 flex-1">
+                {isPreviewMode ? (
+                  <div 
+                    className={`greeting-reader-prose text-justify [text-align:justify] [text-justify:inter-ideograph] break-words tracking-normal ${lineHeightClass} w-full`}
                     style={{ fontSize: `${settings.fontSize}px`, color: themeStyles.text }}
                   >
                     <MessageContent 
-                      content={processedRenderedContent} 
+                      content={previewProcessedContent} 
                       themeMode={isLight ? 'light' : 'dark'} 
                       swipes={greetingsList.map(g => g.content)}
                       characterName={character.name}
                     />
                   </div>
                 ) : (
-                  /* Classic Paragraph Tokenizer mode */
-                  <div
-                    className={`text-justify [text-align:justify] [text-justify:inter-ideograph] break-words break-all sm:break-words tracking-normal ${lineHeightClass} w-full`}
-                    style={{ fontSize: `${settings.fontSize}px`, color: themeStyles.text }}
-                  >
-                    {currentGreeting.content.split(/\n+/).map((para, pIdx) => {
-                      const trimmed = para.trim();
-                      if (!trimmed) return null;
+                  <textarea
+                    ref={textareaRef}
+                    value={editValue}
+                    onChange={(e) => {
+                      setEditValue(e.target.value);
+                      pushHistory(e.target.value);
+                    }}
+                    onKeyDown={handleKeyDownInTextarea}
+                    placeholder="在此构思或编辑角色开场白...\n\n支持小说标准排版、标点对齐、Markdown、{{user}} / {{char}} 变量与 <think> 思维链"
+                    className="w-full bg-transparent border-0 ring-0 outline-none resize-none overflow-hidden leading-[1.9] text-justify font-sans"
+                    style={{
+                      minHeight: '52vh',
+                      fontSize: `${settings.fontSize}px`,
+                      color: themeStyles.text,
+                      caretColor: themeStyles.themeAccentColor,
+                    }}
+                    autoFocus
+                  />
+                )}
+              </div>
 
-                      const tokens = parseParagraphTokens(trimmed);
+              {/* Manuscript Bottom Control & Tips Footer */}
+              <div 
+                className="px-5 sm:px-8 py-3.5 border-t text-xs flex flex-wrap items-center justify-between gap-3 rounded-b-2xl sm:rounded-b-3xl"
+                style={{
+                  borderColor: themeStyles.editorPaperBorder,
+                  backgroundColor: themeStyles.chipBg,
+                  color: themeStyles.chipText,
+                }}
+              >
+                <div className="flex items-center gap-2 select-none opacity-80">
+                  <span className="hidden sm:inline">快捷键：按 Tab 自动缩进两格 · 按 Ctrl+S 快速保存 · 顶部工具栏即点即插</span>
+                  <span className="sm:hidden">点击顶部工具栏可一键插入对白与排版</span>
+                </div>
 
-                      return (
-                        <p key={pIdx} className="mb-4 sm:mb-5.5 last:mb-0">
-                          {tokens.map((token, tIdx) => {
-                            if (token.type === 'dialogue') {
-                              return (
-                                <span
-                                  key={tIdx}
-                                  className={`transition-colors ${getDialogueHighlightStyle()}`}
-                                >
-                                  {token.content}
-                                </span>
-                              );
-                            }
-                            if (token.type === 'action') {
-                              return (
-                                <span key={tIdx} className="transition-colors italic" style={{ color: themeStyles.action }}>
-                                  {token.content}
-                                </span>
-                              );
-                            }
-                            if (token.type === 'thought') {
-                              return (
-                                <span key={tIdx} className="transition-colors opacity-90" style={{ color: themeStyles.thought }}>
-                                  {token.content}
-                                </span>
-                              );
-                            }
-                            return <span key={tIdx}>{token.content}</span>;
-                          })}
-                        </p>
-                      );
-                    })}
-                  </div>
-                )
-              ) : (
-                <div className="py-10 flex flex-col items-center justify-center text-center opacity-70">
-                  <p className="text-sm italic" style={{ color: themeStyles.text }}>此开场白暂无内容</p>
+                <div className="flex items-center gap-2 ml-auto">
                   <button
-                    onClick={handleStartEdit}
-                    className="mt-3 px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer"
+                    type="button"
+                    onClick={() => setIsEditing(false)}
+                    className={`px-4 py-1.5 rounded-full border text-xs font-medium cursor-pointer transition-all active:scale-95 ${themeStyles.cancelBtnHover}`}
                     style={{
                       backgroundColor: themeStyles.cancelBtnBg,
-                      color: themeStyles.themeAccentColor,
-                      border: `1px solid ${themeStyles.cancelBtnBorder}`,
+                      borderColor: themeStyles.cancelBtnBorder,
+                      color: themeStyles.cancelBtnText,
                     }}
                   >
-                    点击开始编写正文
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveEdit}
+                    className={`px-5 py-1.5 rounded-full font-medium text-xs flex items-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer ${themeStyles.primaryBtnHover}`}
+                    style={{
+                      backgroundColor: themeStyles.primaryBtnBg,
+                      color: themeStyles.primaryBtnText,
+                    }}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>保存并应用</span>
                   </button>
                 </div>
-              )}
+              </div>
             </div>
+          ) : (
+            /* Centered Reading Column with comfortable readability */
+            <div className="w-full max-w-2xl sm:max-w-3xl flex flex-col items-center my-4 sm:my-8">
+              
+              {/* Top Section: Avatar, Character Name, Opening Subtitle, Dashed Line */}
+              <div className="flex flex-col items-center text-center w-full">
+                {/* Circular Avatar */}
+                <div className="relative group select-none">
+                  <img
+                    src={displayAvatar}
+                    alt={character.name || 'Character'}
+                    className="w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover shadow-xl border-2 transition-transform duration-300 group-hover:scale-105"
+                    style={{
+                      borderColor: isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)',
+                    }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = getFallbackAvatar(character.name || 'Character');
+                    }}
+                  />
+                  <div className="absolute inset-0 rounded-full ring-2 ring-sky-400/20 pointer-events-none" />
+                </div>
 
-            {/* Ending Ornament Line - matching user's screenshot "—— 备用开场白 #1 完 ——" */}
-            {!isEditing && (
+                {/* Character Name */}
+                <h1 className="mt-5 text-2xl sm:text-3xl tracking-wide font-bold" style={{ color: themeStyles.name }}>
+                  {character.name || '无名'}
+                </h1>
+
+                {/* Subtitle - matching screenshot "开场白1" */}
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="text-sm sm:text-base tracking-widest font-semibold" style={{ color: themeStyles.subtitle }}>
+                    {currentGreeting.isFirst ? '开场白1' : `开场白${safeIndex + 1}`}
+                  </span>
+                  {!currentGreeting.isFirst && (
+                    <span
+                      className="text-[11px] px-1.5 py-0.5 rounded font-medium"
+                      style={{
+                        backgroundColor: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)',
+                        color: isLight ? '#475569' : '#cbd5e1',
+                      }}
+                    >
+                      备用
+                    </span>
+                  )}
+                  {settings.enableMarkdown && (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded font-mono font-medium flex items-center gap-1 opacity-70"
+                      style={{
+                        backgroundColor: isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.08)',
+                        color: isLight ? '#64748b' : '#94a3b8',
+                      }}
+                      title="富文本 / Markdown 渲染已开启"
+                    >
+                      <Sparkles className="w-2.5 h-2.5" />
+                      渲染
+                    </span>
+                  )}
+                </div>
+
+                {/* Dashed Separator Line */}
+                <div 
+                  className="w-44 sm:w-64 my-6 border-t border-dashed" 
+                  style={{ borderColor: themeStyles.dashed }} 
+                />
+              </div>
+
+              {/* Body Content (正文) */}
+              <div className="w-full mt-2 min-h-[160px]">
+                {currentGreeting.content && currentGreeting.content.trim() !== '' ? (
+                  settings.enableMarkdown ? (
+                    /* Rich Markdown / HTML / Tags / Macros rendering mode */
+                    <div
+                      onClick={handleContainerClick}
+                      className={`greeting-reader-prose text-justify [text-align:justify] [text-justify:inter-ideograph] break-words break-all sm:break-words tracking-normal ${lineHeightClass} w-full`}
+                      style={{ fontSize: `${settings.fontSize}px`, color: themeStyles.text }}
+                    >
+                      <MessageContent 
+                        content={processedRenderedContent} 
+                        themeMode={isLight ? 'light' : 'dark'} 
+                        swipes={greetingsList.map(g => g.content)}
+                        characterName={character.name}
+                      />
+                    </div>
+                  ) : (
+                    /* Classic Paragraph Tokenizer mode */
+                    <div
+                      className={`text-justify [text-align:justify] [text-justify:inter-ideograph] break-words break-all sm:break-words tracking-normal ${lineHeightClass} w-full`}
+                      style={{ fontSize: `${settings.fontSize}px`, color: themeStyles.text }}
+                    >
+                      {currentGreeting.content.split(/\n+/).map((para, pIdx) => {
+                        const trimmed = para.trim();
+                        if (!trimmed) return null;
+
+                        const tokens = parseParagraphTokens(trimmed);
+
+                        return (
+                          <p key={pIdx} className="mb-4 sm:mb-5.5 last:mb-0">
+                            {tokens.map((token, tIdx) => {
+                              if (token.type === 'dialogue') {
+                                return (
+                                  <span
+                                    key={tIdx}
+                                    className={`transition-colors ${getDialogueHighlightStyle()}`}
+                                  >
+                                    {token.content}
+                                  </span>
+                                );
+                              }
+                              if (token.type === 'action') {
+                                return (
+                                  <span key={tIdx} className="transition-colors italic" style={{ color: themeStyles.action }}>
+                                    {token.content}
+                                  </span>
+                                );
+                              }
+                              if (token.type === 'thought') {
+                                return (
+                                  <span key={tIdx} className="transition-colors opacity-90" style={{ color: themeStyles.thought }}>
+                                    {token.content}
+                                  </span>
+                                );
+                              }
+                              return <span key={tIdx}>{token.content}</span>;
+                            })}
+                          </p>
+                        );
+                      })}
+                    </div>
+                  )
+                ) : (
+                  <div className="py-10 flex flex-col items-center justify-center text-center opacity-70">
+                    <p className="text-sm italic" style={{ color: themeStyles.text }}>此开场白暂无内容</p>
+                    <button
+                      onClick={handleStartEdit}
+                      className="mt-3 px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer"
+                      style={{
+                        backgroundColor: themeStyles.cancelBtnBg,
+                        color: themeStyles.themeAccentColor,
+                        border: `1px solid ${themeStyles.cancelBtnBorder}`,
+                      }}
+                    >
+                      点击开始编写正文
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Ending Ornament Line - matching user's screenshot "—— 备用开场白 #1 完 ——" */}
               <div className="mt-14 sm:mt-20 text-center select-none w-full">
                 <span className="text-xs sm:text-sm tracking-widest font-medium" style={{ color: themeStyles.footer }}>
                   {endOrnamentText}
                 </span>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
-        {/* Bottom Floating Navigation Toolbar: < 1 / 10 > | + */}
+        {/* Bottom Floating Navigation Toolbar: < 1 / 10 > | + (Only in reader mode) */}
         <AnimatePresence>
-          {(showControls || isEditing) && (
+          {(showControls && !isEditing) && (
             <motion.footer
               initial={{ y: 60, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}

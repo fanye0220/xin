@@ -608,20 +608,20 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
         )}
 
         {/* Primary Menu Rows */}
-        <div className="space-y-1">
+        <div className="space-y-0.5">
           {/* 聊天记录 */}
           <button
             onClick={() => {
               onSelectFolder('chatviewer');
               onClose();
             }}
-            className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl transition active:scale-[0.98] cursor-pointer ${getMenuItemClass(selectedFolderId === 'chatviewer')}`}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition active:scale-[0.98] cursor-pointer ${getMenuItemClass(selectedFolderId === 'chatviewer')}`}
           >
-            <div className="flex items-center gap-3.5">
-              <MessageSquare className="w-5 h-5 text-current stroke-[1.6]" />
-              <span className="text-[15px]">聊天记录</span>
+            <div className="flex items-center gap-3 min-w-0">
+              <MessageSquare className="w-4.5 h-4.5 text-current stroke-[1.7] shrink-0" />
+              <span className="text-sm font-medium truncate">聊天记录</span>
             </div>
-            <ChevronRight className={`w-4 h-4 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.65)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
+            <ChevronRight className={`w-4 h-4 shrink-0 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.65)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
           </button>
 
           {/* 自动打标 */}
@@ -630,13 +630,13 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
               onSelectFolder('autotagger');
               onClose();
             }}
-            className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl transition active:scale-[0.98] cursor-pointer ${getMenuItemClass(selectedFolderId === 'autotagger')}`}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition active:scale-[0.98] cursor-pointer ${getMenuItemClass(selectedFolderId === 'autotagger')}`}
           >
-            <div className="flex items-center gap-3.5">
-              <Tag className="w-5 h-5 text-current stroke-[1.6]" />
-              <span className="text-[15px]">自动打标</span>
+            <div className="flex items-center gap-3 min-w-0">
+              <Tag className="w-4.5 h-4.5 text-current stroke-[1.7] shrink-0" />
+              <span className="text-sm font-medium truncate">自动打标</span>
             </div>
-            <ChevronRight className={`w-4 h-4 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.65)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
+            <ChevronRight className={`w-4 h-4 shrink-0 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.65)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
           </button>
 
           {/* AI 智能推荐 */}
@@ -645,13 +645,13 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
               onSelectFolder('recommender');
               onClose();
             }}
-            className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl transition active:scale-[0.98] cursor-pointer ${getMenuItemClass(selectedFolderId === 'recommender')}`}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition active:scale-[0.98] cursor-pointer ${getMenuItemClass(selectedFolderId === 'recommender')}`}
           >
-            <div className="flex items-center gap-3.5">
-              <Sparkles className="w-5 h-5 text-current stroke-[1.6]" />
-              <span className="text-[15px]">智能推荐</span>
+            <div className="flex items-center gap-3 min-w-0">
+              <Sparkles className="w-4.5 h-4.5 text-current stroke-[1.7] shrink-0" />
+              <span className="text-sm font-medium truncate">智能推荐</span>
             </div>
-            <ChevronRight className={`w-4 h-4 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.65)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
+            <ChevronRight className={`w-4 h-4 shrink-0 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.65)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
           </button>
 
           {/* 重复卡检测 */}
@@ -660,13 +660,13 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
               onSelectFolder('duplicates');
               onClose();
             }}
-            className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl transition active:scale-[0.98] cursor-pointer ${getMenuItemClass(selectedFolderId === 'duplicates')}`}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition active:scale-[0.98] cursor-pointer ${getMenuItemClass(selectedFolderId === 'duplicates')}`}
           >
-            <div className="flex items-center gap-3.5">
-              <Copy className="w-5 h-5 text-current stroke-[1.8]" />
-              <span className="text-[15px]">重复卡检测</span>
+            <div className="flex items-center gap-3 min-w-0">
+              <Copy className="w-4.5 h-4.5 text-current stroke-[1.7] shrink-0" />
+              <span className="text-sm font-medium truncate">重复卡检测</span>
             </div>
-            <ChevronRight className={`w-4 h-4 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.65)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
+            <ChevronRight className={`w-4 h-4 shrink-0 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.65)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
           </button>
 
           {/* 回收站 */}
@@ -675,20 +675,20 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
               onSelectFolder('trash');
               onClose();
             }}
-            className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl transition active:scale-[0.98] cursor-pointer ${getMenuItemClass(selectedFolderId === 'trash')}`}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition active:scale-[0.98] cursor-pointer ${getMenuItemClass(selectedFolderId === 'trash')}`}
           >
-            <div className="flex items-center gap-3.5">
-              <Trash className="w-5 h-5 text-current stroke-[1.8]" />
-              <span className="text-[15px]">回收站</span>
+            <div className="flex items-center gap-3 min-w-0">
+              <Trash className="w-4.5 h-4.5 text-current stroke-[1.7] shrink-0" />
+              <span className="text-sm font-medium truncate">回收站</span>
             </div>
-            <ChevronRight className={`w-4 h-4 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.65)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
+            <ChevronRight className={`w-4 h-4 shrink-0 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.65)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
           </button>
         </div>
 
         {/* Folders Section */}
         <div className={`pt-2 ${isFullWallpaper ? '' : 'border-t border-slate-700/60'}`}>
           <div 
-            className={`flex items-center justify-between px-4 py-2 cursor-pointer group rounded-xl transition ${
+            className={`flex items-center justify-between px-3.5 py-2.5 cursor-pointer group rounded-xl transition ${
               isFullWallpaper 
                 ? (isDarkTheme ? 'hover:bg-white/10 !text-[#ffffff]' : 'hover:bg-black/5 !text-[#1c1c1e]') 
                 : 'hover:bg-slate-800/60 [.light-theme_&]:hover:bg-black/5'
@@ -699,16 +699,16 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
               setFoldersSectionExpanded(!current);
             }}
           >
-            <div className={`flex items-center gap-2 transition ${
+            <div className={`flex items-center gap-3 min-w-0 transition ${
               isFullWallpaper 
                 ? (isDarkTheme ? '!text-[#ffffff] drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]' : '!text-[#1c1c1e]') 
                 : 'text-slate-300 group-hover:text-slate-100 [.light-theme_&]:!text-[#1c1c1e]'
             }`}>
-              <div className={`transition-transform duration-200 ${foldersSectionExpanded ? 'rotate-90' : ''}`}>
+              <div className={`transition-transform duration-200 shrink-0 ${foldersSectionExpanded ? 'rotate-90' : ''}`}>
                 <ChevronRight className={`w-4 h-4 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.7)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
               </div>
-              <FolderIcon className={`w-4 h-4 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.85)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
-              <h2 className="text-sm font-medium">文件夹分类</h2>
+              <FolderIcon className={`w-4.5 h-4.5 stroke-[1.7] shrink-0 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.85)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
+              <h2 className="text-sm font-medium truncate">文件夹分类</h2>
             </div>
             <button
               onClick={(e) => {
@@ -718,7 +718,7 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
                 setEditName('');
                 setFoldersSectionExpanded(true);
               }}
-              className={`p-1 rounded transition ${
+              className={`p-1 rounded transition shrink-0 ${
                 isFullWallpaper 
                   ? (isDarkTheme ? '!text-[rgba(255,255,255,0.85)] hover:!text-[#ffffff] hover:bg-white/20' : '!text-[#1c1c1e] hover:bg-black/10') 
                   : 'text-slate-400 hover:text-slate-100 hover:bg-slate-700/50 [.light-theme_&]:!text-[#1c1c1e]'
@@ -746,7 +746,7 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
 
       {/* Bottom Area: Settings and Theme Toggle */}
       <div 
-        className="p-3 space-y-1 relative z-10 transition-colors"
+        className="p-3 space-y-0.5 relative z-10 transition-colors"
         style={
           isFullWallpaper
             ? {
@@ -774,36 +774,36 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
             onOpenSettings();
             onClose();
           }}
-          className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl transition cursor-pointer ${
+          className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition cursor-pointer ${
             isFullWallpaper
               ? (isDarkTheme ? '!text-[#ffffff] hover:bg-white/10 hover:!text-[#ffffff] drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]' : '!text-[#1c1c1e] hover:bg-black/5')
               : 'text-slate-300 hover:bg-slate-800/60 hover:text-slate-100 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:hover:!bg-black/5'
           }`}
         >
-          <div className="flex items-center gap-3">
-            <Settings className={`w-5 h-5 stroke-[1.6] ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.85)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
-            <span className="text-sm font-medium">设置</span>
+          <div className="flex items-center gap-3 min-w-0">
+            <Settings className={`w-4.5 h-4.5 stroke-[1.7] shrink-0 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.85)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
+            <span className="text-sm font-medium truncate">设置</span>
           </div>
-          <ChevronRight className={`w-4 h-4 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.6)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
+          <ChevronRight className={`w-4 h-4 shrink-0 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.6)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
         </button>
 
         <button
           onClick={toggleTheme}
-          className={`w-full flex items-center justify-between px-4 py-2 rounded-xl transition text-xs cursor-pointer ${
+          className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition cursor-pointer ${
             isFullWallpaper
               ? (isDarkTheme ? '!text-[#ffffff] hover:bg-white/10 hover:!text-[#ffffff] drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]' : '!text-[#1c1c1e] hover:bg-black/5')
               : 'text-slate-300 hover:bg-slate-800/60 hover:text-slate-100 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:hover:!bg-black/5'
           }`}
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             {isDarkTheme ? (
-              <Moon className="w-4 h-4 !text-white" />
+              <Moon className="w-4.5 h-4.5 stroke-[1.7] shrink-0 !text-white" />
             ) : (
-              <Sun className="w-4 h-4 !text-[#1c1c1e]" />
+              <Sun className="w-4.5 h-4.5 stroke-[1.7] shrink-0 !text-[#1c1c1e]" />
             )}
-            <span className="font-medium">{isDarkTheme ? '深色夜间模式' : '明亮浅色模式'}</span>
+            <span className="text-sm font-medium truncate">{isDarkTheme ? '深色夜间模式' : '明亮浅色模式'}</span>
           </div>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+          <span className={`text-[11px] px-2 py-0.5 rounded-full border font-normal shrink-0 ${
             isFullWallpaper
               ? (isDarkTheme ? '!text-[rgba(255,255,255,0.9)] bg-white/15 border-white/20' : '!text-[#1c1c1e] bg-black/5 border-black/10')
               : 'text-slate-400 bg-slate-800/80 border-slate-700/60 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:!border-black/10'

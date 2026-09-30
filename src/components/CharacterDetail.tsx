@@ -57,6 +57,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   const [tempVersion, setTempVersion] = useState<string>('');
   const [showGreetingReader, setShowGreetingReader] = useState(false);
   const [greetingReaderInitialIndex, setGreetingReaderInitialIndex] = useState(0);
+  const [greetingReaderEditMode, setGreetingReaderEditMode] = useState(false);
 
   const [avatarUrl, setAvatarUrl] = useState<string>('');
   const [resolvedModifiedDate, setResolvedModifiedDate] = useState<Date | null>(null);
@@ -1085,7 +1086,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               {activeTab === tab.id && (
                 <motion.div
                   layoutId="charDetailActiveTabIndicator"
-                  className="char-detail-tab-indicator pointer-events-none"
+                  className="char-detail-tab-indicator -z-10"
                   transition={{ type: "spring", stiffness: 450, damping: 35 }}
                 />
               )}
@@ -1192,6 +1193,12 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                     onSave={(val) => updateField('first_mes', val)} 
                     onOpenReader={() => {
                       setGreetingReaderInitialIndex(0);
+                      setGreetingReaderEditMode(false);
+                      setShowGreetingReader(true);
+                    }}
+                    onOpenEdit={() => {
+                      setGreetingReaderInitialIndex(0);
+                      setGreetingReaderEditMode(true);
                       setShowGreetingReader(true);
                     }}
                   />
@@ -1200,7 +1207,14 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                     <div className="flex items-center justify-between border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] pb-2 mb-3">
                       <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a]">备用开场白</h3>
                       <button 
-                        onClick={() => setIsAddingAlternate(true)} 
+                        onClick={() => {
+                          const currentAlts = Array.isArray(data.alternate_greetings) ? data.alternate_greetings : [];
+                          const newGreetings = [...currentAlts, ''];
+                          updateField('alternate_greetings', newGreetings);
+                          setGreetingReaderInitialIndex(newGreetings.length);
+                          setGreetingReaderEditMode(true);
+                          setShowGreetingReader(true);
+                        }} 
                         className="detail-purple-btn px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition cursor-pointer active:scale-95"
                       >
                         <Plus className="w-3.5 h-3.5" /> 添加
@@ -1216,6 +1230,12 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             character={character}
                             onOpenReader={() => {
                               setGreetingReaderInitialIndex(i + 1);
+                              setGreetingReaderEditMode(false);
+                              setShowGreetingReader(true);
+                            }}
+                            onOpenEdit={() => {
+                              setGreetingReaderInitialIndex(i + 1);
+                              setGreetingReaderEditMode(true);
                               setShowGreetingReader(true);
                             }}
                             onSave={(val) => {
@@ -1236,19 +1256,6 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                       )}
                     </div>
                   </div>
-
-                  <FullScreenTextModal
-                    isOpen={isAddingAlternate}
-                    title="添加备用开场白"
-                    content=""
-                    onClose={() => setIsAddingAlternate(false)}
-                    onSave={(val) => {
-                      const newGreetings = [...(data.alternate_greetings || []), val];
-                      updateField('alternate_greetings', newGreetings);
-                      setIsAddingAlternate(false);
-                    }}
-                    initialEditMode={true}
-                  />
               </div>
             )}
 
@@ -1470,6 +1477,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
           character={character}
           avatarUrl={avatarUrl}
           initialIndex={greetingReaderInitialIndex}
+          initialEditMode={greetingReaderEditMode}
           onUpdateGreeting={handleUpdateGreetings}
         />
       )}
@@ -1580,14 +1588,16 @@ function TextPreview({
   character,
   onSave, 
   initialEditMode, 
-  onOpenReader 
+  onOpenReader,
+  onOpenEdit 
 }: { 
   title: string; 
   content: string; 
   character?: CharacterCard | null;
   onSave?: (val: string) => void; 
   initialEditMode?: boolean; 
-  onOpenReader?: () => void 
+  onOpenReader?: () => void;
+  onOpenEdit?: () => void;
 }) {
   const [isExpanded, setIsExpanded] = useState(initialEditMode || false);
   const [isEditing, setIsEditing] = useState(initialEditMode || false);
@@ -1602,25 +1612,28 @@ function TextPreview({
 
   const handleEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsEditing(true);
-    if (!isExpanded) setIsExpanded(true);
+    if (onOpenEdit) {
+      onOpenEdit();
+    } else {
+      setIsEditing(true);
+      if (!isExpanded) setIsExpanded(true);
+    }
+  };
+
+  const handleCardClick = () => {
+    if (onOpenReader) {
+      onOpenReader();
+    } else {
+      setIsExpanded(prev => !prev);
+    }
   };
 
   return (
     <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
-      {/* Action bar for Reader and Editing */}
-      {(onSave || onOpenReader) && (
+      {/* Action bar for Editing */}
+      {onSave && (
         <div className="flex justify-end items-center gap-1.5 mb-1.5">
-          {onOpenReader && (
-            <button 
-              onClick={(e) => { e.stopPropagation(); onOpenReader(); }} 
-              className="text-[#60A5FA] [.light-theme_&]:!text-[#007AFF] hover:text-[#60A5FA]/80 flex items-center justify-center w-7 h-6 text-[10px] bg-[#60A5FA]/10 [.light-theme_&]:!bg-[#E7F2FF] rounded-md transition cursor-pointer font-semibold shadow-sm"
-              title="全屏阅读模式"
-            >
-              <BookOpen className="w-3.5 h-3.5" />
-            </button>
-          )}
-          {onSave && !isEditing && (
+          {!isEditing && (
             <button 
               onClick={handleEdit}
               className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-slate-800 cursor-pointer"
@@ -1656,7 +1669,7 @@ function TextPreview({
               取消
             </button>
             <button 
-              onClick={handleSave}
+              onClick={handleSave} 
               className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition cursor-pointer"
             >
               保存
@@ -1665,7 +1678,21 @@ function TextPreview({
         </div>
       ) : (
         <div className="w-full">
-          {isExpanded ? (
+          {onOpenReader ? (
+            /* When full-screen reader is available, clicking card directly opens full-screen reader */
+            <div 
+              className="group cursor-pointer w-full"
+              onClick={handleCardClick}
+            >
+              <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
+                <FormattedCardContent content={content} character={character} clampLines={3} />
+              </div>
+              <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-slate-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-slate-900 text-xs font-medium flex items-center gap-1 transition-colors">
+                <span>展开全文</span>
+                <ChevronDown className="w-3 h-3" />
+              </div>
+            </div>
+          ) : isExpanded ? (
             <div className="detail-card-text text-sm leading-relaxed pr-2 break-words w-full">
               <FormattedCardContent content={content} character={character} />
               <button 
@@ -1701,7 +1728,8 @@ function AlternateGreetingCard({
   character,
   onSave, 
   onDelete, 
-  onOpenReader 
+  onOpenReader,
+  onOpenEdit 
 }: { 
   key?: string | number; 
   index: number; 
@@ -1709,9 +1737,9 @@ function AlternateGreetingCard({
   character?: CharacterCard | null;
   onSave: (val: string) => void; 
   onDelete: () => void; 
-  onOpenReader?: () => void 
+  onOpenReader?: () => void;
+  onOpenEdit?: () => void;
 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(content);
 
@@ -1722,31 +1750,31 @@ function AlternateGreetingCard({
 
   const handleEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsEditing(true);
-    if (!isExpanded) setIsExpanded(true);
+    if (onOpenEdit) {
+      onOpenEdit();
+    } else {
+      setIsEditing(true);
+    }
+  };
+
+  const handleCardClick = () => {
+    if (onOpenReader) {
+      onOpenReader();
+    }
   };
 
   return (
     <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
       <div className="flex flex-wrap sm:flex-nowrap justify-between items-center gap-2 mb-1.5">
-        <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 text-sm truncate">
+        <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-slate-800 text-sm truncate">
           备用开场白 {index + 1}
         </h4>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {onOpenReader && (
-            <button 
-              onClick={(e) => { e.stopPropagation(); onOpenReader(); }} 
-              className="text-[#60A5FA] [.light-theme_&]:!text-[#007AFF] hover:text-[#60A5FA]/80 flex items-center justify-center w-7 h-6 text-[10px] bg-[#60A5FA]/10 [.light-theme_&]:!bg-[#E7F2FF] rounded-md transition cursor-pointer font-semibold"
-              title="全屏阅读模式"
-            >
-              <BookOpen className="w-3.5 h-3.5" />
-            </button>
-          )}
           {!isEditing && (
             <button 
               onClick={handleEdit} 
               className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-slate-800 cursor-pointer"
-              title="编辑"
+              title="全屏编辑"
             >
               <Edit2 className="w-3.5 h-3.5" />
             </button>
@@ -1786,7 +1814,7 @@ function AlternateGreetingCard({
               取消
             </button>
             <button 
-              onClick={handleSave}
+              onClick={handleSave} 
               className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition cursor-pointer"
             >
               保存
@@ -1795,30 +1823,18 @@ function AlternateGreetingCard({
         </div>
       ) : (
         <div className="w-full">
-          {isExpanded ? (
-            <div className="detail-card-text text-sm leading-relaxed pr-2 break-words w-full">
-              <FormattedCardContent content={content} character={character} />
-              <button 
-                onClick={(e) => { e.stopPropagation(); setIsExpanded(false); }}
-                className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] text-xs font-medium py-1.5 hover:bg-[#60A5FA]/10 [.light-theme_&]:hover:bg-[#60A5FA]/5 rounded-lg transition w-full cursor-pointer"
-              >
-                <ChevronUp className="w-3.5 h-3.5" /> 收起 
-              </button>
+          <div 
+            className="group cursor-pointer w-full"
+            onClick={handleCardClick}
+          >
+            <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
+              <FormattedCardContent content={content} character={character} clampLines={3} />
             </div>
-          ) : (
-            <div 
-              className="group cursor-pointer w-full"
-              onClick={() => setIsExpanded(true)}
-            >
-              <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
-                <FormattedCardContent content={content} character={character} clampLines={3} />
-              </div>
-              <div className="mt-1.5 text-[#60A5FA] text-xs font-medium flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                <span>展开全文</span>
-                <ChevronDown className="w-3 h-3" />
-              </div>
+            <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-slate-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-slate-900 text-xs font-medium flex items-center gap-1 transition-colors">
+              <span>展开全文</span>
+              <ChevronDown className="w-3 h-3" />
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>
@@ -1831,13 +1847,15 @@ function Section({
   content, 
   character,
   onSave, 
-  onOpenReader 
+  onOpenReader,
+  onOpenEdit 
 }: { 
   title: string; 
   content?: string; 
   character?: CharacterCard | null;
   onSave?: (val: string) => void; 
-  onOpenReader?: () => void 
+  onOpenReader?: () => void;
+  onOpenEdit?: () => void;
 }) {
   const [isAdding, setIsAdding] = useState(false);
 
@@ -1846,18 +1864,15 @@ function Section({
       <div className="flex items-center justify-between border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] pb-2 mb-3">
         <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a]">{title}</h3>
         <div className="flex items-center gap-1.5">
-          {onOpenReader && content && content.trim() !== '' && (
-            <button 
-              onClick={onOpenReader}
-              className="text-[#60A5FA] [.light-theme_&]:!text-[#007AFF] hover:text-[#60A5FA]/80 flex items-center gap-1 text-xs bg-[#60A5FA]/10 [.light-theme_&]:!bg-[#E7F2FF] px-2.5 py-1 rounded-lg transition cursor-pointer font-semibold shadow-sm"
-              title="全屏阅读模式"
-            >
-              <BookOpen className="w-3.5 h-3.5" /> 阅读
-            </button>
-          )}
           {(!content || content.trim() === '') && onSave && (
             <button 
-              onClick={() => setIsAdding(true)} 
+              onClick={() => {
+                if (onOpenEdit) {
+                  onOpenEdit();
+                } else {
+                  setIsAdding(true);
+                }
+              }} 
               className="detail-purple-btn px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition cursor-pointer active:scale-95"
             >
               <Plus className="w-3.5 h-3.5" /> 添加
@@ -1866,7 +1881,14 @@ function Section({
         </div>
       </div>
       {content && content.trim() !== '' ? (
-        <TextPreview title={title} content={content || ''} character={character} onSave={onSave} onOpenReader={onOpenReader} />
+        <TextPreview 
+          title={title} 
+          content={content || ''} 
+          character={character} 
+          onSave={onSave} 
+          onOpenReader={onOpenReader}
+          onOpenEdit={onOpenEdit}
+        />
       ) : (
         <p className="text-white/30 text-sm italic">暂无内容</p>
       )}

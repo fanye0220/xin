@@ -6,7 +6,6 @@ import { CloudSyncTab } from './CloudSyncTab';
 import { SidebarWallpaperTab } from './SidebarWallpaperTab';
 import { useSidebarWallpaper, saveSidebarWallpaperConfig } from '../lib/sidebarWallpaper';
 import { useBackHandler } from '../lib/useBackHandler';
-import { isAndroid } from '../lib/appBridge';
 
 interface Props {
   isOpen: boolean;
@@ -37,7 +36,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api' }: Props) {
   useEffect(() => {
     if (isOpen) {
       setSettings(getAISettings());
-      setActiveTab(!isAndroid() && initialTab === 'about' ? 'api' : initialTab);
+      setActiveTab(initialTab);
       setTestStatus('idle');
       setTestMsg('');
       setApiStatus('idle');
@@ -194,14 +193,12 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api' }: Props) {
             >
               侧栏壁纸
             </button>
-            {isAndroid() && (
-              <button 
-                onClick={() => setActiveTab('about')}
-                className={`pb-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'about' ? 'border-slate-100 text-slate-100' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
-              >
-                关于与更新
-              </button>
-            )}
+            <button 
+              onClick={() => setActiveTab('about')}
+              className={`pb-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'about' ? 'border-slate-100 text-slate-100' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+            >
+              关于与更新
+            </button>
           </div>
           
           <div className="flex-1 p-4 sm:p-6 space-y-4 sm:space-y-6 overflow-y-auto custom-scrollbar">
@@ -450,7 +447,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api' }: Props) {
               </motion.div>
             )}
 
-            {isAndroid() && activeTab === 'about' && (
+            {activeTab === 'about' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
                 <div className="flex flex-col items-center justify-center py-6 text-center bg-white/5 border border-white/10 rounded-2xl p-6">
                   <div className="w-14 h-14 rounded-2xl bg-white text-black flex items-center justify-center font-black text-2xl mb-3 shadow-md select-none tracking-tight">

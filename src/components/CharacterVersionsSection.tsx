@@ -972,10 +972,10 @@ export function CharacterVersionsSection({
       */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-1 pt-1">
         <div>
-          <span className="text-xs font-semibold text-slate-400 tracking-wider">
+          <span className="text-xs font-semibold text-slate-400 [.light-theme_&]:!text-slate-500 tracking-wider">
             {currentDateStr}
           </span>
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-100 mt-0.5">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-100 [.light-theme_&]:!text-slate-900 mt-0.5">
             {character.name || '角色版本'}
           </h2>
         </div>
@@ -986,7 +986,7 @@ export function CharacterVersionsSection({
             onClick={() => setIsCreatingSnapshot(prev => !prev)}
             className={`px-3 sm:px-3.5 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 ${
               isCreatingSnapshot 
-                ? 'bg-blue-600 text-white border border-blue-500 shadow-sm [.light-theme_&]:!border-blue-600' 
+                ? 'bg-zinc-800 text-white border border-zinc-700 shadow-sm [.light-theme_&]:!bg-slate-900 [.light-theme_&]:!border-slate-900' 
                 : 'soft-pill'
             }`}
             title="创建当前版本快照"
@@ -1110,10 +1110,10 @@ export function CharacterVersionsSection({
         {/* Tray Subheader */}
         <div className="flex items-center justify-between px-1 pb-1">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-slate-100">
+            <span className="text-sm font-bold text-slate-100 [.light-theme_&]:!text-slate-900">
               版本列表
             </span>
-            <span className="text-xs text-slate-400 font-medium">
+            <span className="text-xs text-slate-400 [.light-theme_&]:!text-slate-500 font-medium">
               共 {displayList.length > 0 ? displayList.length : 1} 个版本
             </span>
           </div>
@@ -1151,7 +1151,7 @@ export function CharacterVersionsSection({
 
             {/* Single Current Active Card */}
             <div className="relative">
-              <div className="soft-card rounded-2xl py-2.5 px-3.5 sm:py-3 sm:px-4 pl-4.5 sm:pl-5 relative overflow-hidden space-y-1.5 sm:space-y-2 border border-white/10">
+              <div className="soft-card rounded-2xl py-2.5 px-3.5 sm:py-3 sm:px-4 pl-4.5 sm:pl-5 relative overflow-hidden shadow-sm space-y-1.5 sm:space-y-2 border border-white/10 [.light-theme_&]:!border-slate-200 [.light-theme_&]:!shadow-xs">
                 <div className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-gradient-to-b from-emerald-400 to-teal-400 opacity-85 [.light-theme_&]:!bg-emerald-600 [.light-theme_&]:opacity-100 shadow-sm" />
 
                 <div className="flex items-center justify-between gap-2 relative z-10">
@@ -1250,8 +1250,8 @@ export function CharacterVersionsSection({
                       }}
                       className={`soft-card rounded-2xl py-2.5 px-3.5 sm:py-3 sm:px-4 pl-4.5 sm:pl-5 relative overflow-hidden transition-all duration-300 space-y-1.5 sm:space-y-2 cursor-pointer ${
                         isActive 
-                          ? 'border border-white/20 shadow-md ring-1 ring-emerald-500/20' 
-                          : 'active:scale-[0.99]'
+                          ? 'border border-white/20 shadow-md [.light-theme_&]:!border-slate-300 [.light-theme_&]:!shadow-xs' 
+                          : 'hover:shadow-md hover:border-slate-300 dark:hover:border-slate-600 active:scale-[0.99]'
                       }`}
                     >
                       {/* Sliding Left Vertical Accent Bar (Smoothly glides between cards when selected) */}

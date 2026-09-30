@@ -15,7 +15,10 @@ import {
   Moon,
   Sun,
   Wifi,
-  Battery
+  Battery,
+  Lock,
+  Unlock,
+  Check
 } from 'lucide-react';
 import { SidebarWallpaperConfig } from '../lib/sidebarWallpaper';
 import { extractTopImageColors } from '../lib/imageColorExtractor';
@@ -77,6 +80,10 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
     topEdgeColor: string;
     gradient: string;
   } | null>(null);
+
+  // Position Lock State (Locked by default to prevent accidental displacement)
+  const [isPositionLocked, setIsPositionLocked] = useState(true);
+  const [toastFeedback, setToastFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     const updateTheme = () => {
@@ -166,6 +173,9 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
       if (result) {
         const colors = await extractTopImageColors(result);
         setSampledColors(colors);
+        setIsPositionLocked(false); // Open adjustment mode for newly uploaded image
+        setToastFeedback('已加载新壁纸，现可自由拖拽缩放');
+        setTimeout(() => setToastFeedback(null), 2500);
 
         onChange({
           ...config,
@@ -189,6 +199,7 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
   };
 
   const handleClearWallpaper = () => {
+    setIsPositionLocked(true);
     onChange({
       ...config,
       enabled: false,
@@ -212,9 +223,9 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
     });
   };
 
-  // Touch pinch and pan handlers
+  // Touch pinch and pan handlers (Disabled when position is locked)
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (!hasWallpaper) return;
+    if (!hasWallpaper || isPositionLocked) return;
     if (e.touches.length === 1) {
       touchState.current = {
         startX: e.touches[0].clientX,
@@ -241,7 +252,7 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (!hasWallpaper) return;
+    if (!hasWallpaper || isPositionLocked) return;
     const rect = viewportRef.current?.getBoundingClientRect();
     if (!rect) return;
 
@@ -288,9 +299,9 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
     touchState.current.startDistance = undefined;
   };
 
-  // Mouse wheel zoom
+  // Mouse wheel zoom (Disabled when position is locked)
   const handleWheel = (e: React.WheelEvent) => {
-    if (!hasWallpaper) return;
+    if (!hasWallpaper || isPositionLocked) return;
     e.preventDefault();
     const delta = e.deltaY < 0 ? 0.08 : -0.08;
     const nextScale = Math.max(0.7, Math.min(4, currentScale + delta));
@@ -300,9 +311,9 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
     });
   };
 
-  // Mouse drag pan
+  // Mouse drag pan (Disabled when position is locked)
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (!hasWallpaper) return;
+    if (!hasWallpaper || isPositionLocked) return;
     mouseState.current = {
       isDown: true,
       startX: e.clientX,
@@ -315,7 +326,7 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
 
   useEffect(() => {
     const handleGlobalMouseMove = (e: MouseEvent) => {
-      if (!mouseState.current.isDown || !hasWallpaper) return;
+      if (!mouseState.current.isDown || !hasWallpaper || isPositionLocked) return;
       const rect = viewportRef.current?.getBoundingClientRect();
       if (!rect) return;
 
@@ -347,11 +358,14 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
       window.removeEventListener('mousemove', handleGlobalMouseMove);
       window.removeEventListener('mouseup', handleGlobalMouseUp);
     };
-  }, [hasWallpaper, config, onChange]);
+  }, [hasWallpaper, isPositionLocked, config, onChange]);
 
   const handleViewportClick = () => {
     if (!hasWallpaper) {
       fileInputRef.current?.click();
+    } else if (isPositionLocked) {
+      setToastFeedback('壁纸位置已锁定，点击下方【解锁调整】或【更换壁纸】可移动');
+      setTimeout(() => setToastFeedback(null), 2500);
     } else if (!touchState.current.hasMoved && !mouseState.current.hasMoved) {
       fileInputRef.current?.click();
     }
@@ -371,6 +385,14 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
         }}
         className="hidden"
       />
+
+      {/* Toast Feedback Notification Banner */}
+      {toastFeedback && (
+        <div className="mb-2 px-3 py-1 rounded-full bg-slate-800 text-slate-100 border border-slate-700 text-xs font-medium shadow-lg animate-in fade-in zoom-in-95 duration-150 flex items-center gap-1.5 z-30">
+          <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          <span>{toastFeedback}</span>
+        </div>
+      )}
 
       {/* Modern Smartphone Viewport: Slender 9:19.5 phone screen aspect ratio */}
       <div
@@ -400,13 +422,30 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
         className={`w-[218px] sm:w-[230px] aspect-[9/19.5] max-h-[55vh] sm:max-h-[58vh] rounded-[36px] sm:rounded-[40px] border-[5px] transition-all duration-200 relative overflow-hidden flex flex-col shadow-2xl touch-none ${
           isDarkTheme ? 'bg-slate-950 border-slate-800' : 'bg-[#ffffff] border-stone-300'
         } ${
-          hasWallpaper ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+          hasWallpaper && !isPositionLocked ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
         } ${
           isDraggingFile 
             ? 'border-blue-500 scale-[1.02] ring-4 ring-blue-500/30' 
             : 'ring-1 ring-black/5'
         }`}
       >
+        {/* Lock/Unlock Badge Overlay inside Viewport */}
+        {hasWallpaper && (
+          <div className="absolute top-2.5 right-3.5 z-20 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] text-white/90 flex items-center gap-1 border border-white/20 select-none pointer-events-none">
+            {isPositionLocked ? (
+              <>
+                <Lock className="w-2.5 h-2.5 text-emerald-400" />
+                <span className="text-emerald-300 font-medium">已锁定</span>
+              </>
+            ) : (
+              <>
+                <Unlock className="w-2.5 h-2.5 text-amber-300 animate-pulse" />
+                <span className="text-amber-200 font-medium">移动中</span>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Sharp Wallpaper Foreground Layer */}
         {hasWallpaper && (
           <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
@@ -559,7 +598,7 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
               <div className="flex items-center gap-2">
                 <ChevronRight className="w-3 h-3 opacity-60" />
                 <FolderIcon className="w-3.5 h-3.5 stroke-[1.8]" />
-                <span className="text-[11px] font-medium">文件夹分类</span>
+                <span className="text-[12px] font-medium">文件夹分类</span>
               </div>
               <Plus className="w-3 h-3 opacity-70" />
             </div>
@@ -589,7 +628,7 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
             <div className="flex items-center justify-between px-2 py-0.5 text-xs">
               <div className="flex items-center gap-2">
                 <Settings className="w-3.5 h-3.5 stroke-[1.8]" />
-                <span className="text-[11px] font-medium">设置</span>
+                <span className="text-[12px] font-medium">设置</span>
               </div>
               <ChevronRight className="w-3 h-3 opacity-60" />
             </div>
@@ -600,9 +639,9 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                 ) : (
                   <Sun className="w-3.5 h-3.5 stroke-[1.8] !text-[#1c1c1e]" />
                 )}
-                <span className="text-[11px] font-medium">{isDarkTheme ? '深色夜间模式' : '明亮浅色模式'}</span>
+                <span className="text-[12px] font-medium">{isDarkTheme ? '深色夜间模式' : '明亮浅色模式'}</span>
               </div>
-              <span className={`text-[8px] px-1.5 py-0.2 rounded-full border ${
+              <span className={`text-[9px] px-1.5 py-0.5 rounded-full border ${
                 isDarkTheme 
                   ? 'border-white/30 bg-white/10 text-white/90' 
                   : 'border-black/15 bg-black/5 !text-[#1c1c1e]'
@@ -629,11 +668,20 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
         )}
       </div>
 
-      {/* Pinch & Zoom Hint */}
+      {/* Pinch & Zoom Hint or Locked Status Hint */}
       {hasWallpaper && (
-        <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 select-none mt-2">
-          <PinchDiagonalIcon className="w-3.5 h-3.5 text-slate-400 shrink-0 stroke-[1.8]" />
-          <span>双指捏合背景，可调整图片展示区域</span>
+        <div className="flex items-center justify-center gap-1.5 text-[11px] select-none mt-2">
+          {isPositionLocked ? (
+            <div className="flex items-center gap-1.5 text-emerald-400 font-medium bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+              <Lock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>壁纸位置已锁定（点击【更换 / 调整壁纸】开放挪动）</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-amber-300 font-medium bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
+              <PinchDiagonalIcon className="w-3.5 h-3.5 text-amber-300 shrink-0 stroke-[1.8]" />
+              <span>可滑动拖拽或捏合调整，满意后请点击【确认壁纸位置】</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -717,27 +765,78 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
 
       {/* Action Buttons Beneath the Viewport */}
       {hasWallpaper ? (
-        <div className="flex items-center gap-2 mt-2">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="px-3 py-1 rounded-full text-xs font-medium text-slate-200 hover:text-white bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
-            title="更换其他壁纸图片"
-          >
-            <Upload className="w-3 h-3" />
-            <span>更换壁纸</span>
-          </button>
+        <div className="flex items-center gap-2 mt-2.5 flex-wrap justify-center">
+          {!isPositionLocked ? (
+            /* Editing / Unlocked Mode: Show Confirm Button */
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPositionLocked(true);
+                  setToastFeedback('已确认并锁定壁纸位置，防止误触挪动');
+                  setTimeout(() => setToastFeedback(null), 2500);
+                }}
+                className="px-4 py-1.5 rounded-full text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 border border-emerald-400/40 shadow-lg transition flex items-center gap-1.5 cursor-pointer active:scale-95 animate-pulse"
+                title="确认当前位置并锁定展示"
+              >
+                <Check className="w-4 h-4" />
+                <span>确认壁纸位置</span>
+              </button>
 
-          {hasCustomTransform && (
-            <button
-              type="button"
-              onClick={handleResetTransform}
-              className="px-2.5 py-1 rounded-full text-xs font-medium text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700/60 transition flex items-center gap-1 cursor-pointer active:scale-95"
-              title="复原缩放与位置"
-            >
-              <RotateCcw className="w-3 h-3" />
-              <span>复位</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  fileInputRef.current?.click();
+                }}
+                className="px-3 py-1.5 rounded-full text-xs font-medium text-slate-200 hover:text-white bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+                title="选择本地新图片"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>选择新图片</span>
+              </button>
+
+              {hasCustomTransform && (
+                <button
+                  type="button"
+                  onClick={handleResetTransform}
+                  className="px-2.5 py-1.5 rounded-full text-xs font-medium text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700/60 transition flex items-center gap-1 cursor-pointer active:scale-95"
+                  title="复原缩放与位置"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>复位</span>
+                </button>
+              )}
+            </>
+          ) : (
+            /* Locked Mode: Show Change Wallpaper button */
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPositionLocked(false);
+                  setToastFeedback('已解锁，现可滑动拖拽或捏合缩放图片，完成后请点击【确认壁纸位置】');
+                  setTimeout(() => setToastFeedback(null), 3000);
+                }}
+                className="px-4 py-1.5 rounded-full text-xs font-semibold text-slate-100 hover:text-white bg-blue-600 hover:bg-blue-500 border border-blue-400/30 shadow-md transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+                title="开启壁纸位置拖拽与调整模式"
+              >
+                <Unlock className="w-3.5 h-3.5" />
+                <span>更换 / 调整壁纸</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPositionLocked(false);
+                  fileInputRef.current?.click();
+                }}
+                className="px-3 py-1.5 rounded-full text-xs font-medium text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+                title="选择本地新图片"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>选择新图片</span>
+              </button>
+            </>
           )}
 
           <button
@@ -746,7 +845,7 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
               e.stopPropagation();
               handleClearWallpaper();
             }}
-            className="px-3 py-1 rounded-full text-xs font-medium text-rose-300 hover:text-rose-200 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+            className="px-3 py-1.5 rounded-full text-xs font-medium text-rose-300 hover:text-rose-200 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
             title="移除当前壁纸，恢复默认深色"
           >
             <Trash2 className="w-3 h-3" />
