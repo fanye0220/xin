@@ -47,15 +47,23 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
       <AnimatePresence>
         {errorToast && (
           <motion.div
-            initial={{ opacity: 0, y: -50, x: '-50%' }}
+            initial={{ opacity: 0, y: -20, x: '-50%' }}
             animate={{ opacity: 1, y: 0, x: '-50%' }}
-            exit={{ opacity: 0, y: -50, x: '-50%' }}
-            className="fixed top-6 left-1/2 z-[100] bg-red-500 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center gap-3"
+            exit={{ opacity: 0, y: -20, x: '-50%' }}
+            className="fixed top-5 left-1/2 z-[100] ios-toast ios-toast-error px-4 py-2.5 rounded-full flex items-center gap-2.5 max-w-[92vw] sm:max-w-md w-auto pointer-events-auto miu-skin"
+            role="alert"
+            aria-live="assertive"
           >
-            <AlertCircle className="w-5 h-5" />
-            <span className="font-medium">{errorToast}</span>
-            <button onClick={() => setErrorToast(null)} className="p-1 hover:bg-white/20 rounded-full transition">
-              <X className="w-4 h-4" />
+            <AlertCircle className="w-4 h-4 text-red-400 ios-toast-icon-error shrink-0" />
+            <span className="font-medium text-xs sm:text-sm truncate flex-1">
+              {errorToast}
+            </span>
+            <button 
+              onClick={() => setErrorToast(null)} 
+              className="p-1 hover:bg-white/10 text-slate-400 hover:text-white ios-toast-close rounded-full transition shrink-0 cursor-pointer ml-1"
+              title="关闭"
+            >
+              <X className="w-3.5 h-3.5" />
             </button>
           </motion.div>
         )}
@@ -64,45 +72,46 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
       <AnimatePresence>
         {shouldShow && (
           <motion.div
-            initial={{ opacity: 0, y: -50, x: '-50%' }}
+            initial={{ opacity: 0, y: -20, x: '-50%' }}
             animate={{ opacity: 1, y: 0, x: '-50%' }}
-            exit={{ opacity: 0, y: -50, x: '-50%' }}
+            exit={{ opacity: 0, y: -20, x: '-50%' }}
             onClick={onClick}
-            className="fixed top-12 sm:top-20 left-1/2 z-50 bg-slate-800/90 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-3 sm:p-4 cursor-pointer hover:bg-slate-700/90 transition-colors w-[90%] max-w-[16rem] sm:w-72"
+            className={`fixed ${errorToast ? 'top-16' : 'top-5'} left-1/2 z-50 bg-slate-900/90 backdrop-blur-xl border border-white/15 shadow-[0_8px_30px_rgba(0,0,0,0.25)] rounded-full px-4 py-2 sm:px-4.5 sm:py-2 flex items-center gap-2.5 max-w-[92vw] w-auto cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all overflow-hidden group select-none miu-skin [.light-theme_&]:bg-slate-800/90 [.light-theme_&]:border-white/10 [.light-theme_&]:shadow-2xl [.light-theme_&]:hover:bg-slate-700/90`}
+            title="点击打开打标面板"
           >
-            <div className="flex items-center gap-3 mb-2">
-              {isPaused ? (
-                <Pause className="w-5 h-5 text-yellow-400" />
-              ) : hasError ? (
-                <AlertCircle className="w-5 h-5 text-red-400" />
-              ) : (
-                <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
-              )}
-              <div className="flex-1">
-                <h4 className="text-sm font-semibold text-white">
-                  {isPaused ? '自动打标已暂停' : hasError ? '自动打标遇到错误' : '正在后台打标...'}
-                </h4>
-                <p className="text-xs text-white/50">
-                  进度: {progress.current} / {progress.total} (成功: {progress.success})
-                </p>
-              </div>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  import('./lib/taggerState').then(({ taggerState }) => taggerState.dismiss());
-                }}
-                className="p-1 hover:bg-white/20 rounded-full transition text-white/60 hover:text-white shrink-0"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="w-full bg-black/40 rounded-full h-1.5 overflow-hidden relative">
+            {isPaused ? (
+              <Pause className="w-4 h-4 text-yellow-400 shrink-0 [.light-theme_&]:text-yellow-400" />
+            ) : hasError ? (
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 [.light-theme_&]:text-red-400" />
+            ) : (
+              <Loader2 className="w-4 h-4 text-blue-400 animate-spin shrink-0 [.light-theme_&]:text-blue-400" />
+            )}
+            
+            <span className="text-xs sm:text-sm font-medium text-slate-100 whitespace-nowrap [.light-theme_&]:text-white">
+              {isPaused ? '打标已暂停' : hasError ? '打标遇到错误' : '自动打标中'}
+            </span>
+
+            <span className="text-[11px] font-semibold text-blue-300 bg-blue-500/20 [.light-theme_&]:!border [.light-theme_&]:!border-purple-200/80 px-2 py-0.5 rounded-full shrink-0 [.light-theme_&]:text-white/60 [.light-theme_&]:bg-white/10">
+              {progress.current}/{progress.total}
+            </span>
+
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                import('./lib/taggerState').then(({ taggerState }) => taggerState.dismiss());
+              }}
+              className="p-1 hover:bg-white/20 rounded-full transition text-white/50 hover:text-white shrink-0 ml-0.5 [.light-theme_&]:hover:bg-white/20 [.light-theme_&]:text-white/60 [.light-theme_&]:hover:text-white"
+              title="隐藏悬浮窗"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+
+            {/* 微型内置进度条 */}
+            <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-blue-500/10 overflow-hidden [.light-theme_&]:bg-black/40">
               <div 
-                className={`h-full transition-all duration-500 relative ${isPaused ? 'bg-yellow-500' : hasError ? 'bg-red-500' : 'bg-gradient-to-r from-purple-500 to-blue-500'}`}
+                className={`h-full transition-all duration-300 ${isPaused ? 'bg-amber-500 [.light-theme_&]:bg-yellow-500' : hasError ? 'bg-red-500 [.light-theme_&]:bg-red-500' : 'bg-gradient-to-r from-[#a855f7] via-[#ec4899] to-[#a855f7] [.light-theme_&]:bg-gradient-to-r [.light-theme_&]:from-blue-500 [.light-theme_&]:to-blue-500'}`}
                 style={{ width: `${(progress.current / Math.max(1, progress.total)) * 100}%` }}
-              >
-                <div className="absolute inset-0 bg-white/20 animate-pulse" />
-              </div>
+              />
             </div>
           </motion.div>
         )}
@@ -186,13 +195,25 @@ export default function App() {
     return () => window.removeEventListener('charactersUpdated', handleCharactersUpdated);
   }, []);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'api' | 'st' | 'cloud' | 'wallpaper' | 'about'>('api');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isLightMode, setIsLightMode] = useState(() => document.documentElement.classList.contains('light-theme'));
+
+  useEffect(() => {
+    const checkTheme = () => {
+      setIsLightMode(document.documentElement.classList.contains('light-theme'));
+    };
+    checkTheme();
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
   const [globalChatViewerId, setGlobalChatViewerId] = useState<string | null>(null);
   const [updateInfo, setUpdateInfo] = useState<VersionInfo | null>(null);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
 
   useEffect(() => {
-    // 启动 3 秒后静默检测远端版本更新（仅在安卓移动端运行）
+    // Web 端保持纯净，不检查 Android 更新；仅 Android 客户端执行。
     if (!isAndroid()) return;
     const timer = setTimeout(async () => {
       const ignoredVer = localStorage.getItem('miu_ignored_version');
@@ -373,17 +394,17 @@ export default function App() {
   if (isMigrating && migrationProgress.total > 0) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-6">
-        <div className="w-16 h-16 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mb-6" />
+        <div className="w-16 h-16 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mb-6" />
         <h2 className="text-2xl font-bold mb-2">正在优化数据库...</h2>
         <p className="text-slate-400 mb-6 text-center max-w-md">
           检测到您有大量角色卡，系统正在进行底层存储优化以提升加载速度。这可能需要几分钟时间，请勿关闭页面。
         </p>
-        <p className="font-mono text-purple-400 font-bold text-lg mb-2">
+        <p className="font-mono text-blue-400 font-bold text-lg mb-2">
           {migrationProgress.current} / {migrationProgress.total}
         </p>
         <div className="w-full max-w-md bg-white/10 rounded-full h-3 overflow-hidden">
           <div 
-            className="bg-gradient-to-r from-purple-500 to-pink-500 h-full transition-all duration-300"
+            className="bg-gradient-to-r from-blue-500 to-pink-500 h-full transition-all duration-300"
             style={{ width: `${(migrationProgress.current / migrationProgress.total) * 100}%` }}
           />
         </div>
@@ -392,7 +413,9 @@ export default function App() {
   }
 
   return (
-    <div className="font-sans antialiased text-white bg-slate-900 fixed inset-0 flex overflow-hidden">
+    <div className={`font-sans antialiased fixed inset-0 flex overflow-hidden transition-colors duration-200 ${
+      isLightMode ? 'light-theme bg-[#f7f7f9] text-[#1c1c1e]' : 'bg-[#0a0a0c] text-white'
+    }`}>
       
       {/* Sidebar Drawer */}
       <AnimatePresence>
@@ -403,7 +426,9 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsSidebarOpen(false)}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+              className={`fixed inset-0 backdrop-blur-sm z-40 transition-colors ${
+                isLightMode ? 'bg-black/25' : 'bg-black/60'
+              }`}
             />
             
             <FolderSidebar 
@@ -413,7 +438,10 @@ export default function App() {
                 setSelectedCharId(null);
               }}
               onClose={() => setIsSidebarOpen(false)}
-              onOpenSettings={() => setIsSettingsOpen(true)}
+              onOpenSettings={(tab) => {
+                setSettingsInitialTab(tab || 'api');
+                setIsSettingsOpen(true);
+              }}
               onFolderChanged={() => setRefreshKey(prev => prev + 1)}
             />
           </>
@@ -512,6 +540,7 @@ export default function App() {
 
       <SettingsModal
         isOpen={isSettingsOpen}
+        initialTab={settingsInitialTab}
         onClose={() => { setIsSettingsOpen(false); setRefreshKey(prev => prev + 1); }}
       />
 
@@ -536,7 +565,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <SyncWidget />
+      <SyncWidget isLightMode={isLightMode} />
     </div>
   );
 }

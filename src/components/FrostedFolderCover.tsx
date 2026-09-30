@@ -15,6 +15,7 @@ interface Props {
   previews?: (FolderPreviewItem | string)[];
   viewMode?: "grid" | "list" | "masonry";
   className?: string;
+  isSelected?: boolean;
 }
 
 export const FrostedFolderCover = React.memo(function FrostedFolderCover({
@@ -22,6 +23,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
   previews = [],
   viewMode = "grid",
   className = "",
+  isSelected = false,
 }: Props) {
   const [customAvatarUrl, setCustomAvatarUrl] = useState<string | null>(null);
 
@@ -111,6 +113,9 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
             </div>
           </div>
         )}
+        {isSelected && (
+          <div className="absolute inset-0 bg-black/45 rounded-xl pointer-events-none z-20" />
+        )}
       </div>
     );
   }
@@ -121,7 +126,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
 
   return (
     <div
-      className={`relative w-full ${viewMode === "masonry" ? "h-[200px] min-h-[160px]" : "aspect-[2/3]"} select-none group flex items-center justify-center p-1.5 ${className}`}
+      className={`relative w-full aspect-[2/3] select-none group flex items-center justify-center p-1.5 ${className}`}
     >
       <div className="relative w-full h-full flex items-center justify-center transform-gpu">
         {/* 1. Back Layer (Tilted 2nd Card / Ghost Silhouette) */}
@@ -149,10 +154,16 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
                 }}
               />
               <div className="absolute inset-0 bg-black/35 border border-white/20 rounded-2xl" />
+              {isSelected && (
+                <div className="absolute inset-0 bg-black/45 rounded-2xl pointer-events-none z-10" />
+              )}
             </>
           ) : (
             /* Ghost Silhouette Frame */
             <div className="w-full h-full rounded-2xl border-2 border-dashed border-white/20 bg-white/[0.04]" />
+          )}
+          {isSelected && !hasBackCard && (
+            <div className="absolute inset-0 bg-black/45 rounded-2xl pointer-events-none z-10" />
           )}
         </div>
 
@@ -178,15 +189,19 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
           ) : (
             /* Empty Card Background */
             <div className="w-full h-full rounded-2xl border-2 border-dashed border-white/25 bg-white/[0.04] backdrop-blur-xs flex flex-col items-center justify-center text-white/40">
-              <Sparkles className="w-7 h-7 opacity-50 mb-1.5 group-hover:scale-110 group-hover:text-purple-300 transition-all" />
+              <Sparkles className="w-7 h-7 opacity-50 mb-1.5 group-hover:scale-110 group-hover:text-blue-300 transition-all" />
               <span className="text-[11px] font-medium tracking-wide text-white/50">无封面</span>
             </div>
+          )}
+          {isSelected && (
+            <div className="absolute inset-0 bg-black/45 rounded-2xl pointer-events-none z-10" />
           )}
         </div>
       </div>
     </div>
   );
 }, (prevProps, nextProps) => {
+  if (prevProps.isSelected !== nextProps.isSelected) return false;
   if (prevProps.viewMode !== nextProps.viewMode) return false;
   if (prevProps.className !== nextProps.className) return false;
   if (prevProps.folder.id !== nextProps.folder.id) return false;
@@ -223,7 +238,7 @@ export const FrostedNewFolderCover = React.memo(function FrostedNewFolderCover({
 
   return (
     <div
-      className={`relative w-full ${viewMode === "masonry" ? "h-[200px] min-h-[160px]" : "aspect-[2/3]"} select-none group cursor-pointer flex items-center justify-center p-1.5`}
+      className="relative w-full aspect-[2/3] select-none group cursor-pointer flex items-center justify-center p-1.5"
     >
       <div className="relative w-full h-full flex items-center justify-center transform-gpu">
         {/* Back Ghost Card */}
@@ -237,11 +252,11 @@ export const FrostedNewFolderCover = React.memo(function FrostedNewFolderCover({
         />
         {/* Front Ghost Card */}
         <div
-          className="absolute w-[94%] h-[95%] rounded-2xl border-2 border-dashed border-white/25 bg-white/[0.04] backdrop-blur-xs flex flex-col items-center justify-center p-3 text-center transition-all duration-300 group-hover:border-purple-400/50 group-hover:bg-purple-500/10 group-hover:scale-[1.02] group-hover:-translate-y-1 shadow-lg text-white/40"
+          className="absolute w-[94%] h-[95%] rounded-2xl border-2 border-dashed border-white/25 bg-white/[0.04] backdrop-blur-xs flex flex-col items-center justify-center p-3 text-center transition-all duration-300 group-hover:border-blue-400/50 group-hover:bg-blue-500/10 group-hover:scale-[1.02] group-hover:-translate-y-1 shadow-lg text-white/40"
           style={{ zIndex: 2, willChange: "transform" }}
         >
-          <Plus className="w-7 h-7 opacity-50 mb-1.5 group-hover:scale-110 group-hover:text-purple-300 transition-all" />
-          <span className="text-[11px] font-medium tracking-wide text-white/50 group-hover:text-purple-200 transition-colors">新建</span>
+          <Plus className="w-7 h-7 opacity-50 mb-1.5 group-hover:scale-110 group-hover:text-blue-300 [.light-theme_&]:group-hover:!text-blue-600 transition-all" />
+          <span className="text-[11px] font-medium tracking-wide text-white/50 group-hover:text-blue-300 [.light-theme_&]:group-hover:!text-blue-600 transition-colors">新建</span>
         </div>
       </div>
     </div>

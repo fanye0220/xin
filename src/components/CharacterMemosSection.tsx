@@ -76,7 +76,7 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
     );
 }
 
-export function CharacterMemosSection({ characterId }: { characterId: string }) {
+export function CharacterMemosSection({ characterId, isLightMode = false }: { characterId: string; isLightMode?: boolean }) {
   const [memos, setMemos] = useState<CharacterMemo[]>([]);
   const [isAddingMode, setIsAddingMode] = useState(false);
   const [isReorderingMode, setIsReorderingMode] = useState(false);
@@ -193,31 +193,34 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
   return (
     <div className="space-y-6 pb-20">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <h3 className="text-xl font-bold text-white flex items-center gap-2">
-           <StickyNote className="w-5 h-5 text-blue-400 shrink-0" />
+        <h3 className="text-xl font-bold memo-section-title">
            <span className="truncate">备忘录与剧场</span>
         </h3>
         <div className="flex gap-2 self-start sm:self-auto w-full sm:w-auto">
             <button
                 onClick={() => setIsReorderingMode(!isReorderingMode)}
-                className={`flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 ${isReorderingMode ? 'bg-green-500/20 text-green-300 border-green-500/30' : 'bg-white/10 text-white border-white/15'} hover:bg-white/15 border rounded-full text-xs font-medium transition active:scale-95 shadow-sm flex items-center gap-1 sm:gap-1.5 cursor-pointer`}
+                className={`flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-full text-xs font-medium transition active:scale-95 shadow-xs flex items-center gap-1 sm:gap-1.5 cursor-pointer ${
+                  isReorderingMode 
+                    ? 'bg-blue-600 text-white border border-blue-500 shadow-sm' 
+                    : 'soft-pill'
+                }`}
             >
                 <Edit className="w-3.5 h-3.5" />
                 <span>{isReorderingMode ? '完成' : '排序'}</span>
             </button>
             <button
                 onClick={() => setIsAddingMode(true)}
-                className="flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 rounded-full text-xs font-medium transition active:scale-95 shadow-sm flex items-center gap-1 sm:gap-1.5 cursor-pointer"
+                className="soft-pill flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-full text-xs font-medium transition active:scale-95 shadow-xs flex items-center gap-1 sm:gap-1.5 cursor-pointer"
             >
                 <Plus className="w-3.5 h-3.5" />
                 <span>笔记</span>
             </button>
             <button
                 onClick={() => fileInputRef.current?.click()}
-                className="flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 bg-white/10 hover:bg-white/15 text-white border border-white/15 rounded-full text-xs font-medium transition active:scale-95 shadow-sm flex items-center gap-1 sm:gap-1.5 cursor-pointer"
+                className="soft-pill flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-full text-xs font-medium transition active:scale-95 shadow-xs flex items-center gap-1 sm:gap-1.5 cursor-pointer"
             >
                 <FileUp className="w-3.5 h-3.5" />
-                <span>更多</span>
+                <span>导入/上传</span>
             </button>
         </div>
         <input 
@@ -247,9 +250,9 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
               className="bg-slate-900 border border-white/10 shadow-2xl rounded-2xl flex flex-col w-full max-h-[85vh] max-w-3xl overflow-hidden"
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex-none p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/20">
+               <div className="flex-none p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/20">
                  <h3 className="font-bold text-lg text-white flex items-center gap-2">
-                    <Plus className="w-5 h-5 text-purple-400" />
+                    <Plus className="w-5 h-5 text-white/80" />
                     新建笔记
                  </h3>
                  <button onClick={() => setIsAddingMode(false)} className="p-2 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white rounded-xl transition">
@@ -258,7 +261,7 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
               </div>
               <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-900 flex flex-col gap-4">
                 <textarea 
-                  className="flex-1 bg-white/5 border border-white/10 rounded-xl p-4 text-white resize-none min-h-[200px] focus:outline-none focus:border-purple-500/50"
+                  className="flex-1 bg-white/5 border border-white/10 rounded-xl p-4 text-white resize-none min-h-[200px] focus:outline-none focus:border-white/40"
                   placeholder="在这里写下脑洞、小剧场或设定补充（支持 Markdown）"
                   value={newText}
                   onChange={e => setNewText(e.target.value)}
@@ -274,7 +277,7 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
                   </button>
                   <button 
                     onClick={handleCreateTextMemo}
-                    className="px-5 py-2.5 rounded-xl text-sm bg-purple-500 hover:bg-purple-600 text-white transition font-medium shadow-lg shadow-purple-500/20 disabled:opacity-50"
+                    className="px-5 py-2.5 rounded-xl text-sm bg-white hover:bg-white/90 text-black font-semibold transition shadow-sm disabled:opacity-50"
                     disabled={!newText.trim()}
                   >
                       保存笔记
@@ -288,9 +291,9 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
 
       {memos.length === 0 && !isAddingMode ? (
          <div className="flex flex-col items-center justify-center p-12 bg-white/5 rounded-2xl border border-white/10 text-center border-dashed border-2">
-            <StickyNote className="w-12 h-12 text-white/20 mb-4" />
-            <h4 className="text-white/80 font-medium mb-2">暂无备忘信息</h4>
-            <p className="text-white/40 text-sm max-w-sm">
+            <StickyNote className="w-12 h-12 mb-4 memo-empty-icon" />
+            <h4 className="font-semibold text-base mb-2 memo-empty-title">暂无备忘信息</h4>
+            <p className="text-sm max-w-sm memo-empty-desc">
               你可以用它来记录设定补充、剧本大纲、贴图或是存储写好的小剧场。
             </p>
          </div>
@@ -306,13 +309,13 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
                       key={memo.id} 
                       value={memo} 
                       dragListener={isReorderingMode}
-                      className={`bg-white/5 border ${memo.isPinned ? 'border-purple-500/50 shadow-[0_0_15px_rgba(168,85,247,0.15)]' : 'border-white/10'} rounded-xl overflow-hidden group break-inside-avoid shadow-lg relative ${isReorderingMode ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                      className={`bg-white/5 border ${memo.isPinned ? 'border-blue-500/50 shadow-[0_0_15px_rgba(168,85,247,0.15)]' : 'border-white/10'} rounded-xl overflow-hidden group break-inside-avoid shadow-lg relative ${isReorderingMode ? 'cursor-grab active:cursor-grabbing' : ''}`}
                   >
                                             {memo.type !== 'file' && (
                           <div className="absolute top-3 right-3 flex gap-2 z-10 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                               <button
                                   onClick={() => handleTogglePin(memo)}
-                                 className={`p-2 bg-black/40 ${memo.isPinned ? 'text-purple-400' : 'text-white/50 hover:text-white'} hover:bg-white/10 rounded-lg transition`}
+                                 className={`p-2 bg-black/40 ${memo.isPinned ? 'text-blue-400' : 'text-white/50 hover:text-white'} hover:bg-white/10 rounded-lg transition`}
                                  title={memo.isPinned ? "取消置顶" : "置顶记录"}
                               >
                                  <Pin className={`w-4 h-4 ${memo.isPinned ? 'fill-current' : ''}`} />
@@ -327,7 +330,7 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
                       )}
                       {memo.type !== 'file' && memo.isPinned && (
                           <div className="absolute top-3 right-3 flex gap-2 z-10 hidden sm:flex sm:group-hover:opacity-0 transition-opacity pointer-events-none">
-                              <div className="p-2 text-purple-400">
+                              <div className="p-2 text-blue-400">
                                  <Pin className="w-4 h-4 fill-current" />
                               </div>
                           </div>
@@ -358,7 +361,7 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
                                 <span className="text-xs text-white/60">{new Date(memo.createdAt).toLocaleString()}</span>
                              </div>
                              <div className="absolute bottom-3 right-3 flex gap-2 transition opacity-100 md:opacity-0 md:group-hover:opacity-100">
-                                 <button onClick={() => setViewingMemoFile(memo)} className="p-1.5 bg-black/40 hover:bg-purple-500 text-white/70 hover:text-white rounded-lg transition" title="查看数据">
+                                 <button onClick={() => setViewingMemoFile(memo)} className="p-1.5 bg-black/40 hover:bg-blue-500 text-white/70 hover:text-white rounded-lg transition" title="查看数据">
                                     <Eye className="w-4 h-4" />
                                  </button>
                                  
@@ -371,7 +374,7 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
 
                       {memo.type === 'file' && memo.blob && (
                           <div className="p-4 sm:p-5 flex items-center gap-4">
-                              <div className="w-12 h-12 bg-blue-500/20 text-blue-400 rounded-xl flex items-center justify-center shrink-0 shadow-inner">
+                              <div className="w-12 h-12 bg-white/10 text-white/80 [.light-theme_&]:bg-stone-200 [.light-theme_&]:text-stone-800 rounded-xl flex items-center justify-center shrink-0 shadow-inner">
                                   <File className="w-6 h-6" />
                               </div>
                               <div className="flex-1 min-w-0">
@@ -386,7 +389,7 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
                                   <button onClick={() => handleDownloadFile(memo, true)} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition" title={getDownloadTooltip("下载")}>
                                       <Download className="w-5 h-5" />
                                   </button>
-                                  <button onClick={() => handleTogglePin(memo)} className={`w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-full transition ${memo.isPinned ? 'text-purple-400' : 'text-white/70 hover:text-white'}`} title={memo.isPinned ? "取消置顶" : "置顶"}>
+                                  <button onClick={() => handleTogglePin(memo)} className={`w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-full transition ${memo.isPinned ? 'text-white [.light-theme_&]:text-stone-900' : 'text-white/70 hover:text-white'}`} title={memo.isPinned ? "取消置顶" : "置顶"}>
                                       <Pin className={`w-5 h-5 ${memo.isPinned ? 'fill-current' : ''}`} />
                                   </button>
                                   <button onClick={() => handleDelete(memo.id)} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-full transition shadow-sm" title="删除">
@@ -450,13 +453,13 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
                   {isEditingMemo ? (
                     <div className="h-full flex flex-col gap-4">
                        <textarea 
-                           className="flex-1 bg-white/5 border border-white/10 rounded-xl p-4 text-white resize-none focus:outline-none focus:border-purple-500/50"
+                           className="flex-1 bg-white/5 border border-white/10 rounded-xl p-4 text-white resize-none focus:outline-none focus:border-blue-500/50"
                            value={editMemoContent}
                            onChange={e => setEditMemoContent(e.target.value)}
                        />
                        <div className="flex justify-end gap-2">
                            <button onClick={() => setIsEditingMemo(false)} className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 transition">取消</button>
-                           <button onClick={handleSaveEdit} className="px-4 py-2 rounded-lg bg-purple-500 hover:bg-purple-600 text-white transition font-medium" disabled={!editMemoContent.trim()}>保存</button>
+                           <button onClick={handleSaveEdit} className="px-4 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white transition font-medium" disabled={!editMemoContent.trim()}>保存</button>
                        </div>
                     </div>
                   ) : (

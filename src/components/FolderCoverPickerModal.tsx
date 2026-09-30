@@ -71,7 +71,7 @@ const CoverPickerItem = React.memo(function CoverPickerItem({
       onClick={() => onSelect(char)}
       className="group flex flex-col items-center cursor-pointer select-none"
     >
-      <div className="w-full aspect-[2/3] rounded-xl overflow-hidden bg-slate-800 border border-white/15 shadow-md group-hover:border-purple-400 group-hover:shadow-purple-500/20 group-hover:shadow-lg transition-all relative">
+      <div className="w-full aspect-[2/3] rounded-xl overflow-hidden bg-slate-800 border border-white/15 shadow-md group-hover:border-blue-400 group-hover:shadow-blue-500/20 group-hover:shadow-lg transition-all relative">
         <img
           src={url}
           alt={char.name}
@@ -159,11 +159,11 @@ export function FolderCoverPickerModal({
           <div className="p-4 sm:p-5 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
             <div>
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <ImageIcon className="w-5 h-5 text-purple-400" />
+                <ImageIcon className="w-5 h-5 text-blue-400" />
                 <span>更换文件夹封面</span>
               </h3>
               <p className="text-xs text-white/50 mt-0.5">
-                当前文件夹: <span className="text-purple-300 font-medium">{folder.name}</span>
+                当前文件夹: <span className="text-blue-300 font-medium">{folder.name}</span>
               </p>
             </div>
 
@@ -182,7 +182,7 @@ export function FolderCoverPickerModal({
                 onClose();
                 onUploadCustomImage();
               }}
-              className="flex-1 min-w-[130px] flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 font-medium text-xs transition"
+              className="flex-1 min-w-[130px] flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 font-medium text-xs transition"
             >
               <Upload className="w-4 h-4" />
               <span>上传本地图片</span>
@@ -212,7 +212,7 @@ export function FolderCoverPickerModal({
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="搜索文件夹内的卡片名称..."
-                  className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-purple-400/50"
+                  className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-blue-400/50"
                 />
               </div>
             </div>
@@ -229,7 +229,7 @@ export function FolderCoverPickerModal({
 
             {isLoading ? (
               <div className="flex flex-col items-center justify-center py-16 text-white/40">
-                <Loader2 className="w-8 h-8 animate-spin text-purple-400 mb-2" />
+                <Loader2 className="w-8 h-8 animate-spin text-blue-400 mb-2" />
                 <span className="text-xs">加载角色卡片中...</span>
               </div>
             ) : filteredCharacters.length === 0 ? (

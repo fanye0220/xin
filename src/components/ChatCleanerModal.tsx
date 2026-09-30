@@ -174,7 +174,7 @@ export function ChatCleanerModal({ isOpen, onClose, characterId, onDeleted }: Ch
         exit={{ scale: 0.96, opacity: 0 }}
         className="relative w-full max-w-4xl h-[100dvh] sm:h-[85vh] sm:max-h-[85vh] bg-slate-900 sm:border border-white/10 sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden :border-black/5 (0,0,0,0.1)]"
       >
-        <div className="flex items-center justify-between p-4 border-b border-white/10 shrink-0 bg-white/[0.02] pt-[max(1rem,env(safe-area-inset-top))] ">
+        <div className="flex items-center justify-between p-4 border-b border-white/10 shrink-0 bg-white/[0.02] pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))]">
           <div className="flex items-center gap-2">
             <h3 className="text-white font-bold text-lg ">
               {mode === 'menu' ? '记录清理助手' : mode === 'duplicate' ? '查重清理' : '分支清理'}
@@ -216,13 +216,13 @@ export function ChatCleanerModal({ isOpen, onClose, characterId, onDeleted }: Ch
 
                  <button
                    onClick={handleBranchCheck}
-                   className="group relative overflow-hidden bg-gradient-to-b from-white/10 to-white/5 border border-white/10 hover:border-purple-500/50 rounded-2xl p-6 text-left transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/10 hover:-translate-y-1 :shadow-md :border-purple-400/30"
+                   className="group relative overflow-hidden bg-gradient-to-b from-white/10 to-white/5 border border-white/10 hover:border-blue-500/50 rounded-2xl p-6 text-left transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/10 hover:-translate-y-1 :shadow-md :border-blue-400/30"
                  >
                    <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
-                     <GitBranch className="w-24 h-24 text-purple-400 transform rotate-12" />
+                     <GitBranch className="w-24 h-24 text-blue-400 transform rotate-12" />
                    </div>
                    <div className="relative z-10 flex flex-col gap-4">
-                     <div className="w-12 h-12 bg-gradient-to-br from-purple-400/20 to-purple-600/20 text-purple-400 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-sm">
+                     <div className="w-12 h-12 bg-gradient-to-br from-blue-400/20 to-blue-600/20 text-blue-400 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-sm">
                        <GitBranch className="w-6 h-6" />
                      </div>
                      <div>
@@ -255,7 +255,7 @@ export function ChatCleanerModal({ isOpen, onClose, characterId, onDeleted }: Ch
                     <div key={group.id} className="bg-slate-800 rounded-2xl border border-white/5 overflow-hidden shadow-sm ">
                       <div className="px-4 py-3 bg-white/[0.02] border-b border-white/[0.05] flex items-center justify-between ">
                         <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${mode === 'duplicate' ? 'bg-orange-500/10 text-orange-400' : 'bg-purple-500/10 text-purple-400'}`}>
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${mode === 'duplicate' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'}`}>
                             {mode === 'duplicate' ? <Copy className="w-4 h-4" /> : <GitBranch className="w-4 h-4" />}
                           </div>
                           <div>
@@ -291,7 +291,7 @@ export function ChatCleanerModal({ isOpen, onClose, characterId, onDeleted }: Ch
                                 <div className="flex items-center gap-2">
                                   <h4 className={`text-sm font-medium truncate ${isSelected ? 'line-through text-white/40 ' : 'text-white/90 '}`}>{chat.name || '未命名聊天'}</h4>
                                   {isMain && !isSelected && <span className="text-[10px] px-1.5 py-0.5 bg-green-500/10 text-green-400 rounded-md border border-green-500/20 shrink-0">最新记录 (推荐保留)</span>}
-                                  {idx === 0 && mode === 'branch' && !isSelected && <span className="text-[10px] px-1.5 py-0.5 bg-purple-500/10 text-purple-400 rounded-md border border-purple-500/20 shrink-0">最长分支</span>}
+                                  {idx === 0 && mode === 'branch' && !isSelected && <span className="text-[10px] px-1.5 py-0.5 bg-blue-500/10 text-blue-400 rounded-md border border-blue-500/20 shrink-0">最长分支</span>}
                                 </div>
                                 <div className="text-xs text-white/40 flex flex-wrap items-center gap-3 mt-1.5 ">
                                   <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3 text-white/30 " /> {chat.messageCount || chat.messages?.length || 0} 楼</span>
@@ -359,7 +359,7 @@ export function ChatCleanerModal({ isOpen, onClose, characterId, onDeleted }: Ch
               transition={{ type: "spring", damping: 25, stiffness: 250 }}
               className="absolute inset-y-0 right-0 w-full sm:w-[450px] bg-slate-900 border-l border-white/10 z-20 flex flex-col shadow-2xl "
             >
-              <div className="flex items-center gap-3 p-4 border-b border-white/10 shrink-0 bg-white/[0.02] pt-[max(1rem,env(safe-area-inset-top))] ">
+              <div className="flex items-center gap-3 p-4 border-b border-white/10 shrink-0 bg-white/[0.02] pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))]">
                 <button 
                   onClick={() => setViewingChat(null)} 
                   className="p-2 hover:bg-white/10 rounded-xl transition-colors :bg-black/5"

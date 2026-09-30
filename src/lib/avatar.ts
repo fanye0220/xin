@@ -7,13 +7,15 @@ export function getFallbackAvatar(seed: string, category?: string): string {
   try {
     const avatar = createAvatar(bottts, {
       seed: seed || 'default',
-      size: 100
+      size: 100,
+      backgroundColor: ['f1f5f9', 'e2e8f0', 'eff6ff', 'f0fdf4', 'faf5ff', 'fff7ed'],
+      backgroundType: ['solid'],
     });
     const svgStr = avatar.toString();
     // Use standard URL encoding for SVG data URI, which has the widest compatibility across mobile WebViews
     return `data:image/svg+xml,${encodeURIComponent(svgStr)}`;
   } catch {
-    const fallbackRobot = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="g-rb" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#4f46e5"/></linearGradient></defs><rect width="100" height="100" rx="24" fill="url(#g-rb)"/><rect x="28" y="32" width="44" height="36" rx="10" fill="#ffffff"/><circle cx="40" cy="48" r="5" fill="#4f46e5"/><circle cx="60" cy="48" r="5" fill="#4f46e5"/><rect x="42" y="58" width="16" height="4" rx="2" fill="#4f46e5"/><rect x="47" y="22" width="6" height="10" rx="3" fill="#ffffff"/><circle cx="50" cy="20" r="4" fill="#ffffff"/></svg>';
+    const fallbackRobot = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="24" fill="#f1f5f9"/><rect x="28" y="32" width="44" height="36" rx="10" fill="#6366f1"/><circle cx="40" cy="48" r="5" fill="#ffffff"/><circle cx="60" cy="48" r="5" fill="#ffffff"/><rect x="42" y="58" width="16" height="4" rx="2" fill="#ffffff"/><rect x="47" y="22" width="6" height="10" rx="3" fill="#6366f1"/><circle cx="50" cy="20" r="4" fill="#6366f1"/></svg>';
     return `data:image/svg+xml,${encodeURIComponent(fallbackRobot)}`;
   }
 }

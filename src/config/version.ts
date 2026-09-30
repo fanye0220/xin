@@ -7,7 +7,7 @@ export interface VersionInfo {
   forceUpdate?: boolean;
 }
 
-const DEFAULT_UPDATE_MANIFEST_URL = localStorage.getItem('miu_update_check_url') || 'https://raw.githubusercontent.com/fanye0220/APP/main/version.json';
+const DEFAULT_UPDATE_MANIFEST_URL = localStorage.getItem('miu_update_check_url') || 'https://raw.githubusercontent.com/fanye0220/miu/main/version.json';
 
 export function getUpdateManifestUrl(): string {
   return localStorage.getItem('miu_update_check_url') || DEFAULT_UPDATE_MANIFEST_URL;

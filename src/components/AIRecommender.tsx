@@ -126,7 +126,7 @@ export function AIRecommender({ onClose, onSelectChar, onOpenSettings }: { onClo
       
       setResults([{
         char: charWithBlob,
-        reason: "🎲 命运的指引！今天就决定是你了！"
+        reason: "命运的指引！今天就决定是你了！"
       }]);
     } catch (e: any) {
       console.error("Gacha error:", e);
@@ -256,32 +256,36 @@ ${candidateInfo}
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-900">
-      <header className="sticky top-0 px-4 pb-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:px-6 sm:pb-6 sm:pt-[max(1.75rem,env(safe-area-inset-top))] flex items-center gap-4 bg-slate-900/80 backdrop-blur-xl border-b border-white/10 z-20">
-        <button onClick={onClose} className="p-2 -ml-2 rounded-full hover:bg-white/10 transition">
+    <div className="flex flex-col h-full bg-[#0a0a0c] [.light-theme_&]:!bg-[#f2f2f7]">
+      <header className="recommender-header sticky top-0 px-4 pb-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:px-6 sm:pb-6 flex items-center gap-4 backdrop-blur-xl z-20">
+        <button 
+          type="button"
+          onClick={onClose} 
+          className="p-2 -ml-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:!bg-black/5 text-white [.light-theme_&]:!text-[#1c1c1e] transition active:scale-95 touch-manipulation select-none cursor-pointer"
+        >
           <ArrowLeft className="w-6 h-6" />
         </button>
         <div>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-blue-400" />
+          <h1 className="text-xl sm:text-2xl font-bold text-white [.light-theme_&]:!text-[#0f172a]">
             AI 智能推荐
           </h1>
-          <p className="text-sm text-white/50 mt-1">告诉 AI 你想玩什么剧情，让它为你挑选角色</p>
+          <p className="text-xs sm:text-sm text-white/50 [.light-theme_&]:!text-[#8e8e93] mt-1">告诉 AI 你想玩什么剧情，让它为你挑选角色</p>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-[max(2rem,env(safe-area-inset-bottom))] custom-scrollbar">
         <div className="max-w-4xl mx-auto space-y-6">
           
           {apiKeyMissing && (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-5 text-red-400 flex items-start gap-4 shadow-lg shadow-red-500/5">
-              <AlertCircle className="w-6 h-6 shrink-0 mt-0.5" />
+            <div className="bg-red-500/10 [.light-theme_&]:!bg-red-50 border border-red-500/20 [.light-theme_&]:!border-red-200 rounded-2xl p-4 sm:p-5 text-red-400 [.light-theme_&]:!text-red-700 flex items-start gap-3 sm:gap-4 shadow-lg shadow-red-500/5">
+              <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 shrink-0 mt-0.5" />
               <div className="flex-1">
-                <h3 className="font-semibold text-lg">未配置 API</h3>
-                <p className="text-sm opacity-80 mt-1 mb-3">使用智能推荐功能需要配置自定义 API (OpenAI 格式接口)。</p>
+                <h3 className="font-semibold text-base sm:text-lg">未配置 API</h3>
+                <p className="text-xs sm:text-sm opacity-85 mt-1 mb-3">使用智能推荐功能需要配置自定义 API (OpenAI 格式接口)。</p>
                 <button 
+                  type="button"
                   onClick={onOpenSettings}
-                  className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg text-sm font-medium transition"
+                  className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 [.light-theme_&]:!bg-red-100 [.light-theme_&]:hover:!bg-red-200 text-red-300 [.light-theme_&]:!text-red-800 rounded-lg text-sm font-medium transition active:scale-95 touch-manipulation select-none cursor-pointer"
                 >
                   去配置 API
                 </button>
@@ -289,48 +293,50 @@ ${candidateInfo}
             </div>
           )}
 
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
-            <label className="block text-sm font-medium text-white/80 mb-3">
+          <div className="recommender-card rounded-2xl p-4 sm:p-6 shadow-sm">
+            <label className="block text-sm font-semibold text-white/80 [.light-theme_&]:!text-[#1c1c1e] mb-2 sm:mb-3">
               你想玩怎样的剧情或角色？
             </label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="例如：我是主播，给我找个榜一大哥的卡..."
-              className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white placeholder:text-white/30 focus:outline-none focus:border-blue-500 transition-colors resize-none h-32"
+              className="recommender-input w-full rounded-xl p-3 sm:p-4 focus:outline-none focus:border-blue-500 transition-colors resize-none h-28 sm:h-32 text-sm sm:text-base"
             />
-            <div className="mt-4 flex flex-col sm:flex-row justify-between items-center gap-4">
-              <div className="text-sm text-white/40 flex items-center gap-2">
-                <Dices className="w-4 h-4" />
+            <div className="mt-4 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 sm:gap-4">
+              <div className="text-xs sm:text-sm text-white/50 [.light-theme_&]:!text-[#8e8e93] flex items-center gap-1.5 sm:gap-2">
+                <Dices className="recommender-dice-icon w-4 h-4 shrink-0" />
                 不知道玩什么？试试随机抽卡！(不消耗 API)
               </div>
-              <div className="flex items-center gap-3 w-full sm:w-auto">
+              <div className="flex items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
                 <button
+                  type="button"
                   onClick={handleRandomGacha}
                   disabled={isSearching}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-medium bg-white/10 hover:bg-white/20 text-white transition-all disabled:opacity-50"
+                  className="recommender-btn-secondary flex-1 sm:flex-none min-h-[48px] flex items-center justify-center gap-2 px-5 sm:px-6 py-3 rounded-xl font-semibold text-sm sm:text-base transition-all select-none cursor-pointer touch-manipulation active:scale-95 disabled:opacity-50 disabled:pointer-events-none shadow-xs"
                 >
-                  <Dices className="w-5 h-5" />
-                  随机抽卡
+                  <Dices className="recommender-dice-icon w-5 h-5 shrink-0" />
+                  <span>随机抽卡</span>
                 </button>
                 <button
+                  type="button"
                   onClick={handleRecommend}
                   disabled={isSearching || !prompt.trim()}
-                  className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-medium transition-all ${
+                  className={`flex-1 sm:flex-none min-h-[48px] flex items-center justify-center gap-2 px-5 sm:px-6 py-3 rounded-xl font-semibold text-sm sm:text-base transition-all select-none cursor-pointer touch-manipulation active:scale-95 disabled:pointer-events-none ${
                     isSearching || !prompt.trim()
-                      ? 'bg-white/10 text-white/40 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-blue-500 to-emerald-500 hover:from-blue-400 hover:to-emerald-400 text-white shadow-lg shadow-blue-500/25'
+                      ? 'bg-white/10 text-white/40 border border-white/5 [.light-theme_&]:!bg-[#e5e5ea] [.light-theme_&]:!text-[#8e8e93] [.light-theme_&]:!border-transparent cursor-not-allowed'
+                      : 'bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-500 hover:to-emerald-500 text-white shadow-lg shadow-blue-500/25 active:shadow-sm'
                   }`}
                 >
                   {isSearching ? (
                     <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      处理中...
+                      <Loader2 className="w-5 h-5 animate-spin shrink-0 text-white" />
+                      <span className="text-white font-semibold">处理中...</span>
                     </>
                   ) : (
                     <>
-                      <Sparkles className="w-5 h-5" />
-                      开始推荐
+                      <Sparkles className="w-5 h-5 shrink-0 text-white" />
+                      <span className="text-white font-semibold">开始推荐</span>
                     </>
                   )}
                 </button>
@@ -340,27 +346,27 @@ ${candidateInfo}
 
           {/* AI Thinking Logs */}
           {!isGacha && (logs.length > 0 || isSearching) && (
-            <div className="bg-black/60 border border-white/10 rounded-2xl overflow-hidden shadow-inner">
-              <div className="flex items-center gap-2 px-4 py-2 bg-white/5 border-b border-white/5">
-                <Terminal className="w-4 h-4 text-white/40" />
-                <span className="text-xs font-mono text-white/40 uppercase tracking-wider">AI 思维链 (Chain of Thought)</span>
+            <div className="recommender-logs-box rounded-2xl overflow-hidden shadow-sm">
+              <div className="recommender-logs-header flex items-center gap-2 px-4 py-2.5 border-b">
+                <Terminal className="w-4 h-4 text-white/40 [.light-theme_&]:!text-[#8e8e93]" />
+                <span className="text-xs font-mono text-white/40 [.light-theme_&]:!text-[#8e8e93] uppercase tracking-wider font-semibold">AI 思维链 (Chain of Thought)</span>
               </div>
-              <div className="p-4 font-mono text-sm h-48 overflow-y-auto space-y-2">
+              <div className="p-4 font-mono text-xs sm:text-sm h-48 overflow-y-auto space-y-2">
                 {logs.map((log, i) => (
                   <motion.div 
                     initial={{ opacity: 0, x: -10 }} 
                     animate={{ opacity: 1, x: 0 }} 
                     key={i} 
-                    className={`flex gap-3 ${log.type === 'error' ? 'text-red-400' : log.type === 'success' ? 'text-green-400' : 'text-white/70'}`}
+                    className={`flex gap-2.5 sm:gap-3 ${log.type === 'error' ? 'text-red-400 [.light-theme_&]:!text-red-600' : log.type === 'success' ? 'text-green-400 [.light-theme_&]:!text-green-600' : 'text-white/70 [.light-theme_&]:!text-[#3a3a3c]'}`}
                   >
-                    <span className="text-white/30 shrink-0">[{log.time}]</span>
+                    <span className="text-white/30 [.light-theme_&]:!text-[#8e8e93] shrink-0">[{log.time}]</span>
                     <span>{log.msg}</span>
                   </motion.div>
                 ))}
                 {isSearching && (
-                  <div className="flex gap-3 text-blue-400 animate-pulse">
-                    <span className="text-white/30 shrink-0">[{new Date().toLocaleTimeString()}]</span>
-                    <span className="flex items-center gap-2"><Loader2 className="w-3 h-3 animate-spin" /> 正在处理中...</span>
+                  <div className="flex gap-2.5 sm:gap-3 text-blue-400 [.light-theme_&]:!text-blue-600 animate-pulse">
+                    <span className="text-white/30 [.light-theme_&]:!text-[#8e8e93] shrink-0">[{new Date().toLocaleTimeString()}]</span>
+                    <span className="flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> 正在处理中...</span>
                   </div>
                 )}
                 <div ref={logsEndRef} />
@@ -370,10 +376,23 @@ ${candidateInfo}
 
           {results.length > 0 && (
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-blue-400" />
-                为你推荐了 {results.length} 个角色
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-base sm:text-lg font-bold flex items-center gap-2 text-white [.light-theme_&]:!text-[#1c1c1e]">
+                  <Sparkles className="w-5 h-5 text-blue-400 [.light-theme_&]:!text-blue-600 shrink-0" />
+                  {isGacha ? '抽卡结果' : `为你推荐了 ${results.length} 个角色`}
+                </h2>
+                {isGacha && (
+                  <button
+                    type="button"
+                    onClick={handleRandomGacha}
+                    disabled={isSearching}
+                    className="recommender-btn-secondary flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold active:scale-95 transition touch-manipulation select-none cursor-pointer"
+                  >
+                    <Dices className="recommender-dice-icon w-4 h-4" />
+                    <span>再抽一张</span>
+                  </button>
+                )}
+              </div>
               <div className="grid gap-4">
                 {results.map((result, i) => {
                   const char = result.char;
@@ -385,38 +404,63 @@ ${candidateInfo}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: i * 0.1 }}
                       key={char.id}
-                      className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col sm:flex-row gap-4 hover:bg-white/10 transition group"
+                      className="recommender-card rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row gap-4 transition group"
                     >
-                      <div className="w-24 h-24 sm:w-32 sm:h-32 shrink-0 rounded-xl overflow-hidden bg-black/40">
+                      <div className="w-20 h-20 sm:w-28 sm:h-28 shrink-0 rounded-xl overflow-hidden bg-black/40 [.light-theme_&]:!bg-black/5 ring-1 ring-white/10 [.light-theme_&]:!ring-black/10 shadow-inner">
                         <RecommendResultAvatar char={char} name={data.name} />
                       </div>
-                      <div className="flex-1 min-w-0 flex flex-col">
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <h3 className="text-xl font-bold text-white group-hover:text-blue-400 transition-colors">
+                      <div className="flex-1 min-w-0 flex flex-col justify-between">
+                        <div>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
+                            <h3 className="text-lg sm:text-xl font-bold text-white [.light-theme_&]:!text-[#1c1c1e] group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-600 transition-colors truncate">
                               {data.name}
                             </h3>
-                            {data.tags && data.tags.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5 mt-2">
-                                {data.tags.slice(0, 5).map((tag: string, j: number) => (
-                                  <span key={j} className="px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded text-xs border border-blue-500/30">
-                                    {tag}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => onSelectChar(char.id)}
+                              className="hidden sm:inline-flex shrink-0 items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 active:scale-95 text-white font-medium rounded-xl text-sm transition touch-manipulation select-none cursor-pointer shadow-sm"
+                            >
+                              <Play className="w-4 h-4 text-white" />
+                              <span>查看角色</span>
+                            </button>
                           </div>
-                          <button
-                            onClick={() => onSelectChar(char.id)}
-                            className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-white/10 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition"
-                          >
-                            <Play className="w-4 h-4" />
-                            查看角色
-                          </button>
+                          {data.tags && data.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {data.tags.slice(0, 5).map((tag: string, j: number) => (
+                                <span key={j} className="px-2 py-0.5 bg-blue-500/20 text-blue-300 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-700 [.light-theme_&]:!border-blue-200 rounded text-xs border border-blue-500/30 font-medium">
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <div className="mt-4 bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 text-sm text-blue-100/80 leading-relaxed">
-                          <span className="font-semibold text-blue-300 mr-2">推荐理由:</span>
+
+                        <div className="recommender-reason-box mt-3 rounded-xl p-3 text-xs sm:text-sm leading-relaxed">
+                          <span className="font-bold text-blue-300 [.light-theme_&]:!text-blue-700 mr-2">推荐理由:</span>
                           {result.reason}
+                        </div>
+
+                        {/* Mobile action bar: comfortable thumb reach on Android */}
+                        <div className="flex sm:hidden items-center gap-2.5 mt-3.5 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => onSelectChar(char.id)}
+                            className="flex-1 min-h-[46px] flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 active:scale-95 text-white font-semibold rounded-xl text-sm transition touch-manipulation select-none cursor-pointer shadow-sm"
+                          >
+                            <Play className="w-4 h-4 text-white" />
+                            <span>查看角色</span>
+                          </button>
+                          {isGacha && (
+                            <button
+                              type="button"
+                              onClick={handleRandomGacha}
+                              disabled={isSearching}
+                              className="recommender-btn-secondary flex-1 min-h-[46px] flex items-center justify-center gap-2 px-4 py-2.5 font-semibold rounded-xl text-sm transition touch-manipulation select-none cursor-pointer shadow-xs"
+                            >
+                              <Dices className="recommender-dice-icon w-4 h-4" />
+                              <span>再抽一张</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                     </motion.div>
