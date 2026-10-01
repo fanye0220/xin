@@ -419,10 +419,10 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
             handleFileUpload(file);
           }
         }}
-        className={`w-[218px] sm:w-[230px] aspect-[9/19.5] max-h-[55vh] sm:max-h-[58vh] rounded-[36px] sm:rounded-[40px] border-[5px] transition-all duration-200 relative overflow-hidden flex flex-col shadow-2xl touch-none ${
-          isDarkTheme ? 'bg-slate-950 border-slate-800' : 'bg-[#ffffff] border-stone-300'
+        className={`w-[218px] sm:w-[230px] aspect-[9/19.5] max-h-[55vh] sm:max-h-[58vh] rounded-[36px] sm:rounded-[40px] border-[5px] transition-all duration-200 relative overflow-hidden flex flex-col shadow-2xl ${
+          hasWallpaper && !isPositionLocked ? 'touch-none cursor-grab active:cursor-grabbing' : 'touch-pan-y cursor-pointer'
         } ${
-          hasWallpaper && !isPositionLocked ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+          isDarkTheme ? 'bg-slate-950 border-slate-800' : 'bg-[#ffffff] border-stone-300'
         } ${
           isDraggingFile 
             ? 'border-blue-500 scale-[1.02] ring-4 ring-blue-500/30' 
@@ -670,15 +670,15 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
 
       {/* Pinch & Zoom Hint or Locked Status Hint */}
       {hasWallpaper && (
-        <div className="flex items-center justify-center gap-1.5 text-[11px] select-none mt-2">
+        <div className="flex items-center justify-center gap-1.5 text-xs sm:text-sm select-none mt-2.5 px-2 text-center">
           {isPositionLocked ? (
-            <div className="flex items-center gap-1.5 text-emerald-400 font-medium bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
-              <Lock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <div className="flex items-center gap-1.5 font-semibold px-3.5 py-1.5 rounded-full border shadow-xs text-emerald-300 bg-emerald-500/15 border-emerald-500/30">
+              <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
               <span>壁纸位置已锁定（点击【更换 / 调整壁纸】开放挪动）</span>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 text-amber-300 font-medium bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
-              <PinchDiagonalIcon className="w-3.5 h-3.5 text-amber-300 shrink-0 stroke-[1.8]" />
+            <div className="flex items-center gap-1.5 font-semibold px-3.5 py-1.5 rounded-full border shadow-xs text-amber-300 bg-amber-500/15 border-amber-500/30">
+              <PinchDiagonalIcon className="w-4 h-4 text-amber-400 shrink-0 stroke-[2]" />
               <span>可滑动拖拽或捏合调整，满意后请点击【确认壁纸位置】</span>
             </div>
           )}
@@ -686,12 +686,14 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
       )}
 
       {/* Sliders Container: Wallpaper, Account Card, and Bottom Bar Opacity */}
-      <div className="w-full max-w-[245px] mt-2 px-1 space-y-2">
+      <div className="w-full max-w-[320px] sm:max-w-[360px] mt-3.5 px-1 space-y-3">
         {/* Slider 1: 壁纸透明度 */}
-        <div className="space-y-0.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-slate-300 font-medium text-[11px]">壁纸透明度</span>
-            <span className="text-slate-400 font-mono text-[11px]">
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-semibold text-slate-100">
+              壁纸透明度
+            </span>
+            <span className="font-mono font-medium text-slate-300">
               {Math.round(currentOpacity * 100)}%
             </span>
           </div>
@@ -708,15 +710,17 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                 opacity: val,
               });
             }}
-            className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+            className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none bg-slate-700"
           />
         </div>
 
         {/* Slider 2: 账号卡片毛玻璃透明度 */}
-        <div className="space-y-0.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-slate-300 font-medium text-[11px]">账号卡片透明度</span>
-            <span className="text-slate-400 font-mono text-[11px]">
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-semibold text-slate-100">
+              账号卡片透明度
+            </span>
+            <span className="font-mono font-medium text-slate-300">
               {currentCardOpacity <= 0.01 ? '全透 (0%)' : `${Math.round(currentCardOpacity * 100)}%`}
             </span>
           </div>
@@ -733,15 +737,17 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                 cardOpacity: val,
               });
             }}
-            className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+            className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none bg-slate-700"
           />
         </div>
 
         {/* Slider 3: 底部设置栏透明度 */}
-        <div className="space-y-0.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-slate-300 font-medium text-[11px]">底栏设置透明度</span>
-            <span className="text-slate-400 font-mono text-[11px]">
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-semibold text-slate-100">
+              底栏设置透明度
+            </span>
+            <span className="font-mono font-medium text-slate-300">
               {currentBottomOpacity <= 0.01 ? '全透 (0%)' : `${Math.round(currentBottomOpacity * 100)}%`}
             </span>
           </div>
@@ -758,14 +764,14 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                 bottomOpacity: val,
               });
             }}
-            className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+            className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none bg-slate-700"
           />
         </div>
       </div>
 
       {/* Action Buttons Beneath the Viewport */}
       {hasWallpaper ? (
-        <div className="flex items-center gap-2 mt-2.5 flex-wrap justify-center">
+        <div className="flex items-center gap-2 sm:gap-2.5 mt-3 flex-wrap justify-center w-full max-w-[360px] px-1">
           {!isPositionLocked ? (
             /* Editing / Unlocked Mode: Show Confirm Button */
             <>
@@ -776,7 +782,7 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                   setToastFeedback('已确认并锁定壁纸位置，防止误触挪动');
                   setTimeout(() => setToastFeedback(null), 2500);
                 }}
-                className="px-4 py-1.5 rounded-full text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 border border-emerald-400/40 shadow-lg transition flex items-center gap-1.5 cursor-pointer active:scale-95 animate-pulse"
+                className="px-4 py-2 rounded-full text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 shadow-md transition flex items-center gap-1.5 cursor-pointer active:scale-95 animate-pulse shrink-0"
                 title="确认当前位置并锁定展示"
               >
                 <Check className="w-4 h-4" />
@@ -788,10 +794,10 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                 onClick={() => {
                   fileInputRef.current?.click();
                 }}
-                className="px-3 py-1.5 rounded-full text-xs font-medium text-slate-200 hover:text-white bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+                className="px-3.5 py-2 rounded-full text-xs sm:text-sm font-medium transition flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0 text-slate-100 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700/60"
                 title="选择本地新图片"
               >
-                <Upload className="w-3.5 h-3.5" />
+                <Upload className="w-4 h-4" />
                 <span>选择新图片</span>
               </button>
 
@@ -799,10 +805,10 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                 <button
                   type="button"
                   onClick={handleResetTransform}
-                  className="px-2.5 py-1.5 rounded-full text-xs font-medium text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700/60 transition flex items-center gap-1 cursor-pointer active:scale-95"
+                  className="px-3 py-2 rounded-full text-xs sm:text-sm font-medium transition flex items-center gap-1 cursor-pointer active:scale-95 shrink-0 text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700 border border-slate-700/60"
                   title="复原缩放与位置"
                 >
-                  <RotateCcw className="w-3 h-3" />
+                  <RotateCcw className="w-3.5 h-3.5" />
                   <span>复位</span>
                 </button>
               )}
@@ -817,10 +823,10 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                   setToastFeedback('已解锁，现可滑动拖拽或捏合缩放图片，完成后请点击【确认壁纸位置】');
                   setTimeout(() => setToastFeedback(null), 3000);
                 }}
-                className="px-4 py-1.5 rounded-full text-xs font-semibold text-slate-100 hover:text-white bg-blue-600 hover:bg-blue-500 border border-blue-400/30 shadow-md transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+                className="px-4 py-2 rounded-full text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-500/20 transition flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0"
                 title="开启壁纸位置拖拽与调整模式"
               >
-                <Unlock className="w-3.5 h-3.5" />
+                <Unlock className="w-4 h-4" />
                 <span>更换 / 调整壁纸</span>
               </button>
 
@@ -830,10 +836,10 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                   setIsPositionLocked(false);
                   fileInputRef.current?.click();
                 }}
-                className="px-3 py-1.5 rounded-full text-xs font-medium text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+                className="px-3.5 py-2 rounded-full text-xs sm:text-sm font-medium transition flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0 text-slate-100 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700/60"
                 title="选择本地新图片"
               >
-                <Upload className="w-3.5 h-3.5" />
+                <Upload className="w-4 h-4" />
                 <span>选择新图片</span>
               </button>
             </>
@@ -845,15 +851,15 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
               e.stopPropagation();
               handleClearWallpaper();
             }}
-            className="px-3 py-1.5 rounded-full text-xs font-medium text-rose-300 hover:text-rose-200 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+            className="px-3.5 py-2 rounded-full text-xs sm:text-sm font-medium transition flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0 text-rose-300 hover:text-rose-200 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/25"
             title="移除当前壁纸，恢复默认深色"
           >
-            <Trash2 className="w-3 h-3" />
+            <Trash2 className="w-3.5 h-3.5" />
             <span>清除壁纸</span>
           </button>
         </div>
       ) : (
-        <p className="text-[11px] text-white/40 mt-2.5 text-center">
+        <p className="text-xs sm:text-sm text-slate-400 mt-3 text-center">
           点击视窗即可更换侧栏壁纸
         </p>
       )}

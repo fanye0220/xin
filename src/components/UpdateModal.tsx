@@ -8,9 +8,10 @@ interface Props {
   versionInfo: VersionInfo | null;
   onClose: () => void;
   onIgnoreVersion?: (version: string) => void;
+  isLightMode?: boolean;
 }
 
-export function UpdateModal({ isOpen, versionInfo, onClose, onIgnoreVersion }: Props) {
+export function UpdateModal({ isOpen, versionInfo, onClose, onIgnoreVersion, isLightMode }: Props) {
   if (!isOpen || !versionInfo) return null;
 
   const handleDownload = () => {
@@ -33,26 +34,26 @@ export function UpdateModal({ isOpen, versionInfo, onClose, onIgnoreVersion }: P
           initial={{ opacity: 0, scale: 0.9, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9, y: 20 }}
-          className="relative w-full max-w-md overflow-hidden bg-slate-900 border border-purple-500/30 rounded-3xl shadow-2xl"
+          className="relative w-full max-w-md overflow-hidden bg-slate-900 [.light-theme_&]:!bg-slate-800 border border-blue-500/30 rounded-3xl shadow-2xl"
         >
           {/* Glowing Top Decoration */}
-          <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-purple-500/20 via-pink-500/10 to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-blue-500/20 via-pink-500/10 to-transparent pointer-events-none [.light-theme_&]:from-blue-500/5 [.light-theme_&]:via-pink-500/5" />
 
           <div className="relative p-6 space-y-5">
             {/* Header */}
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
-                <div className="p-3 bg-gradient-to-tr from-purple-500 to-pink-500 rounded-2xl shadow-lg shadow-purple-500/30 text-white">
+                <div className="p-3 bg-gradient-to-tr from-blue-500 to-pink-500 rounded-2xl shadow-lg shadow-blue-500/30 text-white">
                   <Sparkles className="w-6 h-6 animate-pulse" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-white [.light-theme_&]:!text-slate-100 flex items-center gap-2">
                     发现新版本
                   </h3>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-xs text-white/50">当前: v{CURRENT_APP_VERSION}</span>
                     <span className="text-xs text-white/30">→</span>
-                    <span className="text-xs font-semibold px-2 py-0.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-full">
+                    <span className="text-xs font-semibold px-2 py-0.5 bg-gradient-to-r from-blue-500 to-pink-500 text-white rounded-full">
                       v{versionInfo.version}
                     </span>
                   </div>
@@ -85,7 +86,7 @@ export function UpdateModal({ isOpen, versionInfo, onClose, onIgnoreVersion }: P
             <div className="space-y-2.5 pt-2">
               <button
                 onClick={handleDownload}
-                className="w-full py-3 px-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold text-sm rounded-2xl shadow-lg shadow-purple-500/25 flex items-center justify-center gap-2 transition active:scale-[0.98]"
+                className="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-pink-500 hover:from-blue-600 hover:to-pink-600 text-white font-semibold text-sm rounded-2xl shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 transition active:scale-[0.98]"
               >
                 <Download className="w-4 h-4" />
                 <span>立即下载更新</span>

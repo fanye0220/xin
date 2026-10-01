@@ -1,47 +1,244 @@
-export async function extractTavernData(buffer: ArrayBuffer): Promise<any | null> {
-  const dataView = new DataView(buffer);
-  const uint8 = new Uint8Array(buffer);
+/**
+ * Comprehensive Image & Metadata Parser for SillyTavern / TavernHelper / Chub / RisuAI Character Cards
+ * Supports PNG (tEXt, zTXt, iTXt), WebP (RIFF/EXIF/XMP/USER), JPEG (APP1/Exif/Comment), and universal stream fallback.
+ */
 
-  // Check PNG signature
-  if (
-    uint8[0] !== 0x89 ||
-    uint8[1] !== 0x50 ||
-    uint8[2] !== 0x4e ||
-    uint8[3] !== 0x47 ||
-    uint8[4] !== 0x0d ||
-    uint8[5] !== 0x0a ||
-    uint8[6] !== 0x1a ||
-    uint8[7] !== 0x0a
-  ) {
-    return null;
+async function decompressBuffer(data: Uint8Array): Promise<Uint8Array | null> {
+  if (!data || data.length === 0) return null;
+
+  // 1. Try standard 'deflate' (zlib format with header and checksum)
+  try {
+    const ds = new DecompressionStream('deflate');
+    const writer = ds.writable.getWriter();
+    writer.write(data);
+    writer.close();
+
+    const reader = ds.readable.getReader();
+    const chunks: Uint8Array[] = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) chunks.push(value);
+    }
+
+    const totalLength = chunks.reduce((acc, val) => acc + val.length, 0);
+    const decompressed = new Uint8Array(totalLength);
+    let off = 0;
+    for (const chunk of chunks) {
+      decompressed.set(chunk, off);
+      off += chunk.length;
+    }
+    return decompressed;
+  } catch (e) {
+    // 2. Try 'deflate-raw' (raw DEFLATE stream without zlib header)
+    try {
+      const rawData = data.length > 6 ? data.slice(2, data.length - 4) : data;
+      const ds = new DecompressionStream('deflate-raw');
+      const writer = ds.writable.getWriter();
+      writer.write(rawData);
+      writer.close();
+
+      const reader = ds.readable.getReader();
+      const chunks: Uint8Array[] = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) chunks.push(value);
+      }
+
+      const totalLength = chunks.reduce((acc, val) => acc + val.length, 0);
+      const decompressed = new Uint8Array(totalLength);
+      let off = 0;
+      for (const chunk of chunks) {
+        decompressed.set(chunk, off);
+        off += chunk.length;
+      }
+      return decompressed;
+    } catch (e2) {
+      // 3. Try raw stream directly with deflate-raw
+      try {
+        const ds = new DecompressionStream('deflate-raw');
+        const writer = ds.writable.getWriter();
+        writer.write(data);
+        writer.close();
+
+        const reader = ds.readable.getReader();
+        const chunks: Uint8Array[] = [];
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) chunks.push(value);
+        }
+
+        const totalLength = chunks.reduce((acc, val) => acc + val.length, 0);
+        const decompressed = new Uint8Array(totalLength);
+        let off = 0;
+        for (const chunk of chunks) {
+          decompressed.set(chunk, off);
+          off += chunk.length;
+        }
+        return decompressed;
+      } catch (e3) {
+        return null;
+      }
+    }
+  }
+}
+
+/**
+ * Robust JSON & Base64 Payload Parser
+ */
+export function parsePayload(payload: string): any | null {
+  if (!payload || typeof payload !== 'string') return null;
+  let trimmed = payload.trim();
+  if (!trimmed) return null;
+
+  // Strip Unicode BOM if present
+  if (trimmed.charCodeAt(0) === 0xfeff) {
+    trimmed = trimmed.slice(1).trim();
   }
 
-  // A V3 card PNG typically embeds BOTH a legacy 'chara' chunk (v2-compatible
-  // fallback, may omit newer fields like tags) AND a 'ccv3' chunk (full v3
-  // data). We must scan every chunk and prefer 'ccv3' over 'chara' rather
-  // than returning on whichever keyword happens to appear first.
-  const rawPayloads: { chara?: string; ccv3?: string } = {};
+  // Remove common prefix if embedded as data-url
+  if (trimmed.startsWith('data:application/json;base64,')) {
+    trimmed = trimmed.slice('data:application/json;base64,'.length).trim();
+  } else if (trimmed.startsWith('data:text/plain;base64,')) {
+    trimmed = trimmed.slice('data:text/plain;base64,'.length).trim();
+  }
 
-  const decodeChunkPayload = async (
-    type: string,
-    data: Uint8Array
-  ): Promise<{ keyword: string; payload: string } | null> => {
-    if (type === 'tEXt') {
-      const text = new TextDecoder('utf-8').decode(data);
-      if (text.startsWith('chara\0')) {
-        return { keyword: 'chara', payload: text.substring(6) };
-      } else if (text.startsWith('ccv3\0')) {
-        return { keyword: 'ccv3', payload: text.substring(5) };
-      }
-      return null;
-    } else if (type === 'iTXt') {
-      let nullIdx = 0;
-      while (nullIdx < data.length && data[nullIdx] !== 0) {
-        nullIdx++;
-      }
-      const keyword = new TextDecoder('utf-8').decode(data.slice(0, nullIdx));
+  const isValidCard = (obj: any): boolean => {
+    if (!obj || typeof obj !== 'object') return false;
+    if (obj.spec === 'chara_card_v2' || obj.spec === 'chara_card_v3' || obj.spec === 'chara_card_v1') return true;
+    if (obj.name || obj.char_name || obj.character_name) return true;
+    if (obj.data && (obj.data.name || obj.data.char_name || obj.data.character_name || obj.data.first_mes || obj.data.description)) return true;
+    if (obj.first_mes || obj.description || obj.scenario || obj.personality || obj.personality_summary) return true;
+    return false;
+  };
 
-      if (keyword === 'chara' || keyword === 'ccv3') {
+  const tryJsonParse = (str: string): any | null => {
+    try {
+      const obj = JSON.parse(str);
+      if (isValidCard(obj)) return obj;
+      if (obj && typeof obj === 'object') return obj;
+    } catch (e) {
+      // Try fixing trailing commas before } or ]
+      try {
+        const cleaned = str.replace(/,\s*([\}\]])/g, '$1');
+        const obj = JSON.parse(cleaned);
+        if (isValidCard(obj)) return obj;
+      } catch (e2) {}
+    }
+    return null;
+  };
+
+  // 1. Direct JSON check
+  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+    const res = tryJsonParse(trimmed);
+    if (res) return res;
+  }
+
+  // 2. Base64 UTF-8 decode
+  try {
+    let cleanB64 = trimmed.replace(/[\r\n\s]/g, '').replace(/-/g, '+').replace(/_/g, '/');
+    // Fix missing padding
+    while (cleanB64.length % 4 !== 0) {
+      cleanB64 += '=';
+    }
+    const binString = atob(cleanB64);
+    const bytes = Uint8Array.from(binString, (m) => m.codePointAt(0)!);
+    const jsonString = new TextDecoder('utf-8').decode(bytes);
+    const res = tryJsonParse(jsonString);
+    if (res) return res;
+  } catch (e) {}
+
+  // 3. Fallback URL encoded or escaped Base64
+  try {
+    let cleanB64 = trimmed.replace(/[\r\n\s]/g, '').replace(/-/g, '+').replace(/_/g, '/');
+    while (cleanB64.length % 4 !== 0) cleanB64 += '=';
+    const jsonString = decodeURIComponent(escape(atob(cleanB64)));
+    const res = tryJsonParse(jsonString);
+    if (res) return res;
+  } catch (e2) {}
+
+  // 4. Fallback decodeURIComponent directly
+  try {
+    const decoded = decodeURIComponent(trimmed);
+    const res = tryJsonParse(decoded);
+    if (res) return res;
+  } catch (e3) {}
+
+  // 5. Embedded JSON search inside string (e.g. if surrounded by other metadata)
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const slice = trimmed.slice(firstBrace, lastBrace + 1);
+    const res = tryJsonParse(slice);
+    if (res) return res;
+  }
+
+  return null;
+}
+
+/**
+ * Universal Image Metadata Extractor
+ * Extracts Character Card data from PNG, WebP, JPEG or fallback stream.
+ */
+export async function extractTavernData(buffer: ArrayBuffer): Promise<any | null> {
+  if (!buffer || buffer.byteLength < 12) return null;
+
+  const uint8 = new Uint8Array(buffer);
+  const dataView = new DataView(buffer);
+
+  // -------------------------------------------------------------
+  // A. PNG Format Handling (Signature: 89 50 4E 47 0D 0A 1A 0A)
+  // -------------------------------------------------------------
+  if (
+    uint8[0] === 0x89 &&
+    uint8[1] === 0x50 &&
+    uint8[2] === 0x4e &&
+    uint8[3] === 0x47 &&
+    uint8[4] === 0x0d &&
+    uint8[5] === 0x0a &&
+    uint8[6] === 0x1a &&
+    uint8[7] === 0x0a
+  ) {
+    const rawPayloads: Record<string, string> = {};
+
+    const decodeChunkPayload = async (
+      type: string,
+      data: Uint8Array
+    ): Promise<{ keyword: string; payload: string } | null> => {
+      const lowerType = type.toLowerCase();
+      if (lowerType === 'text') {
+        let nullIdx = 0;
+        while (nullIdx < data.length && data[nullIdx] !== 0) {
+          nullIdx++;
+        }
+        if (nullIdx >= data.length) return null;
+        const keyword = new TextDecoder('utf-8').decode(data.slice(0, nullIdx)).trim().toLowerCase();
+        const textData = data.slice(nullIdx + 1);
+        const payload = new TextDecoder('utf-8').decode(textData);
+        return { keyword, payload };
+      } else if (lowerType === 'ztxt') {
+        let nullIdx = 0;
+        while (nullIdx < data.length && data[nullIdx] !== 0) {
+          nullIdx++;
+        }
+        if (nullIdx >= data.length) return null;
+        const keyword = new TextDecoder('utf-8').decode(data.slice(0, nullIdx)).trim().toLowerCase();
+        const compressedData = data.slice(nullIdx + 2);
+        const decompressed = await decompressBuffer(compressedData);
+        if (decompressed) {
+          const payload = new TextDecoder('utf-8').decode(decompressed);
+          return { keyword, payload };
+        }
+        return null;
+      } else if (lowerType === 'itxt') {
+        let nullIdx = 0;
+        while (nullIdx < data.length && data[nullIdx] !== 0) {
+          nullIdx++;
+        }
+        if (nullIdx >= data.length) return null;
+        const keyword = new TextDecoder('utf-8').decode(data.slice(0, nullIdx)).trim().toLowerCase();
         const compressionFlag = data[nullIdx + 1];
         let currentIdx = nullIdx + 3;
         let nullsFound = 0;
@@ -49,102 +246,167 @@ export async function extractTavernData(buffer: ArrayBuffer): Promise<any | null
           if (data[currentIdx] === 0) nullsFound++;
           currentIdx++;
         }
-
         const textData = data.slice(currentIdx);
-
         if (compressionFlag === 0) {
           return { keyword, payload: new TextDecoder('utf-8').decode(textData) };
-        } else if (compressionFlag === 1) {
-          try {
-            const ds = new DecompressionStream('deflate');
-            const writer = ds.writable.getWriter();
-            writer.write(textData);
-            writer.close();
-
-            const reader = ds.readable.getReader();
-            const chunks: Uint8Array[] = [];
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              if (value) chunks.push(value);
-            }
-
-            const totalLength = chunks.reduce((acc, val) => acc + val.length, 0);
-            const decompressed = new Uint8Array(totalLength);
-            let off = 0;
-            for (const chunk of chunks) {
-              decompressed.set(chunk, off);
-              off += chunk.length;
-            }
-
+        } else {
+          const decompressed = await decompressBuffer(textData);
+          if (decompressed) {
             return { keyword, payload: new TextDecoder('utf-8').decode(decompressed) };
-          } catch (e) {
-            console.error('Failed to decompress iTXt chunk', e);
           }
         }
       }
       return null;
+    };
+
+    let offset = 8;
+    while (offset < buffer.byteLength - 8) {
+      const length = dataView.getUint32(offset);
+      const type = String.fromCharCode(
+        uint8[offset + 4],
+        uint8[offset + 5],
+        uint8[offset + 6],
+        uint8[offset + 7]
+      );
+
+      const dataOffset = offset + 8;
+      if (dataOffset + length <= buffer.byteLength) {
+        const data = uint8.slice(dataOffset, dataOffset + length);
+        const lowerType = type.toLowerCase();
+        if (lowerType === 'text' || lowerType === 'itxt' || lowerType === 'ztxt') {
+          try {
+            const result = await decodeChunkPayload(type, data);
+            if (result && result.payload) {
+              rawPayloads[result.keyword] = result.payload;
+            }
+          } catch (e) {}
+        }
+      }
+
+      offset += 8 + length + 4;
+      if (type === 'IEND') break;
     }
-    return null;
-  };
 
-  let offset = 8;
-  while (offset < buffer.byteLength) {
-    const length = dataView.getUint32(offset);
-    const type = String.fromCharCode(
-      uint8[offset + 4],
-      uint8[offset + 5],
-      uint8[offset + 6],
-      uint8[offset + 7]
-    );
+    const priorityKeywords = [
+      'ccv3',
+      'chara',
+      'character',
+      'sillytavern',
+      'tavern',
+      'tavernhelper',
+      'risuai',
+      'risu',
+      'chub',
+      'description',
+      'comment',
+    ];
 
-    const dataOffset = offset + 8;
-    const data = uint8.slice(dataOffset, dataOffset + length);
-
-    if (type === 'tEXt' || type === 'iTXt') {
-      const result = await decodeChunkPayload(type, data);
-      if (result && !rawPayloads[result.keyword as 'chara' | 'ccv3']) {
-        rawPayloads[result.keyword as 'chara' | 'ccv3'] = result.payload;
+    for (const kw of priorityKeywords) {
+      if (rawPayloads[kw]) {
+        const parsed = parsePayload(rawPayloads[kw]);
+        if (parsed && (parsed.name || parsed.data?.name || parsed.spec || parsed.char_name || parsed.description)) {
+          return parsed;
+        }
       }
     }
 
-    offset += 8 + length + 4; // length + type + data + crc
+    for (const kw of Object.keys(rawPayloads)) {
+      const parsed = parsePayload(rawPayloads[kw]);
+      if (parsed && (parsed.name || parsed.data?.name || parsed.spec || parsed.char_name || parsed.description)) {
+        return parsed;
+      }
+    }
   }
 
-  // Prefer the full v3 payload; fall back to the legacy v2-compatible one.
-  if (rawPayloads.ccv3) {
-    const parsed = parsePayload(rawPayloads.ccv3);
-    if (parsed) return parsed;
+  // -------------------------------------------------------------
+  // B. WebP Format Handling (RIFF .... WEBP)
+  // -------------------------------------------------------------
+  if (
+    uint8[0] === 0x52 &&
+    uint8[1] === 0x49 &&
+    uint8[2] === 0x46 &&
+    uint8[3] === 0x46 &&
+    uint8[8] === 0x57 &&
+    uint8[9] === 0x45 &&
+    uint8[10] === 0x42 &&
+    uint8[11] === 0x50
+  ) {
+    let offset = 12;
+    while (offset < buffer.byteLength - 8) {
+      const fourCC = String.fromCharCode(
+        uint8[offset],
+        uint8[offset + 1],
+        uint8[offset + 2],
+        uint8[offset + 3]
+      );
+      const chunkSize = dataView.getUint32(offset + 4, true); // little-endian
+      const chunkDataOffset = offset + 8;
+
+      if (chunkDataOffset + chunkSize <= buffer.byteLength) {
+        const chunkData = uint8.slice(chunkDataOffset, chunkDataOffset + chunkSize);
+        const text = new TextDecoder('utf-8').decode(chunkData);
+
+        // Check if chunk is EXIF, XMP, USER, or TEXT
+        if (fourCC.trim() === 'EXIF' || fourCC.trim() === 'XMP' || fourCC.trim() === 'USER' || fourCC.trim() === 'JSON') {
+          const parsed = parsePayload(text);
+          if (parsed && (parsed.name || parsed.data?.name || parsed.spec || parsed.char_name)) {
+            return parsed;
+          }
+        }
+
+        // Try parsing any chunk that might contain JSON
+        if (text.includes('chara_card_') || text.includes('"first_mes"') || text.includes('"personality"') || text.includes('"name"')) {
+          const parsed = parsePayload(text);
+          if (parsed && (parsed.name || parsed.data?.name || parsed.spec || parsed.char_name)) {
+            return parsed;
+          }
+        }
+      }
+
+      // WebP chunks are padded to even 2-byte alignment
+      offset += 8 + chunkSize + (chunkSize % 2);
+    }
   }
-  if (rawPayloads.chara) {
-    return parsePayload(rawPayloads.chara);
-  }
+
+  // -------------------------------------------------------------
+  // C. Universal Binary Fallback Scanner
+  // Scans for embedded UTF-8 JSON or Base64 sequences in any file buffer
+  // -------------------------------------------------------------
+  try {
+    const fullText = new TextDecoder('utf-8', { fatal: false }).decode(uint8);
+
+    // 1. Search for chara_card_v2 or v3 spec
+    const specIdx = fullText.indexOf('chara_card_');
+    if (specIdx !== -1) {
+      const start = fullText.lastIndexOf('{', specIdx);
+      if (start !== -1) {
+        const parsed = parsePayload(fullText.slice(start));
+        if (parsed) return parsed;
+      }
+    }
+
+    // 2. Search for "first_mes" or "char_persona"
+    const firstMesIdx = fullText.indexOf('"first_mes"');
+    if (firstMesIdx !== -1) {
+      const start = fullText.lastIndexOf('{', firstMesIdx);
+      if (start !== -1) {
+        const parsed = parsePayload(fullText.slice(start));
+        if (parsed) return parsed;
+      }
+    }
+
+    // 3. Search for Base64 starting with 'eyJ' (which encodes '{"')
+    const b64Regex = /eyJ[A-Za-z0-9+/=_-]{40,}/g;
+    let match;
+    while ((match = b64Regex.exec(fullText)) !== null) {
+      const parsed = parsePayload(match[0]);
+      if (parsed && (parsed.name || parsed.data?.name || parsed.spec || parsed.char_name)) {
+        return parsed;
+      }
+    }
+  } catch (e) {}
 
   return null;
-}
-
-function parsePayload(payload: string): any | null {
-  try {
-    // Try parsing as base64 first
-    const binString = atob(payload);
-    const bytes = Uint8Array.from(binString, (m) => m.codePointAt(0)!);
-    const jsonString = new TextDecoder('utf-8').decode(bytes);
-    return JSON.parse(jsonString);
-  } catch (e) {
-    try {
-      // Fallback for older/different encoding
-      const jsonString = decodeURIComponent(escape(atob(payload)));
-      return JSON.parse(jsonString);
-    } catch (e2) {
-      try {
-        // Fallback: maybe it's not base64 encoded at all
-        return JSON.parse(payload);
-      } catch (e3) {
-        console.error("Failed to parse chara payload", e3);
-        return null;
-      }
-    }
-  }
 }
 
 // CRC32 implementation for PNG chunks
@@ -171,7 +433,7 @@ function crc32(data: Uint8Array): number {
 
 export function injectTavernData(originalBuffer: ArrayBuffer, data: any): ArrayBuffer {
   const uint8 = new Uint8Array(originalBuffer);
-  
+
   // Check PNG signature
   if (
     uint8.length < 8 ||
@@ -189,12 +451,6 @@ export function injectTavernData(originalBuffer: ArrayBuffer, data: any): ArrayB
 
   const isV3 = data.spec === 'chara_card_v3';
 
-  // For v3 cards we write BOTH chunks: 'ccv3' with the full v3 payload, and
-  // a 'chara' fallback so tools that only understand the legacy v2 keyword
-  // (still common) don't end up with an unreadable card. The v2 envelope
-  // reuses the same inner `data` object — v2 already supports the fields
-  // that matter for compatibility (name, description, tags, etc.); any
-  // v3-only extras are simply ignored by v2-only readers.
   const buildChunk = (keyword: 'chara' | 'ccv3', payloadObj: any): Uint8Array => {
     const jsonString = JSON.stringify(payloadObj);
     const base64 = btoa(unescape(encodeURIComponent(jsonString)));
@@ -257,10 +513,9 @@ export function injectTavernData(originalBuffer: ArrayBuffer, data: any): ArrayB
       while (nullIdx < dataSlice.length && dataSlice[nullIdx] !== 0) {
         nullIdx++;
       }
-      const keyword = new TextDecoder('utf-8').decode(dataSlice.slice(0, nullIdx));
+      const keyword = new TextDecoder('utf-8').decode(dataSlice.slice(0, nullIdx)).toLowerCase();
       
       if (keyword === 'chara' || keyword === 'ccv3') {
-        // Skip existing chara/ccv3 chunk(s), we will inject our own
         offset = chunkEnd;
         continue;
       }
@@ -275,7 +530,6 @@ export function injectTavernData(originalBuffer: ArrayBuffer, data: any): ArrayB
     offset = chunkEnd;
   }
 
-  // Calculate total length
   const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
   const result = new Uint8Array(totalLength);
   let currentOffset = 0;
@@ -287,8 +541,6 @@ export function injectTavernData(originalBuffer: ArrayBuffer, data: any): ArrayB
   return result.buffer;
 }
 
-// 纯 JSON 导入的角色卡本来就没有底图 —— 推送/写入酒馆需要一张真实 PNG 才能
-// 往里面塞数据。这里现场画一张简单的占位图当底图用，而不是直接拒绝推送。
 export async function generatePlaceholderAvatarPng(name: string): Promise<ArrayBuffer> {
   const canvas = document.createElement('canvas');
   canvas.width = 512;

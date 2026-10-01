@@ -903,7 +903,7 @@ export function GreetingReaderModal({
       drawerBtnBg: 'rgba(255, 255, 255, 0.05)',
       drawerBtnBorder: 'rgba(255, 255, 255, 0.1)',
       drawerBtnHover: 'hover:bg-white/[0.08] active:bg-white/[0.12]',
-      themeAccentColor: '#f1f5f9',
+      themeAccentColor: '#38bdf8',
       editorPaperBg: '#16171d',
       editorPaperBorder: 'rgba(255, 255, 255, 0.08)',
       editorPaperShadow: '0 10px 30px rgba(0, 0, 0, 0.6)',
@@ -1137,7 +1137,7 @@ export function GreetingReaderModal({
                           {currentGreeting.label}
                         </span>
                         <span className="opacity-60 text-xs font-mono">
-                          ({safeIndex + 1}/{greetingsList.length})
+                          {safeIndex + 1}/{greetingsList.length}
                         </span>
                       </button>
                     </>
@@ -1497,7 +1497,7 @@ export function GreetingReaderModal({
               <div className="p-5 sm:p-8 md:p-10 flex-1">
                 {isPreviewMode ? (
                   <div 
-                    className={`greeting-reader-prose text-justify [text-align:justify] [text-justify:inter-ideograph] break-words tracking-normal ${lineHeightClass} w-full`}
+                    className={`greeting-reader-prose break-words tracking-normal whitespace-pre-wrap ${lineHeightClass} w-full`}
                     style={{ fontSize: `${settings.fontSize}px`, color: themeStyles.text }}
                   >
                     <MessageContent 
@@ -1517,7 +1517,7 @@ export function GreetingReaderModal({
                     }}
                     onKeyDown={handleKeyDownInTextarea}
                     placeholder="在此构思或编辑角色开场白...\n\n支持小说标准排版、标点对齐、Markdown、{{user}} / {{char}} 变量与 <think> 思维链"
-                    className="w-full bg-transparent border-0 ring-0 outline-none resize-none overflow-hidden leading-[1.9] text-justify font-sans"
+                    className="w-full bg-transparent border-0 ring-0 outline-none resize-none overflow-hidden leading-[1.9] font-sans"
                     style={{
                       minHeight: '52vh',
                       fontSize: `${settings.fontSize}px`,
@@ -1531,7 +1531,7 @@ export function GreetingReaderModal({
 
               {/* Manuscript Bottom Control & Tips Footer */}
               <div 
-                className="px-5 sm:px-8 py-3.5 border-t text-xs flex flex-wrap items-center justify-between gap-3 rounded-b-2xl sm:rounded-b-3xl"
+                className="px-5 sm:px-8 py-3.5 border-t text-xs flex flex-wrap items-center justify-center gap-3 rounded-b-2xl sm:rounded-b-3xl text-center"
                 style={{
                   borderColor: themeStyles.editorPaperBorder,
                   backgroundColor: themeStyles.chipBg,
@@ -1541,33 +1541,6 @@ export function GreetingReaderModal({
                 <div className="flex items-center gap-2 select-none opacity-80">
                   <span className="hidden sm:inline">快捷键：按 Tab 自动缩进两格 · 按 Ctrl+S 快速保存 · 顶部工具栏即点即插</span>
                   <span className="sm:hidden">点击顶部工具栏可一键插入对白与排版</span>
-                </div>
-
-                <div className="flex items-center gap-2 ml-auto">
-                  <button
-                    type="button"
-                    onClick={() => setIsEditing(false)}
-                    className={`px-4 py-1.5 rounded-full border text-xs font-medium cursor-pointer transition-all active:scale-95 ${themeStyles.cancelBtnHover}`}
-                    style={{
-                      backgroundColor: themeStyles.cancelBtnBg,
-                      borderColor: themeStyles.cancelBtnBorder,
-                      color: themeStyles.cancelBtnText,
-                    }}
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveEdit}
-                    className={`px-5 py-1.5 rounded-full font-medium text-xs flex items-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer ${themeStyles.primaryBtnHover}`}
-                    style={{
-                      backgroundColor: themeStyles.primaryBtnBg,
-                      color: themeStyles.primaryBtnText,
-                    }}
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>保存并应用</span>
-                  </button>
                 </div>
               </div>
             </div>
@@ -1643,7 +1616,7 @@ export function GreetingReaderModal({
                     /* Rich Markdown / HTML / Tags / Macros rendering mode */
                     <div
                       onClick={handleContainerClick}
-                      className={`greeting-reader-prose text-justify [text-align:justify] [text-justify:inter-ideograph] break-words break-all sm:break-words tracking-normal ${lineHeightClass} w-full`}
+                      className={`greeting-reader-prose break-words tracking-normal whitespace-pre-wrap ${lineHeightClass} w-full`}
                       style={{ fontSize: `${settings.fontSize}px`, color: themeStyles.text }}
                     >
                       <MessageContent 
@@ -1656,7 +1629,7 @@ export function GreetingReaderModal({
                   ) : (
                     /* Classic Paragraph Tokenizer mode */
                     <div
-                      className={`text-justify [text-align:justify] [text-justify:inter-ideograph] break-words break-all sm:break-words tracking-normal ${lineHeightClass} w-full`}
+                      className={`break-words break-all sm:break-words tracking-normal whitespace-pre-wrap ${lineHeightClass} w-full`}
                       style={{ fontSize: `${settings.fontSize}px`, color: themeStyles.text }}
                     >
                       {currentGreeting.content.split(/\n+/).map((para, pIdx) => {
@@ -1980,7 +1953,7 @@ export function GreetingReaderModal({
                             className="flex flex-col items-center gap-1.5 p-2 rounded-xl border transition-all cursor-pointer"
                             style={{
                               borderColor: isSelected ? item.hex : 'transparent',
-                              backgroundColor: isSelected ? `${item.hex}18` : 'transparent',
+                              backgroundColor: isSelected ? `${item.hex}30` : 'transparent',
                               opacity: isSelected ? 1 : 0.75,
                             }}
                           >
@@ -2095,7 +2068,7 @@ export function GreetingReaderModal({
                               className="px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-all"
                               style={{
                                 backgroundColor: isSelected ? themeStyles.themeAccentColor : themeStyles.drawerBtnBg,
-                                color: isSelected ? '#ffffff' : themeStyles.drawerText,
+                                color: isSelected ? (isLight ? '#ffffff' : '#000000') : themeStyles.drawerText,
                                 border: isSelected ? `1px solid ${themeStyles.themeAccentColor}` : `1px solid ${themeStyles.drawerBtnBorder}`,
                                 boxShadow: isSelected ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
                               }}

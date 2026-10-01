@@ -1,11 +1,13 @@
 import { getFallbackAvatar } from "../lib/avatar";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   getChatsForCharacter,
   deleteChat,
   saveChat,
   saveChatsBulk,
   ChatLog,
+  getChatById,
+  getCharacterBlob,
 } from "../lib/db";
 import { isAndroid } from "../lib/appBridge";
 import {
@@ -18,17 +20,17 @@ import {
   Plus,
   ArrowLeft,
   GitBranch,
-  CheckSquare,
-  XSquare,
-  X,
+  BookOpen,
+  Sliders,
+  Type,
+  CheckCircle2,
+  Sparkles,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageContent } from "./MessageContent";
 import { ChatCleanerModal } from "./ChatCleanerModal";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeRaw from "rehype-raw";
 import { Virtuoso } from "react-virtuoso";
+import { useBubbleTheme, ColorSphere } from "../lib/bubbleThemes";
 
 interface Props {
   characterId: string;
@@ -38,6 +40,7 @@ interface Props {
   onOpenChat?: (chatId: string) => void;
   onOpenImport?: (files?: FileList | File[]) => void;
   refreshKey?: number;
+  isLightMode?: boolean;
 }
 
 export function CharacterChatsSection({
@@ -48,16 +51,38 @@ export function CharacterChatsSection({
   onOpenChat,
   onOpenImport,
   refreshKey,
+  isLightMode = false,
 }: Props) {
+  const { themeId: bubbleThemeId, theme: bubbleTheme, setTheme: setBubbleTheme, allThemes: bubbleThemes } = useBubbleTheme();
+  const [showBubblePicker, setShowBubblePicker] = useState(false);
   const [chats, setChats] = useState<any[]>([]);
   const [selectedChat, setSelectedChat] = useState<ChatLog | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const readerFileInputRef = useRef<HTMLInputElement>(null);
   const [editingNoteFor, setEditingNoteFor] = useState<string | null>(null);
   const [editNoteContent, setEditNoteContent] = useState("");
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [visibleCount, setVisibleCount] = useState(30);
   const observerTarget = useRef<HTMLDivElement>(null);
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
+  const [readingMode, setReadingMode] = useState<'novel' | 'bubble'>(() => {
+    return (localStorage.getItem('chat_reader_mode') as 'novel' | 'bubble') || 'novel';
+  });
+  const [novelFontSize, setNovelFontSize] = useState<number>(() => {
+    return parseInt(localStorage.getItem('chat_reader_font_size') || '15', 10);
+  });
+  const [readingProgress, setReadingProgress] = useState(0);
+  const readerScrollRef = useRef<HTMLDivElement>(null);
+  const [enabledRegexIds, setEnabledRegexIds] = useState<Set<number>>(() => {
+    const initial = new Set<number>();
+    if (Array.isArray(regexScripts)) {
+      regexScripts.forEach((s, idx) => {
+        if (!s.disabled) initial.add(idx);
+      });
+    }
+    return initial;
+  });
+
   const [importProgress, setImportProgress] = useState<{
     show: boolean;
     current: number;
@@ -104,10 +129,17 @@ export function CharacterChatsSection({
     }
   }, [refreshKey]);
 
+  useEffect(() => {
+    localStorage.setItem('chat_reader_mode', readingMode);
+  }, [readingMode]);
+
+  useEffect(() => {
+    localStorage.setItem('chat_reader_font_size', novelFontSize.toString());
+  }, [novelFontSize]);
+
   const formatCustomTags = (text: string) => {
     if (!text) return "";
     let result = text;
-    // Format various Think tags: <think>, [think], {{think}}
     const thinkRegex =
       /(?:<|&lt;|\[+|\\\[+|\{+)\s*(?:think|thought|thinking)\s*(?:>|&gt;|\]+|\\\]+|\}+)([\s\S]*?)(?:<|&lt;|\[+|\\\[+|\{+)\/\s*(?:think|thought|thinking)\s*(?:>|&gt;|\]+|\\\]+|\}+)/gi;
     result = result.replace(
@@ -115,7 +147,6 @@ export function CharacterChatsSection({
       '<details class="text-sm bg-[rgba(255,255,255,0.05)] [.light-theme_&]:bg-black/5 border border-[rgba(255,255,255,0.1)] [.light-theme_&]:border-black/10 rounded-lg p-2 my-2 w-full max-w-full overflow-hidden"><summary class="cursor-pointer font-bold text-[#8491CD] hover:opacity-80 transition-opacity select-none">🤔 思维链</summary><div class="mt-2 text-[#707CB1] break-words whitespace-pre-wrap max-w-full overflow-x-auto">$1</div></details>',
     );
 
-    // Apply user defined custom tags
     const processedTags = new Set(
       customTags
         .map((t) =>
@@ -160,7 +191,6 @@ export function CharacterChatsSection({
   };
 
   const handleSaveNote = async (chatMeta: any) => {
-    const { getChatById } = await import("../lib/db");
     const fullChat = await getChatById(chatMeta.id);
     if (fullChat) {
       await saveChat({ ...fullChat, note: editNoteContent });
@@ -173,7 +203,6 @@ export function CharacterChatsSection({
     if (onOpenChat) {
       onOpenChat(chatMeta.id);
     } else {
-      const { getChatById } = await import("../lib/db");
       const chat = await getChatById(chatMeta.id);
       setSelectedChat(chat || null);
     }
@@ -186,7 +215,15 @@ export function CharacterChatsSection({
     const idToDelete = deleteChatId;
     setDeleteChatId(null);
     setChats((prev) => prev.filter((c) => c.id !== idToDelete));
-    if (selectedChat?.id === idToDelete) setSelectedChat(null);
+    if (selectedChat?.id === idToDelete) {
+      const remaining = chats.filter((c) => c.id !== idToDelete);
+      if (remaining.length > 0) {
+        const nextChat = await getChatById(remaining[0].id);
+        setSelectedChat(nextChat || null);
+      } else {
+        setSelectedChat(null);
+      }
+    }
     await deleteChat(idToDelete);
   };
 
@@ -228,7 +265,7 @@ export function CharacterChatsSection({
             if (zipEntry.dir) continue;
 
             const lowerName = zipEntry.name.toLowerCase();
-            if (lowerName.endsWith(".json") || lowerName.endsWith(".jsonl") || lowerName.endsWith(".txt")) {
+            if (lowerName.endsWith(".json") || lowerName.endsWith(".jsonl")) {
               filesToProcess.push(zipEntry);
             }
           }
@@ -254,211 +291,84 @@ export function CharacterChatsSection({
               await new Promise((r) => setTimeout(r, 0));
             }
 
-            try {
-              const arrayBuffer = await zipEntry.async("arraybuffer");
-              const blob = new Blob([arrayBuffer]);
-              const text = await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (e) => resolve(e.target?.result as string);
-                reader.onerror = reject;
-                reader.readAsText(blob, "utf-8");
-              });
-              let parsedMessages: any[] = [];
+            const text = await zipEntry.async("text");
+            let messages: any[] = [];
 
-              if (lowerName.endsWith(".jsonl")) {
-                const { parseJsonlChat } = await import("../lib/chatParse");
-                parsedMessages = parseJsonlChat(text);
-              } else if (lowerName.endsWith(".txt")) {
-                const { parseTextChatLog } = await import("../lib/chatParse");
-                const entryChatName = (zipEntry.name.split("/").pop() || zipEntry.name).replace(/\.[^/.]+$/, "");
-                const parsed = parseTextChatLog(text, entryChatName);
-                parsedMessages = parsed.messages;
-              } else if (false) {
-                const lines = text.trim().split("\n");
-                for (let k = 0; k < lines.length; k++) {
-                  try {
-                    const parsed = JSON.parse(lines[k]);
-                    if (parsed) parsedMessages.push(parsed);
-                  } catch (e) {}
-                  if (k % 500 === 0) await new Promise((r) => setTimeout(r, 0));
-                }
-              } else {
+            if (lowerName.endsWith(".jsonl")) {
+              const lines = text.trim().split("\n");
+              for (const line of lines) {
                 try {
-                  const data = JSON.parse(text);
-                  if (Array.isArray(data)) parsedMessages = data;
-                  else if (data.chat && Array.isArray(data.chat))
-                    parsedMessages = data.chat;
-                  else parsedMessages = [data];
-                } catch (err) {
-                  if (text.trim().split("\n").length > 1) {
-                    const lines = text.trim().split("\n");
-                    for (let k = 0; k < lines.length; k++) {
-                      try {
-                        const parsed = JSON.parse(lines[k]);
-                        if (parsed) parsedMessages.push(parsed);
-                      } catch (e) {}
-                      if (k % 500 === 0)
-                        await new Promise((r) => setTimeout(r, 0));
-                    }
-                  }
-                }
+                  const p = JSON.parse(line);
+                  if (p) messages.push(p);
+                } catch (e) {}
               }
-
-              if (parsedMessages.length === 0) continue;
-
-              let charId = characterId;
+            } else {
               try {
-                const { initDB } = await import("../lib/db");
-                const db = await initDB();
-                const allChars = await db.getAll("characters");
-                const pathParts = zipEntry.name.split("/");
-                if (pathParts.length > 1) {
-                  let charNameIndex = pathParts.length - 2;
-                  if (pathParts[charNameIndex] === "聊天记录" && pathParts.length > 2) {
-                    charNameIndex = pathParts.length - 3;
-                  }
-                  const parentFolderName = pathParts[charNameIndex];
-                  const folderMatch = allChars.find((c: any) => c.name.toLowerCase() === parentFolderName.toLowerCase());
-                  if (folderMatch) charId = folderMatch.id;
-                }
-                if (charId === characterId) {
-                  const aiMessage = parsedMessages.find((m: any) => !m.is_user && m.name);
-                  if (aiMessage && aiMessage.name) {
-                    const match = allChars.find((c: any) => c.name.toLowerCase() === aiMessage.name?.toLowerCase());
-                    if (match) charId = match.id;
-                  }
-                }
+                const j = JSON.parse(text);
+                messages = Array.isArray(j) ? j : j.messages || j.chat || [];
               } catch (e) {}
+            }
 
-              const chatName = zipEntry.name.split("/").pop() || zipEntry.name;
-              const finalMessages = parsedMessages.filter((m: any) => m && (m.mes !== undefined || m.text !== undefined || m.is_user !== undefined || m.send_date !== undefined || m.swipes !== undefined)).map((m: any) => {
-          const res: any = { ...m };
-          if (res.is_user === undefined) res.is_user = res.is_name !== chatName;
-          if (res.send_date === undefined) res.send_date = Date.now();
-          if (m.mes !== undefined) res.mes = m.mes;
-          else if (m.text !== undefined) res.mes = m.text;
-          return res;
-        });
-
-              pendingChats.push({
-                id: crypto.randomUUID(),
-                characterId: charId,
-                name: chatName.replace(/\.[^/.]+$/, ""),
-                messages: finalMessages,
-                createdAt: zipEntry.date ? zipEntry.date.getTime() : Date.now(),
-              });
+            const { sanitizeChatMessages } = await import("../lib/chatParse");
+            const sanitized = sanitizeChatMessages(messages);
+            if (sanitized.isChat && sanitized.messages.length > 0) {
+              const newChat: ChatLog = {
+                id: `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                characterId,
+                name: zipEntry.name.split("/").pop()?.replace(/\.[^/.]+$/, "") || "导入的记录",
+                messages: sanitized.messages,
+                createdAt: Date.now(),
+                messageCount: sanitized.messages.length,
+              };
+              pendingChats.push(newChat);
               imported++;
-            } catch (e) {
-              console.error(
-                `Failed to parse file inside zip: ${zipEntry.name}`,
-                e,
-              );
             }
           }
         } else {
-          setImportProgress({
-            show: true,
-            current: 0,
-            total: 1,
-            message: `正在解析文件 ${file.name}...`,
-          });
+          const text = await file.text();
+          let messages: any[] = [];
+          const lowerName = file.name.toLowerCase();
 
-          const text = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve(e.target?.result as string);
-            reader.onerror = reject;
-            reader.readAsText(file, "utf-8");
-          });
-          let parsedMessages: any[] = [];
-
-          if (file.name.toLowerCase().endsWith(".jsonl")) {
-            const { parseJsonlChat } = await import("../lib/chatParse");
-            parsedMessages = parseJsonlChat(text);
-          } else if (file.name.toLowerCase().endsWith(".txt")) {
-            const { parseTextChatLog } = await import("../lib/chatParse");
-            const fileChatName = file.name.replace(/\.[^/.]+$/, "");
-            const parsed = parseTextChatLog(text, fileChatName);
-            parsedMessages = parsed.messages;
-          } else if (false) {
+          if (lowerName.endsWith(".jsonl")) {
             const lines = text.trim().split("\n");
-            for (let k = 0; k < lines.length; k++) {
+            for (const line of lines) {
               try {
-                const parsed = JSON.parse(lines[k]);
-                if (parsed) parsedMessages.push(parsed);
+                const p = JSON.parse(line);
+                if (p) messages.push(p);
               } catch (e) {}
-              if (k % 500 === 0) await new Promise((r) => setTimeout(r, 0));
             }
           } else {
             try {
-              const data = JSON.parse(text);
-              if (Array.isArray(data)) parsedMessages = data;
-              else if (data.chat && Array.isArray(data.chat))
-                parsedMessages = data.chat;
-              else parsedMessages = [data];
-            } catch (err) {
-              if (text.trim().split("\n").length > 1) {
-                const lines = text.trim().split("\n");
-                for (let k = 0; k < lines.length; k++) {
-                  try {
-                    const parsed = JSON.parse(lines[k]);
-                    if (parsed) parsedMessages.push(parsed);
-                  } catch (e) {}
-                  if (k % 500 === 0) await new Promise((r) => setTimeout(r, 0));
-                }
-              }
-            }
+              const j = JSON.parse(text);
+              messages = Array.isArray(j) ? j : j.messages || j.chat || [];
+            } catch (e) {}
           }
 
-          if (parsedMessages.length === 0) continue;
-
-          let charId = characterId;
-          try {
-            const { initDB } = await import("../lib/db");
-            const db = await initDB();
-                const allChars = await db.getAll("characters");
-            const aiMessage = parsedMessages.find((m: any) => !m.is_user && m.name);
-            if (aiMessage && aiMessage.name) {
-              const match = allChars.find((c: any) => c.name.toLowerCase() === aiMessage.name?.toLowerCase());
-              if (match) charId = match.id;
-            }
-          } catch (e) {}
-
-          const chatName = file.name.replace(/\.[^/.]+$/, "");
-          const finalMessages = parsedMessages.filter((m: any) => m && (m.mes !== undefined || m.text !== undefined || m.is_user !== undefined || m.send_date !== undefined || m.swipes !== undefined)).map((m: any) => {
-          const res: any = { ...m };
-          if (res.is_user === undefined) res.is_user = res.is_name !== chatName;
-          if (res.send_date === undefined) res.send_date = Date.now();
-          if (m.mes !== undefined) res.mes = m.mes;
-          else if (m.text !== undefined) res.mes = m.text;
-          return res;
-        });
-
-          pendingChats.push({
-            id: crypto.randomUUID(),
-            characterId: charId,
-            name: chatName,
-            messages: finalMessages,
-            createdAt: file.lastModified || Date.now(),
-          });
-          imported++;
+          const { sanitizeChatMessages } = await import("../lib/chatParse");
+          const sanitized = sanitizeChatMessages(messages);
+          if (sanitized.isChat && sanitized.messages.length > 0) {
+            const newChat: ChatLog = {
+              id: `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              characterId,
+              name: file.name.replace(/\.[^/.]+$/, "") || "导入的记录",
+              messages: sanitized.messages,
+              createdAt: Date.now(),
+              messageCount: sanitized.messages.length,
+            };
+            pendingChats.push(newChat);
+            imported++;
+          }
         }
       } catch (e) {
-        console.error(e);
-        alert(
-          `解析文件 ${file.name} 失败，请确保格式为记录导出的 zip, jsonl 或 json 格式。`,
-        );
+        console.error("Error processing file", file.name, e);
       }
     }
 
     if (pendingChats.length > 0) {
-      setImportProgress((prev) => ({
-        ...prev,
-        message: "正在保存记录到数据库...",
-      }));
-      await saveChatsBulk(pendingChats, (current, total, phase) => {
+      await saveChatsBulk(pendingChats, (processed, total, phase) => {
         setImportProgress((prev) => ({
           ...prev,
-          current,
+          current: processed,
           total,
           message: phase,
         }));
@@ -466,7 +376,11 @@ export function CharacterChatsSection({
     }
 
     if (imported > 0) {
-      loadChats();
+      await loadChats();
+      if (pendingChats.length > 0 && selectedChat) {
+        // switch to latest imported chat
+        setSelectedChat(pendingChats[pendingChats.length - 1]);
+      }
     }
 
     setTimeout(() => {
@@ -474,20 +388,17 @@ export function CharacterChatsSection({
     }, 500);
   };
 
-  const applyRegexes = (text: string) => {
-    let result = text;
+  const applyRegexes = (text: string, place: 1 | 2 = 2) => {
+    let result = text || "";
+    if (!result) return "";
     if (regexScripts && Array.isArray(regexScripts)) {
-      // Filter placement 3 or disabled=false
-      const validScripts = regexScripts.filter(
-        (s) =>
-          !s.disabled &&
-          (s.regex || s.findRegex) &&
-          (s.replacementString !== undefined || s.replaceString !== undefined),
-      );
+      regexScripts.forEach((script, idx) => {
+        if (!enabledRegexIds.has(idx)) return;
+        if (script.promptOnly) return;
+        if (Array.isArray(script.placement) && script.placement.length > 0 && !script.placement.includes(place)) return;
 
-      for (const script of validScripts) {
         try {
-          let pattern = script.regex || script.findRegex;
+          let pattern = script.regex || script.findRegex || "";
           let flags = "g";
           if (pattern.startsWith("/") && pattern.lastIndexOf("/") > 0) {
             const lastSlash = pattern.lastIndexOf("/");
@@ -496,25 +407,50 @@ export function CharacterChatsSection({
             pattern = pattern.substring(1, lastSlash);
           }
 
-          pattern = pattern.replace(/{{char}}/gi, characterName);
-          pattern = pattern.replace(/{{user}}/gi, "User");
+          pattern = pattern
+            .replace(/{{char}}/gi, characterName)
+            .replace(/<BOT>|<CHAR>/gi, characterName)
+            .replace(/{{user}}/gi, "User")
+            .replace(/<USER>/gi, "User");
+
           let rawReplace =
             script.replacementString !== undefined
               ? script.replacementString
-              : script.replaceString;
+              : script.replaceString || "";
           let replaceStr = rawReplace
             .replace(/{{char}}/gi, characterName)
-            .replace(/{{user}}/gi, "User");
+            .replace(/<BOT>|<CHAR>/gi, characterName)
+            .replace(/{{user}}/gi, "User")
+            .replace(/<USER>/gi, "User");
 
           const re = new RegExp(pattern, flags);
           result = result.replace(re, replaceStr);
-        } catch (e) {
-          // invalid regex, skip
-        }
-      }
+        } catch (e) {}
+      });
     }
-
     return result;
+  };
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const max = el.scrollHeight - el.clientHeight;
+    if (max > 0) {
+      setReadingProgress(Math.min(100, Math.max(0, (el.scrollTop / max) * 100)));
+    } else {
+      setReadingProgress(0);
+    }
+  };
+
+  const toggleRegex = (idx: number) => {
+    setEnabledRegexIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) {
+        next.delete(idx);
+      } else {
+        next.add(idx);
+      }
+      return next;
+    });
   };
 
   const [isCleanerOpen, setIsCleanerOpen] = useState(false);
@@ -527,81 +463,78 @@ export function CharacterChatsSection({
         exit={{ opacity: 0 }}
         className="space-y-6 relative"
       >
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex flex-col flex-1 min-w-0">
-          <h3 className="text-xl font-bold text-white flex items-center gap-2">
-            <MessageSquare className="w-5 h-5 text-blue-400 shrink-0" />
-            <span className="truncate">
-              聊天记录{" "}
-              <span className="text-white/50 text-base font-normal">
-                ({chats.length})
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex flex-col flex-1 min-w-0">
+            <h3 className="text-xl font-bold text-white">
+              <span className="truncate">
+                聊天记录{" "}
+                <span className="text-white/50 text-base font-normal">
+                  ({chats.length})
+                </span>
               </span>
-            </span>
-          </h3>
-          <AnimatePresence>
-            {importProgress.show && (
-              <motion.div
-                initial={{ opacity: 0, y: -50, x: '-50%' }}
-                animate={{ opacity: 1, y: 0, x: '-50%' }}
-                exit={{ opacity: 0, y: -50, x: '-50%' }}
-                className="fixed top-12 sm:top-20 left-1/2 z-[100] bg-slate-800/90 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-3 sm:p-4 w-[90%] max-w-[16rem] sm:w-72 pointer-events-auto"
-              >
-                <div className="flex items-center gap-3 mb-2">
-                  <UploadCloud className="w-5 h-5 text-blue-400 animate-bounce shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <h4 className="text-sm font-semibold text-white truncate">
-                      正在导入记录
-                    </h4>
-                    <p className="text-xs text-white/50 truncate">
-                      {importProgress.message}
-                    </p>
-                  </div>
-                  <span className="text-xs font-medium text-blue-400/80 shrink-0">
-                    {importProgress.total > 0
-                      ? Math.round((importProgress.current / importProgress.total) * 100)
-                      : 0}%
+            </h3>
+            <AnimatePresence>
+              {importProgress.show && (
+                <motion.div
+                  initial={{ opacity: 0, y: -20, x: "-50%" }}
+                  animate={{ opacity: 1, y: 0, x: "-50%" }}
+                  exit={{ opacity: 0, y: -20, x: "-50%" }}
+                  className={`fixed top-5 left-1/2 z-[100] backdrop-blur-xl border rounded-full px-4 py-2 sm:px-4.5 sm:py-2 flex items-center gap-2.5 max-w-[92vw] w-auto pointer-events-auto overflow-hidden select-none ${
+                    isLightMode
+                      ? 'bg-slate-800/95 border-blue-100 shadow-[0_8px_30px_rgba(0,0,0,0.08)]'
+                      : 'bg-slate-900/90 border-white/15 shadow-[0_8px_30px_rgba(0,0,0,0.25)]'
+                  }`}
+                >
+                  <UploadCloud className={`w-4 h-4 animate-bounce shrink-0 ${isLightMode ? 'text-blue-500' : 'text-blue-400'}`} />
+                  <span className={`text-xs sm:text-sm font-medium whitespace-nowrap ${isLightMode ? 'text-slate-100' : 'text-slate-100'}`}>
+                    {importProgress.message || "正在导入记录"}
                   </span>
-                </div>
-                <div className="w-full bg-black/40 rounded-full h-1.5 overflow-hidden relative">
-                  <div 
-                    className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300 relative"
-                    style={{ width: `${importProgress.total > 0 ? (importProgress.current / importProgress.total) * 100 : 0}%` }}
-                  >
-                    <div className="absolute inset-0 bg-white/20 animate-pulse" />
+                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+                    isLightMode ? 'text-blue-600 bg-blue-50' : 'text-blue-300 bg-blue-500/20'
+                  }`}>
+                    {importProgress.total > 0 ? Math.round((importProgress.current / importProgress.total) * 100) : 0}%
+                  </span>
+                  <div className={`absolute bottom-0 left-0 right-0 h-[2.5px] overflow-hidden ${isLightMode ? 'bg-slate-200' : 'bg-black/30'}`}>
+                    <div
+                      className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 [.light-theme_&]:!from-blue-600 [.light-theme_&]:!to-indigo-600 transition-all duration-300"
+                      style={{
+                        width: `${importProgress.total > 0 ? (importProgress.current / importProgress.total) * 100 : 0}%`,
+                      }}
+                    />
                   </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-        <div className="flex gap-2 self-start sm:self-auto w-full sm:w-auto mt-2 sm:mt-0">
-          <button
-            onClick={() => setIsCleanerOpen(true)}
-            className="flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 bg-white/10 hover:bg-white/15 border border-white/15 text-white/80 hover:text-white rounded-full text-xs font-medium transition active:scale-95 shadow-sm flex items-center gap-1 sm:gap-1.5 cursor-pointer"
-            title="清理记录和分支"
-          >
-            <Trash2 className="w-3.5 h-3.5 shrink-0 text-red-400" />
-            <span>清理</span>
-          </button>
-          <button
-            onClick={() => {
-              if (onOpenImport) {
-                onOpenImport();
-              } else {
-                fileInputRef.current?.click();
-              }
-            }}
-            className="flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 rounded-full text-xs font-medium transition active:scale-95 shadow-sm flex items-center gap-1 sm:gap-1.5 cursor-pointer"
-          >
-            <UploadCloud className="w-3.5 h-3.5 shrink-0" />
-            <span>导入</span>
-          </button>
-        </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+          <div className="flex gap-2 self-start sm:self-auto w-full sm:w-auto mt-2 sm:mt-0">
+            <button
+              onClick={() => {
+                if (onOpenImport) {
+                  onOpenImport();
+                } else {
+                  fileInputRef.current?.click();
+                }
+              }}
+              className="soft-pill flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
+              title="导入聊天记录"
+            >
+              <UploadCloud className="w-3.5 h-3.5 opacity-70 shrink-0" />
+              <span>导入</span>
+            </button>
+            <button
+              onClick={() => setIsCleanerOpen(true)}
+              className="soft-pill flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs hover:!text-red-400"
+              title="清理记录和分支"
+            >
+              <Trash2 className="w-3.5 h-3.5 opacity-70 shrink-0" />
+              <span>清理</span>
+            </button>
+          </div>
           <input
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".json,.jsonl,.txt,.zip"
+            accept=".json,.jsonl,.zip"
             className="hidden"
             onChange={(e) => {
               if (e.target.files?.length) {
@@ -616,17 +549,12 @@ export function CharacterChatsSection({
         </div>
 
         {chats.length === 0 ? (
-          <div className="flex flex-col items-center justify-center p-12 bg-white/5 rounded-2xl border border-white/10 text-center border-dashed border-2">
-            <FileJson className="w-12 h-12 text-white/20 mb-4" />
-            <h4 className="text-white/80 font-medium mb-2">
-              暂无绑定的聊天记录
-            </h4>
-            <div className="flex flex-col items-center gap-4 mt-2">
-              <p className="text-white/40 text-sm max-w-sm">
-                点击右上角导入按钮，或直接拖拽 JSONL/ZIP
-                文件到窗口中绑定至此角色。
-              </p>
-            </div>
+          <div className="flex flex-col items-center justify-center p-8 rounded-2xl bg-white/5 border border-white/5 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0] text-white/40 [.light-theme_&]:!text-[#64748b]">
+            <FileJson className="w-12 h-12 mb-3 opacity-50" />
+            <p className="text-sm font-medium">当前角色未包含聊天记录</p>
+            <p className="text-xs text-white/30 [.light-theme_&]:!text-[#94a3b8] mt-1">
+              点击右上角导入按钮，或直接拖拽 JSONL/ZIP 文件到窗口中绑定
+            </p>
           </div>
         ) : (
           <>
@@ -635,13 +563,9 @@ export function CharacterChatsSection({
                 <div
                   key={chat.id}
                   onClick={() => handleChatClick(chat)}
-                  className="group cursor-pointer bg-white/5 hover:bg-white/10 border border-white/10 hover:border-blue-500/50 rounded-2xl p-4 transition-all hover:shadow-[0_0_20px_rgba(59,130,246,0.1)] relative h-full flex flex-col"
+                  className="group cursor-pointer bg-white/[0.06] hover:bg-white/[0.09] rounded-2xl p-4 transition-all shadow-md hover:shadow-xl relative h-full flex flex-col [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#ffffff] [.light-theme_&]:!shadow-sm"
                 >
                   <div className="flex justify-between items-start mb-2 gap-3">
-                    <div className="p-2 bg-blue-500/20 rounded-lg flex-shrink-0">
-                      <MessageSquare className="w-5 h-5 text-blue-400" />
-                    </div>
-
                     <div className="flex-1 min-w-0 pt-0.5">
                       {editingNoteFor === chat.id ? (
                         <div
@@ -662,7 +586,7 @@ export function CharacterChatsSection({
                         </div>
                       ) : (
                         <div
-                          className="text-sm font-medium text-blue-300 cursor-pointer hover:text-blue-200 transition flex items-center gap-2"
+                          className="text-sm font-medium text-blue-300 cursor-pointer hover:text-purple-200 transition flex items-center gap-2"
                           onClick={(e) => {
                             e.stopPropagation();
                             setEditingNoteFor(chat.id);
@@ -716,6 +640,7 @@ export function CharacterChatsSection({
         )}
       </motion.div>
 
+      {/* Novel & Bubble Chat Viewer Modal */}
       <AnimatePresence>
         {selectedChat && (
           <motion.div
@@ -723,124 +648,372 @@ export function CharacterChatsSection({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 20 }}
             transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-            className="fixed inset-0 z-[120] bg-slate-900/80 backdrop-blur-sm flex flex-col p-4 sm:p-6 [.light-theme_&]:bg-black/20"
+            className="fixed inset-0 z-[120] bg-slate-950/85 backdrop-blur-md flex flex-col p-2 pt-[max(1.75rem,env(safe-area-inset-top))] sm:p-5 sm:pt-[max(1.75rem,env(safe-area-inset-top))] [.light-theme_&]:bg-black/30"
           >
-            <div className="max-w-4xl mx-auto w-full flex flex-col h-full bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl ring-1 ring-white/5 [.light-theme_&]:bg-white/80 [.light-theme_&]:backdrop-blur-3xl [.light-theme_&]:border-black/5 [.light-theme_&]:shadow-[0_8px_40px_rgba(0,0,0,0.1)]">
-              <div className="p-4 sm:p-5 border-b border-white/10 flex justify-between items-center shrink-0 bg-transparent">
+            <div className="max-w-4xl mx-auto w-full flex flex-col h-full bg-slate-900/90 backdrop-blur-2xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl ring-1 ring-white/5 [.light-theme_&]:bg-white/95 [.light-theme_&]:border-black/10 [.light-theme_&]:shadow-[0_8px_40px_rgba(0,0,0,0.12)]">
+              {/* Reader Header */}
+              <div className="px-4 py-3 sm:px-5 sm:py-3.5 border-b border-white/10 flex justify-between items-center shrink-0 bg-white/[0.02]">
                 <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
                   <button
                     onClick={() => setSelectedChat(null)}
                     className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition shrink-0"
+                    title="返回列表"
                   >
                     <ArrowLeft className="w-4 h-4" />
                   </button>
                   <h3
-                    className="text-base sm:text-lg font-medium text-white truncate"
+                    className="text-sm sm:text-base font-semibold text-white truncate flex items-center gap-2"
                     title={selectedChat.name}
                   >
-                    {selectedChat.name}
+                    <span>{selectedChat.name}</span>
+                    <span className="text-xs text-blue-400/80 font-normal px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20">
+                      {selectedChat.messages?.length || 0} 幕
+                    </span>
                   </h3>
                 </div>
-                <button
-                  onClick={(e) => handleDelete(selectedChat.id, e)}
-                  className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition shrink-0"
-                  title="删除这条聊天记录"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+
+                <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                  {/* Mode Toggle: Novel vs Bubble */}
+                  <div className="flex items-center bg-white/5 border border-white/10 rounded-full p-0.5">
+                    <button
+                      onClick={() => setReadingMode('novel')}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition ${
+                        readingMode === 'novel'
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'text-white/60 hover:text-white'
+                      }`}
+                      title="小说沉浸排版"
+                    >
+                      <BookOpen className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">小说模式</span>
+                    </button>
+                    <button
+                      onClick={() => setReadingMode('bubble')}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition ${
+                        readingMode === 'bubble'
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'text-white/60 hover:text-white'
+                      }`}
+                      title="气泡对话模式"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">气泡模式</span>
+                    </button>
+                  </div>
+
+                  {/* Font Size Adjuster in Novel Mode */}
+                  {readingMode === 'novel' && (
+                    <div className="hidden sm:flex items-center bg-white/5 border border-white/10 rounded-full px-1 py-0.5">
+                      <button
+                        onClick={() => setNovelFontSize((prev) => Math.max(13, prev - 1))}
+                        className="px-1.5 py-0.5 text-xs text-white/60 hover:text-white transition font-mono"
+                        title="缩小字号"
+                      >
+                        A-
+                      </button>
+                      <span className="text-[11px] text-blue-300 font-mono px-1">{novelFontSize}</span>
+                      <button
+                        onClick={() => setNovelFontSize((prev) => Math.min(22, prev + 1))}
+                        className="px-1.5 py-0.5 text-xs text-white/60 hover:text-white transition font-mono"
+                        title="放大字号"
+                      >
+                        A+
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Bubble ColorSphere in Bubble Mode */}
+                  {readingMode === 'bubble' && (
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowBubblePicker(!showBubblePicker)}
+                        className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition active:scale-95"
+                        title={`气泡色彩球：${bubbleTheme.name}（点击切换）`}
+                      >
+                        <ColorSphere
+                          botColor={bubbleTheme.botColor}
+                          userColor={bubbleTheme.userColor}
+                          size={20}
+                        />
+                      </button>
+
+                      <AnimatePresence>
+                        {showBubblePicker && (
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.9, y: 10, transformOrigin: "top right" }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.9, y: 10 }}
+                            className="bubble-picker-popover absolute top-full right-0 mt-2 backdrop-blur-2xl rounded-2xl shadow-2xl w-60 p-3 z-50 overflow-hidden"
+                          >
+                            <div className="bubble-picker-divider flex items-center justify-between pb-2 mb-2 border-b">
+                              <span className="bubble-picker-title text-xs font-bold flex items-center gap-2">
+                                <ColorSphere botColor={bubbleTheme.botColor} userColor={bubbleTheme.userColor} size={16} />
+                                切换气泡色彩球
+                              </span>
+                            </div>
+                            <div className="flex flex-col gap-1 max-h-60 overflow-y-auto pr-0.5">
+                              {bubbleThemes.map((t) => {
+                                const isSelected = bubbleThemeId === t.id;
+                                return (
+                                  <button
+                                    key={t.id}
+                                    onClick={() => {
+                                      setBubbleTheme(t.id);
+                                      setShowBubblePicker(false);
+                                    }}
+                                    className={`bubble-picker-item w-full flex items-center gap-2.5 p-2 rounded-xl text-left transition ${
+                                      isSelected ? 'is-selected font-semibold' : ''
+                                    }`}
+                                  >
+                                    <ColorSphere botColor={t.botColor} userColor={t.userColor} size={24} />
+                                    <div className="flex-1 truncate">
+                                      <div className="text-xs font-bold">{t.name}</div>
+                                      <div className="bubble-picker-item-badge text-[10px] truncate">{t.badge}</div>
+                                    </div>
+                                    {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  )}
+
+                  {/* Import Timeline Shortcut */}
+                  <label
+                    className="p-1.5 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white rounded-lg transition cursor-pointer flex items-center gap-1 text-xs"
+                    title="导入时间线分支"
+                  >
+                    <UploadCloud className="w-4 h-4 text-blue-400" />
+                    <span className="hidden md:inline">导入时间线</span>
+                    <input
+                      ref={readerFileInputRef}
+                      type="file"
+                      multiple
+                      accept=".json,.jsonl,.zip"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files?.length) {
+                          handleFileUpload(e.target.files);
+                        }
+                      }}
+                    />
+                  </label>
+
+                  <button
+                    onClick={(e) => handleDelete(selectedChat.id, e)}
+                    className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition shrink-0"
+                    title="删除此记录"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
-              <div className="flex-[1_1_100%] min-h-0 bg-slate-900">
-                <Virtuoso
-                  style={{ height: "100%" }}
-                  data={selectedChat.messages}
-                  initialTopMostItemIndex={
-                    selectedChat.messages ? selectedChat.messages.length - 1 : 0
-                  }
-                  itemContent={(i, msg) => {
-                    const dateString = msg.send_date
-                      ? new Date(msg.send_date).toLocaleString()
-                      : "";
+              {/* Timeline Tabs Bar (Lovespace Style) */}
+              {chats.length > 1 && (
+                <div className="tl-tabs-wrap">
+                  {chats.map((c) => {
+                    const isActive = c.id === selectedChat.id;
                     return (
-                      <div
-                        className={`flex gap-4 pb-6 mt-4 ${msg.is_user ? "flex-row-reverse" : ""} overflow-hidden w-full min-w-0 px-4 sm:px-6`}
+                      <button
+                        key={c.id}
+                        onClick={async () => {
+                          if (c.id !== selectedChat.id) {
+                            const target = await getChatById(c.id);
+                            if (target) setSelectedChat(target);
+                          }
+                        }}
+                        className={`tl-tab ${isActive ? "active" : ""}`}
+                        title={c.name}
                       >
-                        <div className="shrink-0 pt-1">
-                          {msg.is_user ? (
-                            userAvatar ? (
-                              <div className="w-10 h-10 rounded-full border border-white/20 bg-black/30 flex items-center justify-center shrink-0 shadow-lg overflow-hidden">
-                                <img
-                                  src={userAvatar}
-                                  alt="user avatar"
-                                  className="w-full h-full object-cover"
+                        <GitBranch className="w-3 h-3" />
+                        <span className="max-w-[120px] truncate">{c.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Regex Switcher Bar (Lovespace Style) */}
+              {regexScripts && regexScripts.length > 0 && (
+                <div className="regex-bar">
+                  <span className="text-[10px] text-white/40 uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-blue-400" />
+                    正则
+                  </span>
+                  {regexScripts.map((s, idx) => {
+                    const isEnabled = enabledRegexIds.has(idx);
+                    const name = s.scriptName || s.name || `正则 ${idx + 1}`;
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => toggleRegex(idx)}
+                        className={`regex-chip ${isEnabled ? "on" : ""}`}
+                        title={`点击${isEnabled ? "禁用" : "启用"}此正则`}
+                      >
+                        {name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Reader Content Area */}
+              <div 
+                ref={readerScrollRef}
+                onScroll={handleScroll}
+                className="flex-[1_1_100%] min-h-0 overflow-y-auto custom-scrollbar relative"
+              >
+                {readingMode === 'novel' ? (
+                  /* Novel Literary Flow Layout */
+                  <div className="novel-wrap" style={{ fontSize: `${novelFontSize}px` }}>
+                    {selectedChat.messages?.map((msg: any, idx: number) => {
+                      const isUser = !!msg.is_user;
+                      const showNameDrop =
+                        !isUser &&
+                        (idx === 0 ||
+                          (idx > 0 && selectedChat.messages[idx - 1]?.is_user));
+
+                      const rawText = msg.mes || msg.message || msg.content || "";
+                      const formattedText = formatCustomTags(applyRegexes(rawText, isUser ? 1 : 2));
+
+                      if (isUser) {
+                        return (
+                          <div key={idx} className="msg-block">
+                            <div className="msg-user-wrap">
+                              <span className="msg-user-label">{msg.name || "You"}</span>
+                              <div className="msg-user-text">
+                                <MessageContent
+                                  content={formattedText}
+                                  characterName={characterName}
                                 />
                               </div>
-                            ) : (
-                              <div className="w-10 h-10 rounded-full bg-white/10 text-slate-300 border border-white/20 flex items-center justify-center shadow-lg font-bold [.light-theme_&]:bg-blue-600 [.light-theme_&]:text-white [.light-theme_&]:border-transparent [.light-theme_&]:shadow-blue-500/20">
-                                {msg.name?.charAt(0) || "U"}
-                              </div>
-                            )
-                          ) : avatar ? (
-                            <img
-                              src={avatar}
-                              alt="avatar"
-                              className="w-10 h-10 rounded-full object-cover shadow-lg border border-white/10"
-                              onError={(e) => {
-                                import("../lib/db").then((m) =>
-                                  m.getCharacterBlob(characterId).then((b) => {
-                                    if (b && b.avatarBlob)
-                                      e.currentTarget.src = URL.createObjectURL(
-                                        b.avatarBlob,
-                                      );
-                                  }),
-                                );
-                              }}
-                            />
-                          ) : (
-                            <div className="w-10 h-10 rounded-full bg-white/[0.05] flex items-center justify-center shadow-sm border border-white/10 text-slate-200 font-bold [.light-theme_&]:bg-indigo-900 [.light-theme_&]:text-indigo-200 [.light-theme_&]:border-indigo-500/30 [.light-theme_&]:shadow-lg">
-                              {msg.name?.charAt(0) || "AI"}
+                            </div>
+                            <div className="msg-divider">·</div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div key={idx} className="msg-block">
+                          {showNameDrop && (
+                            <div className="char-name-drop">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block" />
+                              {msg.name || characterName}
                             </div>
                           )}
+                          <div className="msg-char text-white/90">
+                            <MessageContent
+                              content={formattedText}
+                              characterName={characterName}
+                            />
+                          </div>
                         </div>
-
+                      );
+                    })}
+                  </div>
+                ) : (
+                  /* Bubble IM Layout */
+                  <Virtuoso
+                    style={{ height: "100%" }}
+                    data={selectedChat.messages}
+                    initialTopMostItemIndex={
+                      selectedChat.messages ? selectedChat.messages.length - 1 : 0
+                    }
+                    itemContent={(i, msg) => {
+                      const dateString = msg.send_date
+                        ? new Date(msg.send_date).toLocaleString()
+                        : "";
+                      const formattedText = formatCustomTags(
+                        applyRegexes(msg.mes || msg.message || msg.content || "", msg.is_user ? 1 : 2)
+                      );
+                      return (
                         <div
-                          className={`max-w-[85%] md:max-w-[80%] min-w-0 ${msg.is_user ? "items-end" : "items-start"} flex flex-col gap-1`}
+                          className={`flex gap-4 pb-6 mt-4 ${msg.is_user ? "flex-row-reverse" : ""} overflow-hidden w-full min-w-0 px-4 sm:px-6`}
                         >
-                          <div
-                            className={`flex items-center gap-2 text-xs ${msg.is_user ? "flex-row-reverse text-slate-400 [.light-theme_&]:text-blue-600" : "text-slate-400 [.light-theme_&]:text-slate-500"}`}
-                          >
-                            <span className="font-semibold">
-                              {msg.name || (msg.is_user ? "User" : "Character")}
-                            </span>
-                            {dateString && <span>· {dateString}</span>}
+                          <div className="shrink-0 pt-1">
+                            {msg.is_user ? (
+                              userAvatar ? (
+                                <div className="w-10 h-10 rounded-full border border-white/20 bg-black/30 flex items-center justify-center shrink-0 shadow-lg overflow-hidden">
+                                  <img
+                                    src={userAvatar}
+                                    alt="user avatar"
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                              ) : (
+                                <div className="w-10 h-10 rounded-full bg-white/10 text-slate-300 border border-white/20 flex items-center justify-center shadow-lg font-bold [.light-theme_&]:bg-blue-600 [.light-theme_&]:text-white [.light-theme_&]:border-transparent [.light-theme_&]:shadow-blue-500/20">
+                                  {msg.name?.charAt(0) || "U"}
+                                </div>
+                              )
+                            ) : avatar ? (
+                              <img
+                                src={avatar}
+                                alt="avatar"
+                                className="w-10 h-10 rounded-full object-cover shadow-lg border border-white/10"
+                                onError={(e) => {
+                                  getCharacterBlob(characterId).then((b) => {
+                                    if (b && b.avatarBlob)
+                                      e.currentTarget.src = URL.createObjectURL(b.avatarBlob);
+                                  });
+                                }}
+                              />
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-white/[0.05] flex items-center justify-center shadow-sm border border-white/10 text-slate-200 font-bold [.light-theme_&]:bg-indigo-900 [.light-theme_&]:text-indigo-200 [.light-theme_&]:border-indigo-500/30 [.light-theme_&]:shadow-lg">
+                                {msg.name?.charAt(0) || "AI"}
+                              </div>
+                            )}
                           </div>
 
                           <div
-                            className={`px-5 py-3 rounded-2xl max-w-full min-w-0 overflow-x-auto ${
-                              msg.is_user
-                                ? "bg-blue-600/20 text-blue-50 border border-blue-500/20 rounded-tr-sm shadow-sm backdrop-blur-md [.light-theme_&]:bg-blue-600/90 [.light-theme_&]:text-white [.light-theme_&]:border-blue-500/30"
-                                : "bg-white/[0.04] text-white/90 border border-white/5 rounded-tl-sm shadow-sm backdrop-blur-md [.light-theme_&]:bg-indigo-950/80 [.light-theme_&]:text-indigo-100 [.light-theme_&]:border-indigo-500/20"
-                            }`}
+                            className={`max-w-[85%] md:max-w-[80%] min-w-0 ${msg.is_user ? "items-end" : "items-start"} flex flex-col gap-1`}
                           >
                             <div
-                              className={`prose prose-sm max-w-none chat-bubble-prose
-                                prose-headings:text-white/90 prose-p:leading-relaxed 
-                                prose-a:text-blue-400 hover:prose-a:text-blue-300
-                                prose-strong:text-white prose-code:text-pink-300
-                                prose-pre:bg-black/30 prose-pre:max-w-full
-                                [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 break-words w-full \n                                 ${msg.is_user ? "prose-p:text-slate-100 text-slate-100 [.light-theme_&]:prose-p:text-white [.light-theme_&]:text-white" : "prose-invert"}`}
+                              className={`flex items-center gap-2 text-xs ${msg.is_user ? "flex-row-reverse text-slate-400 [.light-theme_&]:text-slate-500" : "text-slate-400 [.light-theme_&]:text-slate-500"}`}
                             >
-                              <MessageContent
-                                content={formatCustomTags(
-                                  applyRegexes(msg.mes || ""),
-                                )}
-                              />
+                              <span className="font-semibold">
+                                {msg.name || (msg.is_user ? "User" : "Character")}
+                              </span>
+                              {dateString && <span>· {dateString}</span>}
+                            </div>
+
+                            <div
+                              className="relative px-5 py-3 rounded-2xl max-w-full min-w-0 shadow-sm transition-colors"
+                              style={{
+                                backgroundColor: msg.is_user ? bubbleTheme.userColor : bubbleTheme.botColor,
+                                color: msg.is_user ? bubbleTheme.userTextColor : bubbleTheme.botTextColor,
+                              }}
+                            >
+                              <div
+                                className="prose prose-sm max-w-none chat-bubble-prose
+                                  prose-headings:text-inherit prose-p:leading-relaxed 
+                                  prose-a:underline hover:opacity-80
+                                  prose-strong:font-bold prose-code:text-pink-300
+                                  prose-pre:bg-black/30 prose-pre:max-w-full
+                                  [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 break-words w-full"
+                              >
+                                <MessageContent
+                                  content={formattedText}
+                                  characterName={characterName}
+                                />
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  }}
+                      );
+                    }}
+                  />
+                )}
+              </div>
+
+              {/* Bottom Sticky Reading Progress Bar */}
+              <div className="h-[2px] w-full bg-white/5 shrink-0 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-150"
+                  style={{ width: `${readingProgress}%` }}
                 />
               </div>
             </div>
@@ -865,34 +1038,39 @@ export function CharacterChatsSection({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm"
             onClick={() => setDeleteChatId(null)}
           >
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+              className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-black/5 rounded-t-3xl p-5 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
             >
-              <h3 className="text-xl font-bold mb-2 text-white">
+              {/* Indicator Handle */}
+              <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-black/10 rounded-full mx-auto mb-4" />
+
+              <h3 className="text-base sm:text-lg font-bold text-center text-white [.light-theme_&]:!text-[#0f172a] mb-1.5">
                 删除聊天记录？
               </h3>
-              <p className="text-slate-400 mb-6">
+              <p className="text-xs sm:text-sm text-center text-white/70 [.light-theme_&]:!text-slate-600 mb-6 px-2 leading-relaxed">
                 此操作无法撤销，确定要删除这条聊天记录吗？
               </p>
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => setDeleteChatId(null)}
-                  className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 hover:text-white transition"
-                >
-                  取消
-                </button>
+
+              <div className="space-y-2.5">
                 <button
                   onClick={confirmDeleteChat}
-                  className="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white transition shadow-lg shadow-red-500/20"
+                  className="w-full py-3.5 rounded-2xl bg-[#FE2C55] hover:bg-[#E02447] active:bg-[#D41C3E] text-white font-bold text-sm sm:text-base transition-all shadow-md shadow-[#FE2C55]/25 cursor-pointer active:scale-[0.98]"
                 >
-                  删除
+                  删除聊天记录
+                </button>
+                <button
+                  onClick={() => setDeleteChatId(null)}
+                  className="w-full py-3.5 rounded-2xl bg-white/10 hover:bg-white/15 active:bg-white/5 text-white/90 [.light-theme_&]:!bg-[#f2f3f5] [.light-theme_&]:hover:!bg-[#e5e6eb] [.light-theme_&]:!text-[#0f172a] font-semibold text-sm sm:text-base transition-all cursor-pointer active:scale-[0.98]"
+                >
+                  取消
                 </button>
               </div>
             </motion.div>

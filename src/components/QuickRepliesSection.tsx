@@ -338,7 +338,7 @@ export function QuickRepliesSection({ character, onUpdate }: Props) {
               </button>
               <button 
                 onClick={() => setIsSelectModalOpen(true)}
-                className="flex-1 py-3 bg-purple-500/20 hover:bg-purple-500/40 text-purple-300 rounded-xl font-medium transition flex items-center justify-center gap-2"
+                className="flex-1 py-3 bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 rounded-xl font-medium transition flex items-center justify-center gap-2"
               >
                 <Library className="w-4 h-4" /> 添加 (库)
               </button>
@@ -365,7 +365,7 @@ export function QuickRepliesSection({ character, onUpdate }: Props) {
               </button>
               <button 
                 onClick={() => setIsSelectModalOpen(true)}
-                className="px-6 py-2.5 bg-purple-500/20 hover:bg-purple-500/40 text-purple-300 rounded-xl font-medium transition flex items-center gap-2"
+                className="px-6 py-2.5 bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 rounded-xl font-medium transition flex items-center gap-2"
               >
                 <Library className="w-4 h-4" /> 从库中选择
               </button>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Check } from 'lucide-react';
+import { X, Check, Download } from 'lucide-react';
 
 interface QRSet {
   id: string;
@@ -18,6 +18,33 @@ interface Props {
 
 export function ExportQRModal({ isOpen, onClose, qrSets, onExport }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const [isLightMode, setIsLightMode] = useState(() => {
+    return (
+      document.documentElement.classList.contains('light-theme') ||
+      localStorage.getItem('tavern_theme') === 'light'
+    );
+  });
+
+  useEffect(() => {
+    const checkTheme = () => {
+      setIsLightMode(
+        document.documentElement.classList.contains('light-theme') ||
+        localStorage.getItem('tavern_theme') === 'light'
+      );
+    };
+    checkTheme();
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+    window.addEventListener('storage', checkTheme);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('storage', checkTheme);
+    };
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -44,74 +71,138 @@ export function ExportQRModal({ isOpen, onClose, qrSets, onExport }: Props) {
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm [.light-theme_&]:bg-black/40" onClick={onClose} />
-      
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="relative bg-slate-900 border border-white/10 rounded-3xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/10"
-      >
-        <div className="p-4 border-b border-white/10 flex items-center justify-between shrink-0 [.light-theme_&]:border-black/10">
-          <h3 className="text-lg font-semibold text-white [.light-theme_&]:text-[#1c1c1e]">选择要导出的快速回复集</h3>
-          <button onClick={onClose} className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition cursor-pointer [.light-theme_&]:text-black/50 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/5">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <AnimatePresence>
+      <div className={`fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4 backdrop-blur-sm pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] ${
+        isLightMode ? 'bg-black/35' : 'bg-black/75'
+      }`}>
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95, y: 15 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 15 }}
+          className={`rounded-3xl p-5 sm:p-6 w-[92vw] sm:w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh] relative overflow-hidden border ${
+            isLightMode
+              ? 'bg-slate-800 text-slate-100 border-none'
+              : 'bg-[#1c1c1e] text-white border-white/10'
+          }`}
+        >
+          {/* Header */}
+          <div className={`flex items-center justify-between pb-3.5 border-b relative z-10 ${
+            isLightMode ? 'border-slate-100' : 'border-white/10'
+          }`}>
+            <div>
+              <h3 className={`text-base sm:text-lg font-bold flex items-center gap-2 ${
+                isLightMode ? 'text-slate-100' : 'text-white'
+              }`}>
+                <Download className="w-5 h-5 opacity-80" />
+                选择要导出的快速回复集
+              </h3>
+              <p className={`text-xs sm:text-sm mt-0.5 ${
+                isLightMode ? 'text-slate-600' : 'text-white/60'
+              }`}>
+                勾选需要导出的快速回复集合
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center cursor-pointer transition shadow-xs ${
+                isLightMode
+                  ? 'bg-slate-700/10 hover:bg-slate-700/20 text-slate-600 hover:text-slate-100'
+                  : 'bg-white/10 hover:bg-white/15 text-white/60 hover:text-white'
+              }`}
+            >
+              <X className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
+          </div>
 
-        <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar flex-1">
-          {qrSets.length === 0 ? (
-             <div className="text-center py-8 text-white/50 [.light-theme_&]:text-black/40">没找到可导出的项</div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {qrSets.map(set => {
+          {/* List */}
+          <div className="flex-1 overflow-y-auto space-y-2 sm:space-y-2.5 pr-1 my-3 max-h-[50vh] custom-scrollbar relative z-10">
+            {qrSets.length === 0 ? (
+              <div className={`py-12 text-center text-sm ${
+                isLightMode ? 'text-slate-400' : 'text-white/50'
+              }`}>
+                暂无已关联的快速回复集
+              </div>
+            ) : (
+              qrSets.map(set => {
                 const isSelected = selectedIds.has(set.id);
                 return (
-                  <button
+                  <div
                     key={set.id}
                     onClick={() => toggleSelection(set.id)}
-                    className={`flex items-center gap-3 p-3 rounded-2xl transition text-left cursor-pointer ${
-                      isSelected 
-                        ? 'bg-purple-500/20 shadow-inner border border-purple-500/30' 
-                        : 'bg-white/5 hover:bg-white/10 border border-transparent [.light-theme_&]:bg-black/[0.02] [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-black/[0.05]'
+                    className={`p-3.5 rounded-2xl transition cursor-pointer flex items-center justify-between gap-3 border ${
+                      isSelected
+                        ? isLightMode
+                          ? 'bg-blue-600/10 border-blue-600/40 shadow-sm'
+                          : 'bg-blue-500/15 border-blue-500/40 shadow-sm'
+                        : isLightMode
+                          ? 'bg-slate-700/5 hover:bg-slate-700/10 border-slate-700/10'
+                          : 'bg-white/[0.04] hover:bg-white/[0.08] border-white/10'
                     }`}
                   >
-                    <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 border transition ${
-                      isSelected 
-                        ? 'bg-purple-500 border-purple-500 text-white' 
-                        : 'border-white/20'
-                    }`}>
-                      {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <h4 className={`font-bold text-sm sm:text-base truncate ${
+                          isLightMode ? 'text-slate-100' : 'text-white'
+                        }`}>
+                          {set.sourceName}
+                        </h4>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-mono font-semibold shrink-0 ${
+                          isLightMode
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'bg-blue-500/20 text-blue-300'
+                        }`}>
+                          {set.replies.length} 条回复
+                        </span>
+                      </div>
+                      <p className={`text-xs truncate mt-1 font-normal ${
+                        isLightMode ? 'text-slate-600' : 'text-white/50'
+                      }`}>
+                        包含 {set.replies.length} 条快捷气泡回复选项
+                      </p>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-white text-sm truncate [.light-theme_&]:text-[#1c1c1e]">{set.sourceName}</h4>
-                      <div className="text-white/50 text-xs mt-1 [.light-theme_&]:text-slate-500">{set.replies.length} 个回复项</div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
 
-        <div className="p-4 border-t border-white/10 shrink-0 flex gap-3 [.light-theme_&]:border-black/10">
-           <button 
-             onClick={onClose}
-             className="flex-1 py-2.5 rounded-xl font-medium text-white/70 hover:text-white bg-white/5 hover:bg-white/10 transition cursor-pointer [.light-theme_&]:bg-black/[0.05] [.light-theme_&]:hover:bg-black/[0.08] [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border [.light-theme_&]:border-black/10"
-           >
-             取消
-           </button>
-           <button 
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center transition shrink-0 border ${
+                      isSelected
+                        ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                        : isLightMode
+                          ? 'border-slate-300 bg-white'
+                          : 'border-white/30 bg-black/20'
+                    }`}>
+                      {isSelected && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className={`flex gap-3 pt-3 border-t relative z-10 ${
+            isLightMode ? 'border-slate-100' : 'border-white/10'
+          }`}>
+            <button
+              type="button"
+              onClick={onClose}
+              className={`flex-1 py-3 sm:py-3.5 px-4 rounded-2xl font-semibold text-sm sm:text-base cursor-pointer transition active:scale-95 text-center ${
+                isLightMode
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-800'
+                  : 'bg-white/10 hover:bg-white/15 text-white'
+              }`}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              disabled={selectedIds.size === 0}
               onClick={() => handleConfirm()}
-             disabled={selectedIds.size === 0}
-             className="flex-1 py-2.5 rounded-xl font-medium text-white bg-purple-500 hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition cursor-pointer"
-           >
-             导出 ({selectedIds.size})
-           </button>
-        </div>
-      </motion.div>
-    </div>,
-    document.body,
+              className="flex-1 py-3 sm:py-3.5 px-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm sm:text-base shadow-md shadow-blue-500/20 disabled:opacity-40 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
+            >
+              导出 ({selectedIds.size})
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>,
+    document.body
   );
 }

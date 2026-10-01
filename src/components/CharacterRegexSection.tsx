@@ -9,9 +9,10 @@ import { getDownloadTooltip } from '../lib/appBridge';
 interface Props {
   character: CharacterCard;
   onUpdate: (updatedCharacter: CharacterCard) => void;
+  isLightMode?: boolean;
 }
 
-export function CharacterRegexSection({ character, onUpdate }: Props) {
+export function CharacterRegexSection({ character, onUpdate, isLightMode = false }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -129,10 +130,10 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
               });
               setEditingIndex(-1);
             }}
-            className="p-2 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition"
+            className="w-9 h-9 rounded-full soft-pill flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs"
             title="新增正则规则"
           >
-            <Plus className="w-5 h-5" />
+            <Plus className="w-4.5 h-4.5 opacity-80" />
           </button>
           <input 
             type="file" 
@@ -143,27 +144,27 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="p-2 rounded-full bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition"
+            className="w-9 h-9 rounded-full soft-pill flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs"
             title="导入正则"
           >
-            <Upload className="w-5 h-5" />
+            <Upload className="w-4.5 h-4.5 opacity-80" />
           </button>
           {regexScripts.length > 0 && (
             <button
               onClick={() => handleExport(true)}
-              className="p-2 rounded-full bg-green-500/20 text-green-300 hover:bg-green-500/30 transition"
+              className="w-9 h-9 rounded-full soft-pill flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs"
               title={getDownloadTooltip("导出全部正则")}
             >
-              <Download className="w-5 h-5" />
+              <Download className="w-4.5 h-4.5 opacity-80" />
             </button>
           )}
         </div>
       </div>
 
       {regexScripts.length === 0 ? (
-        <div className="flex flex-col items-center justify-center p-8 text-white/40 border border-white/5 rounded-2xl bg-white/5">
+        <div className="flex flex-col items-center justify-center p-8 rounded-2xl bg-white/5 border border-white/5 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0] text-white/40 [.light-theme_&]:!text-[#64748b]">
           <Edit2 className="w-12 h-12 mb-3 opacity-50" />
-          <p>当前角色未包含正则替换</p>
+          <p className="text-sm font-medium">当前角色未包含正则替换</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -173,7 +174,11 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
             return (
               <div 
                 key={script.id || index} 
-                className="bg-white/5 border border-white/10 rounded-xl p-4 transition-colors hover:bg-white/10 group flex flex-col"
+                className={`border rounded-xl p-4 transition-colors group flex flex-col ${
+                  isLightMode
+                    ? 'bg-white border-slate-200 hover:bg-slate-50'
+                    : 'bg-white/5 border-white/10 hover:bg-white/10'
+                }`}
               >
                 <div className="flex justify-between items-start w-full gap-4">
                   <div 
@@ -181,37 +186,57 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
                     onClick={() => setExpandedIndex(isExpanded ? null : index)}
                   >
                     <div className="flex gap-2 mb-1.5 flex-wrap items-center">
-                      <span className={`w-2 h-2 rounded-full flex-none ${script.disabled ? 'bg-red-500/50' : 'bg-green-500'}`}></span>
-                      <span className="font-semibold text-white/90 break-words line-clamp-2 leading-snug">{title}</span>
+                      <span className={`w-2 h-2 rounded-full flex-none ${script.disabled ? 'bg-red-500/50' : 'bg-green-500 [.light-theme_&]:!bg-[#34C759] [.light-theme_&]:ring-1 [.light-theme_&]:ring-[#34C759]/30'}`}></span>
+                      <span className={`font-semibold break-words line-clamp-2 leading-snug ${
+                        isLightMode ? 'text-slate-100' : 'text-white/90'
+                      }`}>{title}</span>
                     </div>
 
                     {isExpanded ? (
-                      <div className="text-white/90 whitespace-pre-wrap text-sm leading-relaxed pr-2 break-words w-full" onClick={e => e.stopPropagation()}>
+                      <div className={`whitespace-pre-wrap text-sm leading-relaxed pr-2 break-words w-full ${
+                        isLightMode ? 'text-slate-100' : 'text-white/90'
+                      }`} onClick={e => e.stopPropagation()}>
                         <div className="mt-2 space-y-3">
                           <div>
-                            <span className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-1 block">匹配规则 (RegEx)</span>
-                            <div className="font-mono text-sm break-all font-medium text-blue-300">
+                            <span className={`text-xs font-semibold uppercase tracking-wider mb-1 block ${
+                              isLightMode ? 'text-slate-500' : 'text-white/50'
+                            }`}>匹配规则 (RegEx)</span>
+                            <div className={`font-mono text-sm break-all font-medium ${
+                              isLightMode ? 'text-blue-600' : 'text-blue-300'
+                            }`}>
                               {script.regex || script.findRegex || '未设定'}
                             </div>
                           </div>
                           <div>
-                            <span className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-1 block">替换内容</span>
-                            <div className="font-mono text-sm break-all font-medium text-green-300">
+                            <span className={`text-xs font-semibold uppercase tracking-wider mb-1 block ${
+                              isLightMode ? 'text-slate-500' : 'text-white/50'
+                            }`}>替换内容</span>
+                            <div className={`font-mono text-sm break-all font-medium ${
+                              isLightMode ? 'text-[#1DB954]' : 'text-green-300'
+                            }`}>
                               {script.replacementString || script.replaceString || ''}
                             </div>
                           </div>
-                          <div className="flex flex-wrap gap-2 text-xs text-white/60">
+                          <div className="flex flex-wrap gap-2 text-xs">
                             {script.placement && Array.isArray(script.placement) && (
-                              <span className="px-2 py-1 bg-black/40 rounded-md border border-white/5">插入位置: {script.placement.join(', ')}</span>
+                              <span className={`px-2 py-1 rounded-md border ${
+                                isLightMode 
+                                  ? 'bg-slate-100 border-slate-200 text-slate-600' 
+                                  : 'bg-black/40 border-white/5 text-white/60'
+                              }`}>插入位置: {script.placement.join(', ')}</span>
                             )}
                             {script.disabled && (
-                              <span className="px-2 py-1 bg-red-500/20 text-red-300 rounded-md border border-red-500/20">已禁用</span>
+                              <span className={`px-2 py-1 rounded-md border ${
+                                isLightMode
+                                  ? 'bg-red-50 border-red-100 text-red-600'
+                                  : 'bg-red-500/20 border-red-500/20 text-red-300'
+                              }`}>已禁用</span>
                             )}
                           </div>
                         </div>
                         <button 
                           onClick={(e) => { e.stopPropagation(); setExpandedIndex(null); }}
-                          className="mt-3 flex items-center justify-center gap-1 text-purple-400 text-sm font-medium py-1.5 hover:bg-white/5 rounded-lg transition w-full cursor-pointer"
+                          className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] text-sm font-medium py-1.5 hover:bg-[#60A5FA]/10 rounded-lg transition w-full cursor-pointer"
                         >
                           <ChevronUp className="w-4 h-4" /> 收起 
                         </button>
@@ -221,7 +246,7 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
                         <div className="text-white/70 text-sm line-clamp-2 break-words w-full font-mono">
                           {script.regex || script.findRegex || '未设定'}
                         </div>
-                        <div className="mt-1.5 text-purple-400 text-xs font-medium flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                        <div className="mt-1.5 text-[#60A5FA] text-xs font-medium flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
                           <span>展开全文</span>
                           <ChevronDown className="w-3 h-3" />
                         </div>
@@ -236,7 +261,7 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
                         setEditForm({ ...script });
                         setEditingIndex(index);
                       }}
-                      className="p-2 text-white/60 hover:text-blue-400 hover:bg-blue-500/20 rounded-lg transition"
+                      className="p-2 text-white/60 hover:text-white hover:bg-white/15 [.light-theme_&]:hover:bg-black/5 [.light-theme_&]:hover:text-black rounded-lg transition"
                       title="编辑"
                     >
                       <Edit2 className="w-4 h-4" />
@@ -294,7 +319,7 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
                       type="text"
                       value={editForm.scriptName || editForm.name || ''}
                       onChange={(e) => setEditForm({ ...editForm, scriptName: e.target.value })}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                       placeholder="例如: 屏蔽特定格式的星号动作"
                     />
                   </div>
@@ -304,7 +329,7 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
                     <textarea
                       value={editForm.regex || editForm.findRegex || ''}
                       onChange={(e) => setEditForm({ ...editForm, regex: e.target.value })}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500 transition font-mono min-h-[100px] [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition font-mono min-h-[100px] [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                       placeholder="输入合法的正则表达式"
                     />
                   </div>
@@ -314,7 +339,7 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
                     <textarea
                       value={editForm.replacementString ?? editForm.replaceString ?? ''}
                       onChange={(e) => setEditForm({ ...editForm, replacementString: e.target.value })}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500 transition font-mono min-h-[100px] [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition font-mono min-h-[100px] [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                       placeholder="输入替换内容，可使用 $1, $2 等捕获组"
                     />
                   </div>
@@ -325,7 +350,7 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
                          type="checkbox"
                          checked={!editForm.disabled}
                          onChange={(e) => setEditForm({ ...editForm, disabled: !e.target.checked })}
-                         className="rounded bg-black/30 border-white/10 text-purple-500 focus:ring-purple-500/20 [.light-theme_&]:bg-white [.light-theme_&]:border-black/20"
+                         className="rounded bg-black/30 border-white/10 text-blue-500 focus:ring-blue-500/20 [.light-theme_&]:bg-white [.light-theme_&]:border-black/20"
                        />
                        启用
                      </label>
@@ -350,7 +375,7 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
                       saveRegexScripts(newScripts);
                       setEditingIndex(null);
                     }}
-                    className="px-6 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition flex items-center gap-2 shadow-lg shadow-purple-500/20"
+                    className="px-6 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2 shadow-lg shadow-blue-500/20"
                   >
                     <Save className="w-4 h-4" />
                     保存

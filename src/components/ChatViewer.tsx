@@ -28,12 +28,19 @@ import {
   Book,
   Search,
   CheckCircle2,
+  Check,
+  CheckSquare,
   Download,
   Copy,
   Share2,
   Image as ImageIcon,
   FolderOpen,
+  Palette,
+  Bookmark,
+  LayoutList,
+  MoreHorizontal,
 } from "lucide-react";
+import { useBubbleTheme, BubbleThemeId, ColorSphere } from "../lib/bubbleThemes";
 import { MessageContent } from "./MessageContent";
 import { ChatCleanerModal } from "./ChatCleanerModal";
 import ReactMarkdown from "react-markdown";
@@ -70,6 +77,7 @@ export function ChatViewer({
   refreshKey,
   onActiveViewChange,
   backSignal,
+  isLightMode = false,
 }: {
   onClose: () => void;
   initialChatId?: string | null;
@@ -78,6 +86,7 @@ export function ChatViewer({
   refreshKey?: number;
   onActiveViewChange?: (hasInnerView: boolean) => void;
   backSignal?: number;
+  isLightMode?: boolean;
 }) {
   const [savedChats, setSavedChats] = useState<
     (Omit<ChatLog, "messages"> & {
@@ -88,6 +97,31 @@ export function ChatViewer({
   >([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeChat, setActiveChat] = useState<ChatLog | null>(null);
+  const [chatDisplayMode, setChatDisplayMode] = useState<'card' | 'bubble'>(
+    () => (localStorage.getItem('miu_chat_display_mode') as any) || 'card'
+  );
+  const [bookmarkedIndices, setBookmarkedIndices] = useState<Set<number>>(new Set());
+  const [editingMsgIndex, setEditingMsgIndex] = useState<number | null>(null);
+  const [editingMsgContent, setEditingMsgContent] = useState<string>("");
+
+  const handleSaveEditedMessage = async () => {
+    if (editingMsgIndex === null || !activeChat) return;
+    const updatedMessages = [...activeChat.messages];
+    updatedMessages[editingMsgIndex] = {
+      ...updatedMessages[editingMsgIndex],
+      mes: editingMsgContent,
+    };
+    const updatedChat = {
+      ...activeChat,
+      messages: updatedMessages,
+      updatedAt: Date.now(),
+    };
+    setActiveChat(updatedChat);
+    setEditingMsgIndex(null);
+
+    const { saveChat } = await import("../lib/db");
+    await saveChat(updatedChat);
+  };
 
   // 全局的返回手势/物理返回键(App.tsx 那边)不知道这个工具内部还有"列表 -> 具体
   // 聊天"这一层导航, 之前会直接把整个聊天记录查看器关掉, 而不是先退回列表。
@@ -132,6 +166,7 @@ export function ChatViewer({
   const [isHeaderExpanded, setIsHeaderExpanded] = useState(false);
   const [isMainHeaderExpanded, setIsMainHeaderExpanded] = useState(true);
   const [avatarUrls, setAvatarUrls] = useState<Record<string, string>>({});
+  const [imgErrorMap, setImgErrorMap] = useState<Record<string, boolean>>({});
   // 记录 onError 兜底逻辑里给某个角色创建过的 blob URL, 换新的之前先把旧的释放掉,
   // 避免每次头像加载失败都新建一个却不释放。
   const fallbackAvatarUrlsRef = useRef<Record<string, string>>({});
@@ -325,6 +360,8 @@ export function ChatViewer({
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showBubblePicker, setShowBubblePicker] = useState(false);
+  const { themeId: bubbleThemeId, theme: bubbleTheme, setTheme: setBubbleTheme, allThemes: bubbleThemes } = useBubbleTheme();
   const [showUserAvatarSheet, setShowUserAvatarSheet] = useState(false);
   const [newTagInput, setNewTagInput] = useState("");
   const userAvatarInputRef = useRef<HTMLInputElement>(null);
@@ -565,7 +602,6 @@ export function ChatViewer({
           if (cached) {
             urls[char.id] = cached;
           } else {
-            urls[char.id] = resolveAvatarUrl(char.avatarUrlFallback, char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
             pendingThumbFetches.push(
               getCharacterThumb(char.id).then((thumbBlob: Blob | null) => {
                 if (thumbBlob && active) {
@@ -576,8 +612,16 @@ export function ChatViewer({
               })
             );
           }
-        } else {
-          urls[char.id] = resolveAvatarUrl(char.avatarUrlFallback, char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
+        } else if (
+          char.avatarUrlFallback &&
+          !char.avatarUrlFallback.includes('api.dicebear.com') &&
+          (char.avatarUrlFallback.startsWith('http://') ||
+           char.avatarUrlFallback.startsWith('https://') ||
+           char.avatarUrlFallback.startsWith('data:image/') ||
+           char.avatarUrlFallback.startsWith('blob:')) &&
+          !char.avatarUrlFallback.startsWith('data:image/svg+xml')
+        ) {
+          urls[char.id] = char.avatarUrlFallback;
         }
       });
       if (active) setAvatarUrls(urls);
@@ -1263,13 +1307,17 @@ export function ChatViewer({
       )}
 
       {!activeChatId && (
-        <div className="flex-none p-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:p-6 sm:pt-[max(1.75rem,env(safe-area-inset-top))] border-b border-white/10 bg-black/20 flex items-start sm:items-center justify-between sticky top-0 z-20 backdrop-blur-md transition-all gap-2 sm:gap-4">
+        <div className="flex-none p-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:p-6 sm:pt-[max(1.75rem,env(safe-area-inset-top))] border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] bg-slate-900/90 [.light-theme_&]:!bg-[#ffffff]/95 flex items-center justify-between sticky top-0 z-20 backdrop-blur-xl transition-all gap-2 sm:gap-4">
           <div className="flex items-start sm:items-center gap-3 sm:gap-4 flex-1 min-w-0">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-blue-500/20 flex items-center justify-center border border-blue-500/30 shrink-0">
-              <MessageSquare className="w-5 h-5 sm:w-6 sm:h-6 text-blue-400" />
-            </div>
+            <button
+              onClick={onClose}
+              className="p-2 -ml-2 rounded-full hover:bg-white/10 transition text-white/70 hover:text-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:bg-white/10 shrink-0 mt-0.5 sm:mt-0"
+              title="返回"
+            >
+              <ArrowLeft className="w-5 sm:w-6 h-5 sm:h-6" />
+            </button>
             <div className="flex-1 min-w-0">
-              <h2 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent flex items-center gap-2 flex-wrap">
+              <h2 className="text-xl sm:text-2xl font-bold text-white [.light-theme_&]:!text-[#0f172a] flex items-center gap-2 flex-wrap">
                 聊天记录查看器
               </h2>
               <p className="text-white/60 text-xs sm:text-sm mt-1 leading-relaxed">
@@ -1279,34 +1327,29 @@ export function ChatViewer({
               <AnimatePresence>
                 {importProgress.show && (
                   <motion.div
-                    initial={{ opacity: 0, y: -50, x: '-50%' }}
+                    initial={{ opacity: 0, y: -20, x: '-50%' }}
                     animate={{ opacity: 1, y: 0, x: '-50%' }}
-                    exit={{ opacity: 0, y: -50, x: '-50%' }}
-                    className="fixed top-12 sm:top-20 left-1/2 z-[100] bg-slate-800/90 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-3 sm:p-4 w-[90%] max-w-[16rem] sm:w-72 pointer-events-auto"
+                    exit={{ opacity: 0, y: -20, x: '-50%' }}
+                    className={`fixed top-5 left-1/2 z-[100] backdrop-blur-xl border rounded-full px-4 py-2 sm:px-4.5 sm:py-2 flex items-center gap-2.5 max-w-[92vw] w-auto pointer-events-auto overflow-hidden select-none ${
+                      isLightMode
+                        ? 'bg-slate-800/95 border-blue-100 shadow-[0_8px_30px_rgba(0,0,0,0.08)]'
+                        : 'bg-slate-900/90 border-white/15 shadow-[0_8px_30px_rgba(0,0,0,0.25)]'
+                    }`}
                   >
-                    <div className="flex items-center gap-3 mb-2">
-                      <Download className="w-5 h-5 text-blue-400 animate-bounce shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-semibold text-white truncate">
-                          正在导入记录
-                        </h4>
-                        <p className="text-xs text-white/50 truncate">
-                          {importProgress.message}
-                        </p>
-                      </div>
-                      <span className="text-xs font-medium text-blue-400/80 shrink-0">
-                        {importProgress.total > 0
-                          ? Math.round((importProgress.current / importProgress.total) * 100)
-                          : 0}%
-                      </span>
-                    </div>
-                    <div className="w-full bg-black/40 rounded-full h-1.5 overflow-hidden relative">
+                    <Download className={`w-4 h-4 animate-bounce shrink-0 ${isLightMode ? 'text-blue-400' : 'text-blue-400'}`} />
+                    <span className={`text-xs sm:text-sm font-medium whitespace-nowrap ${isLightMode ? 'text-[#0f172a]' : 'text-slate-100'}`}>
+                      {importProgress.message || '正在导入记录'}
+                    </span>
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+                      isLightMode ? 'text-blue-600 bg-blue-50' : 'text-blue-300 bg-blue-500/20'
+                    }`}>
+                      {importProgress.total > 0 ? Math.round((importProgress.current / importProgress.total) * 100) : 0}%
+                    </span>
+                    <div className={`absolute bottom-0 left-0 right-0 h-[2.5px] overflow-hidden ${isLightMode ? 'bg-slate-200' : 'bg-black/30'}`}>
                       <div 
-                        className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300 relative"
+                        className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 [.light-theme_&]:!from-blue-600 [.light-theme_&]:!to-indigo-600 transition-all duration-300"
                         style={{ width: `${importProgress.total > 0 ? (importProgress.current / importProgress.total) * 100 : 0}%` }}
-                      >
-                        <div className="absolute inset-0 bg-white/20 animate-pulse" />
-                      </div>
+                      />
                     </div>
                   </motion.div>
                 )}
@@ -1321,12 +1364,6 @@ export function ChatViewer({
             >
               <Settings2 className="w-5 h-5 sm:w-6 sm:h-6" />
             </button>
-            <button
-              onClick={onClose}
-              className="p-2 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition shrink-0 mt-1 sm:mt-0"
-            >
-              <X className="w-5 h-5 sm:w-6 sm:h-6" />
-            </button>
           </div>
         </div>
       )}
@@ -1340,10 +1377,10 @@ export function ChatViewer({
             exit={{ y: -50, opacity: 0 }}
             className="absolute top-[max(1rem,env(safe-area-inset-top))] z-30 pointer-events-none transition-all duration-500 ease-out flex left-1/2 -translate-x-1/2 w-full max-w-sm sm:max-w-md px-4"
           >
-            <div className="pointer-events-auto bg-black/60 backdrop-blur-xl border border-white/10 flex items-center shadow-[0_10px_40px_rgba(0,0,0,0.5)] transition-all duration-500 overflow-visible rounded-full w-full justify-between p-1.5">
+            <div className="pointer-events-auto chat-header-pill backdrop-blur-3xl flex items-center transition-all duration-500 overflow-visible rounded-full w-full justify-between p-1.5">
               <button
                 onClick={() => (singleMode ? onClose() : setActiveChatId(null))}
-                className="w-10 h-10 shrink-0 flex items-center justify-center rounded-full hover:bg-white/10 text-white/70 hover:text-white transition"
+                className="w-10 h-10 shrink-0 flex items-center justify-center rounded-full chat-header-btn transition"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
@@ -1352,21 +1389,98 @@ export function ChatViewer({
                 className="flex flex-col items-center justify-center px-2 sm:px-4 overflow-hidden flex-1 cursor-pointer"
                 onClick={() => setIsHeaderExpanded(!isHeaderExpanded)}
               >
-                <span className="text-sm font-bold text-white truncate w-full text-center leading-tight">
+                <span className="text-sm font-bold chat-header-title-text truncate w-full text-center leading-tight">
                   {activeChat.name}
                 </span>
-                <span className="text-[11px] text-white/50 block text-center mt-0.5 w-full truncate">
+                <span className="text-[11px] chat-header-sub-text block text-center mt-0.5 w-full truncate">
                   {activeChat.messages.length} 条消息
                 </span>
               </div>
 
               <div className="relative flex items-center gap-1 shrink-0">
+                {/* 切换 卡片阅读模式 / 对话气泡模式 */}
                 <button
-                  onClick={() => setIsHeaderExpanded(!isHeaderExpanded)}
-                  className={`w-10 h-10 flex items-center justify-center rounded-full transition ${isHeaderExpanded ? "bg-blue-500/20 text-blue-400" : "hover:bg-white/10 text-white/70 hover:text-white"}`}
+                  onClick={() => {
+                    const nextMode = chatDisplayMode === 'card' ? 'bubble' : 'card';
+                    setChatDisplayMode(nextMode);
+                    localStorage.setItem('miu_chat_display_mode', nextMode);
+                  }}
+                  className="w-10 h-10 flex items-center justify-center rounded-full chat-header-btn transition hover:scale-105 active:scale-95 cursor-pointer"
+                  title={chatDisplayMode === 'card' ? "当前：卡片阅读模式（点击切换气泡）" : "当前：对话气泡模式（点击切换卡片）"}
+                >
+                  {chatDisplayMode === 'card' ? (
+                    <LayoutList className="w-4.5 h-4.5 text-blue-400 [.light-theme_&]:!text-blue-600" />
+                  ) : (
+                    <MessageSquare className="w-4.5 h-4.5 text-slate-300 [.light-theme_&]:!text-slate-600" />
+                  )}
+                </button>
+
+                <button
+                  onClick={() => {
+                    setShowBubblePicker(!showBubblePicker);
+                    if (isHeaderExpanded) setIsHeaderExpanded(false);
+                  }}
+                  className={`w-10 h-10 flex items-center justify-center rounded-full transition hover:scale-105 active:scale-95 ${showBubblePicker ? "chat-header-btn-active" : "chat-header-btn"}`}
+                  title={`当前气泡配色：${bubbleTheme.name}（点击切换）`}
+                >
+                  <ColorSphere
+                    botColor={bubbleTheme.botColor}
+                    userColor={bubbleTheme.userColor}
+                    size={22}
+                  />
+                </button>
+
+                <button
+                  onClick={() => {
+                    setIsHeaderExpanded(!isHeaderExpanded);
+                    if (showBubblePicker) setShowBubblePicker(false);
+                  }}
+                  className={`w-10 h-10 flex items-center justify-center rounded-full transition ${isHeaderExpanded ? "chat-header-btn-active" : "chat-header-btn"}`}
                 >
                   <Settings2 className="w-5 h-5" />
                 </button>
+
+                <AnimatePresence>
+                  {showBubblePicker && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9, y: 10, transformOrigin: "top right" }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.9, y: 10 }}
+                      className="bubble-picker-popover absolute top-full right-0 mt-3 backdrop-blur-2xl rounded-2xl shadow-2xl w-64 p-3 z-40 overflow-hidden"
+                    >
+                      <div className="bubble-picker-divider flex items-center justify-between pb-2 mb-2 border-b">
+                        <span className="bubble-picker-title text-xs font-bold flex items-center gap-2">
+                          <ColorSphere botColor={bubbleTheme.botColor} userColor={bubbleTheme.userColor} size={16} />
+                          切换气泡色彩球
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-1.5 max-h-72 overflow-y-auto pr-0.5">
+                        {bubbleThemes.map((t) => {
+                          const isSelected = bubbleThemeId === t.id;
+                          return (
+                            <button
+                              key={t.id}
+                              onClick={() => {
+                                setBubbleTheme(t.id);
+                                setShowBubblePicker(false);
+                              }}
+                              className={`bubble-picker-item w-full flex items-center gap-2.5 p-2 rounded-xl text-left transition ${
+                                isSelected ? 'is-selected font-semibold' : ''
+                              }`}
+                            >
+                              <ColorSphere botColor={t.botColor} userColor={t.userColor} size={26} />
+                              <div className="flex-1 truncate">
+                                <div className="text-xs font-bold">{t.name}</div>
+                                <div className="bubble-picker-item-badge text-[10px] truncate">{t.badge}</div>
+                              </div>
+                              {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
                 <AnimatePresence>
                   {isHeaderExpanded && (
@@ -1379,21 +1493,21 @@ export function ChatViewer({
                       }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.9, y: 10 }}
-                      className="absolute top-full right-0 mt-3 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-64 p-4 z-40 overflow-hidden"
+                      className="chat-header-popover absolute top-full right-0 mt-3 backdrop-blur-3xl rounded-2xl shadow-2xl w-64 p-4 z-40 overflow-hidden"
                     >
                       <div className="flex flex-col gap-4">
                         <div className="flex flex-col gap-2 flex-1 min-h-0">
-                          <label className="text-xs text-white/50 font-medium shrink-0">
+                          <label className="text-xs text-white/50 [.light-theme_&]:text-slate-500 font-medium shrink-0">
                             绑定角色获得正则效果
                           </label>
                           <div className="relative shrink-0 mb-2">
-                             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 [.light-theme_&]:text-slate-400" />
                              <input
                                 type="text"
                                 placeholder="搜索角色..."
                                 value={characterSearchQuery}
                                 onChange={(e) => setCharacterSearchQuery(e.target.value)}
-                                className="w-full bg-black/30 border border-white/10 text-sm text-white focus:outline-none rounded-lg pl-9 pr-3 py-2"
+                                className="w-full chat-search-input focus:outline-none rounded-lg pl-9 pr-3 py-2"
                              />
                           </div>
                           <div className="flex-1 overflow-y-auto space-y-1 max-h-48 pr-1 hide-scrollbar">
@@ -1463,112 +1577,60 @@ export function ChatViewer({
         )}
 
         <div className="space-y-6 flex-1 flex flex-col min-h-0">
-          <AnimatePresence mode="wait">
-            {isBatchMode ? (
-              <motion.div
-                key="batch"
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.2 }}
-                className="w-full flex items-center justify-between bg-slate-800/90 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-xl mb-4 shrink-0 cursor-default"
-              >
-                <button
-                  onClick={() => {
-                    setIsBatchMode(false);
-                    setSelectedChatIds(new Set());
-                    setShowDuplicatesOnly(false);
-                  }}
-                  className="p-2 -ml-2 rounded-full hover:bg-white/10 transition"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-                <span className="font-bold text-lg flex-1 text-center">
-                  已选择 {selectedChatIds.size} 项
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      if (selectedChatIds.size === savedChats.length) {
-                        setSelectedChatIds(new Set());
-                      } else {
-                        setSelectedChatIds(
-                          new Set(savedChats.map((c) => c.id)),
-                        );
-                      }
-                    }}
-                    className="text-purple-400 font-medium px-3 py-1.5 hover:bg-purple-400/10 rounded-lg transition text-sm whitespace-nowrap"
-                  >
-                    {selectedChatIds.size === savedChats.length
-                      ? "全不选"
-                      : "全选所有"}
-                  </button>
-                </div>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="normal"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.2 }}
-                className="flex flex-col sm:flex-row sm:items-center justify-between px-2 shrink-0 gap-3 mb-4"
-              >
-                <h3 className="text-lg font-medium text-white shrink-0">
-                  所有记录 ({savedChats.length})
-                </h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between px-2 shrink-0 gap-3 mb-4">
+            <h3 className="text-lg font-medium text-white shrink-0">
+              所有记录 ({savedChats.length})
+            </h3>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <div className="relative flex-1 sm:flex-initial">
-                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
-                    <input
-                      type="text"
-                      placeholder="搜索..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full sm:w-40 pl-9 pr-4 py-2 bg-white/5 border border-white/10 rounded-full text-sm text-white focus:outline-none focus:border-purple-500/50 transition-colors placeholder:text-white/30"
-                    />
-                  </div>
-                  <button
-                    onClick={() => setIsCleanerOpen(true)}
-                    className="p-2.5 border rounded-full transition shrink-0 flex items-center justify-center bg-white/5 border-white/10 text-white/50 hover:text-white hover:bg-white/10"
-                    title="清理记录和分支"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (onOpenImport) {
-                        onOpenImport();
-                      } else {
-                        fileInputRef.current?.click();
-                      }
-                    }}
-                    className="px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-full text-sm transition flex items-center justify-center gap-2 shrink-0"
-                  >
-                    <UploadCloud className="w-4 h-4" />
-                    <span className="hidden sm:inline">导入</span>
-                  </button>
-                </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="relative flex-1 sm:flex-initial">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
                 <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept=".json,.jsonl,.zip"
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files?.length) {
-                      if (onOpenImport) {
-                        onOpenImport(e.target.files);
-                      } else {
-                        handleFileUpload(e.target.files);
-                      }
-                    }
-                  }}
+                  type="text"
+                  placeholder="搜索..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full sm:w-40 pl-9 pr-4 py-2 bg-white/5 border border-white/10 rounded-full text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-white/30"
                 />
-              </motion.div>
-            )}
-          </AnimatePresence>
+              </div>
+              <button
+                onClick={() => setIsCleanerOpen(true)}
+                className="p-2.5 border rounded-full transition shrink-0 flex items-center justify-center bg-white/5 border-white/10 text-white/50 hover:text-white hover:bg-white/10"
+                title="清理记录和分支"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => {
+                  if (onOpenImport) {
+                    onOpenImport();
+                  } else {
+                    fileInputRef.current?.click();
+                  }
+                }}
+                className="px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-full text-sm transition flex items-center justify-center gap-2 shrink-0"
+              >
+                <UploadCloud className="w-4 h-4" />
+                <span className="hidden sm:inline">导入</span>
+              </button>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".json,.jsonl,.zip"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files?.length) {
+                  if (onOpenImport) {
+                    onOpenImport(e.target.files);
+                  } else {
+                    handleFileUpload(e.target.files);
+                  }
+                }
+              }}
+            />
+          </div>
 
           {savedChats.length === 0 ? (
             <div className="py-20 flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-3xl">
@@ -1627,78 +1689,44 @@ export function ChatViewer({
                               toggleGroup(groupName);
                             }
                           }}
-                          className={`border rounded-2xl p-4 cursor-pointer transition flex items-center justify-between shadow-sm relative overflow-hidden ${
+                          className={`rounded-2xl p-4 cursor-pointer transition flex items-center justify-between shadow-xs relative overflow-hidden border ${
                             isBatchMode && allSelected
-                              ? "bg-purple-500/20 border-purple-500/50 [.light-theme_&]:bg-[#D4A6D5]/20 [.light-theme_&]:border-[#D4A6D5]/90 [.light-theme_&]:shadow-[0_0_15px_rgba(212,166,213,0.3)]"
-                              : "bg-white/[0.04] hover:bg-white/[0.08] border-white/5"
-                          }`}
+                              ? "bg-slate-950/90 border border-white/10 [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-[#e2e8f0]"
+                              : "bg-white/[0.06] hover:bg-white/[0.09] border border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0]"
+                          } [.light-theme_&]:!shadow-xs`}
                         >
-                          <AnimatePresence>
-                            {isBatchMode && (
-                              <motion.div
-                                initial={{ opacity: 0, scale: 0.8 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                exit={{ opacity: 0, scale: 0.8 }}
-                                className="absolute top-2 right-2 z-10"
-                              >
-                                <div
-                                  className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                                    allSelected
-                                      ? "bg-purple-500 border-purple-500 [.light-theme_&]:bg-[#D4A6D5]/90 [.light-theme_&]:border-[#D4A6D5]/90"
-                                      : "border-white/40 bg-black/20 backdrop-blur-md"
-                                  }`}
-                                >
-                                  {allSelected && (
-                                    <CheckCircle2 className="w-4 h-4 text-white" />
-                                  )}
-                                </div>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
+                          {/* Full-card dark dimming overlay on selection (matching DuplicateDetector and TrashBin) */}
+                          {isBatchMode && allSelected && (
+                            <div className="absolute inset-0 rounded-2xl z-20 pointer-events-none transition-all bg-black/65 [.light-theme_&]:!bg-slate-900/35" />
+                          )}
                           <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-10 h-10 rounded-full border border-white/20 bg-black/30 flex items-center justify-center shrink-0 shadow-inner overflow-hidden">
-                              {group.characterId &&
-                              avatarUrls[group.characterId] ? (
-                                <img
-                                  src={avatarUrls[group.characterId]}
-                                  alt="avatar"
-                                  className="w-full h-full object-cover"
-                                                                    onError={(e) => {
-                                    const c = characters.find(
-                                      (ch) => ch.id === group.characterId,
-                                    );
-                                    if (c) {
-                                      if (c.avatarBlob)
-                                        e.currentTarget.src =
-                                          setFallbackAvatarBlobUrl(c.id, c.avatarBlob);
-                                      else if (c.hasBlobsSeparated) {
-                                        import("../lib/db").then((m) =>
-                                          m.getCharacterBlob(c.id).then((b) => {
-                                            if (b && b.avatarBlob)
-                                              e.currentTarget.src =
-                                                setFallbackAvatarBlobUrl(c.id, b.avatarBlob);
-                                            else {
-                                              const fb = getFallbackAvatar(c.name || c.id, c.tags?.join(',') || (c.isTool ? 'tool' : undefined));
-                                              if (e.currentTarget.src !== fb) e.currentTarget.src = fb;
-                                            }
-                                          }),
-                                        ).catch(() => {
-                                          const fb = getFallbackAvatar(c.name || c.id, c.tags?.join(',') || (c.isTool ? 'tool' : undefined));
-                                          if (e.currentTarget.src !== fb) e.currentTarget.src = fb;
-                                        });
-                                      } else {
-                                        const fb = getFallbackAvatar(c.name || c.id, c.tags?.join(',') || (c.isTool ? 'tool' : undefined));
-                                        if (e.currentTarget.src !== fb) e.currentTarget.src = fb;
-                                      }
-                                    }
-                                  }}
-                                />
-                              ) : (
-                                <span className="text-lg font-bold text-white/50">
-                                  {groupName.charAt(0)}
-                                </span>
-                              )}
-                            </div>
+                            {(() => {
+                              const groupChar = group.characterId ? characters.find(c => c.id === group.characterId) : null;
+                              const charId = groupChar?.id;
+                              const gUrl = charId ? avatarUrls[charId] : null;
+                              const hasPhoto = !!(gUrl && !imgErrorMap[charId]);
+                              if (hasPhoto) {
+                                return (
+                                  <div className="w-10 h-10 rounded-full avatar-frame flex items-center justify-center shrink-0 shadow-inner overflow-hidden">
+                                    <img
+                                      src={gUrl}
+                                      alt="avatar"
+                                      className="w-full h-full object-cover"
+                                      onError={() => {
+                                        if (charId) {
+                                          setImgErrorMap((prev) => ({ ...prev, [charId]: true }));
+                                        }
+                                      }}
+                                    />
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div className="w-10 h-10 rounded-full avatar-fallback font-bold flex items-center justify-center shadow-inner shrink-0 select-none">
+                                  {(groupChar?.name || groupName || "AI").charAt(0)}
+                                </div>
+                              );
+                            })()}
                             <div className="truncate">
                               <h4 className="font-semibold text-white/90 text-base truncate mb-0.5">
                                 {groupName}
@@ -1708,13 +1736,20 @@ export function ChatViewer({
                               </p>
                             </div>
                           </div>
-                          <div className="text-white/40 shrink-0">
-                            {!isBatchMode &&
-                              (isExpanded ? (
-                                <ChevronUp className="w-5 h-5" />
+                          <div className="text-white/40 shrink-0 z-30">
+                            {isBatchMode ? (
+                              allSelected ? (
+                                <div className="w-6 h-6 rounded-full bg-white text-slate-950 flex items-center justify-center shadow-md [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-[#ffffff]">
+                                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                </div>
                               ) : (
-                                <ChevronDown className="w-5 h-5" />
-                              ))}
+                                <div className="w-6 h-6 rounded-full border-2 border-white/30 group-hover:border-white/60 [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:group-hover:!border-[#94a3b8]" />
+                              )
+                            ) : isExpanded ? (
+                              <ChevronUp className="w-5 h-5" />
+                            ) : (
+                              <ChevronDown className="w-5 h-5" />
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1759,34 +1794,16 @@ export function ChatViewer({
                             setActiveChatId(chat.id);
                           }
                         }}
-                        className={`rounded-2xl p-5 cursor-pointer transition flex flex-col gap-3 relative overflow-hidden ring-1 hover:shadow-lg ${
+                        className={`rounded-2xl p-5 cursor-pointer transition flex flex-col gap-3 relative overflow-hidden border ${
                           isSelected && isBatchMode
-                            ? "bg-purple-500/20 ring-purple-500/50 [.light-theme_&]:bg-[#D4A6D5]/20 [.light-theme_&]:ring-[#D4A6D5]/90 [.light-theme_&]:shadow-[0_0_15px_rgba(212,166,213,0.3)]"
-                            : "bg-white/[0.03] hover:bg-white/[0.06] ring-white/5"
-                        }`}
+                            ? "bg-slate-950/90 border border-white/10 [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-[#e2e8f0]"
+                            : "bg-white/[0.06] hover:bg-white/[0.09] border border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0]"
+                        } [.light-theme_&]:!shadow-xs`}
                       >
-                        <AnimatePresence>
-                          {isBatchMode && (
-                            <motion.div
-                              initial={{ opacity: 0, scale: 0.8 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.8 }}
-                              className="absolute top-2 right-2 z-10"
-                            >
-                              <div
-                                className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                                  isSelected
-                                    ? "bg-purple-500 border-purple-500 [.light-theme_&]:bg-[#D4A6D5]/90 [.light-theme_&]:border-[#D4A6D5]/90"
-                                    : "border-white/40 bg-black/20 backdrop-blur-md"
-                                }`}
-                              >
-                                {isSelected && (
-                                  <CheckCircle2 className="w-4 h-4 text-white" />
-                                )}
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
+                        {/* Full-card dark dimming overlay on selection (matching DuplicateDetector and TrashBin) */}
+                        {isSelected && isBatchMode && (
+                          <div className="absolute inset-0 rounded-2xl z-20 pointer-events-none transition-all bg-black/65 [.light-theme_&]:!bg-slate-900/35" />
+                        )}
                         <div className="flex justify-between items-start mb-2 gap-3">
                           <div className="flex-1 min-w-0 flex items-start gap-3">
                             <div className="flex-1 min-w-0">
@@ -1846,12 +1863,25 @@ export function ChatViewer({
                             </div>
                           </div>
 
-                          <button
-                            onClick={(e) => handleRemoveChat(e, chat.id)}
-                            className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition z-10 shrink-0 mt-1"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {isBatchMode ? (
+                            <div className="shrink-0 z-30 mt-1">
+                              {isSelected ? (
+                                <div className="w-6 h-6 rounded-full bg-white text-slate-950 flex items-center justify-center shadow-md [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-[#ffffff]">
+                                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                </div>
+                              ) : (
+                                <div className="w-6 h-6 rounded-full border-2 border-white/30 group-hover:border-white/60 [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:group-hover:!border-[#94a3b8]" />
+                              )}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={(e) => handleRemoveChat(e, chat.id)}
+                              className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition z-10 shrink-0 mt-1 cursor-pointer"
+                              title="删除记录"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
 
                         <div className="flex justify-between items-center text-xs text-white/40 pb-2 border-b border-white/5">
@@ -1905,141 +1935,216 @@ export function ChatViewer({
                     }}
                     itemContent={(i, msg) => {
                       const dateString = msg.send_date
-                        ? new Date(msg.send_date).toLocaleString()
+                        ? new Date(msg.send_date).toLocaleString("zh-CN", {
+                            year: "numeric",
+                            month: "numeric",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
                         : "";
-                      return (
-                        <div
-                          className={`flex gap-4 pb-6 mt-4 px-2 ${msg.is_user ? "flex-row-reverse" : ""} overflow-hidden w-full min-w-0`}
-                        >
-                          <div className="shrink-0 pt-1">
-                            {msg.is_user ? (
-                              userAvatar ? (
-                                <div className="w-10 h-10 rounded-full border border-white/20 bg-black/30 flex items-center justify-center shrink-0 shadow-lg overflow-hidden">
-                                  <img
-                                    src={userAvatar}
-                                    alt="user avatar"
-                                    className="w-full h-full object-cover"
-                                  />
-                                </div>
-                              ) : (
-                                <div className="w-10 h-10 rounded-full bg-white/10 text-slate-300 border border-white/20 flex items-center justify-center shadow-lg font-bold [.light-theme_&]:bg-blue-600 [.light-theme_&]:text-white [.light-theme_&]:border-transparent [.light-theme_&]:shadow-blue-500/20">
-                                  {msg.name?.charAt(0) || "U"}
-                                </div>
-                              )
-                            ) : activeCharacter &&
-                              avatarUrls[activeCharacter.id] ? (
-                              <img
-                                src={avatarUrls[activeCharacter.id]}
-                                alt="avatar"
-                                className="w-10 h-10 rounded-full object-cover shadow-lg border border-white/10"
-                                                                onError={(e) => {
-                                  const c = activeCharacter;
-                                  if (c) {
-                                    if (c.avatarBlob)
-                                      e.currentTarget.src = setFallbackAvatarBlobUrl(c.id, c.avatarBlob);
-                                    else if (c.hasBlobsSeparated) {
-                                      import("../lib/db").then((m) =>
-                                        m.getCharacterBlob(c.id).then((b) => {
-                                          if (b && b.avatarBlob)
-                                            e.currentTarget.src =
-                                              setFallbackAvatarBlobUrl(c.id, b.avatarBlob);
-                                          else {
-                                            const fb = getFallbackAvatar(c.name || c.id, c.tags?.join(',') || (c.isTool ? 'tool' : undefined));
-                                            if (e.currentTarget.src !== fb) e.currentTarget.src = fb;
-                                          }
-                                        }),
-                                      ).catch(() => {
-                                        const fb = getFallbackAvatar(c.name || c.id, c.tags?.join(',') || (c.isTool ? 'tool' : undefined));
-                                        if (e.currentTarget.src !== fb) e.currentTarget.src = fb;
-                                      });
-                                    } else {
-                                      const fb = getFallbackAvatar(c.name || c.id, c.tags?.join(',') || (c.isTool ? 'tool' : undefined));
-                                      if (e.currentTarget.src !== fb) e.currentTarget.src = fb;
+
+                      if (chatDisplayMode === 'card') {
+                        const tokenCount = Math.round((msg.mes || "").length * 0.75);
+                        const isBookmarked = bookmarkedIndices.has(i);
+                        const cardBgColor = msg.is_user ? bubbleTheme.userColor : bubbleTheme.botColor;
+                        const cardTextColor = msg.is_user ? bubbleTheme.userTextColor : bubbleTheme.botTextColor;
+
+                        return (
+                          <div className="w-full max-w-3xl sm:max-w-4xl mx-auto px-3 sm:px-6 py-2 sm:py-3">
+                            <div
+                              className="border border-white/10 rounded-2xl p-4 sm:p-5 shadow-lg backdrop-blur-md transition-colors duration-200 [.light-theme_&]:border-black/10"
+                              style={{
+                                backgroundColor: cardBgColor,
+                                color: cardTextColor,
+                              }}
+                            >
+                              {/* Card Header */}
+                              <div className="flex items-center justify-between gap-3 pb-3 mb-3.5 border-b border-current/15">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  {/* Avatar */}
+                                  {msg.is_user ? (
+                                    userAvatar ? (
+                                      <img
+                                        src={userAvatar}
+                                        alt="user"
+                                        className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl object-cover shadow-sm shrink-0 cursor-pointer hover:opacity-85 transition"
+                                        onClick={() => setShowUserAvatarSheet(true)}
+                                      />
+                                    ) : (
+                                      <div
+                                        onClick={() => setShowUserAvatarSheet(true)}
+                                        className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-black/20 text-current font-bold flex items-center justify-center shrink-0 shadow-sm cursor-pointer hover:opacity-85 transition"
+                                      >
+                                        {msg.name?.charAt(0) || "U"}
+                                      </div>
+                                    )
+                                  ) : (() => {
+                                    const charId = activeCharacter?.id;
+                                    const charUrl = charId ? avatarUrls[charId] : null;
+                                    if (charUrl && !imgErrorMap[charId]) {
+                                      return (
+                                        <img
+                                          src={charUrl}
+                                          alt="avatar"
+                                          className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl object-cover shadow-sm shrink-0"
+                                          onError={() => setImgErrorMap((prev) => ({ ...prev, [charId]: true }))}
+                                        />
+                                      );
                                     }
-                                  }
-                                }}
-                              />
-                            ) : (
-                              <div className="w-10 h-10 rounded-full bg-white/[0.05] flex items-center justify-center shadow-sm border border-white/10 text-slate-200 font-bold [.light-theme_&]:bg-indigo-900 [.light-theme_&]:text-indigo-200 [.light-theme_&]:border-indigo-500/30 [.light-theme_&]:shadow-lg">
-                                {msg.name?.charAt(0) || "AI"}
+                                    return (
+                                      <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-black/20 text-current font-bold flex items-center justify-center shrink-0 shadow-sm">
+                                        {(msg.name || activeCharacter?.name || "AI").charAt(0)}
+                                      </div>
+                                    );
+                                  })()}
+
+                                  {/* Title & Metadata Column */}
+                                  <div className="flex flex-col min-w-0">
+                                    <h3 className="font-bold text-sm sm:text-base text-current truncate leading-snug">
+                                      {msg.name || (msg.is_user ? "User" : activeCharacter?.name || "Character")}
+                                    </h3>
+                                    <div className="flex items-center gap-1.5 text-[11px] opacity-70 mt-0.5 flex-wrap">
+                                      <span className="font-semibold opacity-90">
+                                        #{i + 1}
+                                      </span>
+                                      {dateString && (
+                                        <>
+                                          <span>·</span>
+                                          <span className="truncate">{dateString}</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Right Action Icons (Bookmark only) */}
+                                <div className="flex items-center gap-1 shrink-0 opacity-60 hover:opacity-100 transition-opacity">
+                                  <button
+                                    onClick={() => {
+                                      const next = new Set(bookmarkedIndices);
+                                      if (isBookmarked) next.delete(i);
+                                      else next.add(i);
+                                      setBookmarkedIndices(next);
+                                    }}
+                                    className={`p-1.5 rounded-lg hover:bg-black/10 transition cursor-pointer ${
+                                      isBookmarked ? "text-amber-400 opacity-100" : ""
+                                    }`}
+                                    title={isBookmarked ? "取消书签" : "添加书签"}
+                                  >
+                                    <Bookmark className="w-4 h-4 fill-current" />
+                                  </button>
+                                </div>
                               </div>
-                            )}
-                          </div>
 
-                          <div
-                            className={`max-w-[85%] md:max-w-[80%] min-w-0 ${msg.is_user ? "items-end" : "items-start"} flex flex-col gap-1`}
-                          >
-                            <div
-                              className={`flex items-center gap-2 text-xs ${msg.is_user ? "flex-row-reverse text-slate-400 [.light-theme_&]:text-blue-600" : "text-slate-400 [.light-theme_&]:text-slate-500"}`}
-                            >
-                              <span className="font-semibold">
-                                {msg.name ||
-                                  (msg.is_user ? "User" : "Character")}
-                              </span>
-                              {dateString && <span>· {dateString}</span>}
-                            </div>
-
-                            <div
-                              className={`px-5 py-3 rounded-2xl max-w-full min-w-0 overflow-x-auto ${
-                                msg.is_user
-                                  ? "bg-blue-600/20 text-blue-50 border border-blue-500/20 rounded-tr-sm shadow-sm backdrop-blur-md [.light-theme_&]:bg-blue-600/90 [.light-theme_&]:text-white [.light-theme_&]:border-blue-500/30"
-                                  : "bg-white/[0.04] text-white/90 border border-white/5 rounded-tl-sm shadow-sm backdrop-blur-md [.light-theme_&]:bg-indigo-950/80 [.light-theme_&]:text-indigo-100 [.light-theme_&]:border-indigo-500/20"
-                              }`}
-                            >
-                              <div
-                                className={`prose prose-sm max-w-none chat-bubble-prose
-                                    prose-headings:text-white/90 prose-p:leading-relaxed 
-                                    prose-a:text-blue-400 hover:prose-a:text-blue-300
-                                    prose-strong:text-white prose-code:text-pink-300
-                                    prose-pre:bg-black/30 prose-pre:max-w-full
-                                    [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 break-words w-full 
-                                    ${msg.is_user ? "prose-p:text-slate-100 text-slate-100 [.light-theme_&]:prose-p:text-white [.light-theme_&]:text-white" : "prose-invert"}
-                                  `}
-                              >
+                              {/* Card Body Content */}
+                              <div className="prose prose-sm sm:prose-base max-w-none text-current leading-relaxed break-words">
                                 <MessageContent
                                   content={formatCustomTags(
-                                    applyRegexes(
-                                      msg.mes || "",
-                                      activeCharacter,
-                                    ),
+                                    applyRegexes(msg.mes || "", activeCharacter)
                                   )}
                                 />
                               </div>
                             </div>
+                          </div>
+                        );
+                      }
 
-                            {/* Render ST Extensions / Status Bars */}
-                            {msg.extra && msg.extra.chara_status && (
-                              <div className="mt-1 px-4 py-2 bg-[rgba(0,0,0,0.2)] border border-[rgba(255,255,255,0.05)] rounded-xl backdrop-blur-sm text-xs font-mono text-[#e2e8f0] max-w-full overflow-x-auto">
-                                <div className="font-sans font-semibold text-[#94a3b8] mb-1 uppercase tracking-wider text-[10px]">
-                                  Tavern Assistant Status
-                                </div>
-                                <pre className="whitespace-pre-wrap">
-                                  {typeof msg.extra.chara_status === "string"
-                                    ? msg.extra.chara_status
-                                    : JSON.stringify(
-                                        msg.extra.chara_status,
-                                        null,
-                                        2,
-                                      )}
-                                </pre>
+                      return (
+                        <div className="w-full max-w-3xl sm:max-w-4xl mx-auto px-3 sm:px-6">
+                          <div
+                            className={`flex gap-3 sm:gap-4 pb-6 mt-2 ${msg.is_user ? "flex-row-reverse" : ""} overflow-hidden w-full min-w-0`}
+                          >
+                            <div className="shrink-0 pt-1">
+                              {msg.is_user ? (
+                                userAvatar ? (
+                                  <div 
+                                    onClick={() => setShowUserAvatarSheet(true)}
+                                    className="w-10 h-10 rounded-full avatar-frame flex items-center justify-center shrink-0 shadow-lg overflow-hidden cursor-pointer hover:opacity-85 transition active:scale-95"
+                                    title="点击更换你的头像"
+                                  >
+                                    <img
+                                      src={userAvatar}
+                                      alt="user avatar"
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </div>
+                                ) : (
+                                  <div 
+                                    onClick={() => setShowUserAvatarSheet(true)}
+                                    className="w-10 h-10 rounded-full avatar-fallback flex items-center justify-center shadow-lg font-bold cursor-pointer hover:opacity-85 transition active:scale-95"
+                                    title="点击更换你的头像"
+                                  >
+                                    {msg.name?.charAt(0) || "U"}
+                                  </div>
+                                )
+                              ) : (() => {
+                                const charId = activeCharacter?.id;
+                                const charUrl = charId ? avatarUrls[charId] : null;
+                                const hasPhoto = !!(charUrl && !imgErrorMap[charId]);
+                                if (hasPhoto) {
+                                  return (
+                                    <div className="w-10 h-10 rounded-full avatar-frame flex items-center justify-center shrink-0 shadow-lg overflow-hidden">
+                                      <img
+                                        src={charUrl}
+                                        alt="avatar"
+                                        className="w-full h-full object-cover"
+                                        onError={() => {
+                                          if (charId) {
+                                            setImgErrorMap((prev) => ({ ...prev, [charId]: true }));
+                                          }
+                                        }}
+                                      />
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <div className="w-10 h-10 rounded-full avatar-fallback flex items-center justify-center shadow-lg font-bold shrink-0 select-none">
+                                    {(msg.name || activeCharacter?.name || "AI").charAt(0)}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+
+                            <div
+                              className={`max-w-[85%] md:max-w-[80%] min-w-0 ${msg.is_user ? "items-end" : "items-start"} flex flex-col gap-1`}
+                            >
+                              <div
+                                className={`flex items-center gap-2 text-xs ${msg.is_user ? "flex-row-reverse text-slate-400 [.light-theme_&]:text-slate-500" : "text-slate-400 [.light-theme_&]:text-slate-500"}`}
+                              >
+                                <span className="font-semibold">
+                                  {msg.name ||
+                                    (msg.is_user ? "User" : "Character")}
+                                </span>
+                                {dateString && <span>· {dateString}</span>}
                               </div>
-                            )}
-                            {msg.extra && msg.extra.tavernAStatus && (
-                              <div className="mt-1 px-4 py-2 bg-[rgba(0,0,0,0.2)] border border-[rgba(255,255,255,0.05)] rounded-xl backdrop-blur-sm text-xs font-mono text-[#e2e8f0] max-w-full overflow-x-auto">
-                                <div className="font-sans font-semibold text-[#94a3b8] mb-1 uppercase tracking-wider text-[10px]">
-                                  Status Panel
+
+                              <div
+                                className="relative px-5 py-3 rounded-2xl max-w-full min-w-0 shadow-sm transition-colors"
+                                style={{
+                                  backgroundColor: msg.is_user ? bubbleTheme.userColor : bubbleTheme.botColor,
+                                  color: msg.is_user ? bubbleTheme.userTextColor : bubbleTheme.botTextColor,
+                                }}
+                              >
+                                <div
+                                  className="prose prose-sm max-w-none chat-bubble-prose
+                                      prose-headings:text-inherit prose-p:leading-relaxed 
+                                      prose-a:underline hover:opacity-80
+                                      prose-strong:font-bold prose-code:text-pink-300
+                                      prose-pre:bg-black/30 prose-pre:max-w-full
+                                      [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 break-words w-full"
+                                >
+                                  <MessageContent
+                                    content={formatCustomTags(
+                                      applyRegexes(
+                                        msg.mes || "",
+                                        activeCharacter,
+                                      ),
+                                    )}
+                                  />
                                 </div>
-                                <pre className="whitespace-pre-wrap">
-                                  {typeof msg.extra.tavernAStatus === "string"
-                                    ? msg.extra.tavernAStatus
-                                    : JSON.stringify(
-                                        msg.extra.tavernAStatus,
-                                        null,
-                                        2,
-                                      )}
-                                </pre>
                               </div>
-                            )}
+                            </div>
                           </div>
                         </div>
                       );
@@ -2062,8 +2167,7 @@ export function ChatViewer({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-5 border-b border-white/10 flex items-center justify-between bg-white/[0.02] [.light-theme_&]:bg-black/[0.02] [.light-theme_&]:border-black/5">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2 [.light-theme_&]:text-[#1c1c1e]">
-                <Settings2 className="w-5 h-5 text-blue-400 [.light-theme_&]:text-[#007aff]" />
+              <h3 className="text-lg font-bold text-white [.light-theme_&]:!text-[#1c1c1e]">
                 界面设置
               </h3>
               <button
@@ -2127,6 +2231,63 @@ export function ChatViewer({
                 </div>
               </div>
 
+              {/* Chat Bubble Theme Settings */}
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-white/80 [.light-theme_&]:text-[#1c1c1e]/80 flex items-center gap-2">
+                    <ColorSphere botColor={bubbleTheme.botColor} userColor={bubbleTheme.userColor} size={20} />
+                    气泡配色风格（色彩球）
+                  </label>
+                  <span className="text-xs text-white/50 [.light-theme_&]:text-[#1c1c1e]/50 font-medium">
+                    当前: {bubbleTheme.name}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  {bubbleThemes.map((t) => {
+                    const isSelected = bubbleThemeId === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setBubbleTheme(t.id)}
+                        className={`bubble-theme-card p-3 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col gap-2 ${
+                          isSelected ? 'is-selected' : ''
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <ColorSphere botColor={t.botColor} userColor={t.userColor} size={22} />
+                            <span className="bubble-theme-title text-xs font-bold truncate">
+                              {t.name}
+                            </span>
+                          </div>
+                          {isSelected && (
+                            <div className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)] shrink-0" />
+                          )}
+                        </div>
+                        {/* Live mini preview of solid bubbles with authentic speech tails */}
+                        <div className="bubble-mini-preview-bg flex flex-col gap-1.5 mt-0.5 p-2 rounded-xl">
+                          {/* User message */}
+                          <div
+                            className="self-end px-2.5 py-1 rounded-xl text-[10px] font-medium max-w-[88%] truncate shadow-xs relative"
+                            style={{ backgroundColor: t.userColor, color: t.userTextColor }}
+                          >
+                            自己看到的气泡
+                          </div>
+                          {/* Bot message */}
+                          <div
+                            className="self-start px-2.5 py-1 rounded-xl text-[10px] font-medium max-w-[88%] truncate shadow-xs relative"
+                            style={{ backgroundColor: t.botColor, color: t.botTextColor }}
+                          >
+                            主题含天气泡
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Custom Fold Tags Settings */}
               <div className="flex flex-col gap-3">
                 <label className="text-sm font-medium text-white/80 shrink-0 mt-1 [.light-theme_&]:text-[#1c1c1e]/80">
@@ -2147,14 +2308,15 @@ export function ChatViewer({
                       if (e.key === "Enter") handleAddCustomTag();
                     }}
                     placeholder="输入标签名 (如 Real_Task)"
-                    className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:placeholder:text-[#8e8e93]"
+                    className="fold-tag-input flex-1 rounded-xl px-3.5 py-2 text-sm shadow-xs"
                   />
                   <button
                     onClick={handleAddCustomTag}
                     disabled={!newTagInput.trim()}
-                    className="p-2 bg-blue-600 hover:bg-blue-500 disabled:bg-white/10 disabled:text-white/30 text-white rounded-xl transition [.light-theme_&]:disabled:bg-black/5 [.light-theme_&]:disabled:text-[#8e8e93] [.light-theme_&]:bg-[#007aff] [.light-theme_&]:hover:bg-[#0056b3]"
+                    className="fold-tag-add-btn flex items-center justify-center gap-1 shrink-0 active:scale-95 cursor-pointer"
+                    title="添加自定义折叠标签"
                   >
-                    <Plus className="w-5 h-5" />
+                    <Plus className="w-4 h-4 stroke-[2.5]" />
                   </button>
                 </div>
 
@@ -2163,12 +2325,12 @@ export function ChatViewer({
                     {customTags.map((tag, idx) => (
                       <span
                         key={idx}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-lg text-sm [.light-theme_&]:bg-[#007aff]/10 [.light-theme_&]:text-[#007aff] [.light-theme_&]:border-[#007aff]/20"
+                        className="fold-tag-pill inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm"
                       >
                         {tag}
                         <button
                           onClick={() => handleRemoveCustomTag(tag)}
-                          className="hover:text-red-400 p-0.5 rounded-full transition [.light-theme_&]:text-[#007aff]/60 [.light-theme_&]:hover:text-[#ff3b30]"
+                          className="hover:text-red-500 p-0.5 rounded-full transition opacity-70 hover:opacity-100"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -2211,32 +2373,32 @@ export function ChatViewer({
                     setShowUserAvatarSheet(false);
                     userAvatarInputRef.current?.click();
                   }}
-                  className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 active:scale-[0.99] border border-white/5 transition text-left [.light-theme_&]:bg-white [.light-theme_&]:border-black/5 [.light-theme_&]:hover:bg-black/5"
+                  className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:hover:!bg-[#f1f5f9] active:scale-[0.99] border border-white/5 [.light-theme_&]:!border-[#e2e8f0] transition text-left cursor-pointer"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
+                  <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/10 text-white [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] flex items-center justify-center shrink-0 shadow-xs">
                     <ImageIcon className="w-5 h-5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-white [.light-theme_&]:text-[#1c1c1e]">从手机相册选取</div>
-                    <div className="text-xs text-white/40 [.light-theme_&]:text-black/40">打开系统相册与图库</div>
+                    <div className="text-sm font-medium text-white [.light-theme_&]:!text-[#0f172a]">从手机相册选取</div>
+                    <div className="text-xs text-white/40 [.light-theme_&]:!text-[#64748b]">打开系统相册与图库</div>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-white/30 [.light-theme_&]:text-black/30" />
+                  <ChevronRight className="w-4 h-4 text-white/30 [.light-theme_&]:!text-[#94a3b8]" />
                 </button>
                 <button
                   onClick={() => {
                     setShowUserAvatarSheet(false);
                     userFileInputRef.current?.click();
                   }}
-                  className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 active:scale-[0.99] border border-white/5 transition text-left [.light-theme_&]:bg-white [.light-theme_&]:border-black/5 [.light-theme_&]:hover:bg-black/5"
+                  className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:hover:!bg-[#f1f5f9] active:scale-[0.99] border border-white/5 [.light-theme_&]:!border-[#e2e8f0] transition text-left cursor-pointer"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                  <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/10 text-white [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] flex items-center justify-center shrink-0 shadow-xs">
                     <FolderOpen className="w-5 h-5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-white [.light-theme_&]:text-[#1c1c1e]">从文件管理查找</div>
-                    <div className="text-xs text-white/40 [.light-theme_&]:text-black/40">浏览手机内部存储或未入库图片</div>
+                    <div className="text-sm font-medium text-white [.light-theme_&]:!text-[#0f172a]">从文件管理查找</div>
+                    <div className="text-xs text-white/40 [.light-theme_&]:!text-[#64748b]">浏览手机内部存储或未入库图片</div>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-white/30 [.light-theme_&]:text-black/30" />
+                  <ChevronRight className="w-4 h-4 text-white/30 [.light-theme_&]:!text-[#94a3b8]" />
                 </button>
               </div>
               <button
@@ -2257,34 +2419,39 @@ export function ChatViewer({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm"
             onClick={() => setDeleteChatId(null)}
           >
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl [.light-theme_&]:bg-[#ffffff]/90 [.light-theme_&]:backdrop-blur-3xl [.light-theme_&]:border-black/5"
+              className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-black/5 rounded-t-3xl p-5 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
             >
-              <h3 className="text-xl font-bold mb-2 text-white [.light-theme_&]:text-[#1c1c1e]">
+              {/* Indicator Handle */}
+              <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-black/10 rounded-full mx-auto mb-4" />
+
+              <h3 className="text-base sm:text-lg font-bold text-center text-white [.light-theme_&]:!text-[#0f172a] mb-1.5">
                 删除聊天记录？
               </h3>
-              <p className="text-slate-400 mb-6 [.light-theme_&]:text-[#8e8e93]">
+              <p className="text-xs sm:text-sm text-center text-white/70 [.light-theme_&]:!text-slate-600 mb-6 px-2 leading-relaxed">
                 此操作无法撤销，确定要删除这条聊天记录吗？
               </p>
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => setDeleteChatId(null)}
-                  className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 hover:text-white transition [.light-theme_&]:bg-black/5 [.light-theme_&]:hover:bg-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:hover:text-[#1c1c1e]"
-                >
-                  取消
-                </button>
+
+              <div className="space-y-2.5">
                 <button
                   onClick={confirmDeleteChat}
-                  className="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white transition shadow-lg shadow-red-500/20 [.light-theme_&]:bg-[#ff3b30] [.light-theme_&]:hover:bg-[#b31f17] [.light-theme_&]:text-white"
+                  className="w-full py-3.5 rounded-2xl bg-[#FE2C55] hover:bg-[#E02447] active:bg-[#D41C3E] text-white font-bold text-sm sm:text-base transition-all shadow-md shadow-[#FE2C55]/25 cursor-pointer active:scale-[0.98]"
                 >
-                  删除
+                  删除聊天记录
+                </button>
+                <button
+                  onClick={() => setDeleteChatId(null)}
+                  className="w-full py-3.5 rounded-2xl bg-white/10 hover:bg-white/15 active:bg-white/5 text-white/90 [.light-theme_&]:!bg-[#f2f3f5] [.light-theme_&]:hover:!bg-[#e5e6eb] [.light-theme_&]:!text-[#0f172a] font-semibold text-sm sm:text-base transition-all cursor-pointer active:scale-[0.98]"
+                >
+                  取消
                 </button>
               </div>
             </motion.div>
@@ -2343,62 +2510,130 @@ export function ChatViewer({
 
       {/* Floating Batch Actions Bar */}
       <AnimatePresence>
-        {isBatchMode && selectedChatIds.size > 0 && (
+        {isBatchMode && (
           <motion.div
-            initial={{ y: 100, opacity: 0, x: "-50%" }}
-            animate={{ y: 0, opacity: 1, x: "-50%" }}
-            exit={{ y: 100, opacity: 0, x: "-50%" }}
-            className="fixed bottom-8 left-1/2 z-[60] max-w-[95vw] sm:max-w-[80vw] bg-slate-800/80 backdrop-blur-2xl border border-white/10 rounded-full shadow-2xl overflow-hidden"
+            initial={{ y: 24, opacity: 0, scale: 0.92, x: "-50%" }}
+            animate={{ y: 0, opacity: 1, scale: 1, x: "-50%" }}
+            exit={{ y: 20, opacity: 0, scale: 0.95, x: "-50%" }}
+            transition={{ type: "spring", stiffness: 450, damping: 28 }}
+            className="floating-pill-dock fixed bottom-6 left-1/2 z-[60] max-w-[95vw] sm:max-w-max rounded-full px-3 py-1.5 transition-all overflow-hidden"
           >
             <div
-              className="flex items-center p-1 overflow-x-auto"
+              className="flex items-center gap-1 sm:gap-2 px-1 overflow-x-auto hide-scrollbar"
               style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
             >
-              <style>{`
-                .no-scrollbar::-webkit-scrollbar {
-                  display: none;
-                }
-              `}</style>
-              <div className="flex items-center gap-2 no-scrollbar px-1 min-w-max">
-            
-            <button
-              onClick={() => handleBatchExport(true)}
-              disabled={selectedChatIds.size === 0}
-              className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-white/10 text-white/70 hover:text-green-400 transition disabled:opacity-50 group shrink-0"
-              title={getDownloadTooltip("导出聊天记录")}
-            >
-              <div className="p-2 rounded-full bg-white/5 group-hover:bg-green-400/20 transition">
-                <Download className="w-5 h-5" />
-              </div>
-              <span className="font-medium text-[10px]">导出</span>
-            </button>
-            <div className="w-px h-8 bg-white/10 shrink-0" />
-            <button
-              onClick={handleChatsCloudUpload}
-              disabled={selectedChatIds.size === 0}
-              className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-blue-500/10 text-white/70 hover:text-blue-400 transition disabled:opacity-50 group shrink-0"
-            >
-              <div className="p-2 rounded-full bg-white/5 group-hover:bg-blue-400/20 transition">
-                <UploadCloud className="w-5 h-5" />
-              </div>
-              <span className="font-medium text-[10px]">传云盘</span>
-            </button>
-            <div className="w-px h-8 bg-white/10 shrink-0" />
-            <button
-              onClick={handleBatchDelete}
-              disabled={selectedChatIds.size === 0}
-              className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-red-500/10 text-white/70 hover:text-red-400 transition disabled:opacity-50 group shrink-0"
-            >
-              <div className="p-2 rounded-full bg-white/5 group-hover:bg-red-400/20 transition">
-                <Trash2 className="w-5 h-5" />
-              </div>
-              <span className="font-medium text-[10px]">删除</span>
-            </button>
-              </div>
+              <button
+                onClick={() => {
+                  if (selectedChatIds.size === savedChats.length) {
+                    setSelectedChatIds(new Set());
+                  } else {
+                    setSelectedChatIds(new Set(savedChats.map((c) => c.id)));
+                  }
+                }}
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0"
+              >
+                <CheckSquare className="w-5 h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight">
+                  {selectedChatIds.size === savedChats.length ? "全不选" : "全选"}
+                </span>
+              </button>
+
+              <button
+                onClick={() => handleBatchExport(true)}
+                disabled={selectedChatIds.size === 0}
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3.5 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-green-500 disabled:opacity-30 disabled:pointer-events-none"
+                title={getDownloadTooltip("导出聊天记录")}
+              >
+                <Download className="w-5 h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight">
+                  导出{selectedChatIds.size > 0 ? ` (${selectedChatIds.size})` : ''}
+                </span>
+              </button>
+
+              <button
+                onClick={handleChatsCloudUpload}
+                disabled={selectedChatIds.size === 0}
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3.5 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-blue-500 disabled:opacity-30 disabled:pointer-events-none"
+              >
+                <UploadCloud className="w-5 h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight">传云盘</span>
+              </button>
+
+              <button
+                onClick={handleBatchDelete}
+                disabled={selectedChatIds.size === 0}
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3.5 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-rose-500 disabled:opacity-30 disabled:pointer-events-none"
+              >
+                <Trash2 className="w-5 h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight">
+                  删除{selectedChatIds.size > 0 ? ` (${selectedChatIds.size})` : ''}
+                </span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsBatchMode(false);
+                  setSelectedChatIds(new Set());
+                }}
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-slate-400 cursor-pointer"
+                title="退出多选"
+              >
+                <X className="w-5 h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight">退出</span>
+              </button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* 编辑消息弹窗 */}
+      {editingMsgIndex !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm select-none"
+          onClick={() => setEditingMsgIndex(null)}
+        >
+          <div
+            className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-lg flex flex-col shadow-2xl overflow-hidden [.light-theme_&]:!bg-slate-800 [.light-theme_&]:!border-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-white/10 flex items-center justify-between [.light-theme_&]:!border-slate-100">
+              <h3 className="font-bold text-base text-white [.light-theme_&]:!text-slate-900 flex items-center gap-2">
+                <Edit2 className="w-4 h-4 text-blue-400" />
+                <span>编辑消息 #{editingMsgIndex + 1}</span>
+              </h3>
+              <button
+                onClick={() => setEditingMsgIndex(null)}
+                className="p-1.5 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!bg-slate-100 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4">
+              <textarea
+                value={editingMsgContent}
+                onChange={(e) => setEditingMsgContent(e.target.value)}
+                rows={8}
+                className="w-full rounded-xl bg-black/30 border border-white/10 p-3 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors resize-none [.light-theme_&]:!bg-slate-50 [.light-theme_&]:!border-slate-200 [.light-theme_&]:!text-slate-800"
+                placeholder="输入消息内容..."
+              />
+            </div>
+            <div className="p-4 border-t border-white/10 flex items-center justify-end gap-2.5 [.light-theme_&]:!border-slate-100">
+              <button
+                onClick={() => setEditingMsgIndex(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-white/70 hover:bg-white/10 transition [.light-theme_&]:!text-slate-600 [.light-theme_&]:hover:!bg-slate-100 cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSaveEditedMessage}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition active:scale-95 cursor-pointer shadow-md"
+              >
+                保存修改
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ChatCleanerModal
         isOpen={isCleanerOpen}

@@ -122,8 +122,11 @@ export function cleanPreviewSnippet(rawText: string, options: BBCodeOptions = {}
     .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"');
 
-  // 8. Normalize multiple newlines and spaces
-  text = text.replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
+  // 8. Normalize excessive newlines and spaces, but keep basic structure
+  text = text
+    .replace(/[ \t]{3,}/g, '  ') // Keep at most 2 spaces (often used for indentation)
+    .replace(/\n{3,}/g, '\n\n')  // Keep at most 1 blank line
+    .trim();
 
   if (!text) {
     return rawText.includes('<') || rawText.includes('```') ? '[HTML 富媒体组件 / 交互卡片]' : '暂无文字内容';

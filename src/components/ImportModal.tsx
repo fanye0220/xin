@@ -14,8 +14,9 @@ import {
   Search,
   Folder,
   ArrowRight,
+  Loader2,
 } from "lucide-react";
-import { extractTavernData } from "../lib/png";
+import { extractTavernData, parsePayload } from "../lib/png";
 import {
   saveCharacter,
   saveCharacters,
@@ -152,6 +153,33 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
     message?: string;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [isLightMode, setIsLightMode] = useState(() => {
+    return (
+      document.documentElement.classList.contains("light-theme") ||
+      localStorage.getItem("tavern_theme") === "light"
+    );
+  });
+
+  useEffect(() => {
+    const checkTheme = () => {
+      setIsLightMode(
+        document.documentElement.classList.contains("light-theme") ||
+        localStorage.getItem("tavern_theme") === "light"
+      );
+    };
+    checkTheme();
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    window.addEventListener("storage", checkTheme);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("storage", checkTheme);
+    };
+  }, []);
 
   const [autoCategorizeSameName, setAutoCategorizeSameName] = useState<boolean>(
     () => localStorage.getItem("miu_auto_categorize_same_name") !== "false",
@@ -468,7 +496,16 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
       let errorMsg = "";
 
       try {
-        if (file.type === "image/png" || file.name.endsWith(".png")) {
+        const lowerName = file.name.toLowerCase();
+        if (
+          file.type.startsWith("image/") ||
+          lowerName.endsWith(".png") ||
+          lowerName.endsWith(".webp") ||
+          lowerName.endsWith(".jpg") ||
+          lowerName.endsWith(".jpeg") ||
+          lowerName.endsWith(".avif") ||
+          lowerName.endsWith(".gif")
+        ) {
           const buffer = await file.arrayBuffer();
           data = await extractTavernData(buffer);
           if (data) {
@@ -478,10 +515,10 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
           }
         } else if (
           file.type === "application/json" ||
-          file.name.toLowerCase().endsWith(".json") ||
-          file.name.toLowerCase().endsWith(".jsonl") ||
-          file.name.endsWith(".js") ||
-          file.name.endsWith(".txt")
+          lowerName.endsWith(".json") ||
+          lowerName.endsWith(".jsonl") ||
+          lowerName.endsWith(".js") ||
+          lowerName.endsWith(".txt")
         ) {
           const text = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
@@ -489,7 +526,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             reader.onerror = reject;
             reader.readAsText(file, "utf-8");
           });
-          if (file.name.toLowerCase().endsWith(".jsonl")) {
+          if (lowerName.endsWith(".jsonl")) {
             const lines = text.trim().split("\n");
             let parsedMessages = [];
             for (const line of lines) {
@@ -506,7 +543,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             } else {
               errorMsg = "无效的聊天记录文件。";
             }
-          } else if (file.name.endsWith(".txt")) {
+          } else if (lowerName.endsWith(".txt")) {
             const { parseTextChatLog } = await import("../lib/chatParse");
             const parsed = parseTextChatLog(text);
             if (parsed.isChat) {
@@ -516,11 +553,11 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               data = { type: "script", name: file.name.replace(/\.[^/.]+$/, ""), content: text };
               isMain = true;
             }
-          } else if (file.name.endsWith(".js")) {
+          } else if (lowerName.endsWith(".js")) {
             data = { type: "script", name: file.name.replace(/\.[^/.]+$/, ""), content: text };
             isMain = true;
           } else {
-            data = JSON.parse(text);
+            data = parsePayload(text) || JSON.parse(text);
             const isActualChar = isActualCharacterCard(data);
             const isTheme =
               !isActualChar &&
@@ -1348,54 +1385,64 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={(progress || tavernMode) ? undefined : onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70]"
+            className="fixed inset-0 bg-black/60 [.light-theme_&]:!bg-black/25 backdrop-blur-sm z-[70]"
           />
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            initial={{ opacity: 0, scale: 0.95, y: 15 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[90vw] max-w-md bg-slate-900/80 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 shadow-2xl z-[80] text-white max-h-[85vh] flex flex-col"
+            exit={{ opacity: 0, scale: 0.95, y: 15 }}
+            className={`fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[92vw] sm:w-full backdrop-blur-2xl border rounded-3xl shadow-2xl z-[80] max-h-[88vh] flex flex-col transition-all duration-300 bg-slate-900/95 [.light-theme_&]:!bg-slate-800 text-slate-100 [.light-theme_&]:!border-none ${
+              progress ? "max-w-[340px] sm:max-w-[380px] p-6 sm:p-7" : "max-w-[420px] sm:max-w-[460px] p-5 sm:p-6"
+            }`}
           >
-            <div className="flex justify-between items-center mb-6 shrink-0">
-              <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600">
-                {autoCategorizedSummary ? "导入完成" : "导入角色卡"}
+            <div className={`flex justify-between items-center mb-3.5 pb-2.5 border-b shrink-0 ${isLightMode ? 'border-slate-700/10' : 'border-white/10'}`}>
+              <h2 className="text-base sm:text-lg font-bold text-slate-100">
+                {autoCategorizedSummary ? "导入完成" : (progress ? "正在导入" : "导入角色卡")}
               </h2>
               {!progress && (
                 <button
                   onClick={onClose}
-                  className="p-2 rounded-full hover:bg-white/10 transition"
+                  className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center transition cursor-pointer ${
+                    isLightMode
+                      ? "bg-slate-700/10 hover:bg-slate-700/20 text-slate-600 hover:text-slate-100"
+                      : "bg-white/10 hover:bg-white/15 text-white/60 hover:text-white"
+                  }`}
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
               )}
             </div>
 
             {autoCategorizedSummary ? (
               <div className="py-2 flex flex-col flex-1 min-h-0">
-                <div className="flex items-center gap-2.5 text-emerald-400 mb-3 shrink-0">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
-                    <CheckCircle className="w-5 h-5 text-emerald-400" />
+                <div className="flex items-center gap-3 text-emerald-500 mb-3.5 shrink-0">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center">
+                    <CheckCircle className="w-5 h-5 text-emerald-500" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-base text-white">导入完成</h3>
-                    <p className="text-xs text-white/60">共成功导入 {importedSuccessCount} 项卡片/数据</p>
+                    <h3 className="font-bold text-base sm:text-lg text-slate-100">导入完成</h3>
+                    <p className="text-xs sm:text-sm text-slate-100/60">共成功导入 {importedSuccessCount} 项卡片/数据</p>
                   </div>
                 </div>
 
-                <div className="bg-purple-500/10 border border-purple-500/20 rounded-2xl p-3.5 mb-4 shrink-0">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-purple-300 mb-1.5">
-                    <Folder className="w-4 h-4 text-purple-400 shrink-0" />
+                <div className={`rounded-2xl p-4 mb-4 shrink-0 border ${
+                  isLightMode ? 'bg-blue-50/80 border-blue-200/80 text-blue-900' : 'bg-blue-500/10 border-blue-500/20 text-blue-300'
+                }`}>
+                  <div className="flex items-center gap-2 text-xs sm:text-sm font-bold mb-1.5">
+                    <Folder className="w-4 h-4 text-blue-500 shrink-0" />
                     <span>检测到同名角色卡，已自动归入已有分类：</span>
                   </div>
-                  <p className="text-[11px] text-white/50 mb-2.5">
+                  <p className={`text-xs sm:text-sm mb-3 ${isLightMode ? 'text-slate-300' : 'text-white/60'}`}>
                     系统匹配到已有同名角色的分类文件夹并已自动整理归类。您可以前往查看，或一键移回主页。
                   </p>
                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
                     {autoCategorizedSummary.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-xs bg-black/30 p-2.5 rounded-xl border border-white/5">
+                      <div key={idx} className={`flex items-center justify-between text-xs sm:text-sm p-3 rounded-xl border ${
+                        isLightMode ? 'bg-slate-700/10 border-slate-700/20 text-slate-100' : 'bg-black/30 border-white/10 text-white'
+                      }`}>
                         <div className="min-w-0 flex-1 mr-2">
-                          <span className="font-medium text-white truncate block">{item.charName}</span>
-                          <span className="text-[11px] text-purple-300/80 truncate block mt-0.5">📁 {item.folderPath}</span>
+                          <span className="font-semibold truncate block">{item.charName}</span>
+                          <span className={`text-xs truncate block mt-0.5 ${isLightMode ? 'text-blue-600' : 'text-blue-300'}`}>📁 {item.folderPath}</span>
                         </div>
                         {onNavigateFolder && (
                           <button
@@ -1405,10 +1452,10 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                               setAutoCategorizedSummary(null);
                               onClose();
                             }}
-                            className="px-2.5 py-1 text-[11px] bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg shrink-0 font-medium transition flex items-center gap-1"
+                            className="px-3 py-1.5 text-xs bg-blue-500/15 hover:bg-blue-500/25 text-blue-600 [.light-theme_&]:text-blue-700 rounded-lg shrink-0 font-semibold transition flex items-center gap-1"
                           >
                             <span>前往文件夹</span>
-                            <ArrowRight className="w-3 h-3" />
+                            <ArrowRight className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </div>
@@ -1445,7 +1492,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                         onClose();
                       }
                     }}
-                    className="flex-1 py-2.5 px-3 bg-white/10 hover:bg-white/15 text-white/80 rounded-xl text-xs sm:text-sm font-medium transition disabled:opacity-50"
+                    className={`flex-1 py-3 px-3 rounded-2xl text-xs sm:text-sm font-semibold transition disabled:opacity-50 ${
+                      isLightMode ? 'bg-slate-700/10 hover:bg-slate-700/20 text-slate-100' : 'bg-white/10 hover:bg-white/15 text-white/80'
+                    }`}
                   >
                     {isReverting ? "正在移回..." : "移回主页未分类"}
                   </button>
@@ -1455,7 +1504,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                       setAutoCategorizedSummary(null);
                       onClose();
                     }}
-                    className="flex-1 py-2.5 px-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-95 text-white rounded-xl text-xs sm:text-sm font-medium transition shadow-lg shadow-purple-500/20"
+                    className="flex-1 py-3 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-xs sm:text-sm font-bold transition shadow-lg shadow-blue-600/20"
                   >
                     知道了 / 完成
                   </button>
@@ -1483,7 +1532,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     placeholder="搜索角色名或简介..."
                     value={tavernSearchQuery}
                     onChange={(e) => setTavernSearchQuery(e.target.value)}
-                    className="w-full bg-white/5 hover:bg-white/10 focus:bg-white/10 border border-white/10 rounded-xl py-2 pl-9 pr-4 text-sm focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 transition-all placeholder:text-white/30"
+                    className="w-full bg-white/5 hover:bg-white/10 focus:bg-white/10 border border-white/10 rounded-xl py-2 pl-9 pr-4 text-sm focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all placeholder:text-white/30"
                   />
                 </div>
                 <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
@@ -1497,13 +1546,13 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                               else newSet.add(char.avatar);
                               setSelectedTavernChars(newSet);
                            }}
-                           className={`flex items-center gap-2 sm:gap-3 p-2 sm:p-3 rounded-xl cursor-pointer transition-all duration-200 ${selectedTavernChars.has(char.avatar) ? 'bg-purple-500/20 border border-purple-500/50 shadow-[inset_0_0_15px_rgba(168,85,247,0.15)]' : 'bg-white/5 border border-transparent hover:border-white/10 hover:bg-white/10'}`}>
+                           className={`flex items-center gap-2 sm:gap-3 p-2 sm:p-3 rounded-xl cursor-pointer transition-all duration-200 ${selectedTavernChars.has(char.avatar) ? 'bg-blue-500/20 border border-blue-500/50 shadow-[inset_0_0_15px_rgba(168,85,247,0.15)]' : 'bg-white/5 border border-transparent hover:border-white/10 hover:bg-white/10'}`}>
                          <TavernAvatar char={char} aiSettings={getAISettings()} />
                          <div className="flex-1 min-w-0">
                            <div className="font-medium text-sm sm:text-base truncate">{char.name}</div>
                            <div className="text-xs text-white/50 truncate">{char.creator_notes || char.description?.substring(0, 50) || '无简介'}</div>
                          </div>
-                         <div className={`w-5 h-5 rounded-md flex items-center justify-center border transition-all duration-200 ${selectedTavernChars.has(char.avatar) ? 'border-purple-400 bg-purple-500 text-white shadow-[0_0_8px_rgba(168,85,247,0.6)]' : 'border-white/20 bg-black/20'}`}>
+                         <div className={`w-5 h-5 rounded-md flex items-center justify-center border transition-all duration-200 ${selectedTavernChars.has(char.avatar) ? 'border-blue-400 bg-blue-500 text-white shadow-[0_0_8px_rgba(168,85,247,0.6)]' : 'border-white/20 bg-black/20'}`}>
                            {selectedTavernChars.has(char.avatar) && <CheckCircle className="w-3.5 h-3.5" />}
                          </div>
                       </div>
@@ -1516,7 +1565,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   <button 
                     onClick={pullSelectedTavernChars} 
                     disabled={selectedTavernChars.size === 0}
-                    className="flex-1 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 text-white rounded-xl font-medium transition-all shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:shadow-none"
+                    className="flex-1 py-3 bg-gradient-to-r from-blue-500 to-pink-500 hover:from-blue-400 hover:to-pink-400 text-white rounded-xl font-medium transition-all shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:shadow-none"
                   >
                     拉取已选 ({selectedTavernChars.size})
                   </button>
@@ -1559,22 +1608,14 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                 </button>
               </div>
             ) : progress ? (
-              <div className="py-8 flex flex-col items-center">
-                <div className="w-16 h-16 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mb-4" />
-                <p className="text-lg font-medium text-center">
-                  {progress.message || "导入中..."}
+              <div className="py-4 sm:py-6 flex flex-col items-center justify-center text-center">
+                <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-3.5" />
+                <p className="text-base sm:text-lg font-bold text-center text-slate-100">
+                  {progress.message || "正在解析文件..."}
                 </p>
-                <p className="text-slate-400 text-center tabular-nums">
-                  {progress.current} / {progress.total}
+                <p className="text-xs sm:text-sm font-semibold font-mono mt-2 tabular-nums text-slate-100/60">
+                  还有 {progress.current}/{progress.total} 张卡
                 </p>
-                <div className="w-full bg-white/10 rounded-full h-2 mt-4 overflow-hidden">
-                  <div
-                    className="bg-gradient-to-r from-purple-500 to-pink-500 h-full transition-all duration-300"
-                    style={{
-                      width: `${progress.total > 0 ? (progress.current / progress.total) * 100 : 0}%`,
-                    }}
-                  />
-                </div>
               </div>
             ) : (
               <>
@@ -1583,54 +1624,60 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onClick={() => fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors ${
+                  className={`border-2 border-dashed rounded-3xl py-7 sm:py-8 px-4 flex flex-col items-center justify-center cursor-pointer transition-all ${
                     isDragging
-                      ? "border-purple-500 bg-purple-500/10"
-                      : "border-white/20 hover:border-white/40 hover:bg-white/5"
+                      ? "border-blue-400 bg-blue-500/15 [.light-theme_&]:!border-blue-500 [.light-theme_&]:!bg-blue-50"
+                      : "border-white/15 hover:border-white/30 bg-white/[0.04] hover:bg-white/[0.08] [.light-theme_&]:!border-slate-300 [.light-theme_&]:hover:!border-blue-500 [.light-theme_&]:!bg-slate-50/80 [.light-theme_&]:hover:!bg-slate-100/90"
                   }`}
                 >
                   <UploadCloud
-                    className={`w-12 h-12 mb-4 ${isDragging ? "text-purple-400" : "text-slate-400"}`}
+                    className={`w-10 h-10 sm:w-12 sm:h-12 mb-3 text-slate-100/40 ${
+                      isDragging ? "text-blue-500" : ""
+                    }`}
                   />
-                  <p className="text-center font-medium mb-1">
+                  <p className="text-center text-sm sm:text-base font-bold mb-1 text-slate-100">
                     点击上传或拖拽文件到此处
                   </p>
-                  <p className="text-center text-sm text-slate-400">
+                  <p className="text-center text-xs sm:text-sm leading-relaxed max-w-[280px] text-slate-100/60">
                     支持多个 PNG/JSON 格式，或包含文件夹结构的 ZIP 压缩包
                   </p>
 
-                  <div className="flex gap-4 mt-6 text-slate-500">
-                    <div className="flex items-center gap-1 text-xs">
-                      <ImageIcon className="w-4 h-4" /> PNG
+                  <div className="flex gap-3.5 mt-3.5 text-slate-100/60">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold">
+                      <ImageIcon className="w-4 h-4 opacity-70" /> PNG
                     </div>
-                    <div className="flex items-center gap-1 text-xs">
-                      <FileJson className="w-4 h-4" /> JSON
+                    <div className="flex items-center gap-1.5 text-xs font-semibold">
+                      <FileJson className="w-4 h-4 opacity-70" /> JSON
                     </div>
-                    <div className="flex items-center gap-1 text-xs">
-                      <FileArchive className="w-4 h-4" /> ZIP
+                    <div className="flex items-center gap-1.5 text-xs font-semibold">
+                      <FileArchive className="w-4 h-4 opacity-70" /> ZIP
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-3 flex items-center justify-between px-1 text-xs text-white/70 [.light-theme_&]:text-slate-600">
+                <div className="mt-4 flex items-center justify-between px-1">
                   <div
                     onClick={() => {
                       const next = !autoCategorizeSameName;
                       setAutoCategorizeSameName(next);
                       localStorage.setItem("miu_auto_categorize_same_name", next ? "true" : "false");
                     }}
-                    className="flex items-center gap-2.5 cursor-pointer select-none hover:text-white [.light-theme_&]:hover:text-slate-900 transition py-1"
+                    className="flex items-center gap-3 cursor-pointer select-none transition py-1 text-slate-100/80 hover:text-slate-100"
                   >
                     <div
-                      className={`w-4 h-4 rounded flex items-center justify-center border transition shrink-0 ${
+                      className={`w-5 h-5 rounded-lg flex items-center justify-center border transition shrink-0 ${
                         autoCategorizeSameName
-                          ? "bg-purple-600 border-purple-500 text-white shadow-sm shadow-purple-500/30"
-                          : "border-white/30 bg-black/30 [.light-theme_&]:border-black/20 [.light-theme_&]:bg-white"
+                          ? isLightMode
+                            ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                            : "bg-blue-600 text-white border-blue-600 shadow-sm"
+                          : isLightMode
+                            ? "border-slate-300 bg-slate-800"
+                            : "border-white/30 bg-black/30"
                       }`}
                     >
-                      {autoCategorizeSameName && <Check className="w-3 h-3 text-white stroke-[2.5]" />}
+                      {autoCategorizeSameName && <Check className="w-3.5 h-3.5 text-white stroke-[2.5]" />}
                     </div>
-                    <span className="font-medium text-xs">导入同名卡自动归入已有分类文件夹</span>
+                    <span className="font-semibold text-xs sm:text-sm">导入同名卡自动归入已有分类文件夹</span>
                   </div>
                 </div>
 
@@ -1639,9 +1686,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     <button 
                       onClick={(e) => { e.stopPropagation(); fetchTavernList(); }}
                       disabled={isPulling}
-                      className="flex items-center gap-2 px-6 py-3.5 bg-gradient-to-r from-purple-500/10 to-pink-500/10 hover:from-purple-500/20 hover:to-pink-500/20 text-purple-400 rounded-xl font-medium transition-all duration-300 disabled:opacity-50 w-full justify-center border border-purple-500/30 hover:border-purple-400/50 shadow-lg shadow-purple-500/10 hover:shadow-purple-500/20"
+                      className="flex items-center gap-2 px-6 py-3.5 sm:py-4 bg-gradient-to-r from-blue-500/10 to-pink-500/10 hover:from-blue-500/20 hover:to-pink-500/20 text-blue-500 rounded-2xl font-bold text-sm sm:text-base transition-all duration-300 disabled:opacity-50 w-full justify-center border border-blue-500/30 hover:border-blue-400/50 shadow-md shadow-blue-500/10 cursor-pointer"
                     >
-                      {isPulling ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" /> : <Cloud className="w-5 h-5 shrink-0" />}
+                      {isPulling ? <Loader2 className="w-5 h-5 animate-spin shrink-0 text-blue-500" /> : <Cloud className="w-5 h-5 shrink-0" />}
                       <span className="truncate">拉取酒馆卡片</span>
                     </button>
                   </div>
@@ -1651,7 +1698,11 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="mt-4 p-3 bg-red-500/20 border border-red-500/30 rounded-xl text-red-400 text-sm"
+                    className={`mt-4 p-3.5 rounded-2xl text-xs sm:text-sm border font-medium ${
+                      isLightMode
+                        ? "bg-red-50 border-red-200 text-red-700"
+                        : "bg-red-500/20 border-red-500/30 text-red-300"
+                    }`}
                   >
                     {error}
                   </motion.div>
