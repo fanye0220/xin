@@ -61,13 +61,13 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
       <React.Fragment key={folder.id}>
         <button
           onClick={() => onMove(folder.id)}
-          className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 [.light-theme_&]:hover:bg-black/5 transition text-left"
+          className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition text-left"
           style={{ paddingLeft: `${depth * 1.5 + 0.75}rem` }}
         >
-          <div className="w-10 h-10 rounded-lg bg-white/10 text-white/80 [.light-theme_&]:bg-stone-100 [.light-theme_&]:text-stone-700 flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
             <FolderIcon className="w-5 h-5" />
           </div>
-          <span className="font-medium text-white [.light-theme_&]:text-[#1c1c1e] truncate">{folder.name}</span>
+          <span className="font-medium text-white truncate">{folder.name}</span>
         </button>
         {renderFolderOptions(folder.id, depth + 1)}
       </React.Fragment>
@@ -108,7 +108,7 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
                   placeholder="搜索目标文件夹..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-1.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-blue-500/50 transition"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-1.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/50 transition"
                 />
               </div>
             </div>
@@ -133,15 +133,15 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
                   <button
                     key={folder.id}
                     onClick={() => onMove(folder.id)}
-                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 [.light-theme_&]:hover:bg-black/5 transition text-left"
+                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition text-left"
                   >
-                    <div className="w-10 h-10 rounded-lg bg-white/10 text-white/80 [.light-theme_&]:bg-stone-100 [.light-theme_&]:text-stone-700 flex items-center justify-center shrink-0">
+                    <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
                       <FolderIcon className="w-5 h-5" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium text-white [.light-theme_&]:text-[#1c1c1e] truncate">{folder.name}</div>
+                      <div className="font-medium text-white truncate">{folder.name}</div>
                       {folderPathMap[folder.id] && folderPathMap[folder.id] !== folder.name && (
-                        <div className="text-xs text-white/40 [.light-theme_&]:text-stone-500 truncate">{folderPathMap[folder.id]}</div>
+                        <div className="text-xs text-blue-300/70 truncate">{folderPathMap[folder.id]}</div>
                       )}
                     </div>
                   </button>

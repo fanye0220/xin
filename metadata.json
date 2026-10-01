@@ -1,8 +1,6 @@
 {
-  "name": "无新功能改ui用",
+  "name": "MIU",
   "description": "MIU - 角色卡与酒馆资源管理工具",
   "requestFramePermissions": [],
-  "capabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

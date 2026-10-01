@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Check, Download } from 'lucide-react';
+import { X, Check } from 'lucide-react';
 
 interface QRSet {
   id: string;
@@ -44,96 +44,74 @@ export function ExportQRModal({ isOpen, onClose, qrSets, onExport }: Props) {
   if (!isOpen) return null;
 
   return createPortal(
-    <AnimatePresence>
-      <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95, y: 15 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 15 }}
-          className="version-modal-box rounded-3xl p-5 sm:p-6 w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh] relative overflow-hidden"
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between pb-3.5 border-b version-modal-border relative z-10">
-            <div>
-              <h3 className="text-base font-bold version-modal-title flex items-center gap-2">
-                <Download className="w-4 h-4 opacity-70" />
-                选择要导出的快速回复集
-              </h3>
-              <p className="text-xs version-modal-desc mt-0.5">
-                勾选需要导出的快速回复集合
-              </p>
-            </div>
-            <button
-              onClick={onClose}
-              className="w-8 h-8 rounded-full version-modal-close-btn flex items-center justify-center cursor-pointer transition shadow-xs"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm [.light-theme_&]:bg-black/40" onClick={onClose} />
+      
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="relative bg-slate-900 border border-white/10 rounded-3xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/10"
+      >
+        <div className="p-4 border-b border-white/10 flex items-center justify-between shrink-0 [.light-theme_&]:border-black/10">
+          <h3 className="text-lg font-semibold text-white [.light-theme_&]:text-[#1c1c1e]">选择要导出的快速回复集</h3>
+          <button onClick={onClose} className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition cursor-pointer [.light-theme_&]:text-black/50 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/5">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
 
-          {/* List */}
-          <div className="flex-1 overflow-y-auto space-y-2 pr-1 my-3 max-h-[50vh] custom-scrollbar relative z-10">
-            {qrSets.length === 0 ? (
-              <div className="py-8 text-center text-xs version-modal-desc">
-                暂无已关联的快速回复集
-              </div>
-            ) : (
-              qrSets.map(set => {
+        <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar flex-1">
+          {qrSets.length === 0 ? (
+             <div className="text-center py-8 text-white/50 [.light-theme_&]:text-black/40">没找到可导出的项</div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {qrSets.map(set => {
                 const isSelected = selectedIds.has(set.id);
                 return (
-                  <div
+                  <button
                     key={set.id}
                     onClick={() => toggleSelection(set.id)}
-                    className={`p-3 rounded-2xl transition cursor-pointer flex items-center justify-between gap-3 border version-candidate-card ${
-                      isSelected ? 'is-selected' : ''
+                    className={`flex items-center gap-3 p-3 rounded-2xl transition text-left cursor-pointer ${
+                      isSelected 
+                        ? 'bg-purple-500/20 shadow-inner border border-purple-500/30' 
+                        : 'bg-white/5 hover:bg-white/10 border border-transparent [.light-theme_&]:bg-black/[0.02] [.light-theme_&]:border-black/10 [.light-theme_&]:hover:bg-black/[0.05]'
                     }`}
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-semibold text-xs truncate version-candidate-name">
-                          {set.sourceName}
-                        </h4>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-mono version-candidate-badge shrink-0">
-                          {set.replies.length} 条回复
-                        </span>
-                      </div>
-                      <p className="text-[10px] truncate mt-0.5 font-normal version-candidate-sub">
-                        包含 {set.replies.length} 条快捷气泡回复选项
-                      </p>
-                    </div>
-
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center transition shrink-0 version-candidate-radio ${
-                      isSelected ? 'is-selected' : ''
+                    <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 border transition ${
+                      isSelected 
+                        ? 'bg-purple-500 border-purple-500 text-white' 
+                        : 'border-white/20'
                     }`}>
-                      {isSelected && <Check className="w-3 h-3 stroke-[2.5]" />}
+                      {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
                     </div>
-                  </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-medium text-white text-sm truncate [.light-theme_&]:text-[#1c1c1e]">{set.sourceName}</h4>
+                      <div className="text-white/50 text-xs mt-1 [.light-theme_&]:text-slate-500">{set.replies.length} 个回复项</div>
+                    </div>
+                  </button>
                 );
-              })
-            )}
-          </div>
+              })}
+            </div>
+          )}
+        </div>
 
-          {/* Footer */}
-          <div className="flex gap-2.5 pt-3 border-t version-modal-border relative z-10">
-            <button
-              type="button"
-              onClick={onClose}
-              className="soft-pill flex-1 py-2.5 px-4 rounded-full font-medium text-xs cursor-pointer transition active:scale-95 text-center"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              disabled={selectedIds.size === 0}
+        <div className="p-4 border-t border-white/10 shrink-0 flex gap-3 [.light-theme_&]:border-black/10">
+           <button 
+             onClick={onClose}
+             className="flex-1 py-2.5 rounded-xl font-medium text-white/70 hover:text-white bg-white/5 hover:bg-white/10 transition cursor-pointer [.light-theme_&]:bg-black/[0.05] [.light-theme_&]:hover:bg-black/[0.08] [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:border [.light-theme_&]:border-black/10"
+           >
+             取消
+           </button>
+           <button 
               onClick={() => handleConfirm()}
-              className="flex-1 py-2.5 px-4 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shadow-md shadow-blue-500/20 disabled:opacity-40 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
-            >
-              导出 ({selectedIds.size})
-            </button>
-          </div>
-        </motion.div>
-      </div>
-    </AnimatePresence>,
-    document.body
+             disabled={selectedIds.size === 0}
+             className="flex-1 py-2.5 rounded-xl font-medium text-white bg-purple-500 hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition cursor-pointer"
+           >
+             导出 ({selectedIds.size})
+           </button>
+        </div>
+      </motion.div>
+    </div>,
+    document.body,
   );
 }

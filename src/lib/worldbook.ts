@@ -44,26 +44,3 @@ export function normalizeWorldbookEntries(entriesRaw: any): any[] {
     };
   });
 }
-
-/**
- * Universal resolver for embedded or standalone worldbook / character book
- */
-export function resolveWorldbook(cardData: any): any | null {
-  if (!cardData) return null;
-  const d = cardData.data || cardData;
-  const cb =
-    d.character_book ||
-    cardData.character_book ||
-    d.extensions?.character_book ||
-    cardData.extensions?.character_book ||
-    d.data?.character_book ||
-    cardData.data?.character_book ||
-    d.world_info ||
-    cardData.world_info ||
-    d.extensions?.world_info ||
-    cardData.extensions?.world_info ||
-    (cardData.entries ? cardData : null) ||
-    (d.entries ? d : null);
-  if (!cb) return null;
-  return cb;
-}

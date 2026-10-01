@@ -2,7 +2,7 @@ import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
 import { useState, useEffect, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, ChevronRight, Plus, Edit2, Power, X as XIcon, ChevronDown, ChevronUp, ExternalLink, Check, Upload, Send, Loader2, Share2, Folder as FolderIcon, History, AlertCircle, Maximize2, BookOpen, Sparkles } from 'lucide-react';
+import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, ChevronRight, Plus, Edit2, Power, X as XIcon, ChevronDown, ChevronUp, ExternalLink, Check, Upload, Send, Loader2, Share2, Folder as FolderIcon, History } from 'lucide-react';
 import { getCharacter, deleteCharacter, saveCharacter, CharacterCard, getFolders, resolveFolderPath, getCachedMeta, getCharacterCategoryPrefix, isActualCharacterCard } from '../lib/db';
 import { getCardTypeBadgeInfo } from '../lib/cardType';
 import { parseTavernCard } from '../types/tavern';
@@ -10,14 +10,12 @@ import { injectTavernData } from '../lib/png';
 import { normalizeWorldbookEntries } from '../lib/worldbook';
 import { getAISettings, normalizeSillyTavernUrl, getSillyTavernAuthHeaders } from '../lib/ai';
 import { AvatarViewer } from './AvatarViewer';
-import { GreetingReaderModal } from './GreetingReaderModal';
 import { QuickRepliesSection } from './QuickRepliesSection';
 import { CharacterRegexSection } from './CharacterRegexSection';
 import { CharacterChatsSection } from './CharacterChatsSection';
 import { CharacterMemosSection } from './CharacterMemosSection';
 import { CharacterVersionsSection } from './CharacterVersionsSection';
 import { MoveToFolderModal } from './MoveToFolderModal';
-import { FormattedCardContent } from './FormattedCardContent';
 import JSZip from 'jszip';
 import { isAndroid, saveToGallery, shareFileOnAndroid, exportFileToMIU, readLocalFileBuffer, downloadOrShareFile, getDownloadTooltip } from '../lib/appBridge';
 import { multipartPost } from '../lib/multipart';
@@ -29,7 +27,6 @@ interface Props {
   onOpenChat?: (chatId: string) => void;
   onOpenImport?: (files?: FileList | File[]) => void;
   refreshKey?: number;
-  isLightMode?: boolean;
 }
 
 // memo 化: 防止父组件里无关的状态变化(比如列表滚动位置、其他弹窗开关)
@@ -55,9 +52,6 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   const [tempCreator, setTempCreator] = useState<string>('');
   const [isEditingVersion, setIsEditingVersion] = useState(false);
   const [tempVersion, setTempVersion] = useState<string>('');
-  const [showGreetingReader, setShowGreetingReader] = useState(false);
-  const [greetingReaderInitialIndex, setGreetingReaderInitialIndex] = useState(0);
-  const [greetingReaderEditMode, setGreetingReaderEditMode] = useState(false);
 
   const [avatarUrl, setAvatarUrl] = useState<string>('');
   const [resolvedModifiedDate, setResolvedModifiedDate] = useState<Date | null>(null);
@@ -98,7 +92,6 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   };
 
   const hasDetailOverlay = Boolean(
-    showGreetingReader ||
     isMoveFolderOpen ||
     showDeleteConfirm ||
     showExportAlert ||
@@ -114,7 +107,6 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   );
 
   const handleDetailBack = () => {
-    if (showGreetingReader) { setShowGreetingReader(false); return true; }
     if (isMoveFolderOpen) { setIsMoveFolderOpen(false); return true; }
     if (isAddingAlternate) { setIsAddingAlternate(false); return true; }
     if (showAvatarViewer) { setShowAvatarViewer(false); return true; }
@@ -298,22 +290,6 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     savePromiseRef.current = promise;
     await promise;
     setCharacter(updatedChar);
-  };
-
-  const handleUpdateGreetings = async (newFirstMes: string, newAlternateGreetings: string[]) => {
-    if (!character) return;
-    const updatedChar = { ...character };
-    let targetData = updatedChar.data.data ? updatedChar.data.data : updatedChar.data;
-    targetData.first_mes = newFirstMes;
-    targetData.alternate_greetings = newAlternateGreetings;
-    targetData.extensions = targetData.extensions || {};
-    targetData.extensions.alternate_greetings = newAlternateGreetings;
-
-    const promise = saveCharacter(updatedChar);
-    savePromiseRef.current = promise;
-    await promise;
-    setCharacter(updatedChar);
-    window.dispatchEvent(new CustomEvent('charactersUpdated'));
   };
 
   const handleUpdateCreator = async (creatorStr: string) => {
@@ -639,22 +615,19 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
       id="character-detail-scroll-container"
       onTouchStart={handleDetailTouchStart}
       onTouchEnd={handleDetailTouchEnd}
-      className="fixed inset-0 bg-black [.light-theme_&]:bg-[#f7f7f9] text-white [.light-theme_&]:text-[#1c1c1e] overflow-y-auto z-50"
+      className="fixed inset-0 bg-black text-white overflow-y-auto z-50"
     >
-      {/* Blurred Background - Beautifully adapted for both dark and light themes */}
+      {/* Blurred Background */}
       <div 
-        className="fixed inset-0 bg-cover bg-center opacity-30 blur-3xl scale-110 pointer-events-none [.light-theme_&]:opacity-55 [.light-theme_&]:scale-125"
+        className="fixed inset-0 bg-cover bg-center opacity-30 blur-3xl scale-110 [.light-theme_&]:opacity-40"
         style={{ backgroundImage: avatarUrl ? `url(${avatarUrl})` : undefined }}
-      />
-      <div 
-        className="fixed inset-0 pointer-events-none bg-gradient-to-b from-black/20 via-transparent to-black/80 [.light-theme_&]:from-[#ffffff]/30 [.light-theme_&]:via-transparent [.light-theme_&]:to-[#f7f7f9]/80"
       />
       
       <div className="relative z-10 min-h-screen flex flex-col">
-        {/* Header - Real Pure White 40% translucency glass in light theme and 20% in dark theme */}
-        <header className="sticky top-0 p-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] flex items-center justify-between bg-black/20 [.light-theme_&]:bg-[#ffffff]/40 backdrop-blur-xl border-b border-white/10 [.light-theme_&]:border-black/5 z-20">
+        {/* Header */}
+        <header className="sticky top-0 p-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] flex items-center justify-between bg-black/20 backdrop-blur-xl border-b border-white/10 z-20">
           <div className="flex items-center gap-2 min-w-0">
-            <button onClick={handleBack} className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 text-white [.light-theme_&]:text-[#1c1c1e] transition shrink-0" title="返回">
+            <button onClick={handleBack} className="p-2 rounded-full hover:bg-white/10 transition shrink-0" title="返回">
               <ArrowLeft className="w-6 h-6" />
             </button>
           </div>
@@ -662,15 +635,15 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
             {!isPreset && !isStandaloneWorldbook && !isTheme && (
               <button 
                 onClick={handleSendToST} 
-                className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 transition relative group" 
+                className="p-2 rounded-full hover:bg-white/10 transition relative group" 
                 title="发送到酒馆"
                 disabled={isSendingToST}
               >
-                {isSendingToST ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5 text-blue-400 group-hover:text-blue-300 [.light-theme_&]:text-[#007aff]" />}
+                {isSendingToST ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5 text-blue-400 group-hover:text-blue-300" />}
               </button>
             )}
                         
-            <button onClick={() => handleExportPng(true)} className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 text-white [.light-theme_&]:text-[#1c1c1e] transition" title={getDownloadTooltip("下载")}>
+            <button onClick={() => handleExportPng(true)} className="p-2 rounded-full hover:bg-white/10 transition" title={getDownloadTooltip("下载")}>
               <Download className="w-5 h-5" />
             </button>
             <button onClick={() => setShowDeleteConfirm(true)} className="p-2 rounded-full hover:bg-red-500/20 text-red-400 transition" title="删除">
@@ -686,17 +659,14 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               initial={{ opacity: 0, y: -20, x: '-50%' }}
               animate={{ opacity: 1, y: 0, x: '-50%' }}
               exit={{ opacity: 0, y: -20, x: '-50%' }}
-              className={`fixed top-6 left-1/2 px-4 py-2.5 rounded-full text-xs sm:text-sm z-[60] flex items-center gap-2 max-w-[92vw] sm:max-w-md w-auto ios-toast pointer-events-auto ${
-                stFeedback.type === 'success' ? 'ios-toast-success' : 'ios-toast-error'
+              className={`fixed top-20 left-1/2 px-4 py-3 rounded-xl text-sm shadow-xl z-[60] flex items-start sm:items-center gap-2 w-[90vw] sm:w-auto max-w-sm border ${
+                stFeedback.type === 'success' 
+                  ? 'bg-green-100 dark:bg-green-900 border-green-200 dark:border-green-800 text-green-800 dark:text-green-100' 
+                  : 'bg-red-100 dark:bg-red-900 border-red-200 dark:border-red-800 text-red-800 dark:text-red-100'
               }`}
-              role={stFeedback.type === 'success' ? 'status' : 'alert'}
             >
-              {stFeedback.type === 'success' ? (
-                <Check className={`w-4 h-4 shrink-0 text-emerald-400 ios-toast-icon-success`} />
-              ) : (
-                <XIcon className={`w-4 h-4 shrink-0 text-red-400 ios-toast-icon-error`} />
-              )}
-              <span className="truncate font-medium">{stFeedback.msg}</span>
+              {stFeedback.type === 'success' ? <Check className="w-5 h-5 shrink-0 mt-0.5 sm:mt-0" /> : <XIcon className="w-5 h-5 shrink-0 mt-0.5 sm:mt-0" />}
+              <span className="flex-1 break-words">{stFeedback.msg}</span>
             </motion.div>
           )}
           {showExportAlert && (
@@ -704,16 +674,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="fixed top-6 left-1/2 -translate-x-1/2 bg-slate-900/95 [.light-theme_&]:!bg-white/95 border border-amber-500/40 [.light-theme_&]:!border-amber-200 text-amber-200 [.light-theme_&]:!text-amber-950 px-4 py-2.5 rounded-full text-xs sm:text-sm backdrop-blur-xl z-50 flex items-center gap-2.5 shadow-[0_8px_30px_rgba(245,158,11,0.15)] [.light-theme_&]:!shadow-[0_8px_30px_rgba(245,158,11,0.1)] pointer-events-auto"
+              className="fixed top-20 left-1/2 -translate-x-1/2 bg-yellow-500/20 border border-yellow-500/50 text-yellow-200 px-4 py-2 rounded-full text-sm backdrop-blur-md z-50 flex items-center gap-2 shadow-xl"
             >
-              <AlertCircle className="w-4 h-4 text-amber-400 [.light-theme_&]:!text-amber-600 shrink-0" />
-              <span className="font-medium truncate">未找到原始 PNG 文件，已导出为 JSON。</span>
-              <button 
-                onClick={() => setShowExportAlert(false)} 
-                className="ml-0.5 p-1 hover:bg-white/10 [.light-theme_&]:hover:!bg-amber-100 rounded-full text-amber-200/70 hover:text-white [.light-theme_&]:!text-amber-900/60 [.light-theme_&]:hover:!text-amber-950 transition cursor-pointer"
-              >
-                ✕
-              </button>
+              <span>未找到原始 PNG 文件，已导出为 JSON。</span>
+              <button onClick={() => setShowExportAlert(false)} className="ml-2 hover:text-white">✕</button>
             </motion.div>
           )}
 
@@ -722,39 +686,28 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 [.light-theme_&]:bg-black/40 backdrop-blur-sm z-[200] flex items-end justify-center"
-              onClick={() => setShowDeleteConfirm(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
             >
               <motion.div
-                initial={{ y: '100%' }}
-                animate={{ y: 0 }}
-                exit={{ y: '100%' }}
-                transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-                onClick={(e) => e.stopPropagation()}
-                className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-black/5 rounded-t-3xl p-5 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
+                initial={{ scale: 0.95 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0.95 }}
+                className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl"
               >
-                {/* Indicator Handle */}
-                <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-black/10 rounded-full mx-auto mb-4" />
-
-                <h3 className="text-base sm:text-lg font-bold text-center text-white [.light-theme_&]:!text-[#0f172a] mb-1.5">
-                  删除角色？
-                </h3>
-                <p className="text-xs sm:text-sm text-center text-white/70 [.light-theme_&]:!text-slate-600 mb-6 px-2 leading-relaxed">
-                  确定要将 <span className="font-bold text-white [.light-theme_&]:!text-[#0f172a]">{character.name}</span> 移至回收站吗？
-                </p>
-
-                <div className="space-y-2.5">
-                  <button
-                    onClick={handleDelete}
-                    className="w-full py-3 sm:py-3.5 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 [.light-theme_&]:!bg-rose-50 [.light-theme_&]:hover:!bg-rose-100 text-rose-500 font-bold text-sm sm:text-base transition cursor-pointer active:scale-[0.98]"
-                  >
-                    移至回收站
-                  </button>
+                <h3 className="text-xl font-bold mb-2">删除角色？</h3>
+                <p className="text-slate-400 mb-6">确定要将 {character.name} 移至回收站吗？</p>
+                <div className="flex justify-end gap-3">
                   <button
                     onClick={() => setShowDeleteConfirm(false)}
-                    className="w-full py-3 sm:py-3.5 rounded-2xl bg-white/5 hover:bg-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] text-white/60 hover:text-white [.light-theme_&]:!text-[#0f172a] font-semibold text-sm sm:text-base transition cursor-pointer active:scale-[0.98]"
+                    className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 hover:text-white transition"
                   >
                     取消
+                  </button>
+                  <button
+                    onClick={handleDelete}
+                    className="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white transition shadow-lg shadow-red-500/20"
+                  >
+                    删除
                   </button>
                 </div>
               </motion.div>
@@ -799,12 +752,12 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                     setEditNameValue(character.name);
                   }
                 }}
-                className="bg-black/40 border border-white/20 rounded-lg px-3 py-1 text-xl sm:text-2xl font-bold text-center w-full max-w-[200px] focus:outline-none focus:border-blue-500"
+                className="bg-black/40 border border-white/20 rounded-lg px-3 py-1 text-xl sm:text-2xl font-bold text-center w-full max-w-[200px] focus:outline-none focus:border-purple-500"
                 autoFocus
               />
               <button 
                 onClick={handleNameSave}
-                className="p-1.5 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition [.light-theme_&]:bg-[#1DB954]/10 [.light-theme_&]:text-[#1DB954]"
+                className="p-1.5 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition"
               >
                 <Check className="w-5 h-5" />
               </button>
@@ -834,7 +787,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
             <div className="text-white/70 text-sm flex items-center justify-center gap-2 flex-wrap [.light-theme_&]:text-slate-600">
               <button
                 onClick={() => setActiveTab('versions')}
-                className="font-medium text-white/90 hover:text-white transition underline underline-offset-4 decoration-white/25 hover:decoration-white/70 flex items-center gap-1 group cursor-pointer active:scale-95 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:decoration-black/20 [.light-theme_&]:hover:text-black [.light-theme_&]:hover:decoration-black/50"
+                className="font-medium text-white/90 hover:text-white transition underline underline-offset-4 decoration-white/25 hover:decoration-white/70 flex items-center gap-1 group cursor-pointer active:scale-95 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:decoration-black/20 [.light-theme_&]:hover:text-purple-600 [.light-theme_&]:hover:decoration-purple-400"
                 title="点击查看此角色的版本迭代与溯源历史"
               >
                 <span>v{data.character_version || '1.0'}</span>
@@ -847,7 +800,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
             {character?.versionHistory && character.versionHistory.length > 0 && (
               <button
                 onClick={() => setActiveTab('versions')}
-                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 text-[11px] text-white/80 hover:text-white transition cursor-pointer active:scale-95 shadow-sm [.light-theme_&]:bg-stone-100 [.light-theme_&]:border-stone-200 [.light-theme_&]:text-stone-700 [.light-theme_&]:hover:bg-stone-200"
+                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 hover:border-purple-500/50 text-[11px] text-purple-300 hover:text-purple-200 transition cursor-pointer active:scale-95 shadow-sm shadow-purple-500/10 [.light-theme_&]:bg-purple-50 [.light-theme_&]:border-purple-200 [.light-theme_&]:text-purple-700 [.light-theme_&]:hover:bg-purple-100"
                 title="点击查看历史演进轨迹与快照对比"
               >
                 <History className="w-3 h-3 shrink-0" />
@@ -863,7 +816,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               className="group inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 hover:border-white/25 text-xs text-white/90 transition cursor-pointer active:scale-95 backdrop-blur-md shadow-sm [.light-theme_&]:bg-white [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/[0.03] [.light-theme_&]:shadow-sm"
               title="点击更改分类文件夹"
             >
-              <FolderIcon className="w-3.5 h-3.5 text-white/70 [.light-theme_&]:text-stone-700 shrink-0 transition-transform group-hover:scale-105" />
+              <FolderIcon className="w-3.5 h-3.5 text-blue-400 [.light-theme_&]:text-[#007aff] shrink-0 transition-transform group-hover:scale-105" />
               <span className="font-medium tracking-wide">
                 {currentFolderPath ? `文件夹: ${currentFolderPath}` : '未分类（点击归类）'}
               </span>
@@ -871,14 +824,13 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
             </button>
           </div>
           
-          {/* Metadata Section - Collapsible Drawer with Sleek Handle */}
-          <div className="w-full max-w-lg mt-2 px-2 sm:px-4 flex flex-col items-center">
+          {/* Metadata Drawer */}
+          <div className="w-full max-w-md mt-4">
             <button
               onClick={() => setIsMetadataOpen(!isMetadataOpen)}
-              className="w-full flex items-center justify-center py-2 text-white/50 hover:text-white transition-colors cursor-pointer group active:scale-95"
-              title={isMetadataOpen ? "点击收起详情" : "点击展开元数据"}
+              className="w-full flex items-center justify-center gap-2 py-2 text-white/50 hover:text-white/80 transition-colors"
             >
-              <div className="h-1 w-12 bg-white/30 group-hover:bg-white/60 rounded-full transition-colors" />
+              <div className="h-1 w-12 bg-white/20 rounded-full" />
             </button>
             <AnimatePresence>
               {isMetadataOpen && (
@@ -886,86 +838,132 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
-                  transition={{ type: 'spring', bounce: 0.2, duration: 0.35 }}
-                  className="overflow-hidden w-full space-y-2.5 pt-1"
+                  transition={{ type: 'spring', bounce: 0.3, duration: 0.5 }}
+                  className="overflow-hidden"
                 >
-                  {/* Timestamps */}
-                  <div className="flex items-center justify-center gap-4 text-[11px] text-white/70 font-mono flex-wrap">
-                    <span>导入: {new Date(character?.createdAt || Date.now()).toLocaleDateString()}</span>
-                    <span>•</span>
-                    <span>修改: {resolvedModifiedDate ? resolvedModifiedDate.toLocaleDateString() : (character?.originalFile?.lastModified ? new Date(character.originalFile.lastModified).toLocaleDateString() : '未知')}</span>
-                  </div>
+                  <div className="bg-black/40 backdrop-blur-md rounded-2xl p-4 mt-2 border border-white/5 space-y-3 shadow-inner">
+                    <div className="flex flex-col gap-1 items-center text-center">
+                      <div className="text-xs text-white/40 font-medium uppercase tracking-wider">
+                        导入时间 (IMPORTED)
+                      </div>
+                      <div className="text-sm text-white/80 font-mono">
+                        {new Date(character?.createdAt || Date.now()).toLocaleString()}
+                      </div>
+                    </div>
 
-                  {/* Editable Fields: Creator, Version, Tags, Source */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-xs">
-                    {/* Creator */}
-                    <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 backdrop-blur-sm">
-                      <span className="text-white/60 font-medium shrink-0">作者</span>
+                    <div className="flex flex-col gap-1 items-center text-center">
+                      <div className="text-xs text-white/40 font-medium uppercase tracking-wider">
+                        本地修改时间 (MODIFIED)
+                      </div>
+                      <div className="text-sm text-white/80 font-mono">
+                        {resolvedModifiedDate
+                          ? resolvedModifiedDate.toLocaleString()
+                          : (character?.originalFile?.lastModified ? new Date(character.originalFile.lastModified).toLocaleString() : '未知')}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-white/40 font-medium uppercase tracking-wider flex items-center gap-1">
+                          作者 (CREATOR)
+                        </div>
+                        <button onClick={() => {
+                          if (isEditingCreator) {
+                            handleUpdateCreator(tempCreator);
+                          } else {
+                            setTempCreator(data.creator || '');
+                            setIsEditingCreator(true);
+                          }
+                        }}>
+                          {isEditingCreator ? <Check className="w-3 h-3 text-green-400"/> : <Edit2 className="w-3 h-3 text-white/40 hover:text-white"/>}
+                        </button>
+                      </div>
                       {isEditingCreator ? (
-                        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
                           <input 
                             value={tempCreator} 
                             onChange={e => setTempCreator(e.target.value)} 
-                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70"
+                            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
                             placeholder="作者名称"
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateCreator(tempCreator)}
                           />
-                          <button onClick={() => handleUpdateCreator(tempCreator)} className="p-1 text-green-400 hover:bg-green-500/20 rounded-lg shrink-0 [.light-theme_&]:text-[#1DB954] [.light-theme_&]:hover:bg-[#1DB954]/10">
-                            <Check className="w-3.5 h-3.5" />
+                          <button onClick={() => handleUpdateCreator(tempCreator)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
+                            <Check className="w-4 h-4" />
                           </button>
-                          <button onClick={() => setIsEditingCreator(false)} className="p-1 text-white/50 hover:bg-white/10 rounded-lg shrink-0">
-                            <XIcon className="w-3.5 h-3.5" />
+                          <button onClick={() => setIsEditingCreator(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
+                            <XIcon className="w-4 h-4" />
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1.5 min-w-0 justify-end">
-                          <span className="truncate text-white font-medium">{data.creator || '未知'}</span>
-                          <button onClick={() => { setTempCreator(data.creator || ''); setIsEditingCreator(true); }} className="p-1 text-white/60 hover:text-white transition">
-                            <Edit2 className="w-3 h-3" />
-                          </button>
+                        <div className="bg-white/5 rounded-xl px-3 py-2 text-sm text-white/80 min-h-[36px] flex items-center">
+                          {data.creator || <span className="text-white/30">未知作者</span>}
                         </div>
                       )}
                     </div>
 
-                    {/* Version */}
-                    <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 backdrop-blur-sm">
-                      <span className="text-white/60 font-medium shrink-0">版本</span>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-white/40 font-medium uppercase tracking-wider flex items-center gap-1">
+                          版本 (VERSION)
+                        </div>
+                        <button onClick={() => {
+                          if (isEditingVersion) {
+                            handleUpdateVersion(tempVersion);
+                          } else {
+                            setTempVersion(data.character_version || '');
+                            setIsEditingVersion(true);
+                          }
+                        }}>
+                          {isEditingVersion ? <Check className="w-3 h-3 text-green-400"/> : <Edit2 className="w-3 h-3 text-white/40 hover:text-white"/>}
+                        </button>
+                      </div>
                       {isEditingVersion ? (
-                        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
                           <input 
                             value={tempVersion} 
                             onChange={e => setTempVersion(e.target.value)} 
-                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70"
+                            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
                             placeholder="例如: 1.0"
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateVersion(tempVersion)}
                           />
-                          <button onClick={() => handleUpdateVersion(tempVersion)} className="p-1 text-green-400 hover:bg-green-500/20 rounded-lg shrink-0 [.light-theme_&]:text-[#1DB954] [.light-theme_&]:hover:bg-[#1DB954]/10">
-                            <Check className="w-3.5 h-3.5" />
+                          <button onClick={() => handleUpdateVersion(tempVersion)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
+                            <Check className="w-4 h-4" />
                           </button>
-                          <button onClick={() => setIsEditingVersion(false)} className="p-1 text-white/50 hover:bg-white/10 rounded-lg shrink-0">
-                            <XIcon className="w-3.5 h-3.5" />
+                          <button onClick={() => setIsEditingVersion(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
+                            <XIcon className="w-4 h-4" />
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1.5 min-w-0 justify-end">
-                          <span className="truncate text-white font-medium">{data.character_version || '1.0'}</span>
-                          <button onClick={() => { setTempVersion(data.character_version || ''); setIsEditingVersion(true); }} className="p-1 text-white/60 hover:text-white transition">
-                            <Edit2 className="w-3 h-3" />
-                          </button>
+                        <div className="bg-white/5 rounded-xl px-3 py-2 text-sm text-white/80 min-h-[36px] flex items-center">
+                          {data.character_version || <span className="text-white/30">1.0</span>}
                         </div>
                       )}
                     </div>
-
-                    {/* Tags */}
-                    <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 backdrop-blur-sm">
-                      <span className="text-white/60 font-medium shrink-0">标签</span>
+                    
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-white/40 font-medium uppercase tracking-wider flex items-center gap-1">
+                          标签 (TAGS)
+                        </div>
+                        <button onClick={() => {
+                          if (isEditingTags) {
+                            handleUpdateTags(tempTags);
+                          } else {
+                            setTempTags((data.tags || []).join(', '));
+                            setIsEditingTags(true);
+                          }
+                        }}>
+                          {isEditingTags ? <Check className="w-3 h-3 text-green-400"/> : <Edit2 className="w-3 h-3 text-white/40 hover:text-white"/>}
+                        </button>
+                      </div>
                       {isEditingTags ? (
-                        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
                           <input 
                             value={tempTags} 
                             onChange={e => {
+                              // If user typed a space, replace it with a comma and space
                               const val = e.target.value;
                               if (val.endsWith(' ') && !val.endsWith(', ')) {
                                 setTempTags(val.slice(0, -1) + ', ');
@@ -973,71 +971,83 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                                 setTempTags(val);
                               }
                             }} 
-                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70"
-                            placeholder="标签逗号分隔"
+                            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
+                            placeholder="输入标签，用逗号或空格分隔"
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateTags(tempTags)}
                           />
-                          <button onClick={() => handleUpdateTags(tempTags)} className="p-1 text-green-400 hover:bg-green-500/20 rounded-lg shrink-0 [.light-theme_&]:text-[#1DB954] [.light-theme_&]:hover:bg-[#1DB954]/10">
-                            <Check className="w-3.5 h-3.5" />
+                          <button onClick={() => handleUpdateTags(tempTags)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
+                            <Check className="w-4 h-4" />
                           </button>
-                          <button onClick={() => setIsEditingTags(false)} className="p-1 text-white/50 hover:bg-white/10 rounded-lg shrink-0">
-                            <XIcon className="w-3.5 h-3.5" />
+                          <button onClick={() => setIsEditingTags(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
+                            <XIcon className="w-4 h-4" />
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1.5 min-w-0 justify-end">
-                          <span className="truncate text-white font-medium">
-                            {data.tags && data.tags.length > 0 ? data.tags.join(', ') : '无标签'}
-                          </span>
-                          <button onClick={() => { setTempTags((data.tags || []).join(', ')); setIsEditingTags(true); }} className="p-1 text-white/60 hover:text-white transition">
-                            <Edit2 className="w-3 h-3" />
-                          </button>
+                        <div className="bg-white/5 rounded-xl px-3 py-2 text-sm text-white/80 min-h-[36px] flex flex-wrap gap-1">
+                          {data.tags && data.tags.length > 0 ? (
+                            data.tags.map((tag: string, i: number) => (
+                              <span key={i} className="bg-white/10 px-2 py-0.5 rounded-md text-xs">{tag}</span>
+                            ))
+                          ) : (
+                            <span className="text-white/30">无标签</span>
+                          )}
                         </div>
                       )}
                     </div>
 
-                    {/* Source */}
-                    <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 backdrop-blur-sm">
-                      <span className="text-white/60 font-medium shrink-0">来源</span>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-white/40 font-medium uppercase tracking-wider flex items-center gap-1">
+                          来源链接 (SOURCE)
+                        </div>
+                        <button onClick={() => {
+                          if (isEditingSource) {
+                            handleUpdateSource(tempSource);
+                          } else {
+                            setTempSource(data.extensions?.source || data.source || '');
+                            setIsEditingSource(true);
+                          }
+                        }}>
+                          {isEditingSource ? <Check className="w-3 h-3 text-green-400"/> : <Edit2 className="w-3 h-3 text-white/40 hover:text-white"/>}
+                        </button>
+                      </div>
                       {isEditingSource ? (
-                        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
                           <input 
                             value={tempSource} 
                             onChange={e => setTempSource(e.target.value)} 
-                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70"
+                            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
                             placeholder="https://..."
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateSource(tempSource)}
                           />
-                          <button onClick={() => handleUpdateSource(tempSource)} className="p-1 text-green-400 hover:bg-green-500/20 rounded-lg shrink-0 [.light-theme_&]:text-[#1DB954] [.light-theme_&]:hover:bg-[#1DB954]/10">
-                            <Check className="w-3.5 h-3.5" />
+                          <button onClick={() => handleUpdateSource(tempSource)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
+                            <Check className="w-4 h-4" />
                           </button>
-                          <button onClick={() => setIsEditingSource(false)} className="p-1 text-white/50 hover:bg-white/10 rounded-lg shrink-0">
-                            <XIcon className="w-3.5 h-3.5" />
+                          <button onClick={() => setIsEditingSource(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
+                            <XIcon className="w-4 h-4" />
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1.5 min-w-0 justify-end truncate">
+                        <div className="bg-white/5 rounded-xl px-3 py-2 text-sm text-white/80 min-h-[36px] truncate flex items-center justify-between">
                           {data.extensions?.source || data.source ? (
                             <a 
                               href={data.extensions?.source || data.source} 
                               target="_blank" 
                               rel="noopener noreferrer"
-                              className="text-white hover:text-white/80 underline flex items-center gap-1 truncate font-medium text-xs"
+                              className="text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1 truncate"
                             >
-                              <ExternalLink className="w-3 h-3 shrink-0" />
+                              <ExternalLink className="w-3 h-3 flex-shrink-0" />
                               <span className="truncate">{data.extensions?.source || data.source}</span>
                             </a>
                           ) : (
-                            <span className="text-white/60 text-xs">无链接</span>
+                            <span className="text-white/30">无链接</span>
                           )}
-                          <button onClick={() => { setTempSource(data.extensions?.source || data.source || ''); setIsEditingSource(true); }} className="p-1 text-white/60 hover:text-white transition">
-                            <Edit2 className="w-3 h-3" />
-                          </button>
                         </div>
                       )}
                     </div>
+
                   </div>
                 </motion.div>
               )}
@@ -1076,22 +1086,14 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`relative flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap focus:outline-none focus:ring-0 active:outline-none outline-none select-none cursor-pointer z-0 ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
                 activeTab === tab.id
-                  ? 'char-detail-tab-active shadow-sm font-semibold'
-                  : 'char-detail-tab-inactive'
+                  ? 'bg-white/20 text-white border border-white/30 [.light-theme_&]:bg-blue-500/10 [.light-theme_&]:text-[#007aff] [.light-theme_&]:border-blue-500/20 [.light-theme_&]:shadow-sm'
+                  : 'bg-white/5 text-white/60 hover:bg-white/10 border border-transparent [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:bg-blue-500/5'
               }`}
-              style={{ WebkitTapHighlightColor: 'transparent' }}
             >
-              {activeTab === tab.id && (
-                <motion.div
-                  layoutId="charDetailActiveTabIndicator"
-                  className="char-detail-tab-indicator -z-10"
-                  transition={{ type: "spring", stiffness: 450, damping: 35 }}
-                />
-              )}
-              <tab.icon className="w-4 h-4 relative z-10" />
-              <span className="relative z-10">{tab.label}</span>
+              <tab.icon className="w-4 h-4" />
+              {tab.label}
             </button>
           ))}
           </div>
@@ -1099,39 +1101,38 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
 
         {/* Content Area - Glassmorphism Card */}
         <div className="flex-1 px-2 sm:px-4 pb-32">
-          <div className="char-detail-glass-card backdrop-blur-2xl rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl min-h-[50vh] overflow-hidden">
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div
-                key={activeTab}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                className="space-y-6"
-              >
-            {activeTab === 'data_viewer' && (
-              <div
-                key="data_viewer"
-                className="space-y-6"
-              >
-                <div className="raw-data-card rounded-xl overflow-hidden">
-                    <div className="p-4 raw-data-header flex items-center justify-between">
-                        <h3 className="text-[15px] font-medium raw-data-header-title">原生数据 (JSON)</h3>
-                    </div>
-                    <div className="p-4 overflow-auto max-h-[70vh] custom-scrollbar">
-                        <pre className="text-[13px] raw-data-code font-mono whitespace-pre-wrap break-all">
-                            {(() => { try { const str = JSON.stringify(rawData, null, 2); if (str.length > 50000) { return str.substring(0, 50000) + "\n\n... (数据过大，为防止卡顿已截断显示，请使用导出功能查看完整内容)"; } return str; } catch (e) { return "无法解析此数据"; } })()}
-                        </pre>
-                    </div>
-                </div>
-              </div>
-            )}
+          <div className="bg-black/40 backdrop-blur-2xl border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl min-h-[50vh] [.light-theme_&]:bg-[#FCFCFC]/70 [.light-theme_&]:backdrop-blur-3xl [.light-theme_&]:border-black/5 [.light-theme_&]:shadow-xl">
+            <AnimatePresence initial={false}>
 
-            {activeTab === 'profile' && (
-              <div
-                key="profile"
-                className="space-y-6"
-              >
+              {activeTab === 'data_viewer' && (
+                <motion.div
+                  key="data_viewer"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  className="space-y-6"
+                >
+                  <div className="bg-[#0f111a] rounded-xl overflow-hidden border border-white/5">
+                      <div className="p-4 border-b border-white/5 bg-black/20 flex items-center justify-between">
+                          <h3 className="text-[15px] font-medium text-white/90">原生数据 (JSON)</h3>
+                      </div>
+                      <div className="p-4 overflow-auto max-h-[70vh] custom-scrollbar">
+                          <pre className="text-[13px] text-slate-300 font-mono whitespace-pre-wrap break-all">
+                              {(() => { try { const str = JSON.stringify(rawData, null, 2); if (str.length > 50000) { return str.substring(0, 50000) + "\n\n... (数据过大，为防止卡顿已截断显示，请使用导出功能查看完整内容)"; } return str; } catch (e) { return "无法解析此数据"; } })()}
+                          </pre>
+                      </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {activeTab === 'profile' && (
+                <motion.div
+                  key="profile"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  className="space-y-6"
+                >
                   {isPreset ? (
                     <div className="space-y-6">
                       {rawData.prompts && rawData.prompts.length > 0 && (
@@ -1162,13 +1163,13 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                     </div>
                   ) : (
                     <>
-                      <Section title="描述 (Description)" content={data.description} character={character} onSave={(val) => updateField('description', val)} />
-                      <Section title="性格 (Personality)" content={data.personality} character={character} onSave={(val) => updateField('personality', val)} />
-                      <Section title="场景 (Scenario)" content={data.scenario} character={character} onSave={(val) => updateField('scenario', val)} />
-                      <Section title="示例对话 (Mes Example)" content={data.mes_example} character={character} onSave={(val) => updateField('mes_example', val)} />
-                      <Section title="作者备注 (Creator's Notes)" content={data.creator_notes} character={character} onSave={(val) => updateField('creator_notes', val)} />
-                      <Section title="系统提示词 (System Prompt)" content={data.system_prompt} character={character} onSave={(val) => updateField('system_prompt', val)} />
-                      <Section title="历史后提示词 (Post History Instructions)" content={data.post_history_instructions} character={character} onSave={(val) => updateField('post_history_instructions', val)} />
+                      <Section title="描述 (Description)" content={data.description} onSave={(val) => updateField('description', val)} />
+                      <Section title="性格 (Personality)" content={data.personality} onSave={(val) => updateField('personality', val)} />
+                      <Section title="场景 (Scenario)" content={data.scenario} onSave={(val) => updateField('scenario', val)} />
+                      <Section title="示例对话 (Mes Example)" content={data.mes_example} onSave={(val) => updateField('mes_example', val)} />
+                      <Section title="作者备注 (Creator's Notes)" content={data.creator_notes} onSave={(val) => updateField('creator_notes', val)} />
+                      <Section title="系统提示词 (System Prompt)" content={data.system_prompt} onSave={(val) => updateField('system_prompt', val)} />
+                      <Section title="历史后提示词 (Post History Instructions)" content={data.post_history_instructions} onSave={(val) => updateField('post_history_instructions', val)} />
                       
                       {character && (
                         <QuickRepliesSection 
@@ -1178,46 +1179,27 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                       )}
                     </>
                   )}
-              </div>
-            )}
+                </motion.div>
+              )}
 
-            {activeTab === 'greetings' && (
-              <div
-                key="greetings"
-                className="space-y-6"
-              >
-                  <Section 
-                    title="首条消息" 
-                    content={data.first_mes} 
-                    character={character}
-                    onSave={(val) => updateField('first_mes', val)} 
-                    onOpenReader={() => {
-                      setGreetingReaderInitialIndex(0);
-                      setGreetingReaderEditMode(false);
-                      setShowGreetingReader(true);
-                    }}
-                    onOpenEdit={() => {
-                      setGreetingReaderInitialIndex(0);
-                      setGreetingReaderEditMode(true);
-                      setShowGreetingReader(true);
-                    }}
-                  />
+              {activeTab === 'greetings' && (
+                <motion.div
+                  key="greetings"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  className="space-y-6"
+                >
+                  <Section title="首条消息" content={data.first_mes} onSave={(val) => updateField('first_mes', val)} />
                   
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] pb-2 mb-3">
-                      <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a]">备用开场白</h3>
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <h3 className="text-lg font-semibold text-white/90">备用开场白</h3>
                       <button 
-                        onClick={() => {
-                          const currentAlts = Array.isArray(data.alternate_greetings) ? data.alternate_greetings : [];
-                          const newGreetings = [...currentAlts, ''];
-                          updateField('alternate_greetings', newGreetings);
-                          setGreetingReaderInitialIndex(newGreetings.length);
-                          setGreetingReaderEditMode(true);
-                          setShowGreetingReader(true);
-                        }} 
-                        className="detail-purple-btn px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition cursor-pointer active:scale-95"
+                        onClick={() => setIsAddingAlternate(true)} 
+                        className="text-purple-400 hover:text-purple-300 flex items-center gap-1 text-sm bg-purple-500/10 px-2 py-1 rounded-lg"
                       >
-                        <Plus className="w-3.5 h-3.5" /> 添加
+                        <Plus className="w-4 h-4" /> 添加
                       </button>
                     </div>
                     <div className="space-y-4">
@@ -1227,17 +1209,6 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             key={i}
                             index={i}
                             content={msg}
-                            character={character}
-                            onOpenReader={() => {
-                              setGreetingReaderInitialIndex(i + 1);
-                              setGreetingReaderEditMode(false);
-                              setShowGreetingReader(true);
-                            }}
-                            onOpenEdit={() => {
-                              setGreetingReaderInitialIndex(i + 1);
-                              setGreetingReaderEditMode(true);
-                              setShowGreetingReader(true);
-                            }}
                             onSave={(val) => {
                               const newGreetings = [...data.alternate_greetings];
                               newGreetings[i] = val;
@@ -1256,13 +1227,29 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                       )}
                     </div>
                   </div>
-              </div>
-            )}
 
-            {activeTab === 'worldbook' && (
-              <div
-                key="worldbook"
-              >
+                  <FullScreenTextModal
+                    isOpen={isAddingAlternate}
+                    title="添加备用开场白"
+                    content=""
+                    onClose={() => setIsAddingAlternate(false)}
+                    onSave={(val) => {
+                      const newGreetings = [...(data.alternate_greetings || []), val];
+                      updateField('alternate_greetings', newGreetings);
+                      setIsAddingAlternate(false);
+                    }}
+                    initialEditMode={true}
+                  />
+                </motion.div>
+              )}
+
+              {activeTab === 'worldbook' && (
+                <motion.div
+                  key="worldbook"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                >
                   {(data.character_book || data.extensions?.character_book || rawData.entries) ? (
                     <WorldbookViewer 
                       book={data.character_book || data.extensions?.character_book || rawData} 
@@ -1314,12 +1301,12 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             
                             saveCharacter(updatedChar).then(() => setCharacter(updatedChar));
                           }}
-                          className="soft-pill px-4 py-2 rounded-full text-xs font-medium transition active:scale-95 shadow-sm flex items-center gap-1.5 cursor-pointer"
+                          className="px-4 py-2 bg-purple-500/20 text-purple-300 rounded-lg hover:bg-purple-500/30 transition flex items-center gap-2"
                         >
-                          <Plus className="w-3.5 h-3.5" /> 创建世界书
+                          <Plus className="w-4 h-4" /> 创建世界书
                         </button>
-                        <label className="soft-pill px-4 py-2 rounded-full text-xs font-medium transition active:scale-95 shadow-sm flex items-center gap-1.5 cursor-pointer">
-                          <Upload className="w-3.5 h-3.5" /> 导入世界书
+                        <label className="px-4 py-2 bg-blue-500/20 text-blue-300 rounded-lg hover:bg-blue-500/30 transition flex items-center gap-2 cursor-pointer">
+                          <Upload className="w-4 h-4" /> 导入世界书
                           <input 
                             type="file" 
                             accept=".json" 
@@ -1384,21 +1371,22 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                       </div>
                     </div>
                   )}
-              </div>
-            )}
+                </motion.div>
+              )}
 
-            {activeTab === 'regex' && character && (
-              <div
-                key="regex"
-              >
-                <CharacterRegexSection character={character} onUpdate={setCharacter} />
-              </div>
-            )}
+              {activeTab === 'regex' && character && (
+                <motion.div
+                  key="regex"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <CharacterRegexSection character={character} onUpdate={setCharacter} />
+                </motion.div>
+              )}
 
-            {activeTab === 'chats' && character && (
-              <div
-                key="chats"
-              >
+              {activeTab === 'chats' && character && (
                 <CharacterChatsSection 
                    characterId={character.id} 
                    characterName={character.name} 
@@ -1408,43 +1396,41 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                    onOpenImport={onOpenImport}
                    refreshKey={refreshKey}
                 />
-              </div>
-            )}
+              )}
 
-            {activeTab === 'versions' && character && (
-              <div
-                key="versions"
-              >
-                <CharacterVersionsSection 
-                  character={character}
-                  avatarUrl={avatarUrl}
-                  onUpdateCharacter={(updated) => {
-                    setCharacter(updated);
-                    window.dispatchEvent(new CustomEvent('charactersUpdated'));
-                  }}
-                  onRefreshDetail={() => {
-                    getCharacter(id).then(async (char) => {
-                      if (char) {
-                        setCharacter(char);
-                        setEditNameValue(char.name);
-                        if (char.avatarBlob) {
-                          setAvatarUrl(URL.createObjectURL(char.avatarBlob));
+              {activeTab === 'versions' && character && (
+                <motion.div
+                  key="versions"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <CharacterVersionsSection 
+                    character={character}
+                    avatarUrl={avatarUrl}
+                    onUpdateCharacter={(updated) => {
+                      setCharacter(updated);
+                      window.dispatchEvent(new CustomEvent('charactersUpdated'));
+                    }}
+                    onRefreshDetail={() => {
+                      getCharacter(id).then(async (char) => {
+                        if (char) {
+                          setCharacter(char);
+                          setEditNameValue(char.name);
+                          if (char.avatarBlob) {
+                            setAvatarUrl(URL.createObjectURL(char.avatarBlob));
+                          }
                         }
-                      }
-                    });
-                  }}
-                />
-              </div>
-            )}
+                      });
+                    }}
+                  />
+                </motion.div>
+              )}
 
-            {activeTab === 'memos' && character && (
-              <div
-                key="memos"
-              >
+              {activeTab === 'memos' && character && (
                 <CharacterMemosSection characterId={character.id} />
-              </div>
-            )}
-              </motion.div>
+              )}
             </AnimatePresence>
           </div>
         </div>
@@ -1467,18 +1453,6 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
             }
             window.dispatchEvent(new CustomEvent('charactersUpdated'));
           }}
-        />
-      )}
-
-      {character && (
-        <GreetingReaderModal
-          isOpen={showGreetingReader}
-          onClose={() => setShowGreetingReader(false)}
-          character={character}
-          avatarUrl={avatarUrl}
-          initialIndex={greetingReaderInitialIndex}
-          initialEditMode={greetingReaderEditMode}
-          onUpdateGreeting={handleUpdateGreetings}
         />
       )}
 
@@ -1537,41 +1511,40 @@ function FullScreenTextModal({
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-slate-900/95 [.light-theme_&]:!bg-[#ffffff] border border-white/10 [.light-theme_&]:!border-[#e2e8f0] shadow-2xl rounded-3xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden text-white [.light-theme_&]:!text-[#0f172a]"
+            className="bg-slate-900 border border-white/10 shadow-2xl rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
           >
-            <header className="px-5 py-4 flex items-center justify-between border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] bg-slate-800/50 [.light-theme_&]:!bg-slate-50">
-              <h2 className="text-lg font-bold truncate pr-4 text-white [.light-theme_&]:!text-[#0f172a]">{title}</h2>
+            <header className="px-5 py-4 flex items-center justify-between border-b border-white/10 bg-slate-800/50">
+              <h2 className="text-lg font-bold truncate pr-4 text-white">{title}</h2>
               <div className="flex items-center gap-2">
                 {onSave && (
                   isEditing ? (
-                    <button onClick={handleSave} className="px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition font-medium shadow-lg shadow-blue-500/20">
+                    <button onClick={handleSave} className="px-3 py-1.5 text-sm bg-purple-500 hover:bg-purple-600 text-white rounded-lg transition font-medium shadow-lg shadow-purple-500/20">
                       保存
                     </button>
                   ) : (
-                    <button onClick={() => setIsEditing(true)} className="p-2 text-white/60 hover:text-white hover:bg-white/10 [.light-theme_&]:!text-slate-600 [.light-theme_&]:hover:!bg-slate-200 rounded-lg transition">
+                    <button onClick={() => setIsEditing(true)} className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition">
                       <Edit2 className="w-4 h-4" />
                     </button>
                   )
                 )}
-                <button onClick={onClose} className="p-2 rounded-full hover:bg-red-500/20 text-white/60 hover:text-red-400 [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-red-600 transition ml-2">
+                <button onClick={onClose} className="p-2 rounded-full hover:bg-red-500/20 text-white/60 hover:text-red-400 transition ml-2">
                   <XIcon className="w-5 h-5" />
                 </button>
               </div>
             </header>
 
-            <div className="flex-1 overflow-y-auto p-5 sm:p-6 custom-scrollbar bg-slate-900/40 [.light-theme_&]:!bg-white">
+            <div className="flex-1 overflow-y-auto p-5 sm:p-6 custom-scrollbar bg-slate-900">
               {isEditing ? (
                 <textarea 
                   value={editValue}
                   onChange={e => setEditValue(e.target.value)}
-                  className="w-full min-h-[300px] h-full bg-black/40 [.light-theme_&]:!bg-slate-50 border border-white/20 [.light-theme_&]:!border-slate-300 rounded-xl p-4 text-white/90 [.light-theme_&]:!text-slate-900 text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 resize-none font-sans"
+                  className="w-full min-h-[300px] h-full bg-black/40 border border-white/20 rounded-xl p-4 text-white/90 text-sm sm:text-base leading-relaxed focus:outline-none focus:border-purple-500 resize-none font-sans"
                   autoFocus
                 />
               ) : (
-                <FormattedCardContent
-                  content={content}
-                  className="text-white/90 [.light-theme_&]:!text-slate-800 text-sm sm:text-base leading-relaxed break-words"
-                />
+                <div className="text-white/90 whitespace-pre-wrap text-sm sm:text-base leading-relaxed break-words">
+                  {content || <span className="text-white/30 italic">暂无内容</span>}
+                </div>
               )}
             </div>
           </motion.div>
@@ -1582,23 +1555,7 @@ function FullScreenTextModal({
   );
 }
 
-function TextPreview({ 
-  title, 
-  content, 
-  character,
-  onSave, 
-  initialEditMode, 
-  onOpenReader,
-  onOpenEdit 
-}: { 
-  title: string; 
-  content: string; 
-  character?: CharacterCard | null;
-  onSave?: (val: string) => void; 
-  initialEditMode?: boolean; 
-  onOpenReader?: () => void;
-  onOpenEdit?: () => void;
-}) {
+function TextPreview({ title, content, onSave, initialEditMode }: { title: string; content: string; onSave?: (val: string) => void; initialEditMode?: boolean }) {
   const [isExpanded, setIsExpanded] = useState(initialEditMode || false);
   const [isEditing, setIsEditing] = useState(initialEditMode || false);
   const [editValue, setEditValue] = useState(content);
@@ -1612,134 +1569,77 @@ function TextPreview({
 
   const handleEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (onOpenEdit) {
-      onOpenEdit();
-    } else {
-      setIsEditing(true);
-      if (!isExpanded) setIsExpanded(true);
-    }
+    setIsEditing(true);
+    if (!isExpanded) setIsExpanded(true);
   };
 
-  const handleCardClick = () => {
-    if (onOpenReader) {
-      onOpenReader();
-    } else {
-      setIsExpanded(prev => !prev);
-    }
-  };
+  if (!isExpanded && !isEditing) {
+    return (
+      <div 
+        onClick={() => setIsExpanded(true)}
+        className="group relative cursor-pointer bg-white/5 hover:bg-white/10 p-3 rounded-xl border border-white/10 transition-colors w-full overflow-hidden"
+      >
+        <div className="text-white/70 text-sm line-clamp-3 pr-8 break-words w-full">
+          {content ? (content.length > 50000 ? content.substring(0, 50000) + "...(过长已截断)" : content) : <span className="text-white/30 italic">空内容...</span>}
+        </div>
+        <div className="mt-1.5 text-purple-400 text-xs font-medium flex justify-between items-center opacity-80 group-hover:opacity-100 transition-opacity">
+          <span className="flex items-center gap-1">展开全文 <ChevronDown className="w-3 h-3" /></span>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
-      {/* Action bar for Editing */}
-      {onSave && (
-        <div className="flex justify-end items-center gap-1.5 mb-1.5">
-          {!isEditing && (
-            <button 
-              onClick={handleEdit}
-              className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-slate-800 cursor-pointer"
-              title="编辑"
-            >
-              <Edit2 className="w-3.5 h-3.5" />
-            </button>
+    <motion.div 
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      className="bg-white/5 p-4 rounded-xl border border-white/10 flex flex-col relative w-full mb-2"
+    >
+      <div className="flex justify-between items-center mb-3">
+        <div className="text-sm font-medium text-white/50">{title}</div>
+        <div className="flex gap-2">
+          {isEditing ? (
+             <button onClick={handleSave} className="text-green-400 hover:bg-green-400/10 p-1.5 rounded-lg text-xs font-medium transition cursor-pointer">
+               保存
+             </button>
+          ) : (
+            onSave && (
+              <button 
+                onClick={handleEdit}
+                className="text-white/60 hover:text-white hover:bg-white/10 p-1.5 rounded-lg transition cursor-pointer"
+              >
+                <Edit2 className="w-4 h-4" />
+              </button>
+            )
           )}
-          {isEditing && (
-            <button 
-              onClick={handleSave} 
-              className="px-2.5 py-1 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs font-medium transition cursor-pointer [.light-theme_&]:bg-[#1DB954] [.light-theme_&]:hover:bg-[#19A34A]"
-            >
-              保存
-            </button>
-          )}
+        </div>
+      </div>
+      
+      {isEditing ? (
+        <textarea 
+          value={editValue}
+          onChange={e => setEditValue(e.target.value)}
+          className="w-full bg-black/40 border border-white/20 rounded-xl p-3 text-white/90 text-sm sm:text-base leading-relaxed focus:outline-none focus:border-purple-500 min-h-[300px] resize-none"
+          autoFocus
+        />
+      ) : (
+        <div className="text-white/90 whitespace-pre-wrap text-sm sm:text-base leading-relaxed max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar break-words w-full">
+          {content}
         </div>
       )}
 
-      {isEditing ? (
-        <div className="w-full flex flex-col gap-2">
-          <textarea 
-            value={editValue}
-            onChange={e => setEditValue(e.target.value)}
-            className="w-full bg-black/40 border border-white/20 rounded-xl p-3 text-white/90 text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 min-h-[220px] resize-none [.light-theme_&]:!bg-slate-50 [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-slate-900"
-            autoFocus
-          />
-          <div className="flex justify-end gap-2">
-            <button 
-              onClick={() => { setIsEditing(false); setEditValue(content); }}
-              className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white/70 text-xs transition [.light-theme_&]:!bg-slate-100 [.light-theme_&]:!text-slate-600 cursor-pointer"
-            >
-              取消
-            </button>
-            <button 
-              onClick={handleSave} 
-              className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition cursor-pointer"
-            >
-              保存
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="w-full">
-          {onOpenReader ? (
-            /* When full-screen reader is available, clicking card directly opens full-screen reader */
-            <div 
-              className="group cursor-pointer w-full"
-              onClick={handleCardClick}
-            >
-              <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
-                <FormattedCardContent content={content} character={character} clampLines={3} />
-              </div>
-              <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-slate-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-slate-900 text-xs font-medium flex items-center gap-1 transition-colors">
-                <span>展开全文</span>
-                <ChevronDown className="w-3 h-3" />
-              </div>
-            </div>
-          ) : isExpanded ? (
-            <div className="detail-card-text text-sm leading-relaxed pr-2 break-words w-full">
-              <FormattedCardContent content={content} character={character} />
-              <button 
-                onClick={(e) => { e.stopPropagation(); setIsExpanded(false); }}
-                className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] text-xs font-medium py-1.5 hover:bg-[#60A5FA]/10 [.light-theme_&]:hover:bg-[#60A5FA]/5 rounded-lg transition w-full cursor-pointer"
-              >
-                <ChevronUp className="w-3.5 h-3.5" /> 收起
-              </button>
-            </div>
-          ) : (
-            <div 
-              className="group cursor-pointer w-full"
-              onClick={() => setIsExpanded(true)}
-            >
-              <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
-                <FormattedCardContent content={content} character={character} clampLines={3} />
-              </div>
-              <div className="mt-1.5 text-[#60A5FA] text-xs font-medium flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                <span>展开全文</span>
-                <ChevronDown className="w-3 h-3" />
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+      <button 
+        onClick={() => { setIsExpanded(false); setIsEditing(false); }}
+        className="mt-3 flex items-center justify-center gap-1 text-purple-400 text-sm font-medium py-1.5 hover:bg-white/5 rounded-lg transition w-full cursor-pointer"
+      >
+        <ChevronUp className="w-4 h-4" /> 收起 
+      </button>
+    </motion.div>
   );
 }
 
-function AlternateGreetingCard({ 
-  index, 
-  content, 
-  character,
-  onSave, 
-  onDelete, 
-  onOpenReader,
-  onOpenEdit 
-}: { 
-  key?: string | number; 
-  index: number; 
-  content: string; 
-  character?: CharacterCard | null;
-  onSave: (val: string) => void; 
-  onDelete: () => void; 
-  onOpenReader?: () => void;
-  onOpenEdit?: () => void;
-}) {
+function AlternateGreetingCard({ index, content, onSave, onDelete }: { key?: string | number; index: number; content: string; onSave: (val: string) => void; onDelete: () => void }) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(content);
 
@@ -1750,145 +1650,94 @@ function AlternateGreetingCard({
 
   const handleEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (onOpenEdit) {
-      onOpenEdit();
-    } else {
-      setIsEditing(true);
-    }
-  };
-
-  const handleCardClick = () => {
-    if (onOpenReader) {
-      onOpenReader();
-    }
+    setIsEditing(true);
+    if (!isExpanded) setIsExpanded(true);
   };
 
   return (
-    <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
-      <div className="flex flex-wrap sm:flex-nowrap justify-between items-center gap-2 mb-1.5">
-        <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-slate-800 text-sm truncate">
-          备用开场白 {index + 1}
-        </h4>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {!isEditing && (
-            <button 
-              onClick={handleEdit} 
-              className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-slate-800 cursor-pointer"
-              title="全屏编辑"
-            >
+    <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex flex-col gap-2 transition-opacity hover:bg-white/10 mb-2">
+      <div className="flex flex-wrap sm:flex-nowrap justify-between items-start gap-2 mb-1">
+        <div className="flex flex-col min-w-0 flex-1">
+          <h4 className="font-semibold text-purple-300 truncate">
+            备用开场白 {index + 1}
+          </h4>
+        </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+          {isExpanded && !isEditing && (
+            <button onClick={handleEdit} className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition">
               <Edit2 className="w-3.5 h-3.5" />
             </button>
           )}
           {isEditing && (
-            <button 
-              onClick={handleSave} 
-              className="p-1 hover:bg-green-500/20 rounded text-green-400 transition cursor-pointer [.light-theme_&]:text-[#1DB954] [.light-theme_&]:hover:bg-[#1DB954]/10"
-              title="保存"
-            >
+            <button onClick={handleSave} className="p-1 hover:bg-green-500/20 rounded text-green-400 transition">
               <Check className="w-4 h-4" />
             </button>
           )}
-          <button 
-            onClick={onDelete} 
-            className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-red-500 cursor-pointer"
-            title="删除"
-          >
+          <button onClick={onDelete} className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition">
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
       
-      {isEditing ? (
-        <div className="w-full flex flex-col gap-2 mt-1">
-          <textarea 
-            value={editValue}
-            onChange={e => setEditValue(e.target.value)}
-            className="w-full bg-black/40 border border-white/20 rounded-xl p-3 text-white/90 text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 min-h-[220px] resize-none [.light-theme_&]:!bg-slate-50 [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-slate-900"
-            autoFocus
-          />
-          <div className="flex justify-end gap-2">
-            <button 
-              onClick={() => { setIsEditing(false); setEditValue(content); }}
-              className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white/70 text-xs transition [.light-theme_&]:!bg-slate-100 [.light-theme_&]:!text-slate-600 cursor-pointer"
-            >
-              取消
-            </button>
-            <button 
-              onClick={handleSave} 
-              className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition cursor-pointer"
-            >
-              保存
-            </button>
+      {!isExpanded && !isEditing ? (
+        <div 
+          className="group cursor-pointer w-full"
+          onClick={() => setIsExpanded(true)}
+        >
+          <div className="text-white/70 text-sm line-clamp-3 break-words w-full">
+            {content ? (content.length > 50000 ? content.substring(0, 50000) + "...(过长已截断)" : content) : <span className="text-white/30 italic">空内容...</span>}
+          </div>
+          <div className="mt-1.5 text-purple-400 text-xs font-medium flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+            <span>展开全文</span>
+            <ChevronDown className="w-3 h-3" />
           </div>
         </div>
       ) : (
-        <div className="w-full">
-          <div 
-            className="group cursor-pointer w-full"
-            onClick={handleCardClick}
+        <motion.div 
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          className="w-full flex flex-col"
+        >
+          {isEditing ? (
+            <textarea 
+              value={editValue}
+              onChange={e => setEditValue(e.target.value)}
+              className="w-full bg-black/40 border border-white/20 rounded-xl p-3 text-white/90 text-sm sm:text-base leading-relaxed focus:outline-none focus:border-purple-500 min-h-[200px] resize-none"
+              autoFocus
+            />
+          ) : (
+            <div className="text-white/90 whitespace-pre-wrap text-sm sm:text-base leading-relaxed max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar break-words w-full">
+              {content}
+            </div>
+          )}
+          <button 
+            onClick={() => { setIsExpanded(false); setIsEditing(false); }}
+            className="mt-3 flex items-center justify-center gap-1 text-purple-400 text-sm font-medium py-1.5 hover:bg-white/5 rounded-lg transition w-full cursor-pointer"
           >
-            <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
-              <FormattedCardContent content={content} character={character} clampLines={3} />
-            </div>
-            <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-slate-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-slate-900 text-xs font-medium flex items-center gap-1 transition-colors">
-              <span>展开全文</span>
-              <ChevronDown className="w-3 h-3" />
-            </div>
-          </div>
-        </div>
+            <ChevronUp className="w-4 h-4" /> 收起 
+          </button>
+        </motion.div>
       )}
     </div>
   );
 }
 
 
-function Section({ 
-  title, 
-  content, 
-  character,
-  onSave, 
-  onOpenReader,
-  onOpenEdit 
-}: { 
-  title: string; 
-  content?: string; 
-  character?: CharacterCard | null;
-  onSave?: (val: string) => void; 
-  onOpenReader?: () => void;
-  onOpenEdit?: () => void;
-}) {
+function Section({ title, content, onSave }: { title: string; content?: string; onSave?: (val: string) => void }) {
   const [isAdding, setIsAdding] = useState(false);
 
   return (
     <div>
-      <div className="flex items-center justify-between border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] pb-2 mb-3">
-        <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a]">{title}</h3>
-        <div className="flex items-center gap-1.5">
-          {(!content || content.trim() === '') && onSave && (
-            <button 
-              onClick={() => {
-                if (onOpenEdit) {
-                  onOpenEdit();
-                } else {
-                  setIsAdding(true);
-                }
-              }} 
-              className="detail-purple-btn px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition cursor-pointer active:scale-95"
-            >
-              <Plus className="w-3.5 h-3.5" /> 添加
-            </button>
-          )}
-        </div>
+      <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-3">
+        <h3 className="text-lg font-semibold text-white/90">{title}</h3>
+        {(!content || content.trim() === '') && onSave && (
+          <button onClick={() => setIsAdding(true)} className="text-purple-400 hover:text-purple-300 flex items-center gap-1 text-sm bg-purple-500/10 px-2 py-1 rounded-lg transition">
+            <Plus className="w-4 h-4" /> 添加
+          </button>
+        )}
       </div>
       {content && content.trim() !== '' ? (
-        <TextPreview 
-          title={title} 
-          content={content || ''} 
-          character={character} 
-          onSave={onSave} 
-          onOpenReader={onOpenReader}
-          onOpenEdit={onOpenEdit}
-        />
+        <TextPreview title={title} content={content} onSave={onSave} />
       ) : (
         <p className="text-white/30 text-sm italic">暂无内容</p>
       )}
@@ -2033,7 +1882,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     type="text" 
                     value={editingEntry.comment || editingEntry.name || ''}
                     onChange={(e) => setEditingEntry({...editingEntry, comment: e.target.value, name: e.target.value})}
-                    className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                    className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-purple-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                     placeholder="条目的标题，不影响匹配"
                   />
                 </div>
@@ -2043,7 +1892,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     type="text" 
                     value={(editingEntry.keys || []).join(', ')}
                     onChange={(e) => setEditingEntry({...editingEntry, keys: e.target.value.split(',').map((k: string)=>k.trim()).filter((k: string)=>k)})}
-                    className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                    className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-purple-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                   />
                 </div>
 
@@ -2054,7 +1903,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                       type="number" 
                       value={editingEntry.order ?? 100}
                       onChange={(e) => setEditingEntry({...editingEntry, order: parseInt(e.target.value) || 0})}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-purple-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                     />
                   </div>
                   <div>
@@ -2062,7 +1911,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     <select
                       value={editingEntry.extensions?.position ?? editingEntry.position ?? 1}
                       onChange={(e) => setEditingEntry({...editingEntry, extensions: {...(editingEntry.extensions || {}), position: parseInt(e.target.value)}})}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-purple-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                     >
                       <option value={0}>0 - 角色设定前 (Before Char Def)</option>
                       <option value={1}>1 - 角色设定后 (After Char Def)</option>
@@ -2079,7 +1928,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                       type="checkbox"
                       checked={!!editingEntry.constant}
                       onChange={(e) => setEditingEntry({...editingEntry, constant: e.target.checked})}
-                      className="rounded bg-black/30 border-white/10 text-blue-500 focus:ring-blue-500/20 [.light-theme_&]:bg-white [.light-theme_&]:border-black/20"
+                      className="rounded bg-black/30 border-white/10 text-purple-500 focus:ring-purple-500/20 [.light-theme_&]:bg-white [.light-theme_&]:border-black/20"
                     />
                     常驻激活 (Constant)
                   </label>
@@ -2088,7 +1937,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                       type="checkbox"
                       checked={editingEntry.selective !== false}
                       onChange={(e) => setEditingEntry({...editingEntry, selective: e.target.checked})}
-                      className="rounded bg-black/30 border-white/10 text-blue-500 focus:ring-blue-500/20 [.light-theme_&]:bg-white [.light-theme_&]:border-black/20"
+                      className="rounded bg-black/30 border-white/10 text-purple-500 focus:ring-purple-500/20 [.light-theme_&]:bg-white [.light-theme_&]:border-black/20"
                     />
                     条件触发 (Selective)
                   </label>
@@ -2099,7 +1948,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                   <textarea 
                     value={editingEntry.content || editingEntry.entry || ''}
                     onChange={(e) => setEditingEntry({...editingEntry, content: e.target.value, entry: e.target.value})}
-                    className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition min-h-[150px] resize-none [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                    className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-purple-500 transition min-h-[150px] resize-none [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                   />
                 </div>
               </div>
@@ -2114,7 +1963,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                 >
                   取消
                 </button>
-                <button onClick={saveEntry} className="px-6 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2 shadow-lg shadow-blue-500/20">
+                <button onClick={saveEntry} className="px-6 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition flex items-center gap-2 shadow-lg shadow-purple-500/20">
                   保存
                 </button>
               </div>
@@ -2162,21 +2011,17 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
               const bytes = new TextEncoder().encode(jsonStr);
               await downloadOrShareFile(exportFileName, bytes.buffer, 'application/json', true);
             }}
-            className="w-9 h-9 rounded-full soft-pill flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs"
+            className="p-2 rounded-full bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition"
             title={getDownloadTooltip("导出世界书")}
           >
-            <Download className="w-4.5 h-4.5 opacity-80" />
+            <Download className="w-5 h-5" />
           </button>
           <button 
             onClick={() => setShowControls(!showControls)}
-            className={`w-9 h-9 rounded-full flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 ${
-              showControls 
-                ? 'bg-blue-600 text-white border border-blue-500 shadow-sm [.light-theme_&]:!border-blue-600' 
-                : 'soft-pill'
-            }`}
+            className={`p-2 rounded-full transition ${showControls ? 'bg-purple-500 text-white' : 'bg-purple-500/20 text-purple-300 hover:bg-purple-500/30'}`}
             title="管理世界书"
           >
-            <Edit2 className="w-4.5 h-4.5 opacity-80" />
+            <Edit2 className="w-5 h-5" />
           </button>
         </div>
       </div>
@@ -2191,13 +2036,13 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
           >
             <button 
               onClick={handleAdd}
-              className="soft-pill flex-1 py-2 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+              className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2"
             >
               <Plus className="w-4 h-4" /> 添加条目
             </button>
             <button 
               onClick={onDelete}
-              className="flex-1 py-2 bg-red-500/15 hover:bg-red-500/25 text-rose-400 [.light-theme_&]:!bg-rose-50 [.light-theme_&]:!text-rose-600 border border-rose-500/20 [.light-theme_&]:!border-rose-200 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 cursor-pointer"
+              className="flex-1 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2"
             >
               <Trash2 className="w-4 h-4" /> 删除世界书
             </button>
@@ -2217,15 +2062,15 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
             const order = entry.order !== undefined ? entry.order : (entry.insertion_order || 50);
 
             return (
-              <div key={i} className={`w-full detail-card p-3.5 rounded-2xl ${isEnabled ? '' : 'opacity-60'} flex gap-3 transition-opacity overflow-hidden mb-2`}>
+              <div key={i} className={`w-full bg-white/5 p-3 rounded-xl border ${isEnabled ? 'border-white/10' : 'border-white/5 opacity-60'} flex gap-3 transition-opacity overflow-hidden`}>
                 <div className="flex-1 min-w-0 w-full">
                   <div className="flex flex-wrap sm:flex-nowrap justify-between items-start gap-2 mb-1 w-full">
                     <div className="flex flex-col min-w-0 flex-1">
-                      <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 truncate">
+                      <h4 className="font-semibold text-purple-300 truncate">
                         {title}
                       </h4>
                       {keysDisplay && keysDisplay !== title && (
-                        <p className="text-xs text-white/40 [.light-theme_&]:!text-slate-400 truncate mt-0.5">
+                        <p className="text-xs text-white/40 truncate mt-0.5">
                           关键词: {keysDisplay}
                         </p>
                       )}
@@ -2233,17 +2078,17 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
                       <button
                         onClick={() => handleToggleEnable(i)}
-                        className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition whitespace-nowrap border ${isEnabled ? 'bg-green-500/10 text-green-400 border-green-500/20 [.light-theme_&]:!bg-[#E7F9EE] [.light-theme_&]:!text-[#1DB954] [.light-theme_&]:!border-[#1DB954]/20' : 'bg-white/5 text-white/30 border-white/5 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#8E8E93] [.light-theme_&]:!border-transparent'}`}
+                        className={`text-[10px] px-1.5 py-0.5 rounded-full transition whitespace-nowrap ${isEnabled ? 'bg-green-500/20 text-green-400' : 'bg-white/10 text-white/40'}`}
                       >
                         {isEnabled ? '已启用' : '已禁用'}
                       </button>
-                      <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-white/70 border border-white/10 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#3A3A3C] [.light-theme_&]:!border-transparent whitespace-nowrap font-bold shadow-sm">
+                      <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded-full text-white/60 whitespace-nowrap">
                         顺序: {order}
                       </span>
-                      <button onClick={() => handleEdit(i)} className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-slate-800">
+                      <button onClick={() => handleEdit(i)} className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition">
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
-                      <button onClick={() => handleDelete(i)} className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-red-500">
+                      <button onClick={() => handleDelete(i)} className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition">
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -2253,19 +2098,19 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     onClick={() => setViewingEntryIndex(viewingEntryIndex === i ? null : i)}
                   >
                     {viewingEntryIndex === i ? (
-                      <div className="detail-card-text whitespace-pre-wrap text-sm leading-relaxed pr-2 break-words w-full" onClick={e => e.stopPropagation()}>
+                      <div className="text-white/90 whitespace-pre-wrap text-sm leading-relaxed pr-2 break-words w-full" onClick={e => e.stopPropagation()}>
                         {entry.content || entry.entry || ''}
                         <button 
                           onClick={(e) => { e.stopPropagation(); setViewingEntryIndex(null); }}
-                          className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] text-xs font-medium py-1.5 hover:bg-[#60A5FA]/10 [.light-theme_&]:hover:bg-[#60A5FA]/5 rounded-lg transition w-full cursor-pointer"
+                          className="mt-3 flex items-center justify-center gap-1 text-purple-400 text-sm font-medium py-1.5 hover:bg-white/5 rounded-lg transition w-full cursor-pointer"
                         >
-                          <ChevronUp className="w-3.5 h-3.5" /> 收起 
+                          <ChevronUp className="w-4 h-4" /> 收起 
                         </button>
                       </div>
                     ) : (
                       <>
-                        <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">{entry.content || entry.entry || ''}</div>
-                        <div className="mt-1.5 text-[#60A5FA] text-xs font-medium flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                        <div className="text-white/70 text-sm line-clamp-2 break-words w-full">{entry.content || entry.entry || ''}</div>
+                        <div className="mt-1.5 text-purple-400 text-xs font-medium flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
                           <span>展开全文</span>
                           <ChevronDown className="w-3 h-3" />
                         </div>

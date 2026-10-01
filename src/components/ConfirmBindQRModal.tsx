@@ -81,7 +81,7 @@ function ItemCardPreview({
       <span
         className={`text-[11px] mt-1 px-2.5 py-0.5 rounded-full font-medium ${
           isQR
-            ? "bg-blue-500/20 text-blue-300 border border-blue-500/30 [.light-theme_&]:bg-purple-50 [.light-theme_&]:text-blue-700 [.light-theme_&]:border-purple-200"
+            ? "bg-purple-500/20 text-purple-300 border border-purple-500/30 [.light-theme_&]:bg-purple-50 [.light-theme_&]:text-purple-700 [.light-theme_&]:border-purple-200"
             : "bg-blue-500/20 text-blue-300 border border-blue-500/30 [.light-theme_&]:bg-blue-50 [.light-theme_&]:text-blue-700 [.light-theme_&]:border-blue-200"
         }`}
       >
@@ -151,13 +151,13 @@ export function ConfirmBindQRModal({
           className="bg-slate-900 border border-white/15 rounded-3xl p-6 w-full max-w-md shadow-2xl relative overflow-hidden [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/10 [.light-theme_&]:shadow-2xl"
         >
           {/* Top background glow */}
-          <div className="absolute -top-20 -left-20 w-48 h-48 bg-blue-500/20 rounded-full blur-3xl pointer-events-none [.light-theme_&]:bg-purple-200/40" />
+          <div className="absolute -top-20 -left-20 w-48 h-48 bg-purple-500/20 rounded-full blur-3xl pointer-events-none [.light-theme_&]:bg-purple-200/40" />
           <div className="absolute -top-20 -right-20 w-48 h-48 bg-pink-500/20 rounded-full blur-3xl pointer-events-none [.light-theme_&]:bg-pink-200/30" />
 
           {/* Header */}
           <div className="flex items-center justify-between pb-4 border-b border-white/10 relative z-10 [.light-theme_&]:border-black/10">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-r from-blue-500 to-pink-500 flex items-center justify-center text-white shadow-md shadow-blue-500/20">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center text-white shadow-md shadow-purple-500/20">
                 <LinkIcon className="w-5 h-5" />
               </div>
               <div>
@@ -181,10 +181,10 @@ export function ConfirmBindQRModal({
               <ItemCardPreview char={qrChar} isQR={true} />
 
               <div className="flex flex-col items-center justify-center shrink-0 px-1">
-                <div className="w-8 h-8 rounded-full bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-300 shadow-md [.light-theme_&]:bg-purple-50 [.light-theme_&]:border-purple-200 [.light-theme_&]:text-blue-700">
+                <div className="w-8 h-8 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-300 shadow-md [.light-theme_&]:bg-purple-50 [.light-theme_&]:border-purple-200 [.light-theme_&]:text-purple-700">
                   <ArrowRight className="w-4 h-4" />
                 </div>
-                <span className="text-[10px] text-blue-300/80 font-medium mt-1 [.light-theme_&]:text-blue-700 [.light-theme_&]:font-semibold">
+                <span className="text-[10px] text-purple-300/80 font-medium mt-1 [.light-theme_&]:text-purple-700 [.light-theme_&]:font-semibold">
                   绑定至
                 </span>
               </div>
@@ -204,7 +204,7 @@ export function ConfirmBindQRModal({
               <div
                 className={`w-5 h-5 rounded-md flex items-center justify-center border transition shrink-0 mt-0.5 ${
                   deleteSource
-                    ? "bg-blue-600 border-blue-500 text-white shadow-sm shadow-blue-500/30"
+                    ? "bg-purple-600 border-purple-500 text-white shadow-sm shadow-purple-500/30"
                     : "border-white/30 bg-black/30 [.light-theme_&]:border-black/20 [.light-theme_&]:bg-black/5"
                 }`}
               >
@@ -233,7 +233,7 @@ export function ConfirmBindQRModal({
             <button
               type="button"
               onClick={handleConfirm}
-              className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-blue-500 to-pink-500 hover:opacity-90 text-white font-semibold shadow-lg shadow-blue-500/25 transition text-sm flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+              className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-90 text-white font-semibold shadow-lg shadow-purple-500/25 transition text-sm flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
             >
               <LinkIcon className="w-4 h-4" />
               确认绑定

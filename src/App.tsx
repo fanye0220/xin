@@ -195,25 +195,13 @@ export default function App() {
     return () => window.removeEventListener('charactersUpdated', handleCharactersUpdated);
   }, []);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'api' | 'st' | 'cloud' | 'wallpaper' | 'about'>('api');
   const [refreshKey, setRefreshKey] = useState(0);
-  const [isLightMode, setIsLightMode] = useState(() => document.documentElement.classList.contains('light-theme'));
-
-  useEffect(() => {
-    const checkTheme = () => {
-      setIsLightMode(document.documentElement.classList.contains('light-theme'));
-    };
-    checkTheme();
-    const observer = new MutationObserver(checkTheme);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-    return () => observer.disconnect();
-  }, []);
   const [globalChatViewerId, setGlobalChatViewerId] = useState<string | null>(null);
   const [updateInfo, setUpdateInfo] = useState<VersionInfo | null>(null);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
 
   useEffect(() => {
-    // Web 端保持纯净，不检查 Android 更新；仅 Android 客户端执行。
+    // 启动 3 秒后静默检测远端版本更新（仅在安卓移动端运行）
     if (!isAndroid()) return;
     const timer = setTimeout(async () => {
       const ignoredVer = localStorage.getItem('miu_ignored_version');
@@ -394,17 +382,17 @@ export default function App() {
   if (isMigrating && migrationProgress.total > 0) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-6">
-        <div className="w-16 h-16 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mb-6" />
+        <div className="w-16 h-16 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mb-6" />
         <h2 className="text-2xl font-bold mb-2">正在优化数据库...</h2>
         <p className="text-slate-400 mb-6 text-center max-w-md">
           检测到您有大量角色卡，系统正在进行底层存储优化以提升加载速度。这可能需要几分钟时间，请勿关闭页面。
         </p>
-        <p className="font-mono text-blue-400 font-bold text-lg mb-2">
+        <p className="font-mono text-purple-400 font-bold text-lg mb-2">
           {migrationProgress.current} / {migrationProgress.total}
         </p>
         <div className="w-full max-w-md bg-white/10 rounded-full h-3 overflow-hidden">
           <div 
-            className="bg-gradient-to-r from-blue-500 to-pink-500 h-full transition-all duration-300"
+            className="bg-gradient-to-r from-purple-500 to-pink-500 h-full transition-all duration-300"
             style={{ width: `${(migrationProgress.current / migrationProgress.total) * 100}%` }}
           />
         </div>
@@ -413,9 +401,7 @@ export default function App() {
   }
 
   return (
-    <div className={`font-sans antialiased fixed inset-0 flex overflow-hidden transition-colors duration-200 ${
-      isLightMode ? 'light-theme bg-[#f7f7f9] text-[#1c1c1e]' : 'bg-[#0a0a0c] text-white'
-    }`}>
+    <div className="font-sans antialiased text-white bg-slate-900 fixed inset-0 flex overflow-hidden">
       
       {/* Sidebar Drawer */}
       <AnimatePresence>
@@ -426,9 +412,7 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsSidebarOpen(false)}
-              className={`fixed inset-0 backdrop-blur-sm z-40 transition-colors ${
-                isLightMode ? 'bg-black/25' : 'bg-black/60'
-              }`}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
             />
             
             <FolderSidebar 
@@ -438,10 +422,7 @@ export default function App() {
                 setSelectedCharId(null);
               }}
               onClose={() => setIsSidebarOpen(false)}
-              onOpenSettings={(tab) => {
-                setSettingsInitialTab(tab || 'api');
-                setIsSettingsOpen(true);
-              }}
+              onOpenSettings={() => setIsSettingsOpen(true)}
               onFolderChanged={() => setRefreshKey(prev => prev + 1)}
             />
           </>
@@ -540,7 +521,6 @@ export default function App() {
 
       <SettingsModal
         isOpen={isSettingsOpen}
-        initialTab={settingsInitialTab}
         onClose={() => { setIsSettingsOpen(false); setRefreshKey(prev => prev + 1); }}
       />
 
@@ -565,7 +545,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <SyncWidget isLightMode={isLightMode} />
+      <SyncWidget />
     </div>
   );
 }

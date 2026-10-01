@@ -1,20 +1,27 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# MIU Web
 
-# Run and deploy your AI Studio app
+MIU 的纯 Web 部署工程。业务代码以 MIU v50 为基础，UI 采用独立 UI 版本的视觉主题。
 
-This contains everything you need to run your app locally.
+## 本地运行
 
-View your app in AI Studio: https://ai.studio/apps/8858d001-dbad-4855-854c-b06238073ff1
+```bash
+npm install
+npm run dev
+```
 
-## Run Locally
+## 生产构建
 
-**Prerequisites:**  Node.js
+```bash
+npm run build
+```
 
+构建结果位于 `dist/`。
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Vercel
+
+- Framework Preset：Vite
+- Build Command：`npm run build`
+- Output Directory：`dist`
+- Install Command：`npm install`
+
+项目已包含 SPA 路由回退配置，可直接连接 GitHub 仓库部署。

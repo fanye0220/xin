@@ -18,6 +18,13 @@
   --color-slate-100: #f4f4f5;
   --color-white: #ffffff;
   --color-black: #000000;
+  
+}
+
+/* Selection styling for deep black mode */
+::selection {
+  background-color: rgba(59, 130, 246, 0.4);
+  color: #ffffff;
 }
 
 :root {
@@ -295,6 +302,7 @@ button:focus-visible,
 /* Ensure text in bubbles inherits bubble color properly across themes */
 .chat-bubble-prose {
   color: inherit !important;
+  white-space: pre-wrap !important;
   --tw-prose-body: currentColor !important;
   --tw-prose-headings: currentColor !important;
   --tw-prose-lead: currentColor !important;
@@ -310,6 +318,7 @@ button:focus-visible,
 /* Greeting Reader Markdown and Think Block rendering */
 .greeting-reader-prose {
   color: inherit !important;
+  white-space: pre-wrap !important;
   text-align: justify !important;
   text-justify: inter-ideograph !important;
   word-break: break-word !important;
@@ -862,34 +871,6 @@ button:focus-visible,
   font-weight: 600 !important;
 }
 
-.confirm-qr-tip {
-  background-color: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.light-theme .confirm-qr-tip {
-  background-color: rgba(0, 0, 0, 0.04) !important;
-  border-color: rgba(0, 0, 0, 0.08) !important;
-  color: #1c1c1e !important;
-}
-
-.confirm-qr-name {
-  color: #93c5fd;
-}
-
-.light-theme .confirm-qr-name {
-  color: #8b2ec2 !important;
-}
-
-.confirm-target-name {
-  color: #60a5fa;
-}
-
-.light-theme .confirm-target-name {
-  color: #0066cc !important;
-}
-
 /* 
   ==============================================================================
   Frosted Glass Acrylic & Soft UI Design System
@@ -1201,8 +1182,9 @@ button:focus-visible,
   border-color: #94a3b8 !important;
 }
 .bubble-theme-card.is-selected {
-  background-color: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.6);
+  background-color: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.8);
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.15);
 }
 .light-theme .bubble-theme-card.is-selected {
   background-color: #eff6ff !important;
@@ -1322,6 +1304,33 @@ button:focus-visible,
 .light-theme .floating-pill-item:hover {
   color: #0f172a !important;
   background-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Floating FAB Action Balls */
+.fab-ball {
+  background-color: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.fab-ball svg {
+  color: #ffffff !important;
+}
+
+.light-theme .fab-ball {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  color: #0f172a !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important;
+}
+
+.light-theme .fab-ball svg {
+  color: #0f172a !important;
 }
 
 /* Bubble Theme Popover Picker & Chat Header Popover Dropdowns */
@@ -1477,7 +1486,7 @@ button:focus-visible,
 .light-theme .auto-tagger-card {
   background-color: #ffffff !important;
   border: 1px solid #e2e8f0 !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03), 0 1px 3px rgba(0, 0, 0, 0.02) !important;
 }
 
 .auto-tagger-select {
@@ -1486,7 +1495,7 @@ button:focus-visible,
   color: #ffffff;
 }
 .light-theme .auto-tagger-select {
-  background-color: #ffffff !important;
+  background-color: #f8fafc !important;
   border: 1px solid #cbd5e1 !important;
   color: #0f172a !important;
 }
@@ -1922,11 +1931,14 @@ button:focus-visible,
 .light-theme .confirm-delete-cancel-btn {
   background-color: #f1f5f9 !important;
   color: #334155 !important;
-  border: 1px solid #e2e8f0 !important;
+  border: none !important;
+  border-radius: 9999px !important;
+  box-shadow: none !important;
 }
 .light-theme .confirm-delete-cancel-btn:hover {
   background-color: #e2e8f0 !important;
   color: #0f172a !important;
+  box-shadow: none !important;
 }
 
 .confirm-delete-danger-btn {
@@ -1938,6 +1950,18 @@ button:focus-visible,
 .confirm-delete-danger-btn:hover {
   background-color: #dc2626 !important;
   box-shadow: 0 6px 20px 0 rgba(220, 38, 38, 0.45) !important;
+}
+.light-theme .confirm-delete-danger-btn {
+  background-color: #fff0f2 !important;
+  color: #e11d48 !important;
+  border: none !important;
+  border-radius: 9999px !important;
+  box-shadow: none !important;
+}
+.light-theme .confirm-delete-danger-btn:hover {
+  background-color: #ffe4e6 !important;
+  color: #be123c !important;
+  box-shadow: none !important;
 }
 
 /* ==========================================================================
@@ -2015,5 +2039,36 @@ div.border-rose-500\/40 svg {
 .light-theme div.border-rose-500\/40 span {
   color: #dc2626 !important;
   font-weight: 500 !important;
+}
+
+/* ==========================================================================
+   Sidebar Unified Font Size System (PC & Mobile Uniform Scale)
+   ========================================================================== */
+:root {
+  --sidebar-font-size: 0.875rem; /* 14px */
+  --sidebar-font-weight: 500;
+  --sidebar-line-height: 1.25rem; /* 20px */
+}
+
+.sidebar-setting-text,
+.sidebar-menu-text,
+.sidebar-category-text,
+.sidebar-theme-text,
+.sidebar-unified-text {
+  font-size: var(--sidebar-font-size) !important;
+  font-weight: var(--sidebar-font-weight) !important;
+  line-height: var(--sidebar-line-height) !important;
+}
+
+@media (max-width: 640px) {
+  .sidebar-setting-text,
+  .sidebar-menu-text,
+  .sidebar-category-text,
+  .sidebar-theme-text,
+  .sidebar-unified-text {
+    font-size: var(--sidebar-font-size) !important;
+    font-weight: var(--sidebar-font-weight) !important;
+    line-height: var(--sidebar-line-height) !important;
+  }
 }
 

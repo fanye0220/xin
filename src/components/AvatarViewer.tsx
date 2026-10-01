@@ -449,7 +449,7 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[60] bg-black [.light-theme_&]:!bg-[#f1f5f9] flex flex-col"
+          className="fixed inset-0 z-[60] bg-black flex flex-col"
         >
       <div className="absolute top-0 left-0 right-0 p-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] flex justify-between items-center z-10 bg-gradient-to-b from-black/60 to-transparent">
         <button onClick={onClose} className="p-2 rounded-full bg-black/40 text-white hover:bg-black/60 transition">
@@ -523,7 +523,7 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
             >
               <button
                 onClick={handleSetAsAvatar}
-                className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-full font-medium shadow-lg shadow-blue-500/20 flex items-center gap-2 transition"
+                className="bg-purple-500 hover:bg-purple-600 text-white px-6 py-3 rounded-full font-medium shadow-lg shadow-purple-500/20 flex items-center gap-2 transition"
               >
                 <Check className="w-5 h-5" />
                 设为当前头像
@@ -533,13 +533,13 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
         </AnimatePresence>
       </div>
 
-      <div className="bg-slate-900 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-t [.light-theme_&]:!border-[#e2e8f0] rounded-t-3xl p-6 pb-8 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] [.light-theme_&]:!shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
+      <div className="bg-slate-900 rounded-t-3xl p-6 pb-8 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-white/80 [.light-theme_&]:!text-[#0f172a] font-semibold">历史头像</h3>
+          <h3 className="text-white/80 font-medium">历史头像</h3>
           <button 
             onClick={() => setShowSourceSheet(true)}
             disabled={isProcessing}
-            className="text-blue-400 [.light-theme_&]:!text-[#2563eb] text-sm font-semibold flex items-center gap-1.5 hover:text-blue-300 [.light-theme_&]:hover:!text-[#1d4ed8] transition active:scale-95 disabled:opacity-50 cursor-pointer"
+            className="text-purple-400 text-sm font-medium flex items-center gap-1.5 hover:text-purple-300 transition active:scale-95 disabled:opacity-50"
           >
             <Upload className="w-4 h-4" />
             上传新头像
@@ -564,7 +564,7 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
 
         <div className="flex gap-3 overflow-x-auto pb-2 snap-x">
           {historyUrls.length === 0 && !character.avatarBlob && (
-            <div className="text-white/40 [.light-theme_&]:!text-[#64748b] text-sm py-4">暂无历史头像</div>
+            <div className="text-white/40 text-sm py-4">暂无历史头像</div>
           )}
           {historyUrls.map((item, index) => {
             const isActualCurrent = item.blob === character.avatarBlob || (character.avatarBlob && item.blob && item.blob.size === character.avatarBlob.size && item.blob.type === character.avatarBlob.type) || (!item.blob && !character.avatarBlob && !!character.localFilePath);
@@ -574,12 +574,12 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
               <div 
                 key={index}
                 onClick={() => handleSelectHistory(item.blob)}
-                className={`group relative w-20 h-20 flex-shrink-0 rounded-xl overflow-hidden cursor-pointer snap-start transition-all ${isPreviewed ? 'ring-2 ring-blue-500 scale-105' : 'ring-1 ring-white/10 hover:ring-white/30 opacity-70 hover:opacity-100'}`}
+                className={`group relative w-20 h-20 flex-shrink-0 rounded-xl overflow-hidden cursor-pointer snap-start transition-all ${isPreviewed ? 'ring-2 ring-purple-500 scale-105' : 'ring-1 ring-white/10 hover:ring-white/30 opacity-70 hover:opacity-100'}`}
               >
                 <img src={item.url || undefined} alt={`History ${index}`} className="w-full h-full object-cover" />
                 {isActualCurrent && (
                   <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                    <div className="bg-blue-500 rounded-full p-1">
+                    <div className="bg-purple-500 rounded-full p-1">
                       <Check className="w-4 h-4 text-white" />
                     </div>
                   </div>
@@ -593,7 +593,7 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
       {/* 处理中的遮罩动画 */}
       {isProcessing && (
         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm z-[70] flex flex-col items-center justify-center gap-3">
-          <Loader2 className="w-10 h-10 text-blue-400 animate-spin" />
+          <Loader2 className="w-10 h-10 text-purple-400 animate-spin" />
           <span className="text-white/90 text-sm font-medium">正在读取并设置新头像...</span>
         </div>
       )}
@@ -616,14 +616,14 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 28, stiffness: 320 }}
-              className="relative w-full max-w-lg bg-slate-900 [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0] rounded-t-3xl p-5 pb-8 shadow-2xl flex flex-col gap-3"
+              className="relative w-full max-w-lg bg-slate-900 border-t border-white/10 rounded-t-3xl p-5 pb-8 shadow-2xl flex flex-col gap-3"
             >
               {/* 顶部把手条 */}
-              <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-[#cbd5e1] rounded-full mx-auto mb-1" />
+              <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-1" />
 
               <div className="text-center mb-1">
-                <h4 className="text-base font-semibold text-white [.light-theme_&]:!text-[#0f172a]">选择图片方式</h4>
-                <p className="text-xs text-white/50 [.light-theme_&]:!text-[#64748b] mt-0.5">请选择从相册或系统文件管理中挑选图片</p>
+                <h4 className="text-base font-semibold text-white">选择图片方式</h4>
+                <p className="text-xs text-white/50 mt-0.5">请选择从相册或系统文件管理中挑选图片</p>
               </div>
 
               <div className="flex flex-col gap-2">
@@ -632,16 +632,16 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
                     setShowSourceSheet(false);
                     galleryInputRef.current?.click();
                   }}
-                  className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:hover:!bg-[#f1f5f9] active:scale-[0.99] border border-white/5 [.light-theme_&]:!border-[#e2e8f0] transition text-left cursor-pointer"
+                  className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 active:scale-[0.99] border border-white/5 transition text-left"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/10 text-white [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] flex items-center justify-center shrink-0 shadow-xs">
+                  <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
                     <ImageIcon className="w-5 h-5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-white [.light-theme_&]:!text-[#0f172a]">从手机相册选取</div>
-                    <div className="text-xs text-white/40 [.light-theme_&]:!text-[#64748b]">打开系统相册与图库</div>
+                    <div className="text-sm font-medium text-white">从手机相册选取</div>
+                    <div className="text-xs text-white/40">打开系统相册与图库</div>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-white/30 [.light-theme_&]:!text-[#94a3b8]" />
+                  <ChevronRight className="w-4 h-4 text-white/30" />
                 </button>
 
                 <button
@@ -649,16 +649,16 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
                     setShowSourceSheet(false);
                     fileInputRef.current?.click();
                   }}
-                  className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:hover:!bg-[#f1f5f9] active:scale-[0.99] border border-white/5 [.light-theme_&]:!border-[#e2e8f0] transition text-left cursor-pointer"
+                  className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 active:scale-[0.99] border border-white/5 transition text-left"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/10 text-white [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] flex items-center justify-center shrink-0 shadow-xs">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
                     <FolderOpen className="w-5 h-5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-white [.light-theme_&]:!text-[#0f172a]">从文件管理中查找</div>
-                    <div className="text-xs text-white/40 [.light-theme_&]:!text-[#64748b]">浏览手机内部存储、Download 或未入相册的图片</div>
+                    <div className="text-sm font-medium text-white">从文件管理中查找</div>
+                    <div className="text-xs text-white/40">浏览手机内部存储、Download 或未入相册的图片</div>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-white/30 [.light-theme_&]:!text-[#94a3b8]" />
+                  <ChevronRight className="w-4 h-4 text-white/30" />
                 </button>
 
                 {isAndroid() && (
@@ -667,23 +667,23 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
                       setShowSourceSheet(false);
                       handleOpenMiuPicker();
                     }}
-                    className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:hover:!bg-[#f1f5f9] active:scale-[0.99] border border-white/5 [.light-theme_&]:!border-[#e2e8f0] transition text-left cursor-pointer"
+                    className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 active:scale-[0.99] border border-white/5 transition text-left"
                   >
-                    <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/10 text-white [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] flex items-center justify-center shrink-0 shadow-xs">
+                    <div className="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0">
                       <FolderArchive className="w-5 h-5" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-white [.light-theme_&]:!text-[#0f172a]">从 Download/MIU 目录选择</div>
-                      <div className="text-xs text-white/40 [.light-theme_&]:!text-[#64748b]">直接浏览手机 MIU 本地角色卡与图片</div>
+                      <div className="text-sm font-medium text-white">从 Download/MIU 目录选择</div>
+                      <div className="text-xs text-white/40">直接浏览手机 MIU 本地角色卡与图片</div>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-white/30 [.light-theme_&]:!text-[#94a3b8]" />
+                    <ChevronRight className="w-4 h-4 text-white/30" />
                   </button>
                 )}
               </div>
 
               <button
                 onClick={() => setShowSourceSheet(false)}
-                className="w-full py-3 mt-1 rounded-2xl bg-white/10 hover:bg-white/15 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] active:scale-[0.99] text-white/80 [.light-theme_&]:!text-[#334155] font-semibold text-sm transition cursor-pointer"
+                className="w-full py-3 mt-1 rounded-2xl bg-white/10 hover:bg-white/15 active:scale-[0.99] text-white/80 font-medium text-sm transition"
               >
                 取消
               </button>
