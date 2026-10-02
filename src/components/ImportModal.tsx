@@ -1391,18 +1391,22 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             initial={{ opacity: 0, scale: 0.95, y: 15 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 15 }}
-            className={`fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[92vw] sm:w-full backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl z-[80] max-h-[88vh] flex flex-col transition-all duration-300 bg-slate-900/95 [.light-theme_&]:!bg-[#ffffff] text-slate-100 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-black/5 ${
+            className={`fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[92vw] sm:w-full backdrop-blur-2xl border rounded-3xl shadow-2xl z-[80] max-h-[88vh] flex flex-col transition-all duration-300 bg-slate-900/95 [.light-theme_&]:!bg-slate-800 text-slate-100 [.light-theme_&]:!border-none ${
               progress ? "max-w-[340px] sm:max-w-[380px] p-6 sm:p-7" : "max-w-[420px] sm:max-w-[460px] p-5 sm:p-6"
             }`}
           >
-            <div className="flex justify-between items-center mb-3.5 pb-2.5 border-b border-white/10 [.light-theme_&]:!border-slate-200/80 shrink-0">
-              <h2 className="text-base sm:text-lg font-bold text-slate-100 [.light-theme_&]:!text-[#0f172a]">
+            <div className={`flex justify-between items-center mb-3.5 pb-2.5 border-b shrink-0 ${isLightMode ? 'border-slate-700/10' : 'border-white/10'}`}>
+              <h2 className="text-base sm:text-lg font-bold text-slate-100">
                 {autoCategorizedSummary ? "导入完成" : (progress ? "正在导入" : "导入角色卡")}
               </h2>
               {!progress && (
                 <button
                   onClick={onClose}
-                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center transition cursor-pointer bg-white/10 hover:bg-white/15 text-white/60 hover:text-white [.light-theme_&]:!bg-black/5 [.light-theme_&]:hover:!bg-black/10 [.light-theme_&]:!text-slate-600 [.light-theme_&]:hover:!text-[#0f172a]"
+                  className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center transition cursor-pointer ${
+                    isLightMode
+                      ? "bg-slate-700/10 hover:bg-slate-700/20 text-slate-600 hover:text-slate-100"
+                      : "bg-white/10 hover:bg-white/15 text-white/60 hover:text-white"
+                  }`}
                 >
                   <X className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
@@ -1416,8 +1420,8 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     <CheckCircle className="w-5 h-5 text-emerald-500" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-base sm:text-lg text-slate-100 [.light-theme_&]:!text-[#0f172a]">导入完成</h3>
-                    <p className="text-xs sm:text-sm text-slate-100/60 [.light-theme_&]:!text-slate-500">共成功导入 {importedSuccessCount} 项卡片/数据</p>
+                    <h3 className="font-bold text-base sm:text-lg text-slate-100">导入完成</h3>
+                    <p className="text-xs sm:text-sm text-slate-100/60">共成功导入 {importedSuccessCount} 项卡片/数据</p>
                   </div>
                 </div>
 
@@ -1428,16 +1432,16 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     <Folder className="w-4 h-4 text-blue-500 shrink-0" />
                     <span>检测到同名角色卡，已自动归入已有分类：</span>
                   </div>
-                  <p className="text-xs sm:text-sm mb-3 text-white/60 [.light-theme_&]:!text-slate-600 leading-relaxed">
+                  <p className={`text-xs sm:text-sm mb-3 ${isLightMode ? 'text-slate-300' : 'text-white/60'}`}>
                     系统匹配到已有同名角色的分类文件夹并已自动整理归类。您可以前往查看，或一键移回主页。
                   </p>
                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
                     {autoCategorizedSummary.map((item, idx) => (
                       <div key={idx} className={`flex items-center justify-between text-xs sm:text-sm p-3 rounded-xl border ${
-                        isLightMode ? 'bg-slate-100 border-slate-200/80 text-slate-800' : 'bg-black/30 border-white/10 text-white'
+                        isLightMode ? 'bg-slate-700/10 border-slate-700/20 text-slate-100' : 'bg-black/30 border-white/10 text-white'
                       }`}>
                         <div className="min-w-0 flex-1 mr-2">
-                          <span className="font-semibold truncate block text-white [.light-theme_&]:!text-[#0f172a]">{item.charName}</span>
+                          <span className="font-semibold truncate block">{item.charName}</span>
                           <span className={`text-xs truncate block mt-0.5 ${isLightMode ? 'text-blue-600' : 'text-blue-300'}`}>📁 {item.folderPath}</span>
                         </div>
                         {onNavigateFolder && (
@@ -1488,7 +1492,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                         onClose();
                       }
                     }}
-                    className="flex-1 py-3 px-3 rounded-2xl text-xs sm:text-sm font-semibold transition disabled:opacity-50 bg-white/10 hover:bg-white/15 text-white/80 [.light-theme_&]:!bg-slate-100 [.light-theme_&]:hover:!bg-slate-200 [.light-theme_&]:!text-slate-700 cursor-pointer"
+                    className={`flex-1 py-3 px-3 rounded-2xl text-xs sm:text-sm font-semibold transition disabled:opacity-50 ${
+                      isLightMode ? 'bg-slate-700/10 hover:bg-slate-700/20 text-slate-100' : 'bg-white/10 hover:bg-white/15 text-white/80'
+                    }`}
                   >
                     {isReverting ? "正在移回..." : "移回主页未分类"}
                   </button>
@@ -1498,7 +1504,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                       setAutoCategorizedSummary(null);
                       onClose();
                     }}
-                    className="flex-1 py-3 px-3 bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-neutral-800 rounded-2xl text-xs sm:text-sm font-bold transition shadow-sm cursor-pointer"
+                    className="flex-1 py-3 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-xs sm:text-sm font-bold transition shadow-lg shadow-blue-600/20"
                   >
                     知道了 / 完成
                   </button>
@@ -1540,26 +1546,26 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                               else newSet.add(char.avatar);
                               setSelectedTavernChars(newSet);
                            }}
-                           className={`flex items-center gap-2 sm:gap-3 p-2 sm:p-3 rounded-xl cursor-pointer transition-all duration-200 ${selectedTavernChars.has(char.avatar) ? 'bg-white/10 border border-white text-white [.light-theme_&]:!bg-neutral-100 [.light-theme_&]:!border-black [.light-theme_&]:!text-black shadow-sm' : 'bg-white/5 border border-transparent hover:border-white/10 hover:bg-white/10 [.light-theme_&]:!bg-white [.light-theme_&]:!border-neutral-200 [.light-theme_&]:hover:!bg-neutral-50'}`}>
+                           className={`flex items-center gap-2 sm:gap-3 p-2 sm:p-3 rounded-xl cursor-pointer transition-all duration-200 ${selectedTavernChars.has(char.avatar) ? 'bg-blue-500/20 border border-blue-500/50 shadow-[inset_0_0_15px_rgba(168,85,247,0.15)]' : 'bg-white/5 border border-transparent hover:border-white/10 hover:bg-white/10'}`}>
                          <TavernAvatar char={char} aiSettings={getAISettings()} />
                          <div className="flex-1 min-w-0">
                            <div className="font-medium text-sm sm:text-base truncate">{char.name}</div>
-                           <div className="text-xs text-white/50 truncate [.light-theme_&]:text-neutral-500">{char.creator_notes || char.description?.substring(0, 50) || '无简介'}</div>
+                           <div className="text-xs text-white/50 truncate">{char.creator_notes || char.description?.substring(0, 50) || '无简介'}</div>
                          </div>
-                         <div className={`w-5 h-5 rounded-md flex items-center justify-center border transition-all duration-200 ${selectedTavernChars.has(char.avatar) ? 'border-white bg-white text-black [.light-theme_&]:!border-black [.light-theme_&]:!bg-black [.light-theme_&]:!text-white' : 'border-white/20 bg-black/20 [.light-theme_&]:!border-neutral-300 [.light-theme_&]:!bg-neutral-50'}`}>
+                         <div className={`w-5 h-5 rounded-md flex items-center justify-center border transition-all duration-200 ${selectedTavernChars.has(char.avatar) ? 'border-blue-400 bg-blue-500 text-white shadow-[0_0_8px_rgba(168,85,247,0.6)]' : 'border-white/20 bg-black/20'}`}>
                            {selectedTavernChars.has(char.avatar) && <CheckCircle className="w-3.5 h-3.5" />}
                          </div>
                       </div>
                    ))}
                 </div>
                 <div className="flex gap-3 mt-6 shrink-0">
-                  <button onClick={() => { setTavernMode(false); setTavernSearchQuery(""); }} className="flex-1 py-3 bg-white/5 hover:bg-white/15 border border-white/10 text-white rounded-xl font-medium transition-colors [.light-theme_&]:!bg-neutral-100 [.light-theme_&]:!border-neutral-200 [.light-theme_&]:!text-black [.light-theme_&]:hover:!bg-neutral-200">
+                  <button onClick={() => { setTavernMode(false); setTavernSearchQuery(""); }} className="flex-1 py-3 bg-white/5 hover:bg-white/15 border border-white/10 text-white rounded-xl font-medium transition-colors">
                     返回
                   </button>
                   <button 
                     onClick={pullSelectedTavernChars} 
                     disabled={selectedTavernChars.size === 0}
-                    className="flex-1 py-3 bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-neutral-800 rounded-xl font-bold transition-all shadow-sm disabled:opacity-50"
+                    className="flex-1 py-3 bg-gradient-to-r from-blue-500 to-pink-500 hover:from-blue-400 hover:to-pink-400 text-white rounded-xl font-medium transition-all shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:shadow-none"
                   >
                     拉取已选 ({selectedTavernChars.size})
                   </button>
@@ -1620,37 +1626,23 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   onClick={() => fileInputRef.current?.click()}
                   className={`border-2 border-dashed rounded-3xl py-7 sm:py-8 px-4 flex flex-col items-center justify-center cursor-pointer transition-all ${
                     isDragging
-                      ? isLightMode
-                        ? "border-blue-500 bg-[#eff6ff]"
-                        : "border-blue-400 bg-blue-500/15"
-                      : isLightMode
-                        ? "border-[#cbd5e1] hover:border-blue-500 bg-[#f8fafc] hover:bg-[#eff6ff]"
-                        : "border-white/15 hover:border-blue-400/50 bg-white/[0.04] hover:bg-white/[0.08]"
+                      ? "border-blue-400 bg-blue-500/15 [.light-theme_&]:!border-blue-500 [.light-theme_&]:!bg-blue-50"
+                      : "border-white/15 hover:border-white/30 bg-white/[0.04] hover:bg-white/[0.08] [.light-theme_&]:!border-slate-300 [.light-theme_&]:hover:!border-blue-500 [.light-theme_&]:!bg-slate-50/80 [.light-theme_&]:hover:!bg-slate-100/90"
                   }`}
                 >
                   <UploadCloud
-                    className={`w-10 h-10 sm:w-12 sm:h-12 mb-3 transition-colors ${
-                      isDragging 
-                        ? "text-blue-500 scale-110" 
-                        : isLightMode 
-                          ? "text-blue-500/70" 
-                          : "text-white/40"
+                    className={`w-10 h-10 sm:w-12 sm:h-12 mb-3 text-slate-100/40 ${
+                      isDragging ? "text-blue-500" : ""
                     }`}
                   />
-                  <p className={`text-center text-sm sm:text-base font-bold mb-1 ${
-                    isLightMode ? "text-[#0f172a]" : "text-white"
-                  }`}>
+                  <p className="text-center text-sm sm:text-base font-bold mb-1 text-slate-100">
                     点击上传或拖拽文件到此处
                   </p>
-                  <p className={`text-center text-xs sm:text-sm leading-relaxed max-w-[280px] ${
-                    isLightMode ? "text-[#64748b]" : "text-white/60"
-                  }`}>
+                  <p className="text-center text-xs sm:text-sm leading-relaxed max-w-[280px] text-slate-100/60">
                     支持多个 PNG/JSON 格式，或包含文件夹结构的 ZIP 压缩包
                   </p>
 
-                  <div className={`flex gap-3.5 mt-3.5 ${
-                    isLightMode ? "text-[#64748b]" : "text-white/60"
-                  }`}>
+                  <div className="flex gap-3.5 mt-3.5 text-slate-100/60">
                     <div className="flex items-center gap-1.5 text-xs font-semibold">
                       <ImageIcon className="w-4 h-4 opacity-70" /> PNG
                     </div>
@@ -1670,20 +1662,22 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                       setAutoCategorizeSameName(next);
                       localStorage.setItem("miu_auto_categorize_same_name", next ? "true" : "false");
                     }}
-                    className="flex items-center gap-3 cursor-pointer select-none transition py-1 text-white/90 hover:text-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!text-black"
+                    className="flex items-center gap-3 cursor-pointer select-none transition py-1 text-slate-100/80 hover:text-slate-100"
                   >
                     <div
                       className={`w-5 h-5 rounded-lg flex items-center justify-center border transition shrink-0 ${
                         autoCategorizeSameName
-                          ? "bg-white text-black border-white [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:!border-black"
-                          : "border-white/30 bg-black/30 [.light-theme_&]:!border-neutral-300 [.light-theme_&]:!bg-white"
+                          ? isLightMode
+                            ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                            : "bg-blue-600 text-white border-blue-600 shadow-sm"
+                          : isLightMode
+                            ? "border-slate-300 bg-slate-800"
+                            : "border-white/30 bg-black/30"
                       }`}
                     >
-                      {autoCategorizeSameName && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
+                      {autoCategorizeSameName && <Check className="w-3.5 h-3.5 text-white stroke-[2.5]" />}
                     </div>
-                    <span className="font-semibold text-xs sm:text-sm text-white/90 [.light-theme_&]:!text-[#0f172a]">
-                      导入同名卡自动归入已有分类文件夹
-                    </span>
+                    <span className="font-semibold text-xs sm:text-sm">导入同名卡自动归入已有分类文件夹</span>
                   </div>
                 </div>
 
@@ -1692,9 +1686,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     <button 
                       onClick={(e) => { e.stopPropagation(); fetchTavernList(); }}
                       disabled={isPulling}
-                      className="flex items-center gap-2 px-6 py-3.5 sm:py-4 bg-white/10 hover:bg-white/15 text-white rounded-2xl font-bold text-sm sm:text-base transition-all duration-300 disabled:opacity-50 w-full justify-center border border-white/20 hover:border-white/30 shadow-sm [.light-theme_&]:!bg-black/5 [.light-theme_&]:hover:!bg-black/10 [.light-theme_&]:!border-black/15 [.light-theme_&]:!text-black cursor-pointer"
+                      className="flex items-center gap-2 px-6 py-3.5 sm:py-4 bg-gradient-to-r from-blue-500/10 to-pink-500/10 hover:from-blue-500/20 hover:to-pink-500/20 text-blue-500 rounded-2xl font-bold text-sm sm:text-base transition-all duration-300 disabled:opacity-50 w-full justify-center border border-blue-500/30 hover:border-blue-400/50 shadow-md shadow-blue-500/10 cursor-pointer"
                     >
-                      {isPulling ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <Cloud className="w-5 h-5 shrink-0" />}
+                      {isPulling ? <Loader2 className="w-5 h-5 animate-spin shrink-0 text-blue-500" /> : <Cloud className="w-5 h-5 shrink-0" />}
                       <span className="truncate">拉取酒馆卡片</span>
                     </button>
                   </div>

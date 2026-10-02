@@ -845,7 +845,7 @@ export function CharacterVersionsSection({
       }
     }
 
-    const updatedChar: CharacterCard = {
+    const updatedChar: CharacterCard & { _skipTouchUpdatedAt?: boolean } = {
       ...character,
       data: JSON.parse(JSON.stringify(snapshot.data || {})),
       name: snapshot.cardName || character.name,
@@ -855,7 +855,8 @@ export function CharacterVersionsSection({
       tags: snapshot.tags || character.tags,
       activeVersionId: snapshot.id,
       versionHistory: updatedHistory,
-      updatedAt: character.updatedAt || Date.now(),
+      updatedAt: character.updatedAt,
+      _skipTouchUpdatedAt: true,
     };
 
     await saveCharacter(updatedChar);
@@ -981,7 +982,7 @@ export function CharacterVersionsSection({
             onClick={() => setIsCreatingSnapshot(prev => !prev)}
             className={`px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 ${
               isCreatingSnapshot 
-                ? 'bg-white text-black border border-white shadow-sm [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!border-[#000000] [.light-theme_&]:!text-[#ffffff]' 
+                ? 'bg-white text-black border border-white shadow-sm [.light-theme_&]:!bg-black [.light-theme_&]:!border-black [.light-theme_&]:!text-white' 
                 : 'soft-pill'
             }`}
             title="创建当前版本快照"
@@ -990,34 +991,6 @@ export function CharacterVersionsSection({
             <span className="hidden sm:inline">创建快照</span>
             <span className="sm:hidden">快照</span>
           </button>
-
-          <button
-            onClick={() => setIsLinkModalOpen(true)}
-            className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
-            title="关联卡库已有卡片为历史版本"
-          >
-            <LinkIcon className="w-4 h-4 opacity-70" />
-            <span className="hidden sm:inline">绑定卡库旧版</span>
-            <span className="sm:hidden">绑定旧版</span>
-          </button>
-
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
-            title="导入 PNG 或 JSON 为历史版本"
-          >
-            <Upload className="w-4 h-4 opacity-70" />
-            <span className="hidden sm:inline">导入文件版本</span>
-            <span className="sm:hidden">导入</span>
-          </button>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".png,.json"
-            onChange={handleImportFileAsVersion}
-            className="hidden"
-          />
         </div>
       </div>
 
@@ -1033,7 +1006,7 @@ export function CharacterVersionsSection({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.98 }}
             transition={{ duration: 0.2 }}
-            className="rounded-3xl p-5 sm:p-6 shadow-xl relative overflow-hidden space-y-4 bg-[#11141c] border border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#000000]/5 [.light-theme_&]:!shadow-xs"
+            className="rounded-3xl p-5 sm:p-6 shadow-xl relative overflow-hidden space-y-4 bg-[#11141c] border border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-black/5 [.light-theme_&]:!shadow-xs"
           >
             <div className="flex items-center justify-between relative z-10">
               <div className="flex items-center gap-2">
@@ -1044,7 +1017,7 @@ export function CharacterVersionsSection({
               </div>
               <button 
                 onClick={() => setIsCreatingSnapshot(false)}
-                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/15 text-white/80 hover:text-white flex items-center justify-center cursor-pointer transition [.light-theme_&]:!bg-[#000000]/5 [.light-theme_&]:!text-slate-600 [.light-theme_&]:hover:!bg-black/10 [.light-theme_&]:hover:!text-[#0f172a] shadow-none border-0"
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/15 text-white/80 hover:text-white flex items-center justify-center cursor-pointer transition [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-slate-600 [.light-theme_&]:hover:!bg-black/10 [.light-theme_&]:hover:!text-[#0f172a] shadow-none border-0"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1060,7 +1033,7 @@ export function CharacterVersionsSection({
                   value={snapshotName}
                   onChange={e => setSnapshotName(e.target.value)}
                   placeholder={`例如 v${currentVersionStr} 或 设定初版备份`}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 sm:py-3 text-sm text-white/90 outline-none focus:border-blue-500/50 transition [.light-theme_&]:!bg-[#000000]/5 [.light-theme_&]:!border-transparent [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-slate-400"
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 sm:py-3 text-sm text-white/90 outline-none focus:border-blue-500/50 transition [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-slate-400"
                 />
               </div>
               <div>
@@ -1072,7 +1045,7 @@ export function CharacterVersionsSection({
                   value={snapshotNote}
                   onChange={e => setSnapshotNote(e.target.value)}
                   placeholder="例如：优化人设提示词与第2段开场白"
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 sm:py-3 text-sm text-white/90 outline-none focus:border-blue-500/50 transition [.light-theme_&]:!bg-[#000000]/5 [.light-theme_&]:!border-transparent [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-slate-400"
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 sm:py-3 text-sm text-white/90 outline-none focus:border-blue-500/50 transition [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-slate-400"
                 />
               </div>
             </div>
@@ -1080,13 +1053,13 @@ export function CharacterVersionsSection({
             <div className="flex items-center justify-end gap-3 pt-1.5 relative z-10">
               <button
                 onClick={() => setIsCreatingSnapshot(false)}
-                className="px-4 py-2 rounded-full text-xs sm:text-sm font-medium cursor-pointer transition active:scale-95 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/5 [.light-theme_&]:!border [.light-theme_&]:!border-[#000000]/10 border-white/20 outline-none shadow-xs"
+                className="px-4 py-2 rounded-full text-xs sm:text-sm font-medium cursor-pointer transition active:scale-95 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/5 [.light-theme_&]:!border [.light-theme_&]:!border-black/10 border-white/20 outline-none shadow-xs"
               >
                 取消
               </button>
               <button
                 onClick={handleCreateSnapshot}
-                className="px-6 py-2 rounded-full text-xs sm:text-sm font-bold bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!border-[#000000] [.light-theme_&]:!text-[#ffffff] shadow-sm cursor-pointer transition active:scale-95 flex items-center justify-center"
+                className="px-6 py-2 rounded-full text-xs sm:text-sm font-bold bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-black [.light-theme_&]:!border-black [.light-theme_&]:!text-white shadow-sm cursor-pointer transition active:scale-95 flex items-center justify-center"
               >
                 保存快照
               </button>
@@ -1203,7 +1176,7 @@ export function CharacterVersionsSection({
                 <GitBranch className="w-6 h-6 mx-auto text-slate-400 [.light-theme_&]:!text-slate-500 opacity-60" />
                 <p className="font-semibold text-xs version-card-title">暂无其它历史快照</p>
                 <p className="text-[11px] version-card-note max-w-sm mx-auto leading-relaxed">
-                  点击顶部的「+ 创建快照」按钮或「绑定卡库旧版」即可归档历史版本，点击卡片即可在各版本间即时滑动切换！
+                  点击顶部的「+ 创建快照」按钮即可归档当前版本，点击卡片即可在各版本间即时滑动切换！
                 </p>
               </div>
             </div>
@@ -1238,10 +1211,10 @@ export function CharacterVersionsSection({
                       <div className="timeline-divider-line flex-1 h-[1.5px] rounded-full" />
                     </div>
 
-                    {/* Floating Soft White Card: Clicking switches active version */}
+                    {/* Floating Soft White Card: Clicking toggles diff details, explicit button switches version */}
                     <div
                       onClick={() => {
-                        if (!isActive) handleSwitchVersion(snapshot);
+                        setExpandedDiffId(isExpanded ? null : snapshot.id);
                       }}
                       className={`soft-card rounded-2xl py-2.5 px-3.5 sm:py-3 sm:px-4 pl-4.5 sm:pl-5 relative overflow-hidden transition-all duration-300 space-y-1.5 sm:space-y-2 cursor-pointer ${
                         isActive 
@@ -1303,7 +1276,7 @@ export function CharacterVersionsSection({
                             }}
                             className={`px-2.5 py-1 rounded-full text-xs font-medium transition flex items-center gap-1 active:scale-95 cursor-pointer ${
                               isExpanded 
-                                ? 'bg-white text-black border border-white shadow-xs [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!text-[#ffffff] [.light-theme_&]:!border-[#000000]' 
+                                ? 'soft-pill !bg-white/20 !text-white !border-white/30 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/15 [.light-theme_&]:!text-[#0f172a] shadow-xs' 
                                 : 'soft-pill'
                             }`}
                             title="查看与当前生效版本的智能差异对比"
@@ -1373,7 +1346,7 @@ export function CharacterVersionsSection({
                           <button
                             type="button"
                             onClick={() => handleSaveSnapshotNote(snapshot.id)}
-                            className="px-3.5 py-1 rounded-full text-xs font-semibold bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!border-[#000000] [.light-theme_&]:!text-[#ffffff] cursor-pointer shadow-xs"
+                            className="px-3.5 py-1 rounded-full text-xs font-semibold bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-black [.light-theme_&]:!border-black [.light-theme_&]:!text-white cursor-pointer shadow-xs"
                           >
                             保存备注
                           </button>
@@ -1628,7 +1601,7 @@ export function CharacterVersionsSection({
                     type="button"
                     disabled={!selectedCandidate}
                     onClick={handleConfirmLink}
-                    className="flex-1 py-3 sm:py-3.5 px-4 rounded-2xl bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!border-[#000000] [.light-theme_&]:!text-[#ffffff] font-bold text-sm sm:text-base shadow-sm disabled:opacity-40 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer whitespace-nowrap"
+                    className="flex-1 py-3 sm:py-3.5 px-4 rounded-2xl bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-black [.light-theme_&]:!border-black [.light-theme_&]:!text-white font-bold text-sm sm:text-base shadow-sm disabled:opacity-40 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer whitespace-nowrap"
                   >
                     <LinkIcon className="w-4 h-4 shrink-0" />
                     关联

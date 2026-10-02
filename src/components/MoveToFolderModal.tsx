@@ -97,8 +97,8 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
           className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 [.light-theme_&]:hover:!bg-black/5 transition text-left cursor-pointer"
           style={{ paddingLeft: `${depth * 1.5 + 0.75}rem` }}
         >
-          <div className="w-10 h-10 rounded-lg bg-white/10 text-white/80 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-slate-700 flex items-center justify-center shrink-0">
-            <FolderIcon className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl bg-white/10 text-white/90 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] flex items-center justify-center shrink-0">
+            <FolderIcon className="w-5 h-5 stroke-[2] text-white/80 [.light-theme_&]:!text-[#0f172a]" />
           </div>
           <span className="font-medium text-white [.light-theme_&]:!text-[#0f172a] truncate">{folder.name}</span>
         </button>
@@ -169,8 +169,8 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
                 onClick={() => onMove(null)}
                 className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 [.light-theme_&]:hover:!bg-black/5 transition text-left cursor-pointer"
               >
-                <div className="w-10 h-10 rounded-lg bg-white/5 [.light-theme_&]:!bg-black/5 flex items-center justify-center text-white/50 [.light-theme_&]:!text-slate-600 shrink-0">
-                  <FolderIcon className="w-5 h-5" />
+                <div className="w-10 h-10 rounded-xl bg-white/10 text-white/90 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] flex items-center justify-center shrink-0">
+                  <FolderIcon className="w-5 h-5 stroke-[2] text-white/80 [.light-theme_&]:!text-[#0f172a]" />
                 </div>
                 <span className="font-medium text-white [.light-theme_&]:!text-[#0f172a]">主页 (移除文件夹)</span>
               </button>
@@ -184,8 +184,8 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
                     onClick={() => onMove(folder.id)}
                     className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 [.light-theme_&]:hover:!bg-black/5 transition text-left cursor-pointer"
                   >
-                    <div className="w-10 h-10 rounded-lg bg-white/10 text-white/80 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-slate-700 flex items-center justify-center shrink-0">
-                      <FolderIcon className="w-5 h-5" />
+                    <div className="w-10 h-10 rounded-xl bg-white/10 text-white/90 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] flex items-center justify-center shrink-0">
+                      <FolderIcon className="w-5 h-5 stroke-[2] text-white/80 [.light-theme_&]:!text-[#0f172a]" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-white [.light-theme_&]:!text-[#0f172a] truncate">{folder.name}</div>

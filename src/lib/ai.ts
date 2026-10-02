@@ -188,7 +188,6 @@ export async function callAI(prompt: string, expectJson: boolean = false, maxRet
       lastError = e;
       console.warn(`AI request failed (attempt ${attempt}/${maxRetries}):`, e);
       if (attempt < maxRetries) {
-        // Wait exponentially before retrying: 1.5s, 3s, 4.5s, 6s...
         await new Promise(resolve => setTimeout(resolve, attempt * 1500));
       }
     }
@@ -198,75 +197,51 @@ export async function callAI(prompt: string, expectJson: boolean = false, maxRet
 }
 
 export async function generateTagsForCharacters(characters: any[]): Promise<string[][]> {
-  const charInfos = characters.map((char, index) => {
-    let worldbookContent = '无';
-    if (char.character_book && char.character_book.entries) {
-      worldbookContent = char.character_book.entries
-        .map((e: any) => `[${e.keys ? (Array.isArray(e.keys) ? e.keys.join(', ') : e.keys) : '条目'}]: ${e.content}`)
-        .join('\n')
-        .substring(0, 1000);
-    } else if (char.extensions?.character_book?.entries) {
-      worldbookContent = char.extensions.character_book.entries
-        .map((e: any) => `[${e.keys ? (Array.isArray(e.keys) ? e.keys.join(', ') : e.keys) : '条目'}]: ${e.content}`)
-        .join('\n')
-        .substring(0, 1000);
-    }
-    
-    return `
-【角色 ${index + 1}】
-角色名称: ${char.name || '未知'}
-描述: ${(char.description || '无').substring(0, 1000)}
-性格: ${(char.personality || '无').substring(0, 500)}
-场景: ${(char.scenario || '无').substring(0, 500)}
-首条消息: ${(char.first_mes || '无').substring(0, 1000)}
-世界书(部分): ${worldbookContent}
-`;
-  }).join('\n\n');
+  const settings = getAISettings();
+  const endpoint = settings.customEndpoints.find(e => e.id === settings.activeCustomId) || settings.customEndpoints[0];
+  if (!endpoint || !endpoint.url || !endpoint.key) {
+    throw new Error("API_KEY_MISSING");
+  }
 
-  const prompt = `你是一个专业的网文标签分析助手，深谙起点中文网、晋江文学城等网络小说平台的流行标签体系与梗文化。请阅读以下 ${characters.length} 个角色设定，并为每个角色提取 3 到 8 个精准的网文风格分类标签。
+  const prompt = `你是一个资深的角色分类专家。请根据以下角色卡的详细信息，为每个角色提取 3 到 6 个最核心的中文标签（Tag）。
 
-【标签要求】
-强烈建议优先使用起点、晋江等网文平台的高频流行词汇，提取以下维度的标签（不需要包含维度名称，直接输出单独的标签词即可）：
-1. 分类题材/世界观：例如 快穿、穿书、无限流、赛博朋克、末世废土、仙侠修真、星际机甲、ABO、克苏鲁、年代、都市异能、西幻魔法 等。
-2. 核心剧情/套路流派：例如 系统流、苟道流、无敌流、迪化流、追妻火葬场、破镜重圆、强强、天作之合、替身、真假千金、万人迷、火葬场、修罗场 等。
-3. 角色属性/人设：例如 病娇、疯批、清冷、绿茶、腹黑、忠犬、傲娇、偏执狂、反派、龙傲天、美强惨、霸总、高岭之花、白月光、朱砂痣、黑莲花、人外 等。
-4. 风格/调性萌点：例如 甜宠、苏爽、治愈、致郁、双向奔赴、沙雕、搞笑、日常、种田 等。
+【标签提取要求】
+1. 优先提取：角色身份职业、性格特征、核心萌点/人设类型（如：傲娇、腹黑、摄政王、青梅竹马、修罗场等）、时代/世界背景（如：古代架空、现代都市、赛博朋克等）。
+2. 标签要精准简短（每个标签 2-5 个字），符合网络小说/角色扮演玩家的常见习惯。
+3. 必须输出 JSON 数组格式，其中包含每个角色的 tags 数组。
 
-【严格禁止的后缀】
-注意：由于我们是在给“角色设定卡”打标签，而不是真正的小说，所以请绝对不要在标签结尾加上“文”或“小说”字样！
-例如：必须用“高干”代替“高干文”，用“甜宠”代替“甜宠文”，用“年代”代替“年代文”，用“爽文”的替代词“苏爽/大女主/大男主”。务必只保留最核心的属性词。
+【待处理角色列表】
+${characters.map((c, i) => `--- 角色 ${i + 1} (ID: ${c.id}) ---
+姓名: ${c.data?.name || c.data?.char_name || c.name || '未知'}
+描述/人设: ${(c.data?.description || c.data?.char_persona || '').substring(0, 500)}
+性格: ${(c.data?.personality || '').substring(0, 300)}
+场景: ${(c.data?.scenario || '').substring(0, 300)}
+开场白: ${(c.data?.first_mes || c.data?.greeting || '').substring(0, 500)}
+`).join('\n')}
 
-${charInfos}
-
-请严格返回一个 JSON 数组，数组的长度必须与角色数量（${characters.length}）一致。数组中的每个元素也是一个数组，包含对应角色提取出的标签字符串。
-例如，如果有 2 个角色，返回格式必须是：
-[
-  ["快穿", "万人迷", "病娇", "修罗场"],
-  ["末世废土", "无限流", "无敌流", "腹黑"]
-]
-不要返回任何其他说明文字。`;
+请按格式返回 JSON：
+{
+  "results": [
+    { "id": "角色1的ID", "tags": ["标签1", "标签2", "标签3"] }
+  ]
+}`;
 
   try {
-    const text = await callAI(prompt, true);
-    let tagsList = JSON.parse(text);
-    
-    // Robust array extraction
-    if (!Array.isArray(tagsList)) {
-      if (typeof tagsList === 'object' && tagsList !== null) {
-        const possibleArray = Object.values(tagsList).find(val => Array.isArray(val));
-        if (possibleArray) {
-          tagsList = possibleArray;
-        }
+    const responseText = await callAI(prompt, true);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(responseText);
+    } catch (err) {
+      const match = responseText.match(/\{[\s\S]*\}/);
+      if (match) {
+        parsed = JSON.parse(match[0]);
       }
     }
-    
-    if (Array.isArray(tagsList)) {
-      return tagsList.map(tags => {
-        if (Array.isArray(tags)) {
-          // Split by comma in case the AI returns a single string with commas
-          return tags.flatMap(t => String(t).split(/[,，、]/)).map(t => t.trim()).filter(t => t);
-        }
-        return [];
+
+    if (parsed && Array.isArray(parsed.results)) {
+      return characters.map(c => {
+        const item = parsed.results.find((r: any) => r.id === c.id || String(r.id) === String(c.id));
+        return item && Array.isArray(item.tags) ? item.tags : [];
       });
     }
     return characters.map(() => []);
