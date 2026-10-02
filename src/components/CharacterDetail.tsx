@@ -2,7 +2,7 @@ import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
 import { useState, useEffect, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, ChevronRight, Plus, Edit2, Power, X as XIcon, ChevronDown, ChevronUp, ExternalLink, Check, Upload, Send, Loader2, Share2, Folder as FolderIcon, History, AlertCircle, Maximize2, BookOpen, Sparkles, FileJson, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, ChevronRight, Plus, Edit2, Power, X as XIcon, ChevronDown, ChevronUp, ExternalLink, Check, Upload, Send, Loader2, Share2, Folder as FolderIcon, History, AlertCircle, Maximize2, BookOpen, Sparkles, FileJson, Image as ImageIcon, Save } from 'lucide-react';
 import { getCharacter, deleteCharacter, saveCharacter, CharacterCard, getFolders, resolveFolderPath, getCachedMeta, getCharacterCategoryPrefix, isActualCharacterCard } from '../lib/db';
 import { getCardTypeBadgeInfo } from '../lib/cardType';
 import { parseTavernCard } from '../types/tavern';
@@ -781,17 +781,18 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                 <div className="space-y-2.5">
                   <button
                     onClick={handleDelete}
-                    className={`w-full py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none ${
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 ${
                       isLightMode
                         ? 'bg-[#fff0f2] hover:bg-[#ffe4e6] active:bg-[#fecdd3] text-[#e11d48] shadow-none'
                         : 'bg-[#FE2C55] hover:bg-[#E02447] active:bg-[#D41C3E] text-white shadow-md shadow-[#FE2C55]/25'
                     }`}
                   >
-                    移至回收站
+                    <Trash2 className="w-4 h-4" />
+                    <span>移至回收站</span>
                   </button>
                   <button
                     onClick={() => setShowDeleteConfirm(false)}
-                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-xs sm:text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none ${
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center ${
                       isLightMode
                         ? 'bg-[#f1f5f9] hover:bg-[#e2e8f0] active:bg-[#cbd5e1] text-[#334155] shadow-none'
                         : 'bg-white/10 hover:bg-white/15 active:bg-white/5 text-white/90'
@@ -826,7 +827,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                 <h3 className="text-base sm:text-lg font-bold text-center text-white [.light-theme_&]:!text-[#0f172a] mb-1">
                   选择下载格式
                 </h3>
-                <p className="text-[11px] sm:text-xs text-center text-white/50 [.light-theme_&]:!text-slate-500 mb-4 px-2 leading-relaxed">
+                <p className="text-[11px] sm:text-xs text-center text-white/70 [.light-theme_&]:!text-slate-600 mb-4 px-2 leading-relaxed">
                   选择以下任意一种格式导出角色卡，均可直接导入酒馆
                 </p>
 
@@ -836,35 +837,35 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                       setShowDownloadChoice(false);
                       handleExportPng(true);
                     }}
-                    className={`w-full py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 ${
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 ${
                       isLightMode
-                        ? 'bg-slate-800 hover:bg-slate-700/10 text-slate-100 shadow-sm'
-                        : 'bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/20'
+                        ? 'bg-[#eff6ff] hover:bg-[#dbeafe] active:bg-[#bfdbfe] text-[#2563eb] shadow-none'
+                        : 'bg-[#007aff] hover:bg-[#0062cc] active:bg-[#0051a8] text-white shadow-md shadow-[#007aff]/25'
                     }`}
                   >
                     <ImageIcon className="w-4 h-4" />
-                    下载 PNG 角色卡
+                    <span>下载 PNG 角色卡</span>
                   </button>
                   <button
                     onClick={() => {
                       setShowDownloadChoice(false);
                       handleExportJson(true);
                     }}
-                    className={`w-full py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm transition-all cursor-pointer active:scale-[0.98] outline-none flex items-center justify-center gap-2 ${
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 ${
                       isLightMode
-                        ? 'bg-slate-800 hover:bg-slate-700/10 text-slate-100 shadow-sm'
-                        : 'bg-white/5 hover:bg-white/10 text-white/90 border border-white/5'
+                        ? 'bg-[#f1f5f9] hover:bg-[#e2e8f0] active:bg-[#cbd5e1] text-[#334155] shadow-none'
+                        : 'bg-white/10 hover:bg-white/15 active:bg-white/5 text-white/90'
                     }`}
                   >
                     <FileJson className="w-4 h-4" />
-                    下载 JSON 角色卡
+                    <span>下载 JSON 角色卡</span>
                   </button>
                   <button
                     onClick={() => setShowDownloadChoice(false)}
-                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-xs sm:text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none ${
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center ${
                       isLightMode
-                        ? 'bg-slate-800 hover:bg-slate-700/10 text-slate-100'
-                        : 'bg-white/5 hover:bg-white/8 text-white/60'
+                        ? 'bg-[#f8fafc] hover:bg-[#f1f5f9] active:bg-[#e2e8f0] text-[#64748b] shadow-none'
+                        : 'bg-white/5 hover:bg-white/10 active:bg-white/[0.02] text-white/60'
                     }`}
                   >
                     取消
@@ -1189,7 +1190,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`relative flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-colors whitespace-nowrap focus:outline-none focus:ring-0 active:outline-none outline-none select-none cursor-pointer z-0 ${
+              className={`relative flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap focus:outline-none focus:ring-0 active:outline-none outline-none select-none cursor-pointer z-0 ${
                 activeTab === tab.id
                   ? 'char-detail-tab-active shadow-sm font-semibold'
                   : 'char-detail-tab-inactive'
@@ -1203,7 +1204,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                   transition={{ type: "spring", stiffness: 450, damping: 35 }}
                 />
               )}
-              <tab.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 relative z-10" />
+              <tab.icon className="w-4 h-4 relative z-10 shrink-0" />
               <span className="relative z-10">{tab.label}</span>
             </button>
           ))}
@@ -1249,7 +1250,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                     <div className="space-y-6">
                       {rawData.prompts && rawData.prompts.length > 0 && (
                         <div className="space-y-4">
-                          <h3 className="text-lg font-semibold text-white/90 border-b border-white/10 pb-2">提示词条目 (Prompts)</h3>
+                          <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-slate-800 border-b border-white/10 [.light-theme_&]:!border-slate-200 pb-2">提示词条目 (Prompts)</h3>
                           {rawData.prompts.map((prompt: any, i: number) => (
                             <div key={i} className="mb-4">
                               <TextPreview title={prompt.name || prompt.identifier || `Prompt ${i+1}`} content={prompt.content || ''} />
@@ -1262,14 +1263,14 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                       {rawData.post_history_instructions && <Section title="历史后提示词 (Post History Instructions)" content={rawData.post_history_instructions} />}
                       
                       <div className="space-y-4">
-                        <h3 className="text-lg font-semibold text-white/90 border-b border-white/10 pb-2">生成参数 (Generation Settings)</h3>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
-                          {rawData.temperature !== undefined && <div><span className="text-white/50">Temperature:</span> {rawData.temperature}</div>}
-                          {rawData.top_p !== undefined && <div><span className="text-white/50">Top P:</span> {rawData.top_p}</div>}
-                          {rawData.top_k !== undefined && <div><span className="text-white/50">Top K:</span> {rawData.top_k}</div>}
-                          {rawData.rep_pen !== undefined && <div><span className="text-white/50">Rep Pen:</span> {rawData.rep_pen}</div>}
-                          {rawData.presence_penalty !== undefined && <div><span className="text-white/50">Presence Pen:</span> {rawData.presence_penalty}</div>}
-                          {rawData.frequency_penalty !== undefined && <div><span className="text-white/50">Frequency Pen:</span> {rawData.frequency_penalty}</div>}
+                        <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-slate-800 border-b border-white/10 [.light-theme_&]:!border-slate-200 pb-2">生成参数 (Generation Settings)</h3>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm [.light-theme_&]:text-slate-700">
+                          {rawData.temperature !== undefined && <div><span className="text-white/50 [.light-theme_&]:!text-slate-500">Temperature:</span> {rawData.temperature}</div>}
+                          {rawData.top_p !== undefined && <div><span className="text-white/50 [.light-theme_&]:!text-slate-500">Top P:</span> {rawData.top_p}</div>}
+                          {rawData.top_k !== undefined && <div><span className="text-white/50 [.light-theme_&]:!text-slate-500">Top K:</span> {rawData.top_k}</div>}
+                          {rawData.rep_pen !== undefined && <div><span className="text-white/50 [.light-theme_&]:!text-slate-500">Rep Pen:</span> {rawData.rep_pen}</div>}
+                          {rawData.presence_penalty !== undefined && <div><span className="text-white/50 [.light-theme_&]:!text-slate-500">Presence Pen:</span> {rawData.presence_penalty}</div>}
+                          {rawData.frequency_penalty !== undefined && <div><span className="text-white/50 [.light-theme_&]:!text-slate-500">Frequency Pen:</span> {rawData.frequency_penalty}</div>}
                         </div>
                       </div>
                     </div>
@@ -1287,6 +1288,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                         <QuickRepliesSection 
                           character={character} 
                           onUpdate={setCharacter} 
+                          isLightMode={isLightMode}
                         />
                       )}
                     </>
@@ -1328,9 +1330,9 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                           setGreetingReaderEditMode(true);
                           setShowGreetingReader(true);
                         }} 
-                        className="detail-purple-btn px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition cursor-pointer active:scale-95"
+                        className="px-2.5 py-1 rounded-full text-xs sm:text-sm font-medium flex items-center gap-1.5 transition cursor-pointer active:scale-95 bg-transparent hover:bg-white/10 text-white/80 hover:text-white [.light-theme_&]:!bg-transparent [.light-theme_&]:!text-slate-700 [.light-theme_&]:hover:!bg-black/5 [.light-theme_&]:hover:!text-slate-900 border-0 outline-none"
                       >
-                        <Plus className="w-3.5 h-3.5" /> 添加
+                        <Plus className="w-4 h-4 opacity-80" /> 添加
                       </button>
                     </div>
                     <div className="space-y-4">
@@ -1365,7 +1367,11 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                           />
                         ))
                       ) : (
-                        <p className="text-white/30 text-sm italic">暂无备用开场白</p>
+                        <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
+                          <div className="detail-card-text-muted text-sm italic">
+                            暂无备用开场白
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1412,11 +1418,11 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                       }}
                     />
                   ) : (
-                    <div className="space-y-6">
-                      <div className="flex justify-between items-center mb-4">
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center mb-2">
                         <div>
-                          <h3 className="text-xl font-bold">世界书</h3>
-                          <p className="text-white/60 text-sm mt-1">
+                          <h2 className="text-xl font-bold text-white/90 [.light-theme_&]:!text-[#0f172a] mb-1">世界书</h2>
+                          <p className="text-sm text-white/60 [.light-theme_&]:!text-[#64748b]">
                             包含世界观、设定和背景信息
                           </p>
                         </div>
@@ -1506,9 +1512,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                         </div>
                       </div>
 
-                      <div className="flex flex-col items-center justify-center p-8 rounded-2xl bg-white/5 border border-white/5 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0] text-white/40 [.light-theme_&]:!text-[#64748b]">
-                        <Book className="w-12 h-12 mb-3 opacity-50" />
-                        <p className="text-sm font-medium">当前角色未包含世界书数据</p>
+                      <div className="w-full detail-card p-8 rounded-2xl flex flex-col items-center justify-center text-center">
+                        <Book className="w-12 h-12 mb-3 opacity-40 text-slate-400 [.light-theme_&]:!text-slate-500" />
+                        <p className="detail-card-text text-sm font-medium">当前角色未包含世界书数据</p>
+                        <p className="detail-card-text-muted text-xs mt-1">点击上方按钮可新建世界书或导入 JSON 设定文件</p>
                       </div>
                     </div>
                   )}
@@ -1639,6 +1646,11 @@ function FullScreenTextModal({
   const [isEditing, setIsEditing] = useState(initialEditMode);
   const [editValue, setEditValue] = useState(content);
 
+  useEffect(() => {
+    setIsEditing(initialEditMode);
+    setEditValue(content);
+  }, [isOpen, content, initialEditMode]);
+
   useBackHandler(isOpen, () => {
     onClose();
     return true;
@@ -1648,7 +1660,7 @@ function FullScreenTextModal({
     if (onSave) {
       onSave(editValue);
     }
-    setIsEditing(false); // Only exit edit mode, modal stays open
+    onClose();
   };
 
   return createPortal(
@@ -1659,42 +1671,38 @@ function FullScreenTextModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex justify-center items-center p-4 sm:p-6"
+          transition={{ duration: 0.18 }}
+          className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex justify-center items-center p-4 sm:p-6 [.light-theme_&]:bg-black/40"
           onClick={onClose}
         >
           <motion.div
             initial={{ scale: 0.95, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
+            transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-slate-900/95 [.light-theme_&]:!bg-[#ffffff] border border-white/10 [.light-theme_&]:!border-[#e2e8f0] shadow-2xl rounded-3xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden text-white [.light-theme_&]:!text-[#0f172a]"
+            className="bg-slate-900 border border-white/10 shadow-2xl rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden [.light-theme_&]:bg-[#FCFCFC] [.light-theme_&]:border-black/5"
           >
-            <header className="px-5 py-4 flex items-center justify-between border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] bg-slate-800/50 [.light-theme_&]:!bg-slate-50">
-              <h2 className="text-lg font-bold truncate pr-4 text-white [.light-theme_&]:!text-[#0f172a]">{title}</h2>
+            <div className="flex-none p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/20 [.light-theme_&]:border-black/5 [.light-theme_&]:bg-black/5">
+              <h3 className="text-lg font-semibold text-white [.light-theme_&]:text-[#1c1c1e]">{title}</h3>
               <div className="flex items-center gap-2">
-                {onSave && (
-                  isEditing ? (
-                    <button onClick={handleSave} className="px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition font-medium shadow-lg shadow-blue-500/20">
-                      保存
-                    </button>
-                  ) : (
-                    <button onClick={() => setIsEditing(true)} className="p-2 text-white/60 hover:text-white hover:bg-white/10 [.light-theme_&]:!text-slate-600 [.light-theme_&]:hover:!bg-slate-200 rounded-lg transition">
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                  )
+                {!isEditing && onSave && (
+                  <button onClick={() => setIsEditing(true)} className="p-1 hover:bg-white/10 rounded-full text-white/60 hover:text-white transition [.light-theme_&]:hover:bg-black/10 [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] cursor-pointer" title="编辑">
+                    <Edit2 className="w-4 h-4" />
+                  </button>
                 )}
-                <button onClick={onClose} className="p-2 rounded-full hover:bg-red-500/20 text-white/60 hover:text-red-400 [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-red-600 transition ml-2">
+                <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-full text-white/60 hover:text-white transition [.light-theme_&]:hover:bg-black/10 [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] cursor-pointer">
                   <XIcon className="w-5 h-5" />
                 </button>
               </div>
-            </header>
+            </div>
 
-            <div className="flex-1 overflow-y-auto p-5 sm:p-6 custom-scrollbar bg-slate-900/40 [.light-theme_&]:!bg-slate-800">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
               {isEditing ? (
                 <textarea 
                   value={editValue}
                   onChange={e => setEditValue(e.target.value)}
-                  className="w-full min-h-[300px] h-full bg-black/40 [.light-theme_&]:!bg-slate-50 border border-white/20 [.light-theme_&]:!border-slate-300 rounded-xl p-4 text-white/90 [.light-theme_&]:!text-slate-900 text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 resize-none font-sans"
+                  className="w-full min-h-[300px] bg-black/30 border border-white/10 rounded-lg p-4 text-white text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 transition resize-none font-sans [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                   autoFocus
                 />
               ) : (
@@ -1704,6 +1712,31 @@ function FullScreenTextModal({
                 />
               )}
             </div>
+
+            {isEditing && (
+              <div className="flex-none p-4 sm:p-6 border-t border-white/10 bg-black/20 flex justify-end gap-3 [.light-theme_&]:border-black/5 [.light-theme_&]:bg-black/5">
+                <button 
+                  onClick={() => {
+                    if (initialEditMode) {
+                      onClose();
+                    } else {
+                      setIsEditing(false);
+                      setEditValue(content);
+                    }
+                  }} 
+                  className="px-4 py-2 rounded-lg text-white/60 hover:text-white hover:bg-white/5 transition [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/10 cursor-pointer"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleSave} 
+                  className="px-6 py-2 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-2 shadow-sm cursor-pointer"
+                >
+                  <Save className="w-4 h-4 stroke-[2.5]" />
+                  保存
+                </button>
+              </div>
+            )}
           </motion.div>
         </motion.div>
       )}
@@ -1761,42 +1794,39 @@ function TextPreview({
   return (
     <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
       {/* Action bar for Editing */}
-      {onSave && (
+      {onSave && !isEditing && (
         <div className="flex justify-end items-center gap-1.5 mb-1.5">
-          {!isEditing && (
-            <button 
-              onClick={handleEdit}
-              className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-slate-800 cursor-pointer"
-              title="编辑"
-            >
-              <Edit2 className="w-3.5 h-3.5" />
-            </button>
-          )}
-          {isEditing && (
-            <button 
-              onClick={handleSave} 
-              className="px-2.5 py-1 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs font-medium transition cursor-pointer [.light-theme_&]:bg-[#1DB954] [.light-theme_&]:hover:bg-[#19A34A]"
-            >
-              保存
-            </button>
-          )}
+          <button 
+            onClick={handleEdit}
+            className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-slate-800 cursor-pointer"
+            title="编辑"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
       {isEditing ? (
-        <div className="w-full flex flex-col gap-2">
+        <div className="w-full flex flex-col gap-2 mt-1">
           <textarea 
             value={editValue}
             onChange={e => setEditValue(e.target.value)}
-            className="w-full bg-black/40 border border-white/20 rounded-xl p-3 text-white/90 text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 min-h-[220px] resize-none [.light-theme_&]:!bg-slate-50 [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-slate-900"
+            className="w-full bg-black/30 border border-white/10 rounded-xl p-3.5 text-white text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 min-h-[220px] resize-none [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#0f172a]"
             autoFocus
           />
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-3 pt-1">
             <button 
               onClick={() => { setIsEditing(false); setEditValue(content); }}
-              className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white/70 text-xs transition [.light-theme_&]:!bg-slate-100 [.light-theme_&]:!text-slate-600 cursor-pointer"
+              className="px-4 py-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/5 text-xs sm:text-sm transition [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/10 cursor-pointer"
             >
               取消
+            </button>
+            <button 
+              onClick={handleSave} 
+              className="px-5 py-1.5 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+            >
+              <Save className="w-3.5 h-3.5 stroke-[2.5]" />
+              保存
             </button>
           </div>
         </div>
@@ -1811,7 +1841,7 @@ function TextPreview({
               <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
                 <FormattedCardContent content={content} character={character} clampLines={3} />
               </div>
-              <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-slate-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-slate-900 text-xs font-medium flex items-center gap-1 transition-colors">
+              <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
                 <span>展开全文</span>
                 <ChevronDown className="w-3 h-3" />
               </div>
@@ -1821,7 +1851,7 @@ function TextPreview({
               <FormattedCardContent content={content} character={character} />
               <button 
                 onClick={(e) => { e.stopPropagation(); setIsExpanded(false); }}
-                className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] text-xs font-medium py-1.5 hover:bg-[#60A5FA]/10 [.light-theme_&]:hover:bg-[#60A5FA]/5 rounded-lg transition w-full cursor-pointer"
+                className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] [.light-theme_&]:!text-blue-600 text-xs font-medium py-1.5 hover:bg-[#60A5FA]/10 [.light-theme_&]:hover:bg-blue-50 rounded-lg transition w-full cursor-pointer"
               >
                 <ChevronUp className="w-3.5 h-3.5" /> 收起
               </button>
@@ -1834,7 +1864,7 @@ function TextPreview({
               <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
                 <FormattedCardContent content={content} character={character} clampLines={3} />
               </div>
-              <div className="mt-1.5 text-[#60A5FA] text-xs font-medium flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+              <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
                 <span>展开全文</span>
                 <ChevronDown className="w-3 h-3" />
               </div>
@@ -1890,7 +1920,7 @@ function AlternateGreetingCard({
   return (
     <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
       <div className="flex flex-wrap sm:flex-nowrap justify-between items-center gap-2 mb-1.5">
-        <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-slate-800 text-sm truncate">
+        <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 text-sm truncate">
           备用开场白 {index + 1}
         </h4>
         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -1898,18 +1928,9 @@ function AlternateGreetingCard({
             <button 
               onClick={handleEdit} 
               className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-slate-800 cursor-pointer"
-              title="全屏编辑"
+              title="编辑"
             >
               <Edit2 className="w-3.5 h-3.5" />
-            </button>
-          )}
-          {isEditing && (
-            <button 
-              onClick={handleSave} 
-              className="p-1 hover:bg-green-500/20 rounded text-green-400 transition cursor-pointer [.light-theme_&]:text-[#1DB954] [.light-theme_&]:hover:bg-[#1DB954]/10"
-              title="保存"
-            >
-              <Check className="w-4 h-4" />
             </button>
           )}
           <button 
@@ -1927,20 +1948,21 @@ function AlternateGreetingCard({
           <textarea 
             value={editValue}
             onChange={e => setEditValue(e.target.value)}
-            className="w-full bg-black/40 border border-white/20 rounded-xl p-3 text-white/90 text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 min-h-[220px] resize-none [.light-theme_&]:!bg-slate-50 [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-slate-900"
+            className="w-full bg-black/30 border border-white/10 rounded-xl p-3.5 text-white text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 min-h-[220px] resize-none [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#0f172a]"
             autoFocus
           />
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-3 pt-1">
             <button 
               onClick={() => { setIsEditing(false); setEditValue(content); }}
-              className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white/70 text-xs transition [.light-theme_&]:!bg-slate-100 [.light-theme_&]:!text-slate-600 cursor-pointer"
+              className="px-4 py-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/5 text-xs sm:text-sm transition [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/10 cursor-pointer"
             >
               取消
             </button>
             <button 
               onClick={handleSave} 
-              className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition cursor-pointer"
+              className="px-5 py-1.5 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-1.5 shadow-sm cursor-pointer"
             >
+              <Save className="w-3.5 h-3.5 stroke-[2.5]" />
               保存
             </button>
           </div>
@@ -1954,7 +1976,7 @@ function AlternateGreetingCard({
             <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
               <FormattedCardContent content={content} character={character} clampLines={3} />
             </div>
-            <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-slate-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-slate-900 text-xs font-medium flex items-center gap-1 transition-colors">
+            <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
               <span>展开全文</span>
               <ChevronDown className="w-3 h-3" />
             </div>
@@ -1964,7 +1986,6 @@ function AlternateGreetingCard({
     </div>
   );
 }
-
 
 function Section({ 
   title, 
@@ -1997,9 +2018,9 @@ function Section({
                   setIsAdding(true);
                 }
               }} 
-              className="detail-purple-btn px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition cursor-pointer active:scale-95"
+              className="px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 transition cursor-pointer active:scale-95 bg-transparent hover:bg-white/10 text-white/80 hover:text-white [.light-theme_&]:!bg-transparent [.light-theme_&]:!text-slate-700 [.light-theme_&]:hover:!bg-black/5 [.light-theme_&]:hover:!text-slate-900 border-0 outline-none"
             >
-              <Plus className="w-3.5 h-3.5" /> 添加
+              <Plus className="w-3.5 h-3.5 opacity-80" /> 添加
             </button>
           )}
         </div>
@@ -2014,7 +2035,20 @@ function Section({
           onOpenEdit={onOpenEdit}
         />
       ) : (
-        <p className="text-white/30 text-sm italic">暂无内容</p>
+        <div 
+          className={`w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2 ${onSave || onOpenEdit ? 'cursor-pointer hover:bg-white/10 [.light-theme_&]:hover:!bg-slate-50' : ''}`}
+          onClick={() => {
+            if (onOpenEdit) {
+              onOpenEdit();
+            } else if (onSave) {
+              setIsAdding(true);
+            }
+          }}
+        >
+          <div className="detail-card-text-muted text-sm italic">
+            暂无内容
+          </div>
+        </div>
       )}
 
       <FullScreenTextModal
@@ -2234,11 +2268,15 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     setEditingEntryIndex(null);
                     setEditingEntry(null);
                   }} 
-                  className="px-4 py-2 rounded-lg text-white/60 hover:text-white hover:bg-white/5 transition [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/10"
+                  className="px-4 py-2 rounded-lg text-white/60 hover:text-white hover:bg-white/5 transition [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/10 cursor-pointer"
                 >
                   取消
                 </button>
-                <button onClick={saveEntry} className="px-6 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-2 shadow-lg shadow-blue-500/20">
+                <button 
+                  onClick={saveEntry} 
+                  className="px-6 py-2 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-2 shadow-sm cursor-pointer"
+                >
+                  <Save className="w-4 h-4 stroke-[2.5]" />
                   保存
                 </button>
               </div>
@@ -2254,10 +2292,10 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
     <div className="flex flex-col gap-4 w-full h-full relative">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <h2 className="text-xl font-bold text-white mb-1">
+          <h2 className="text-xl font-bold text-white/90 [.light-theme_&]:!text-[#0f172a] mb-1">
             {book.name || (book.data && book.data.name) || 'Worldbook'}
           </h2>
-          <p className="text-sm text-white/60">
+          <p className="text-sm text-white/60 [.light-theme_&]:!text-[#64748b]">
             {book.description || (book.data && book.data.description) || '包含世界观、设定和背景信息'}
           </p>
         </div>
@@ -2331,9 +2369,10 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
       
       <div className="space-y-3">
         {entries.length === 0 ? (
-          <div className="flex flex-col items-center justify-center p-8 rounded-2xl bg-white/5 border border-white/5 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0] text-white/40 [.light-theme_&]:!text-[#64748b]">
-            <Book className="w-12 h-12 mb-3 opacity-50" />
-            <p className="text-sm font-medium">世界书中暂无条目，请点击上方管理或添加条目</p>
+          <div className="w-full detail-card p-8 rounded-2xl flex flex-col items-center justify-center text-center">
+            <Book className="w-12 h-12 mb-3 opacity-40 text-slate-400 [.light-theme_&]:!text-slate-500" />
+            <p className="detail-card-text text-sm font-medium">世界书中暂无条目</p>
+            <p className="detail-card-text-muted text-xs mt-1">请点击上方管理或添加条目</p>
           </div>
         ) : (
           entries.map((entry: any, i: number) => {
@@ -2384,7 +2423,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                         {entry.content || entry.entry || ''}
                         <button 
                           onClick={(e) => { e.stopPropagation(); setViewingEntryIndex(null); }}
-                          className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] text-xs font-medium py-1.5 hover:bg-[#60A5FA]/10 [.light-theme_&]:hover:bg-[#60A5FA]/5 rounded-lg transition w-full cursor-pointer"
+                          className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] [.light-theme_&]:!text-blue-600 text-xs font-medium py-1.5 hover:bg-[#60A5FA]/10 [.light-theme_&]:hover:bg-blue-50 rounded-lg transition w-full cursor-pointer"
                         >
                           <ChevronUp className="w-3.5 h-3.5" /> 收起 
                         </button>
@@ -2392,7 +2431,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     ) : (
                       <>
                         <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">{entry.content || entry.entry || ''}</div>
-                        <div className="mt-1.5 text-[#60A5FA] text-xs font-medium flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                        <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
                           <span>展开全文</span>
                           <ChevronDown className="w-3 h-3" />
                         </div>
@@ -2410,3 +2449,4 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
     </div>
   );
 }
+
