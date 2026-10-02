@@ -1176,8 +1176,8 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         </div>
 
         {/* Tabs */}
-        <div className="sticky top-[72px] z-20 -mx-4 px-4 py-2 mb-4 backdrop-blur-md">
-          <div className="flex gap-2 overflow-x-auto hide-scrollbar scroll-smooth px-1 py-1 pr-8">
+        <div className="sticky top-[72px] z-20 -mx-4 px-4 py-2 mb-4">
+          <div className="flex gap-2 overflow-x-auto hide-scrollbar">
           {(isSpecialData ? [
              { id: 'data_viewer', icon: User, label: '数据详情' },
           ] : [
@@ -1206,7 +1206,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`relative flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium transition-colors whitespace-nowrap focus:outline-none focus:ring-0 active:outline-none outline-none select-none cursor-pointer z-0 shrink-0 ${
+              className={`relative flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap focus:outline-none focus:ring-0 active:outline-none outline-none select-none cursor-pointer z-0 ${
                 activeTab === tab.id
                   ? 'char-detail-tab-active shadow-sm font-semibold'
                   : 'char-detail-tab-inactive'

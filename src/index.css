@@ -526,30 +526,10 @@ button:focus-visible,
   --tw-prose-quote-borders: #cbd5e1 !important;
   --tw-prose-captions: #64748b !important;
   --tw-prose-code: #0f172a !important;
-  --tw-prose-pre-code: #0f172a !important;
-  --tw-prose-pre-bg: #f1f5f9 !important;
+  --tw-prose-pre-code: #e2e8f0 !important;
+  --tw-prose-pre-bg: #1e293b !important;
   --tw-prose-th-borders: #cbd5e1 !important;
   --tw-prose-td-borders: #e2e8f0 !important;
-}
-
-.light-theme .memo-prose-adapt,
-.light-theme .memo-prose-adapt p,
-.light-theme .memo-prose-adapt h1,
-.light-theme .memo-prose-adapt h2,
-.light-theme .memo-prose-adapt h3,
-.light-theme .memo-prose-adapt h4,
-.light-theme .memo-prose-adapt li,
-.light-theme .memo-prose-adapt span,
-.light-theme .memo-prose-adapt strong,
-.light-theme .memo-prose-adapt blockquote {
-  color: #0f172a !important;
-}
-.light-theme .memo-prose-adapt a {
-  color: #2563eb !important;
-}
-.light-theme .memo-prose-adapt code {
-  color: #0f172a !important;
-  background-color: rgba(0, 0, 0, 0.05) !important;
 }
 
 /* Memo Section Header & Empty State */
@@ -2191,3 +2171,33 @@ div.border-rose-500\/40 svg {
   }
 }
 
+/* ===== Auto tagger action buttons: unified black ===== */
+.tagger-btn-black {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border-color: #27272a !important;
+}
+.tagger-btn-black:hover:not(:disabled) {
+  background-color: #18181b !important;
+  color: #ffffff !important;
+}
+.tagger-btn-black:active:not(:disabled) {
+  background-color: #27272a !important;
+  color: #ffffff !important;
+}
+.tagger-btn-black:disabled {
+  opacity: 0.4 !important;
+}
+.light-theme .tagger-btn-black {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border-color: #000000 !important;
+}
+.light-theme .tagger-btn-black:hover:not(:disabled) {
+  background-color: #18181b !important;
+  color: #ffffff !important;
+}
+.light-theme .tagger-btn-black:active:not(:disabled) {
+  background-color: #27272a !important;
+  color: #ffffff !important;
+}

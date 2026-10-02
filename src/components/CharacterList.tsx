@@ -2355,7 +2355,7 @@ export function CharacterList({
   };
 
   return (
-    <div className="pb-32 min-h-full bg-gradient-to-br from-slate-900 to-slate-800 text-white" onTouchStart={handleRootTouchStart} onTouchEnd={handleRootTouchEnd}>
+    <div className="pb-32 min-h-full bg-gradient-to-br from-slate-900 to-slate-800 text-white [.light-theme_&]:!bg-transparent [.light-theme_&]:!text-[#0f172a]" onTouchStart={handleRootTouchStart} onTouchEnd={handleRootTouchEnd}>
       <input
         type="file"
         ref={coverInputRef}
@@ -2365,9 +2365,9 @@ export function CharacterList({
       />
       <motion.header
         initial={{ y: 0 }}
-        animate={{ y: isHeaderVisible ? 0 : "-100%" }}
+        animate={{ y: (isHeaderVisible || selectionMode) ? 0 : "-100%" }}
         transition={{ duration: 0.22, ease: "easeOut" }}
-        className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur-xl border-b border-white/10 px-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] pb-4 mb-6 cursor-pointer"
+        className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur-xl border-b border-white/10 px-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] pb-4 mb-6 cursor-pointer [.light-theme_&]:!bg-[#ffffff]/90 [.light-theme_&]:!border-none"
         onClick={(e) => {
           if (e.target === e.currentTarget) {
             scrollToTop();
@@ -2388,7 +2388,7 @@ export function CharacterList({
                   setSelectionMode(false);
                   setSelectedIds(new Set());
                 }}
-                className="p-2 rounded-xl transition shrink-0 cursor-pointer active:scale-95 bg-white/5 hover:bg-white/10 text-slate-300 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]"
+                className="p-2 rounded-xl transition shrink-0 cursor-pointer active:scale-95 bg-white/5 hover:bg-white/10 text-slate-300 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#0f172a]"
                 title="退出选择"
               >
                 <X className="w-5 h-5" />
@@ -2406,13 +2406,13 @@ export function CharacterList({
             <div className="flex items-center gap-2 shrink-0">
               <button
                 onClick={handleSelectPage}
-                className="px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 bg-white/5 hover:bg-white/10 text-slate-200 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1]"
+                className="px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 bg-white/5 hover:bg-white/10 text-slate-200 border-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-none"
               >
                 全选本页
               </button>
               <button
                 onClick={handleSelectAll}
-                className="px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 bg-white/5 hover:bg-white/10 text-slate-200 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1]"
+                className="px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 bg-white/5 hover:bg-white/10 text-slate-200 border-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-none"
               >
                 全选所有
               </button>
@@ -2430,18 +2430,18 @@ export function CharacterList({
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleBack}
-                      className="p-1 -ml-1 rounded-lg hover:bg-white/10 transition text-white/60 hover:text-white"
+                      className="p-1 -ml-1 rounded-lg hover:bg-white/10 transition text-white/60 hover:text-white [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/5"
                       title="返回上一层"
                     >
                       <ChevronLeft className="w-6 h-6" />
                     </button>
-                    <h1 className="text-2xl font-bold text-white truncate">
+                    <h1 className="text-2xl font-bold text-white truncate [.light-theme_&]:!text-[#0f172a]">
                       {folderId === "all" ? "全部角色" : currentFolderName}
                     </h1>
                   </div>
 
                   {folderId !== "all" && folderAncestors[folderId] && folderAncestors[folderId].length > 0 && (
-                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-xs text-white/50">
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-xs text-white/50 [.light-theme_&]:!text-[#64748b]">
                       <button
                         onClick={() => {
                           if (searchQuery) {
@@ -2450,16 +2450,16 @@ export function CharacterList({
                           }
                           onSelectFolder?.(null);
                         }}
-                        className="hover:text-blue-400 transition flex items-center gap-1 shrink-0"
+                        className="hover:text-blue-400 transition flex items-center gap-1 shrink-0 [.light-theme_&]:hover:!text-blue-600"
                       >
                         <Home className="w-3.5 h-3.5" />
                         <span>主页</span>
                       </button>
                       {folderAncestors[folderId].map((crumb, idx) => (
                         <React.Fragment key={crumb.id || idx}>
-                          <ChevronRight className="w-3 h-3 text-white/30 shrink-0" />
+                          <ChevronRight className="w-3 h-3 text-white/30 shrink-0 [.light-theme_&]:!text-[#94a3b8]" />
                           {idx === folderAncestors[folderId].length - 1 ? (
-                            <span className="font-semibold text-white/90 truncate max-w-[150px] sm:max-w-[220px]">
+                            <span className="font-semibold text-white/90 truncate max-w-[150px] sm:max-w-[220px] [.light-theme_&]:!text-[#0f172a]">
                               {crumb.name}
                             </span>
                           ) : (
@@ -2471,7 +2471,7 @@ export function CharacterList({
                                 }
                                 onSelectFolder?.(crumb.id);
                               }}
-                              className="hover:text-white [.light-theme_&]:hover:!text-[#1c1c1e] transition truncate max-w-[120px] shrink-0"
+                              className="hover:text-white [.light-theme_&]:hover:!text-[#0f172a] transition truncate max-w-[120px] shrink-0"
                             >
                               {crumb.name}
                             </button>
@@ -2491,7 +2491,7 @@ export function CharacterList({
                   </span>
                 </div>
               )}
-              <p className="text-slate-400 text-xs mt-0.5 truncate">
+              <p className="text-slate-400 text-xs mt-0.5 truncate [.light-theme_&]:!text-[#64748b]">
                 {folders.length > 0 && totalCharacters > 0
                   ? `${folders.length} 个文件夹 · ${totalCharacters} 个角色`
                   : folders.length > 0
@@ -2503,7 +2503,7 @@ export function CharacterList({
             <div className="flex items-center gap-2">
               <button
                 onClick={onOpenSidebar}
-                className="p-1.5 sm:p-2 rounded-xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition shrink-0 flex items-center justify-center min-w-[36px] min-h-[36px]"
+                className="p-1.5 sm:p-2 rounded-xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition shrink-0 flex items-center justify-center min-w-[36px] min-h-[36px] [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"
                 title="打开导航菜单"
               >
                 {googleUser?.photoURL ? (
@@ -2519,13 +2519,13 @@ export function CharacterList({
               </button>
 
               <div className="relative flex-1 min-w-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 [.light-theme_&]:!text-[#64748b]" />
                 <input
                   type="text"
                   placeholder="搜索..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-blue-500/50 transition"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-blue-500/50 transition [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#8e8e93] [.light-theme_&]:focus:!bg-[#e4e7eb]"
                 />
               </div>
 
@@ -2539,7 +2539,7 @@ export function CharacterList({
                         : "grid",
                   )
                 }
-                className="p-2 bg-white/5 border border-white/10 rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition shrink-0"
+                className="p-2 bg-white/5 border border-white/10 rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition shrink-0 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"
               >
                 {viewMode === "grid" ? (
                   <LayoutGrid className="w-5 h-5" />
@@ -2557,7 +2557,7 @@ export function CharacterList({
                     setIsSortOpen(!isSortOpen);
                     setIsFilterOpen(false);
                   }}
-                  className={`p-2 border rounded-xl transition ${isSortOpen ? "bg-blue-500/20 text-blue-400 border-blue-500/50" : "bg-white/5 text-white/60 border-white/10 hover:text-white hover:bg-white/10"}`}
+                  className={`p-2 border rounded-xl transition cursor-pointer ${isSortOpen ? "bg-blue-500/20 text-blue-400 border-blue-500/50 [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-blue-600 [.light-theme_&]:!border-none" : "bg-white/5 text-white/60 border-white/10 hover:text-white hover:bg-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"}`}
                 >
                   <ArrowUpDown className="w-5 h-5" />
                 </button>
@@ -2568,7 +2568,7 @@ export function CharacterList({
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 10 }}
-                      className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-white/10 rounded-2xl shadow-xl z-50 p-2 overflow-hidden"
+                      className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-white/10 rounded-2xl shadow-xl z-50 p-2 overflow-hidden [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-none [.light-theme_&]:!shadow-2xl"
                     >
                       {[
                         { value: "newest_import", label: "最新导入" },
@@ -2583,10 +2583,10 @@ export function CharacterList({
                             setSortBy(option.value as SortOption);
                             setIsSortOpen(false);
                           }}
-                          className={`w-full text-left px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-medium transition ${
+                          className={`w-full text-left px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-medium transition cursor-pointer ${
                             sortBy === option.value
-                              ? "bg-blue-500/20 text-blue-400 font-semibold"
-                              : "text-white/70 hover:bg-white/5 hover:text-white"
+                              ? "bg-blue-500/20 text-blue-400 font-semibold [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-blue-600"
+                              : "text-white/70 hover:bg-white/5 hover:text-white [.light-theme_&]:!text-[#334155] [.light-theme_&]:hover:!bg-[#f1f2f6] [.light-theme_&]:hover:!text-[#0f172a]"
                           }`}
                         >
                           {option.label}
@@ -2607,7 +2607,7 @@ export function CharacterList({
                     setIsFilterOpen(!isFilterOpen);
                     setIsSortOpen(false);
                   }}
-                  className={`p-2 border rounded-xl transition ${selectedTags.length > 0 ? "bg-blue-500/20 text-blue-400 border-blue-500/50" : "bg-white/5 text-white/60 border-white/10 hover:text-white hover:bg-white/10"}`}
+                  className={`p-2 border rounded-xl transition cursor-pointer ${selectedTags.length > 0 ? "bg-blue-500/20 text-blue-400 border-blue-500/50 [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-blue-600 [.light-theme_&]:!border-none" : "bg-white/5 text-white/60 border-white/10 hover:text-white hover:bg-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"}`}
                 >
                   <Filter className="w-5 h-5" />
                 </button>
@@ -2618,18 +2618,18 @@ export function CharacterList({
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 10 }}
-                      className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-slate-800 border border-white/10 rounded-3xl shadow-2xl z-50 p-5 sm:p-6 max-h-[65vh] overflow-y-auto overscroll-contain touch-pan-y miu-skin [.light-theme_&]:bg-slate-800 [.light-theme_&]:border-white/10 [.light-theme_&]:shadow-xl"
+                      className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-slate-800 border border-white/10 rounded-3xl shadow-2xl z-50 p-5 sm:p-6 max-h-[65vh] overflow-y-auto overscroll-contain touch-pan-y miu-skin [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-none [.light-theme_&]:!shadow-2xl"
                     >
                       <div className="flex items-center justify-between mb-4 relative h-7">
                         {!isTagSearchOpen ? (
                           <div className="absolute inset-0 flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <h3 className="font-bold text-sm sm:text-base text-white [.light-theme_&]:text-white">
+                              <h3 className="font-bold text-sm sm:text-base text-white [.light-theme_&]:!text-[#0f172a]">
                                 按标签筛选
                               </h3>
                               <button
                                 onClick={() => setIsTagSearchOpen(true)}
-                                className="text-white/40 hover:text-white transition p-1 [.light-theme_&]:text-white/40 [.light-theme_&]:hover:text-white"
+                                className="text-white/40 hover:text-white transition p-1 [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] cursor-pointer"
                                 title="搜索标签"
                               >
                                 <Search className="w-4 h-4" />
@@ -2639,7 +2639,7 @@ export function CharacterList({
                               {selectedTags.length > 0 && (
                                 <button
                                   onClick={() => setSelectedTags([])}
-                                  className="text-xs font-semibold text-red-400 hover:text-red-300 transition [.light-theme_&]:text-red-400 [.light-theme_&]:hover:text-red-300"
+                                  className="text-xs font-semibold text-red-400 hover:text-red-300 transition [.light-theme_&]:!text-red-500 [.light-theme_&]:hover:!text-red-600 cursor-pointer"
                                 >
                                   清除选中
                                 </button>
@@ -2650,9 +2650,9 @@ export function CharacterList({
                           <motion.div
                             initial={{ width: 0, opacity: 0 }}
                             animate={{ width: "100%", opacity: 1 }}
-                            className="absolute right-0 flex items-center bg-white/10 rounded-xl overflow-hidden h-full px-2 [.light-theme_&]:bg-white/10"
+                            className="absolute right-0 flex items-center bg-white/10 rounded-xl overflow-hidden h-full px-2 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none"
                           >
-                            <Search className="w-4 h-4 text-white/40 shrink-0 [.light-theme_&]:text-white/40" />
+                            <Search className="w-4 h-4 text-white/40 shrink-0 [.light-theme_&]:!text-[#64748b]" />
                             <input
                               autoFocus
                               type="text"
@@ -2661,14 +2661,14 @@ export function CharacterList({
                               onChange={(e) =>
                                 setTagSearchQuery(e.target.value)
                               }
-                              className="w-full bg-transparent text-xs sm:text-sm text-white placeholder:text-white/40 [.light-theme_&]:placeholder:!text-slate-400 px-2 py-1 outline-none min-w-0 [.light-theme_&]:bg-transparent [.light-theme_&]:text-white"
+                              className="w-full bg-transparent text-xs sm:text-sm text-white placeholder:text-white/40 [.light-theme_&]:placeholder:!text-[#94a3b8] px-2 py-1 outline-none min-w-0 [.light-theme_&]:bg-transparent [.light-theme_&]:!text-[#0f172a]"
                             />
                             <button
                               onClick={() => {
                                 setIsTagSearchOpen(false);
                                 setTagSearchQuery("");
                               }}
-                              className="p-1 hover:bg-white/10 rounded-md text-white/60 hover:text-white transition shrink-0 [.light-theme_&]:hover:bg-white/10 [.light-theme_&]:text-white/60 [.light-theme_&]:hover:text-white"
+                              className="p-1 hover:bg-white/10 rounded-md text-white/60 hover:text-white transition shrink-0 [.light-theme_&]:hover:!bg-black/10 [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] cursor-pointer"
                             >
                               <X className="w-3.5 h-3.5" />
                             </button>
@@ -2676,7 +2676,7 @@ export function CharacterList({
                         )}
                       </div>
                       {allTags.length === 0 ? (
-                        <p className="text-xs sm:text-sm text-white/40 py-4 [.light-theme_&]:text-white/40">无可用标签</p>
+                        <p className="text-xs sm:text-sm text-white/40 py-4 [.light-theme_&]:!text-[#64748b]">无可用标签</p>
                       ) : (
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pt-1">
                           {allTags
@@ -2707,10 +2707,10 @@ export function CharacterList({
                                       setSelectedTags([...selectedTags, tag]);
                                     }
                                   }}
-                                  className={`px-3 sm:px-3.5 py-1.5 rounded-2xl text-xs sm:text-sm font-medium transition cursor-pointer select-none active:scale-95 ${
+                                  className={`px-3.5 py-1.5 rounded-2xl text-xs sm:text-sm font-medium transition-all cursor-pointer select-none active:scale-95 border-none ${
                                     isSelected 
-                                      ? "bg-blue-500/25 text-blue-300 font-semibold border border-blue-500/40 [.light-theme_&]:!font-semibold [.light-theme_&]:!border-none [.light-theme_&]:bg-blue-500 [.light-theme_&]:text-white shadow-xs" 
-                                      : "bg-white/5 text-white/75 hover:text-white hover:bg-white/10 [.light-theme_&]:hover:!text-[#09090b] [.light-theme_&]:!border-none [.light-theme_&]:bg-white/10 [.light-theme_&]:text-white/70 [.light-theme_&]:hover:bg-white/20"
+                                      ? "bg-blue-500/25 text-blue-300 font-semibold [.light-theme_&]:!bg-blue-600 [.light-theme_&]:!text-[#ffffff] shadow-xs" 
+                                      : "bg-white/5 text-white/75 hover:text-white hover:bg-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!text-[#2c3e50] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:hover:!text-[#0f172a]"
                                   }`}
                                   title="点击筛选标签，长按管理标签"
                                 >
@@ -2725,18 +2725,50 @@ export function CharacterList({
                 </AnimatePresence>
               </div>
             </div>
+
+            {selectedTags.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1 pb-0.5">
+                <span className="text-xs text-white/50 [.light-theme_&]:!text-[#64748b] shrink-0">已筛选:</span>
+                {selectedTags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold bg-blue-500/20 text-blue-300 border-none [.light-theme_&]:!bg-blue-100/70 [.light-theme_&]:!text-blue-700 shrink-0"
+                  >
+                    <span>{tag}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedTags(selectedTags.filter((t) => t !== tag));
+                      }}
+                      className="p-0.5 hover:bg-white/20 [.light-theme_&]:hover:!bg-blue-200 rounded-md transition cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedTags([]);
+                  }}
+                  className="text-xs text-red-400 hover:text-red-300 [.light-theme_&]:!text-red-500 [.light-theme_&]:hover:!text-red-600 ml-1 shrink-0 font-medium cursor-pointer"
+                >
+                  清空
+                </button>
+              </div>
+            )}
           </motion.div>
         )}
       </motion.header>
 
       {totalItems === 0 ? (
-        <div className="flex flex-col items-center justify-center h-64 text-slate-400 px-4">
-          <BookOpen className="w-16 h-16 mb-4 opacity-50" />
-          <p>No characters found.</p>
-          <p className="text-sm">Tap the + button to import.</p>
+        <div className="flex flex-col items-center justify-center h-64 text-slate-400 px-4 [.light-theme_&]:!text-[#64748b]">
+          <BookOpen className="w-16 h-16 mb-4 opacity-50 [.light-theme_&]:!text-[#94a3b8]" />
+          <p className="[.light-theme_&]:!text-[#0f172a] font-medium">No characters found.</p>
+          <p className="text-sm [.light-theme_&]:!text-[#64748b]">Tap the + button to import.</p>
         </div>
       ) : (
-        <div className="px-4">
+        <div className={`px-4 transition-all duration-200 ${selectionMode ? 'pb-36 sm:pb-40' : 'pb-12 sm:pb-16'}`}>
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -2880,27 +2912,27 @@ export function CharacterList({
                           {viewMode === "list" ? (
                             <div className="flex-1 min-w-0 flex flex-col justify-center">
                               <div className="flex items-center gap-2">
-                                <span className="font-semibold text-white/90 truncate">{folder.name}</span>
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 font-normal shrink-0">
+                                <span className="font-semibold text-white/90 truncate [.light-theme_&]:!text-[#0f172a]">{folder.name}</span>
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 font-normal shrink-0 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 [.light-theme_&]:!border [.light-theme_&]:!border-blue-200">
                                   {folderCounts[folder.id]?.chars ?? 0} 照片{folderCounts[folder.id]?.subfolders ? ` · ${folderCounts[folder.id]?.subfolders} 文件夹` : ''}
                                 </span>
                               </div>
                               {debouncedSearchQuery && folderPaths[folder.id] && folderPaths[folder.id] !== folder.name && (
-                                <span className="text-xs text-blue-300/70 truncate mt-0.5">
+                                <span className="text-xs text-blue-300/70 truncate mt-0.5 [.light-theme_&]:!text-blue-600">
                                   路径: {folderPaths[folder.id]}
                                 </span>
                               )}
                             </div>
                           ) : (
                             <div className="flex flex-col items-center w-full min-w-0 px-1 mt-1.5 text-center">
-                              <span className="text-xs font-semibold text-white/90 group-hover:text-white transition truncate w-full">
+                              <span className="text-xs font-semibold text-white/90 group-hover:text-white transition truncate w-full [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:group-hover:!text-black">
                                 {folder.name}
                               </span>
-                              <span className="text-[11px] text-white/45 group-hover:text-white/65 transition truncate mt-0.5">
+                              <span className="text-[11px] text-white/45 group-hover:text-white/65 transition truncate mt-0.5 [.light-theme_&]:!text-[#64748b] [.light-theme_&]:group-hover:!text-[#334155]">
                                 {folderCounts[folder.id]?.chars ?? 0} 照片{folderCounts[folder.id]?.subfolders ? ` · ${folderCounts[folder.id]?.subfolders} 文件夹` : ''}
                               </span>
                               {debouncedSearchQuery && folderPaths[folder.id] && folderPaths[folder.id] !== folder.name && (
-                                <span className="text-[10px] text-blue-300/70 truncate w-full text-center px-1 mt-0.5">
+                                <span className="text-[10px] text-blue-300/70 truncate w-full text-center px-1 mt-0.5 [.light-theme_&]:!text-blue-600">
                                   {folderPaths[folder.id]}
                                 </span>
                               )}
@@ -2914,10 +2946,10 @@ export function CharacterList({
               )}
 
               {paginatedFolders.length === 0 && characters.length === 0 && (searchQuery || selectedTags.length > 0) && (
-                <div className="flex flex-col items-center justify-center py-20 text-white/40">
-                  <Search className="w-12 h-12 mb-3 text-white/20 stroke-1" />
-                  <p className="text-base font-medium">未找到匹配的角色卡或文件夹</p>
-                  <p className="text-xs mt-1 text-white/30">
+                <div className="flex flex-col items-center justify-center py-20 text-white/40 [.light-theme_&]:!text-[#64748b]">
+                  <Search className="w-12 h-12 mb-3 text-white/20 stroke-1 [.light-theme_&]:!text-[#94a3b8]" />
+                  <p className="text-base font-medium [.light-theme_&]:!text-[#0f172a]">未找到匹配的角色卡或文件夹</p>
+                  <p className="text-xs mt-1 text-white/30 [.light-theme_&]:!text-[#64748b]">
                     已搜索全部目录，尝试更换关键词或清除筛选标签
                   </p>
                 </div>
@@ -3000,18 +3032,23 @@ export function CharacterList({
             </SortableContext>
           </DndContext>
 
+          {/* Dedicated bottom spacer when in selectionMode on mobile/desktop */}
+          {selectionMode && (
+            <div className="w-full h-36 sm:h-44 shrink-0 pointer-events-none" aria-hidden="true" />
+          )}
+
           {!selectionMode && (totalPages > 1 || totalItems > 0) && (
             <div className="flex justify-center items-center mt-12 mb-8 text-sm">
-              <div className="flex items-center bg-white/5 rounded-xl p-1 border border-white/10">
+              <div className="flex items-center bg-white/5 rounded-xl p-1 border border-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition text-white"
+                  className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition text-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
 
-                <div className="flex items-center gap-2 text-slate-400 px-2">
+                <div className="flex items-center gap-2 text-slate-400 px-2 [.light-theme_&]:!text-[#64748b]">
                   <span>第</span>
                   <input
                     type="text"
@@ -3032,28 +3069,28 @@ export function CharacterList({
                         e.currentTarget.blur();
                       }
                     }}
-                    className="w-10 bg-black/20 border border-white/10 rounded-lg px-1 py-1 text-center text-white font-medium focus:outline-none focus:border-blue-500 transition"
+                    className="w-10 bg-black/20 border border-white/10 rounded-lg px-1 py-1 text-center text-white font-medium focus:outline-none focus:border-blue-500 transition [.light-theme_&]:!bg-[#e4e7eb] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#0f172a]"
                   />
                   <span>/ {totalPages} 页</span>
-                  <div className="w-px h-4 bg-white/10 mx-1" />
+                  <div className="w-px h-4 bg-white/10 mx-1 [.light-theme_&]:!bg-[#cbd5e1]" />
                   <select
                     value={pageSize}
                     onChange={(e) => {
                       setPageSize(Number(e.target.value));
                       setPage(1);
                     }}
-                    className="bg-transparent border-none text-white font-medium focus:outline-none cursor-pointer py-1"
+                    className="bg-transparent border-none text-white font-medium focus:outline-none cursor-pointer py-1 [.light-theme_&]:!text-[#0f172a]"
                   >
-                    <option value={50} className="bg-slate-800">
+                    <option value={50} className="bg-slate-800 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]">
                       50/页
                     </option>
-                    <option value={100} className="bg-slate-800">
+                    <option value={100} className="bg-slate-800 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]">
                       100/页
                     </option>
-                    <option value={250} className="bg-slate-800">
+                    <option value={250} className="bg-slate-800 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]">
                       250/页
                     </option>
-                    <option value={500} className="bg-slate-800">
+                    <option value={500} className="bg-slate-800 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]">
                       500/页
                     </option>
                   </select>
@@ -3062,7 +3099,7 @@ export function CharacterList({
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
-                  className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition text-white"
+                  className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition text-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"
                 >
                   <ChevronRight className="w-5 h-5" />
                 </button>
@@ -3189,10 +3226,10 @@ export function CharacterList({
             animate={{ y: 0, opacity: 1, scale: 1, x: "-50%" }}
             exit={{ y: 20, opacity: 0, scale: 0.95, x: "-50%" }}
             transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-            className="floating-pill-dock fixed bottom-6 left-1/2 z-50 max-w-[95vw] sm:max-w-max rounded-full px-3 py-1.5 transition-all overflow-hidden"
+            className="floating-pill-dock fixed bottom-6 left-1/2 z-50 rounded-full px-2 sm:px-3 py-1.5 transition-all max-w-[calc(100vw-1rem)] sm:max-w-max"
           >
             <div
-              className="flex items-center gap-1 sm:gap-1.5 px-1 overflow-x-auto hide-scrollbar"
+              className="flex items-center gap-0.5 sm:gap-1.5 px-0.5 overflow-x-auto hide-scrollbar"
               style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
             >
               <button
@@ -3715,7 +3752,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="font-medium text-white/90 truncate">{char.name}</h3>
+            <h3 className="font-medium text-white/90 truncate [.light-theme_&]:!text-[#0f172a]">{char.name}</h3>
             {badgeInfo && (
               <span className="text-[10px] bg-black/60 backdrop-blur-md border border-white/10 text-white/90 px-1.5 py-0.5 rounded-md flex-shrink-0 flex items-center gap-1 font-medium select-none">
                 <span className={`w-1.5 h-1.5 rounded-full ${badgeInfo.dotColor} shrink-0`} />
@@ -3727,7 +3764,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
                 {charTags.slice(0, 3).map((t: string) => (
                   <span
                     key={t}
-                    className="text-[9px] bg-slate-500/20 text-slate-400 px-1.5 py-0.5 rounded-sm flex-shrink-0 whitespace-nowrap"
+                    className="text-[9px] bg-slate-500/20 text-slate-400 px-1.5 py-0.5 rounded-sm flex-shrink-0 whitespace-nowrap [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!text-[#334155]"
                   >
                     {t}
                   </span>
@@ -3737,7 +3774,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
           </div>
           <div className="flex items-center gap-2 mt-0.5">
             {char.data?.creator && (
-              <p className="text-xs text-slate-500 truncate">
+              <p className="text-xs text-slate-500 truncate [.light-theme_&]:!text-[#64748b]">
                 by {char.data.creator}
               </p>
             )}
@@ -3802,7 +3839,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
             {charTags.map((t: string) => (
               <span
                 key={t}
-                className="text-[9px] bg-[#000000]/40 backdrop-blur-md text-[#ffffff] px-1 py-0.5 rounded-sm truncate max-w-[60px]"
+                className="text-[9px] bg-[#000000]/40 backdrop-blur-md text-slate-300 px-1 py-0.5 rounded-sm truncate max-w-[60px]"
               >
                 {t}
               </span>

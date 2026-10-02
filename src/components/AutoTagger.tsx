@@ -56,7 +56,7 @@ function RetagReviewCard({ item }: { item: RetagReviewItem }) {
   }, [item.char]);
 
   return (
-    <div className="bg-slate-800/80 border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex flex-col gap-3.5 sm:gap-5 shadow-xl transition-all [.light-theme_&]:bg-slate-800/80 [.light-theme_&]:border-white/10 [.light-theme_&]:shadow-xl">
+    <div className="bg-slate-800/80 border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex flex-col gap-3.5 sm:gap-5 shadow-xl transition-all [.light-theme_&]:bg-slate-800/80 [.light-theme_&]:border-[#ffffff]/10 [.light-theme_&]:shadow-xl">
       <div className="flex items-center justify-between gap-3 sm:gap-4">
         <div className="flex items-center gap-3 min-w-0">
            <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 shadow-inner ring-1 ring-white/10 [.light-theme_&]:shadow-inner [.light-theme_&]:ring-white/10">
@@ -101,7 +101,7 @@ function RetagReviewCard({ item }: { item: RetagReviewItem }) {
                     onClick={() => isKept ? handleRemove(tag) : handleAdd(tag)}
                     className={`px-2.5 py-1.5 rounded-lg text-xs sm:text-sm border transition-all flex items-center gap-1.5 ${
                       isKept 
-                        ? 'bg-white/20 text-white border-white/40 font-semibold active:scale-95 cursor-pointer [.light-theme_&]:!bg-black/10 [.light-theme_&]:!text-black [.light-theme_&]:!border-black/30' 
+                        ? 'bg-white/20 text-white border-white/40 font-semibold active:scale-95 cursor-pointer [.light-theme_&]:!bg-[#000000]/10 [.light-theme_&]:!text-[#000000] [.light-theme_&]:!border-[#000000]/30' 
                         : 'bg-white/10 hover:bg-white/20 text-white/70 border-white/5 active:scale-95 cursor-pointer [.light-theme_&]:!bg-[#f2f2f7] [.light-theme_&]:hover:!bg-[#e5e5ea] [.light-theme_&]:!text-slate-600 [.light-theme_&]:!border-transparent'
                     }`}
                   >
@@ -135,12 +135,12 @@ function RetagReviewCard({ item }: { item: RetagReviewItem }) {
                     key={tag} 
                     className={`pl-3 pr-1.5 py-1.5 rounded-lg text-xs sm:text-sm flex items-center gap-1.5 group border ${
                       isShared 
-                        ? 'bg-white/20 text-white border-white/40 font-semibold [.light-theme_&]:!bg-black/10 [.light-theme_&]:!text-black [.light-theme_&]:!border-black/30' 
-                        : 'bg-white/10 text-white/90 border-white/20 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-black [.light-theme_&]:!border-black/15'
+                        ? 'bg-white/20 text-white border-white/40 font-semibold [.light-theme_&]:!bg-[#000000]/10 [.light-theme_&]:!text-[#000000] [.light-theme_&]:!border-[#000000]/30' 
+                        : 'bg-white/10 text-white/90 border-white/20 [.light-theme_&]:!bg-[#000000]/5 [.light-theme_&]:!text-[#000000] [.light-theme_&]:!border-[#000000]/15'
                     }`}
                   >
                     <span className="truncate max-w-[150px]">{tag}</span>
-                    <button onClick={(e) => { e.stopPropagation(); handleRemove(tag); }} className="p-0.5 rounded-md transition pointer-events-auto hover:bg-white/20 text-white/70 hover:text-white [.light-theme_&]:text-black/60 [.light-theme_&]:hover:text-black [.light-theme_&]:hover:bg-black/10">
+                    <button onClick={(e) => { e.stopPropagation(); handleRemove(tag); }} className="p-0.5 rounded-md transition pointer-events-auto hover:bg-white/20 text-white/70 hover:text-white [.light-theme_&]:text-[#000000]/60 [.light-theme_&]:hover:text-black [.light-theme_&]:hover:bg-black/10">
                       <X className="w-3.5 h-3.5" />
                     </button>
                   </motion.span>
@@ -167,10 +167,10 @@ function RetagReviewCard({ item }: { item: RetagReviewItem }) {
         
       </div>
 
-      <div className="border-t border-white/5 pt-4 mt-2 flex justify-end gap-2 sm:gap-3 [.light-theme_&]:border-white/5">
+      <div className="border-t border-white/5 pt-4 mt-2 flex justify-end gap-2 sm:gap-3 [.light-theme_&]:border-[#ffffff]/5">
         <button
           onClick={() => taggerState.rejectRetag(item.char.id)}
-          className="flex-1 sm:flex-none justify-center px-2 sm:px-4 py-2.5 sm:py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 border border-transparent [.light-theme_&]:!bg-transparent [.light-theme_&]:hover:!bg-black/5 [.light-theme_&]:!text-[#8E8E93] text-xs sm:text-sm font-medium transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap min-w-0"
+          className="tagger-btn-black flex-1 sm:flex-none justify-center px-2 sm:px-4 py-2.5 sm:py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 border border-transparent [.light-theme_&]:!bg-transparent [.light-theme_&]:hover:!bg-black/5 [.light-theme_&]:!text-[#8E8E93] text-xs sm:text-sm font-medium transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap min-w-0"
         >
           <X className="w-3.5 h-3.5 hidden sm:block flex-shrink-0" />
           <span className="truncate">丢弃</span>
@@ -180,14 +180,14 @@ function RetagReviewCard({ item }: { item: RetagReviewItem }) {
             const combined = Array.from(new Set([...item.oldTags, ...activeTags]));
             taggerState.approveRetag(item.char.id, combined);
           }}
-          className="flex-1 sm:flex-none justify-center px-2 sm:px-4 py-2.5 sm:py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap min-w-0 [.light-theme_&]:!bg-transparent [.light-theme_&]:hover:!bg-black/5 [.light-theme_&]:!text-[#1C1C1E] [.light-theme_&]:!font-normal"
+          className="tagger-btn-black flex-1 sm:flex-none justify-center px-2 sm:px-4 py-2.5 sm:py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap min-w-0 [.light-theme_&]:!bg-transparent [.light-theme_&]:hover:!bg-black/5 [.light-theme_&]:!text-[#1C1C1E] [.light-theme_&]:!font-normal"
         >
           <Tag className="w-3.5 h-3.5 hidden sm:block flex-shrink-0" />
           <span className="truncate">合并</span>
         </button>
         <button
           onClick={() => taggerState.approveRetag(item.char.id, activeTags)}
-          className="flex-1 sm:flex-none justify-center px-2 sm:px-5 py-2.5 sm:py-2 rounded-lg bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-black [.light-theme_&]:!border-black [.light-theme_&]:!text-white text-xs sm:text-sm font-bold transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap min-w-0 shadow-sm cursor-pointer"
+          className="tagger-btn-black flex-1 sm:flex-none justify-center px-2 sm:px-5 py-2.5 sm:py-2 rounded-lg bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!border-[#000000] [.light-theme_&]:!text-[#ffffff] text-xs sm:text-sm font-bold transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap min-w-0 shadow-sm cursor-pointer"
         >
           <CheckCircle2 className="w-3.5 h-3.5 hidden sm:block flex-shrink-0" />
           <span className="truncate">替换</span>
@@ -251,7 +251,7 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
         </div>
 
         {logs.length > 0 && (
-          <div className="bg-black/40 border border-white/10 rounded-2xl overflow-hidden [.light-theme_&]:!bg-white [.light-theme_&]:!border-slate-200">
+          <div className="bg-black/40 border border-white/10 rounded-2xl overflow-hidden [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-slate-200">
             <button 
               onClick={() => taggerState.setLogsExpanded(!logsExpanded)}
               className="w-full px-4 sm:px-6 py-3 sm:py-4 border-b border-white/5 flex justify-between items-center bg-white/5 hover:bg-white/10 transition-colors [.light-theme_&]:!border-slate-100 [.light-theme_&]:!bg-slate-50 [.light-theme_&]:hover:!bg-slate-100"
@@ -429,7 +429,7 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                       <button
                         onClick={() => taggerState.startTagging()}
                         disabled={untaggedCharacters.length === 0}
-                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:hover:!bg-neutral-800 [.light-theme_&]:!text-white transition-all active:scale-[0.98] shadow-sm disabled:opacity-40 disabled:shadow-none whitespace-nowrap cursor-pointer"
+                        className="tagger-btn-black w-full sm:w-auto flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#000000] [.light-theme_&]:hover:!bg-neutral-800 [.light-theme_&]:!text-[#ffffff] transition-all active:scale-[0.98] shadow-sm disabled:opacity-40 disabled:shadow-none whitespace-nowrap cursor-pointer"
                       >
                         <Play className="w-3.5 sm:w-4 h-3.5 sm:h-4 fill-current" />
                         开始打标
@@ -438,9 +438,9 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                       <div className="flex gap-2 w-full sm:w-auto">
                         <button
                           onClick={togglePause}
-                          className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-3 rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap ${
+                          className={`tagger-btn-black flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-3 rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap ${
                             isPaused 
-                              ? 'bg-white text-slate-950 [.light-theme_&]:bg-slate-900 [.light-theme_&]:text-white shadow-md' 
+                              ? 'bg-white text-slate-950 [.light-theme_&]:bg-slate-900 [.light-theme_&]:text-[#ffffff] shadow-md' 
                               : 'bg-white/10 hover:bg-white/20 text-white'
                           }`}
                         >
@@ -449,7 +449,7 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                         </button>
                         <button
                           onClick={stopTagging}
-                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-3 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap border border-white/10"
+                          className="tagger-btn-black flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-3 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap border border-white/10"
                         >
                           <Square className="w-4 h-4" />
                           停止
@@ -492,7 +492,7 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                       <button
                         onClick={() => taggerState.startRetagging()}
                         disabled={taggedCharacters.length === 0}
-                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:hover:!bg-neutral-800 [.light-theme_&]:!text-white transition-all active:scale-[0.98] shadow-sm disabled:opacity-40 disabled:shadow-none whitespace-nowrap cursor-pointer"
+                        className="tagger-btn-black w-full sm:w-auto flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#000000] [.light-theme_&]:hover:!bg-neutral-800 [.light-theme_&]:!text-[#ffffff] transition-all active:scale-[0.98] shadow-sm disabled:opacity-40 disabled:shadow-none whitespace-nowrap cursor-pointer"
                       >
                         <Play className="w-3.5 sm:w-4 h-3.5 sm:h-4 fill-current" />
                         开始重新打标
@@ -501,9 +501,9 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                       <div className="flex gap-2 w-full sm:w-auto">
                         <button
                           onClick={togglePause}
-                          className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-3 rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap ${
+                          className={`tagger-btn-black flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-3 rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap ${
                             isPaused 
-                              ? 'bg-white text-slate-950 [.light-theme_&]:bg-slate-900 [.light-theme_&]:text-white shadow-md' 
+                              ? 'bg-white text-slate-950 [.light-theme_&]:bg-slate-900 [.light-theme_&]:text-[#ffffff] shadow-md' 
                               : 'bg-white/10 hover:bg-white/20 text-white'
                           }`}
                         >
@@ -512,7 +512,7 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                         </button>
                         <button
                           onClick={stopTagging}
-                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-3 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap border border-white/10"
+                          className="tagger-btn-black flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-3 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap border border-white/10"
                         >
                           <Square className="w-4 h-4" />
                           停止
@@ -534,19 +534,19 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                     <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center gap-2 w-full sm:w-auto">
                        <button
                          onClick={() => taggerState.rejectAllRetags()}
-                         className="w-full sm:w-auto justify-center px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 text-xs sm:text-sm font-semibold transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap [.light-theme_&]:!bg-[#f2f2f7] [.light-theme_&]:!text-[#8E8E93]"
+                         className="tagger-btn-black w-full sm:w-auto justify-center px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 text-xs sm:text-sm font-semibold transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap [.light-theme_&]:!bg-[#f2f2f7] [.light-theme_&]:!text-[#8E8E93]"
                        >
                          <X className="w-3.5 h-3.5 hidden sm:block" /> 全部丢弃
                        </button>
                        <button
                          onClick={() => taggerState.mergeAllRetags()}
-                         className="w-full sm:w-auto justify-center px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap border border-white/10 [.light-theme_&]:!bg-slate-100 [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-slate-900 cursor-pointer"
+                         className="tagger-btn-black w-full sm:w-auto justify-center px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap border border-white/10 [.light-theme_&]:!bg-slate-100 [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-slate-900 cursor-pointer"
                        >
                          <Tag className="w-3.5 h-3.5 hidden sm:block" /> 全部合并
                        </button>
                        <button
                          onClick={() => taggerState.approveAllRetags()}
-                         className="w-full sm:w-auto justify-center px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-black [.light-theme_&]:!border-black [.light-theme_&]:!text-white text-xs sm:text-sm font-bold transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap shadow-sm cursor-pointer"
+                         className="tagger-btn-black w-full sm:w-auto justify-center px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!border-[#000000] [.light-theme_&]:!text-[#ffffff] text-xs sm:text-sm font-bold transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap shadow-sm cursor-pointer"
                        >
                          <CheckCircle2 className="w-3.5 h-3.5 hidden sm:block" /> 全部替换
                        </button>
@@ -590,7 +590,7 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                       <button
                         onClick={() => taggerState.startBatchSummary()}
                         disabled={unsummarizedCharacters.length === 0}
-                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:hover:!bg-neutral-800 [.light-theme_&]:!text-white transition-all active:scale-[0.98] shadow-sm disabled:opacity-40 disabled:shadow-none whitespace-nowrap cursor-pointer border-0 outline-none"
+                        className="tagger-btn-black w-full sm:w-auto flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#000000] [.light-theme_&]:hover:!bg-neutral-800 [.light-theme_&]:!text-[#ffffff] transition-all active:scale-[0.98] shadow-sm disabled:opacity-40 disabled:shadow-none whitespace-nowrap cursor-pointer border-0 outline-none"
                       >
                         <span>开始生成总结</span>
                       </button>
@@ -598,9 +598,9 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                       <div className="flex gap-2 w-full sm:w-auto">
                         <button
                           onClick={togglePause}
-                          className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-3 rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap ${
+                          className={`tagger-btn-black flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-3 rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap ${
                             isPaused 
-                              ? 'bg-white text-slate-950 [.light-theme_&]:bg-slate-900 [.light-theme_&]:text-white shadow-md' 
+                              ? 'bg-white text-slate-950 [.light-theme_&]:bg-slate-900 [.light-theme_&]:text-[#ffffff] shadow-md' 
                               : 'bg-white/10 hover:bg-white/20 text-white'
                           }`}
                         >
@@ -609,7 +609,7 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                         </button>
                         <button
                           onClick={stopTagging}
-                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-3 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap border border-white/10"
+                          className="tagger-btn-black flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-3 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap border border-white/10"
                         >
                           <Square className="w-4 h-4" />
                           停止
