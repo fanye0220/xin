@@ -448,10 +448,10 @@ export interface CharacterCard {
   hasBlobsSeparated?: boolean;
   sortOrder?: number;
   tags?: string[];
-  aiSummary?: string;
   isTool?: boolean;
   isQR?: boolean;
   category?: string;
+  aiSummary?: string;
 }
 
 export interface ChatLog {
@@ -1702,9 +1702,7 @@ export async function saveCharacters(
       if (JSON.stringify(existing.data) !== JSON.stringify(character.data)) {
         dataChanged = true;
       }
-      if (!(character as any)._skipTouchUpdatedAt) {
-        character.updatedAt = Date.now();
-      }
+      character.updatedAt = Date.now();
       needsOrphanLink =
         needsOrphanLink || existing.name !== character.name || dataChanged;
 
@@ -1814,7 +1812,6 @@ export async function saveCharacters(
     delete (charToSave as any)._oldFolderId;
     delete (charToSave as any)._wasDeleted;
     delete (charToSave as any)._previousFilePath;
-    delete (charToSave as any)._skipTouchUpdatedAt;
 
     await charStore2.put(charToSave);
     await charMetaStore2.put(buildCharMeta(charToSave));

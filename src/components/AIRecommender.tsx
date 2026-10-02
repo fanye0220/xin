@@ -261,7 +261,7 @@ ${candidateInfo}
         <button 
           type="button"
           onClick={onClose} 
-          className="p-2 -ml-2 rounded-full hover:bg-white/10 [.light-theme_&]:!bg-transparent [.light-theme_&]:hover:!bg-black/5 [.light-theme_&]:active:!bg-black/10 text-white [.light-theme_&]:!text-[#0f172a] transition active:scale-95 touch-manipulation select-none cursor-pointer"
+          className="p-2 -ml-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:!bg-black/5 text-white [.light-theme_&]:!text-[#1c1c1e] transition active:scale-95 touch-manipulation select-none cursor-pointer"
         >
           <ArrowLeft className="w-6 h-6" />
         </button>

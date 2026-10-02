@@ -97,11 +97,6 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
     });
   };
 
-  const handleToggleEnable = (index: number) => {
-    const newScripts = [...regexScripts];
-    newScripts[index] = { ...newScripts[index], disabled: !newScripts[index].disabled };
-    saveRegexScripts(newScripts);
-  };
 
   const handleDelete = (index: number) => {
     if (confirm('确定要删除这条正则吗？')) {
@@ -193,15 +188,11 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                     </h4>
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleToggleEnable(index);
-                      }}
-                      className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition whitespace-nowrap border ${isEnabled ? 'bg-green-500/10 text-green-400 border-green-500/20 [.light-theme_&]:!bg-[#E7F9EE] [.light-theme_&]:!text-[#1DB954] [.light-theme_&]:!border-[#1DB954]/20' : 'bg-white/5 text-white/30 border-white/5 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#8E8E93] [.light-theme_&]:!border-transparent'}`}
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap border ${isEnabled ? 'bg-green-500/10 text-green-400 border-green-500/20 [.light-theme_&]:!bg-[#E7F9EE] [.light-theme_&]:!text-[#1DB954] [.light-theme_&]:!border-[#1DB954]/20' : 'bg-white/5 text-white/30 border-white/5 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#8E8E93] [.light-theme_&]:!border-transparent'}`}
                     >
                       {isEnabled ? '已启用' : '已禁用'}
-                    </button>
+                    </span>
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
@@ -288,7 +279,7 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.18 }}
-              className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex justify-center items-center p-4 sm:p-6 [.light-theme_&]:bg-black/40"
+              className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex justify-center items-center p-4 sm:p-6 [.light-theme_&]:bg-[#000000]/40"
               onClick={() => setEditingIndex(null)}
             >
               <motion.div
@@ -296,10 +287,10 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.95, opacity: 0, y: 20 }}
                 transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-                className="bg-slate-900 flex flex-col w-full max-h-[85vh] border border-white/10 rounded-2xl shadow-2xl max-w-3xl overflow-hidden [.light-theme_&]:bg-[#FCFCFC] [.light-theme_&]:border-black/5"
+                className="bg-slate-900 flex flex-col w-full max-h-[85vh] border border-white/10 rounded-2xl shadow-2xl max-w-3xl overflow-hidden [.light-theme_&]:bg-[#FCFCFC] [.light-theme_&]:border-[#000000]/5"
                 onClick={e => e.stopPropagation()}
               >
-                <div className="flex-none p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/20 [.light-theme_&]:border-black/5 [.light-theme_&]:bg-black/5">
+                <div className="flex-none p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/20 [.light-theme_&]:border-[#000000]/5 [.light-theme_&]:bg-[#000000]/5">
                   <h3 className="text-lg font-semibold text-white [.light-theme_&]:text-[#1c1c1e]">{editingIndex === -1 ? '新增正则规则' : '编辑正则规则'}</h3>
                   <button onClick={() => setEditingIndex(null)} className="p-1 hover:bg-white/10 rounded-full text-white/60 hover:text-white transition [.light-theme_&]:hover:bg-black/10 [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e]">
                     <XIcon className="w-5 h-5" />
@@ -313,7 +304,7 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                       type="text"
                       value={editForm.scriptName || editForm.name || ''}
                       onChange={(e) => setEditForm({ ...editForm, scriptName: e.target.value })}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-[#000000]/5 [.light-theme_&]:border-[#000000]/10 [.light-theme_&]:text-[#1c1c1e]"
                       placeholder="例如: 屏蔽特定格式的星号动作"
                     />
                   </div>
@@ -323,7 +314,7 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                     <textarea
                       value={editForm.regex || editForm.findRegex || ''}
                       onChange={(e) => setEditForm({ ...editForm, regex: e.target.value })}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition font-mono min-h-[100px] [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition font-mono min-h-[100px] [.light-theme_&]:bg-[#000000]/5 [.light-theme_&]:border-[#000000]/10 [.light-theme_&]:text-[#1c1c1e]"
                       placeholder="输入合法的正则表达式"
                     />
                   </div>
@@ -333,7 +324,7 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                     <textarea
                       value={editForm.replacementString ?? editForm.replaceString ?? ''}
                       onChange={(e) => setEditForm({ ...editForm, replacementString: e.target.value })}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition font-mono min-h-[100px] [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition font-mono min-h-[100px] [.light-theme_&]:bg-[#000000]/5 [.light-theme_&]:border-[#000000]/10 [.light-theme_&]:text-[#1c1c1e]"
                       placeholder="输入替换内容，可使用 $1, $2 等捕获组"
                     />
                   </div>
@@ -344,14 +335,14 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                          type="checkbox"
                          checked={!editForm.disabled}
                          onChange={(e) => setEditForm({ ...editForm, disabled: !e.target.checked })}
-                         className="rounded bg-black/30 border-white/10 text-blue-500 focus:ring-blue-500/20 [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/20"
+                         className="rounded bg-black/30 border-white/10 text-blue-500 focus:ring-blue-500/20 [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-[#000000]/20"
                        />
                        启用
                      </label>
                   </div>
                 </div>
 
-                <div className="flex-none p-4 sm:p-6 border-t border-white/10 bg-black/20 flex justify-end gap-3 [.light-theme_&]:border-black/5 [.light-theme_&]:bg-black/5">
+                <div className="flex-none p-4 sm:p-6 border-t border-white/10 bg-black/20 flex justify-end gap-3 [.light-theme_&]:border-[#000000]/5 [.light-theme_&]:bg-[#000000]/5">
                   <button
                     onClick={() => setEditingIndex(null)}
                     className="px-4 py-2 rounded-lg text-white/60 hover:text-white hover:bg-white/5 transition [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/10"
@@ -369,7 +360,7 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                       saveRegexScripts(newScripts);
                       setEditingIndex(null);
                     }}
-                    className="px-6 py-2 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-2 shadow-sm cursor-pointer"
+                    className="px-6 py-2 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!text-[#ffffff] [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-2 shadow-sm cursor-pointer"
                   >
                     <Save className="w-4 h-4 stroke-[2.5]" />
                     保存

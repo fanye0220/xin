@@ -202,34 +202,34 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
             </button>
           </div>
 
-          <div className="flex px-4 pt-1.5 border-b border-white/10 [.light-theme_&]:!border-neutral-200 shrink-0 gap-3 sm:gap-6 overflow-x-auto hide-scrollbar bg-slate-900/60 [.light-theme_&]:!bg-white">
+          <div className="flex px-4 pt-1.5 border-b border-white/10 [.light-theme_&]:!border-slate-700/10 shrink-0 gap-3 sm:gap-6 overflow-x-auto hide-scrollbar bg-slate-900/60 [.light-theme_&]:!bg-slate-800/60">
             <button 
               onClick={() => setActiveTab('api')}
-              className={`pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap cursor-pointer flex items-center justify-center ${activeTab === 'api' ? 'border-white text-white [.light-theme_&]:!border-black [.light-theme_&]:!text-black' : 'border-transparent text-white/50 hover:text-white [.light-theme_&]:!text-neutral-500 [.light-theme_&]:hover:!text-black'}`}
+              className={`pb-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'api' ? 'border-slate-100 text-slate-100' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
             >
               API 设置
             </button>
             <button 
               onClick={() => setActiveTab('st')}
-              className={`pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap cursor-pointer flex items-center justify-center ${activeTab === 'st' ? 'border-white text-white [.light-theme_&]:!border-black [.light-theme_&]:!text-black' : 'border-transparent text-white/50 hover:text-white [.light-theme_&]:!text-neutral-500 [.light-theme_&]:hover:!text-black'}`}
+              className={`pb-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'st' ? 'border-slate-100 text-slate-100' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
             >
               酒馆联动
             </button>
             <button 
               onClick={() => setActiveTab('cloud')}
-              className={`pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap cursor-pointer flex items-center justify-center ${activeTab === 'cloud' ? 'border-white text-white [.light-theme_&]:!border-black [.light-theme_&]:!text-black' : 'border-transparent text-white/50 hover:text-white [.light-theme_&]:!text-neutral-500 [.light-theme_&]:hover:!text-black'}`}
+              className={`pb-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'cloud' ? 'border-slate-100 text-slate-100' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
             >
               云端同步
             </button>
             <button 
               onClick={() => setActiveTab('wallpaper')}
-              className={`pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap cursor-pointer flex items-center justify-center ${activeTab === 'wallpaper' ? 'border-white text-white [.light-theme_&]:!border-black [.light-theme_&]:!text-black' : 'border-transparent text-white/50 hover:text-white [.light-theme_&]:!text-neutral-500 [.light-theme_&]:hover:!text-black'}`}
+              className={`pb-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'wallpaper' ? 'border-slate-100 text-slate-100' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
             >
               侧栏壁纸
             </button>
             <button 
               onClick={() => setActiveTab('about')}
-              className={`pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap cursor-pointer flex items-center justify-center ${activeTab === 'about' ? 'border-white text-white [.light-theme_&]:!border-black [.light-theme_&]:!text-black' : 'border-transparent text-white/50 hover:text-white [.light-theme_&]:!text-neutral-500 [.light-theme_&]:hover:!text-black'}`}
+              className={`pb-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'about' ? 'border-slate-100 text-slate-100' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
             >
               关于与更新
             </button>
@@ -468,7 +468,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
 
             {activeTab === 'cloud' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-                <CloudSyncTab isLightMode={isLightMode} />
+                <CloudSyncTab />
               </motion.div>
             )}
 
@@ -573,12 +573,12 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
             )}
           </div>
 
-          <div className="p-3.5 sm:p-4 border-t border-white/10 [.light-theme_&]:!border-neutral-200 bg-slate-900/95 [.light-theme_&]:!bg-white backdrop-blur-md flex justify-between items-center gap-3 shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4">
+          <div className="p-3.5 sm:p-4 border-t border-white/10 [.light-theme_&]:!border-slate-700/10 bg-slate-900/95 [.light-theme_&]:!bg-slate-800/95 backdrop-blur-md flex justify-between items-center gap-3 shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4">
             {activeTab === 'api' ? (
               <button
                 onClick={handleTest}
                 disabled={testStatus === 'testing'}
-                className="px-4 py-2 rounded-full text-xs sm:text-sm font-medium bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border border-white/10 [.light-theme_&]:!bg-neutral-100 [.light-theme_&]:hover:!bg-neutral-200 [.light-theme_&]:!text-black [.light-theme_&]:!border-neutral-200 transition disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2 rounded-full text-xs sm:text-sm font-medium bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border border-white/10 transition disabled:opacity-50 cursor-pointer"
               >
                 测试连接
               </button>
@@ -588,15 +588,15 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
             <div className="flex gap-2.5">
               <button
                 onClick={onClose}
-                className="px-4 py-2 rounded-full text-xs sm:text-sm font-medium transition cursor-pointer text-white/60 hover:text-white hover:bg-white/10 [.light-theme_&]:!bg-transparent [.light-theme_&]:!text-slate-600 [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-transparent"
+                className="px-4 py-2 rounded-full text-xs sm:text-sm font-medium text-white/60 hover:text-white hover:bg-white/10 transition cursor-pointer"
               >
                 取消
               </button>
               <button
                 onClick={handleSave}
-                className="px-5 py-2 rounded-full text-xs sm:text-sm font-bold bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#82b1f8] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#6fa3f6] active:scale-95 transition flex items-center gap-1.5 shadow-sm cursor-pointer border-0 outline-none"
+                className="px-5 py-2 rounded-full text-xs sm:text-sm font-semibold text-black bg-white hover:bg-white/90 active:scale-95 transition flex items-center gap-1.5 shadow-sm cursor-pointer"
               >
-                <Save className="w-3.5 h-3.5 stroke-[2.5]" />
+                <Save className="w-3.5 h-3.5 stroke-[2.2]" />
                 保存设置
               </button>
             </div>

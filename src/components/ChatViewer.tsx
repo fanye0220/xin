@@ -16,7 +16,6 @@ import {
   FileJson,
   X,
   Settings2,
-  Sliders,
   Link,
   ChevronUp,
   ChevronDown,
@@ -78,7 +77,7 @@ export function ChatViewer({
   refreshKey,
   onActiveViewChange,
   backSignal,
-  isLightMode: propIsLightMode,
+  isLightMode = false,
 }: {
   onClose: () => void;
   initialChatId?: string | null;
@@ -89,38 +88,6 @@ export function ChatViewer({
   backSignal?: number;
   isLightMode?: boolean;
 }) {
-  const [isLightMode, setIsLightMode] = useState(() => {
-    if (typeof propIsLightMode === "boolean") return propIsLightMode;
-    return (
-      document.documentElement.classList.contains("light-theme") ||
-      localStorage.getItem("tavern_theme") === "light"
-    );
-  });
-
-  useEffect(() => {
-    if (typeof propIsLightMode === "boolean") {
-      setIsLightMode(propIsLightMode);
-      return;
-    }
-    const checkTheme = () => {
-      setIsLightMode(
-        document.documentElement.classList.contains("light-theme") ||
-        localStorage.getItem("tavern_theme") === "light"
-      );
-    };
-    checkTheme();
-    const observer = new MutationObserver(checkTheme);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-    window.addEventListener("storage", checkTheme);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("storage", checkTheme);
-    };
-  }, [propIsLightMode]);
-
   const [savedChats, setSavedChats] = useState<
     (Omit<ChatLog, "messages"> & {
       messageCount: number;
@@ -182,16 +149,8 @@ export function ChatViewer({
   useEffect(() => {
     const loadActiveChat = async () => {
       if (activeChatId) {
-        const { getChatById, getChatsForCharacter } = await import("../lib/db");
-        let chat = await getChatById(activeChatId);
-        if (!chat) {
-          // If activeChatId is a character ID, attempt to auto-load its latest chat log
-          const charChats = await getChatsForCharacter(activeChatId);
-          if (charChats && charChats.length > 0) {
-            charChats.sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
-            chat = charChats[0];
-          }
-        }
+        const { getChatById } = await import("../lib/db");
+        const chat = await getChatById(activeChatId);
         setActiveChat(chat || null);
       } else {
         setActiveChat(null);
@@ -1348,21 +1307,22 @@ export function ChatViewer({
       )}
 
       {!activeChatId && (
-        <header className="sticky top-0 px-4 pb-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:px-6 sm:pb-5 border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] bg-slate-900/90 [.light-theme_&]:!bg-[#ffffff]/95 flex items-center justify-between z-20 backdrop-blur-xl gap-2 sm:gap-4 transition-all">
-          <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+        <div className="flex-none p-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:p-6 sm:pt-[max(1.75rem,env(safe-area-inset-top))] border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] bg-slate-900/90 [.light-theme_&]:!bg-[#ffffff]/95 flex items-center justify-between sticky top-0 z-20 backdrop-blur-xl transition-all gap-2 sm:gap-4">
+          <div className="flex items-start sm:items-center gap-3 sm:gap-4 flex-1 min-w-0">
             <button
               onClick={onClose}
-              className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:!bg-transparent [.light-theme_&]:hover:!bg-black/5 [.light-theme_&]:active:!bg-black/10 text-white [.light-theme_&]:!text-[#0f172a] transition active:scale-95 touch-manipulation select-none cursor-pointer shrink-0"
+              className="p-2 -ml-2 rounded-full hover:bg-white/10 transition text-white/70 hover:text-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:bg-white/10 shrink-0 mt-0.5 sm:mt-0"
               title="返回"
             >
               <ArrowLeft className="w-5 sm:w-6 h-5 sm:h-6" />
             </button>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-xl sm:text-2xl font-bold text-white [.light-theme_&]:!text-[#0f172a] truncate">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-xl sm:text-2xl font-bold text-white [.light-theme_&]:!text-[#0f172a] flex items-center gap-2 flex-wrap">
                 聊天记录查看器
-              </h1>
-              <p className="text-xs sm:text-sm text-white/50 [.light-theme_&]:!text-[#8e8e93] mt-0.5 sm:mt-1 truncate">
-                可导入JSONL 聊天记录  支持CSS正则渲染
+              </h2>
+              <p className="text-white/60 text-xs sm:text-sm mt-1 leading-relaxed">
+                查看酒馆(Tavern)导出的 JSONL
+                聊天记录（已支持读取角色卡内的世界书和CSS正则进行渲染）
               </p>
               <AnimatePresence>
                 {importProgress.show && (
@@ -1396,16 +1356,16 @@ export function ChatViewer({
               </AnimatePresence>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setShowSettings(true)}
-              className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:!bg-transparent [.light-theme_&]:hover:!bg-black/5 [.light-theme_&]:active:!bg-black/10 text-white/70 hover:text-white [.light-theme_&]:!text-[#0f172a] transition shrink-0 cursor-pointer"
-              title="界面设置"
+              className="p-2 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition shrink-0 mt-1 sm:mt-0"
+              title="设置"
             >
-              <Settings2 className="w-5 sm:w-6 h-5 sm:h-6" />
+              <Settings2 className="w-5 h-5 sm:w-6 sm:h-6" />
             </button>
           </div>
-        </header>
+        </div>
       )}
 
       {/* 悬浮窗球 (Floating Pill Header) when chat is active */}
@@ -1460,11 +1420,7 @@ export function ChatViewer({
                     setShowBubblePicker(!showBubblePicker);
                     if (isHeaderExpanded) setIsHeaderExpanded(false);
                   }}
-                  className={`w-10 h-10 flex items-center justify-center rounded-full transition hover:scale-105 active:scale-95 ${
-                    showBubblePicker
-                      ? "chat-header-btn-active !bg-blue-500/20 !text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 [.light-theme_&]:!border [.light-theme_&]:!border-blue-200/80 shadow-xs"
-                      : "chat-header-btn"
-                  }`}
+                  className={`w-10 h-10 flex items-center justify-center rounded-full transition hover:scale-105 active:scale-95 ${showBubblePicker ? "chat-header-btn-active" : "chat-header-btn"}`}
                   title={`当前气泡配色：${bubbleTheme.name}（点击切换）`}
                 >
                   <ColorSphere
@@ -1479,14 +1435,9 @@ export function ChatViewer({
                     setIsHeaderExpanded(!isHeaderExpanded);
                     if (showBubblePicker) setShowBubblePicker(false);
                   }}
-                  className={`w-10 h-10 flex items-center justify-center rounded-full transition hover:scale-105 active:scale-95 ${
-                    isHeaderExpanded
-                      ? "chat-header-btn-active !bg-blue-500/20 !text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 [.light-theme_&]:!border [.light-theme_&]:!border-blue-200/80 shadow-xs"
-                      : "chat-header-btn"
-                  }`}
-                  title="绑定角色与正则设置"
+                  className={`w-10 h-10 flex items-center justify-center rounded-full transition ${isHeaderExpanded ? "chat-header-btn-active" : "chat-header-btn"}`}
                 >
-                  <Sliders className="w-4.5 h-4.5" />
+                  <Settings2 className="w-5 h-5" />
                 </button>
 
                 <AnimatePresence>
@@ -1546,27 +1497,23 @@ export function ChatViewer({
                     >
                       <div className="flex flex-col gap-4">
                         <div className="flex flex-col gap-2 flex-1 min-h-0">
-                          <label className="text-xs text-white/60 [.light-theme_&]:!text-slate-600 font-semibold shrink-0">
+                          <label className="text-xs text-white/50 [.light-theme_&]:text-slate-500 font-medium shrink-0">
                             绑定角色获得正则效果
                           </label>
                           <div className="relative shrink-0 mb-2">
-                             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 [.light-theme_&]:!text-slate-400" />
+                             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 [.light-theme_&]:text-slate-400" />
                              <input
                                 type="text"
                                 placeholder="搜索角色..."
                                 value={characterSearchQuery}
                                 onChange={(e) => setCharacterSearchQuery(e.target.value)}
-                                className="w-full chat-search-input focus:outline-none rounded-lg pl-9 pr-3 py-2 text-sm"
+                                className="w-full chat-search-input focus:outline-none rounded-lg pl-9 pr-3 py-2"
                              />
                           </div>
                           <div className="flex-1 overflow-y-auto space-y-1 max-h-48 pr-1 hide-scrollbar">
                              <button
                                 onClick={() => handleUpdateBinding("")}
-                                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition font-medium cursor-pointer ${
-                                  (!activeChat.characterId && !activeCharacter?.id)
-                                    ? 'bg-blue-500/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 font-semibold'
-                                    : 'text-white/90 hover:bg-white/10 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-slate-100'
-                                }`}
+                                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${(!activeChat.characterId && !activeCharacter?.id) ? 'bg-blue-500/20 text-blue-400' : 'text-white hover:bg-white/5'}`}
                              >
                                 暂不绑定
                              </button>
@@ -1574,11 +1521,7 @@ export function ChatViewer({
                                 <button
                                    key={c.id}
                                    onClick={() => handleUpdateBinding(c.id)}
-                                   className={`w-full text-left px-3 py-2 rounded-lg text-sm transition truncate font-medium cursor-pointer ${
-                                     activeChat.characterId === c.id || activeCharacter?.id === c.id
-                                       ? 'bg-blue-500/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 font-semibold'
-                                       : 'text-white/90 hover:bg-white/10 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-slate-100'
-                                   }`}
+                                   className={`w-full text-left px-3 py-2 rounded-lg text-sm transition truncate ${activeChat.characterId === c.id || activeCharacter?.id === c.id ? 'bg-blue-500/20 text-blue-400' : 'text-white hover:bg-white/5'}`}
                                 >
                                    {c.name}
                                 </button>
@@ -1586,20 +1529,20 @@ export function ChatViewer({
                           </div>
                         </div>
                         {activeCharacter && (
-                          <div className="bg-green-500/10 border border-green-500/20 [.light-theme_&]:!bg-green-50 [.light-theme_&]:!border-green-200 rounded-lg p-3">
-                            <span className="text-xs text-green-400 [.light-theme_&]:!text-green-700 flex items-center gap-1.5 font-medium">
-                              <div className="w-1.5 h-1.5 rounded-full bg-green-400 [.light-theme_&]:!bg-green-600 animate-pulse" />
+                          <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+                            <span className="text-xs text-green-400 flex items-center gap-1.5 font-medium">
+                              <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
                               已应用角色正则规则
                             </span>
                           </div>
                         )}
-                        <div className="pt-2 mt-2 border-t border-white/10 [.light-theme_&]:!border-slate-200">
+                        <div className="pt-2 mt-2 border-t border-white/10">
                           <button
                             onClick={() => {
                               setIsHeaderExpanded(false);
                               setShowSettings(true);
                             }}
-                            className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-white/5 [.light-theme_&]:hover:!bg-slate-100 rounded-lg text-sm text-blue-300 [.light-theme_&]:!text-blue-600 transition cursor-pointer"
+                            className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-white/5 rounded-lg text-sm text-blue-300 transition"
                           >
                             <span>界面设置 (头像/折叠)</span>
                             <Settings2 className="w-4 h-4" />
@@ -1635,24 +1578,24 @@ export function ChatViewer({
 
         <div className="space-y-6 flex-1 flex flex-col min-h-0">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between px-2 shrink-0 gap-3 mb-4">
-            <h3 className="text-lg font-medium text-white shrink-0 [.light-theme_&]:!text-[#0f172a]">
+            <h3 className="text-lg font-medium text-white shrink-0">
               所有记录 ({savedChats.length})
             </h3>
 
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <div className="relative flex-1 sm:flex-initial">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/40 [.light-theme_&]:!text-[#64748b]" />
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
                 <input
                   type="text"
                   placeholder="搜索..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full sm:w-40 pl-9 pr-4 py-2 bg-white/5 border border-white/10 rounded-full text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-white/30 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#94a3b8] [.light-theme_&]:focus:!border-blue-500 [.light-theme_&]:!shadow-xs"
+                  className="w-full sm:w-40 pl-9 pr-4 py-2 bg-white/5 border border-white/10 rounded-full text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-white/30"
                 />
               </div>
               <button
                 onClick={() => setIsCleanerOpen(true)}
-                className="p-2.5 border rounded-full transition shrink-0 flex items-center justify-center bg-white/5 border-white/10 text-white/50 hover:text-white hover:bg-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!shadow-xs cursor-pointer"
+                className="p-2.5 border rounded-full transition shrink-0 flex items-center justify-center bg-white/5 border-white/10 text-white/50 hover:text-white hover:bg-white/10"
                 title="清理记录和分支"
               >
                 <Trash2 className="w-4 h-4" />
@@ -1665,9 +1608,9 @@ export function ChatViewer({
                     fileInputRef.current?.click();
                   }
                 }}
-                className="px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-full text-sm transition flex items-center justify-center gap-2 shrink-0 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!shadow-xs cursor-pointer"
+                className="px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-full text-sm transition flex items-center justify-center gap-2 shrink-0"
               >
-                <UploadCloud className="w-4 h-4 text-blue-400 [.light-theme_&]:!text-blue-600" />
+                <UploadCloud className="w-4 h-4" />
                 <span className="hidden sm:inline">导入</span>
               </button>
             </div>
@@ -1690,12 +1633,12 @@ export function ChatViewer({
           </div>
 
           {savedChats.length === 0 ? (
-            <div className="py-20 flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-3xl [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!bg-white/60">
-              <FileJson className="w-16 h-16 text-white/20 mb-4 mx-auto [.light-theme_&]:!text-slate-400" />
-              <h3 className="text-xl font-medium text-white/60 mb-2 [.light-theme_&]:!text-[#0f172a]">
+            <div className="py-20 flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-3xl">
+              <FileJson className="w-16 h-16 text-white/20 mb-4 mx-auto" />
+              <h3 className="text-xl font-medium text-white/60 mb-2">
                 拖拽或点击上方按钮导入聊天记录
               </h3>
-              <p className="text-white/40 mb-8 [.light-theme_&]:!text-[#64748b]">
+              <p className="text-white/40 mb-8">
                 支持批量导入 .zip 或 .jsonl 格式文件
               </p>
             </div>
@@ -1785,15 +1728,15 @@ export function ChatViewer({
                               );
                             })()}
                             <div className="truncate">
-                              <h4 className="font-semibold text-white/90 text-base truncate mb-0.5 [.light-theme_&]:!text-[#0f172a]">
+                              <h4 className="font-semibold text-white/90 text-base truncate mb-0.5">
                                 {groupName}
                               </h4>
-                              <p className="text-xs text-white/40 [.light-theme_&]:!text-[#64748b]">
+                              <p className="text-xs text-white/40">
                                 {group.chats.length} 个历史记录
                               </p>
                             </div>
                           </div>
-                          <div className="text-white/40 shrink-0 z-30 [.light-theme_&]:!text-[#64748b]">
+                          <div className="text-white/40 shrink-0 z-30">
                             {isBatchMode ? (
                               allSelected ? (
                                 <div className="w-6 h-6 rounded-full bg-white text-slate-950 flex items-center justify-center shadow-md [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-[#ffffff]">
@@ -1871,7 +1814,7 @@ export function ChatViewer({
                                 >
                                   <input
                                     autoFocus
-                                    className="w-full bg-black/40 border border-blue-500/50 rounded flex px-2 py-1 text-sm text-blue-300 focus:outline-none placeholder-blue-300/30 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#93c5fd] [.light-theme_&]:!text-blue-600 [.light-theme_&]:placeholder:!text-blue-400/50"
+                                    className="w-full bg-black/40 border border-blue-500/50 rounded flex px-2 py-1 text-sm text-blue-300 focus:outline-none placeholder-blue-300/30"
                                     value={editNoteContent}
                                     onChange={(e) =>
                                       setEditNoteContent(e.target.value)
@@ -1886,7 +1829,7 @@ export function ChatViewer({
                                 </div>
                               ) : (
                                 <div
-                                  className="text-sm font-medium text-blue-300 [.light-theme_&]:!text-blue-600 cursor-pointer hover:text-blue-200 [.light-theme_&]:hover:!text-blue-700 transition flex items-center gap-2 mb-1"
+                                  className="text-sm font-medium text-blue-300 cursor-pointer hover:text-blue-200 transition flex items-center gap-2 mb-1"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setEditingNoteFor(chat.id);
@@ -1899,12 +1842,12 @@ export function ChatViewer({
                                       <span className="truncate">
                                         {chat.note}
                                       </span>
-                                      <span className="text-xs text-blue-300/50 [.light-theme_&]:!text-blue-600/50 shrink-0 flex items-center gap-1 leading-none pt-0.5">
+                                      <span className="text-xs text-blue-300/50 shrink-0 flex items-center gap-1 leading-none pt-0.5">
                                         <Edit2 className="w-3 h-3" />
                                       </span>
                                     </>
                                   ) : (
-                                    <span className="text-blue-300/50 [.light-theme_&]:!text-blue-600/60 flex items-center gap-1 font-normal">
+                                    <span className="text-blue-300/50 flex items-center gap-1 font-normal">
                                       <Plus className="w-3.5 h-3.5" />{" "}
                                       添加内容备注...
                                     </span>
@@ -1912,7 +1855,7 @@ export function ChatViewer({
                                 </div>
                               )}
                               <h4
-                                className="font-medium text-white/90 truncate w-full text-sm [.light-theme_&]:!text-[#0f172a]"
+                                className="font-medium text-white/90 truncate w-full text-sm"
                                 title={chat.name}
                               >
                                 {chat.name}
@@ -1941,9 +1884,9 @@ export function ChatViewer({
                           )}
                         </div>
 
-                        <div className="flex justify-between items-center text-xs text-white/40 pb-2 border-b border-white/5 [.light-theme_&]:!text-[#64748b] [.light-theme_&]:!border-[#e2e8f0]">
+                        <div className="flex justify-between items-center text-xs text-white/40 pb-2 border-b border-white/5">
                           <span className="flex items-center gap-1">
-                            <Book className="w-4 h-4 text-blue-400 [.light-theme_&]:!text-blue-600" />
+                            <Book className="w-4 h-4 text-blue-400" />
                             {chat.messageCount} 条消息
                           </span>
                           <span className="flex items-center gap-1">
@@ -1951,7 +1894,7 @@ export function ChatViewer({
                           </span>
                         </div>
 
-                        <div className="text-white/60 text-xs leading-relaxed max-w-none line-clamp-3 overflow-hidden break-words [.light-theme_&]:!text-[#475569]">
+                        <div className="text-white/60 text-xs leading-relaxed max-w-none line-clamp-3 overflow-hidden break-words">
                           {formatCustomTags(
                             applyRegexes(
                               chat.lastMessagePreview || "空记录",
@@ -2058,10 +2001,10 @@ export function ChatViewer({
 
                                   {/* Title & Metadata Column */}
                                   <div className="flex flex-col min-w-0">
-                                    <h3 className="font-bold text-sm sm:text-base text-current truncate leading-snug" style={{ color: cardTextColor }}>
+                                    <h3 className="font-bold text-sm sm:text-base text-current truncate leading-snug">
                                       {msg.name || (msg.is_user ? "User" : activeCharacter?.name || "Character")}
                                     </h3>
-                                    <div className="flex items-center gap-1.5 text-[11px] opacity-70 mt-0.5 flex-wrap" style={{ color: cardTextColor }}>
+                                    <div className="flex items-center gap-1.5 text-[11px] opacity-70 mt-0.5 flex-wrap">
                                       <span className="font-semibold opacity-90">
                                         #{i + 1}
                                       </span>
@@ -2075,19 +2018,31 @@ export function ChatViewer({
                                   </div>
                                 </div>
 
+                                {/* Right Action Icons (Bookmark only) */}
+                                <div className="flex items-center gap-1 shrink-0 opacity-60 hover:opacity-100 transition-opacity">
+                                  <button
+                                    onClick={() => {
+                                      const next = new Set(bookmarkedIndices);
+                                      if (isBookmarked) next.delete(i);
+                                      else next.add(i);
+                                      setBookmarkedIndices(next);
+                                    }}
+                                    className={`p-1.5 rounded-lg hover:bg-black/10 transition cursor-pointer ${
+                                      isBookmarked ? "text-amber-400 opacity-100" : ""
+                                    }`}
+                                    title={isBookmarked ? "取消书签" : "添加书签"}
+                                  >
+                                    <Bookmark className="w-4 h-4 fill-current" />
+                                  </button>
                                 </div>
+                              </div>
 
                               {/* Card Body Content */}
-                              <div 
-                                className="prose prose-sm sm:prose-base max-w-none chat-bubble-prose leading-relaxed break-words"
-                                style={{ color: cardTextColor }}
-                              >
+                              <div className="prose prose-sm sm:prose-base max-w-none text-current leading-relaxed break-words">
                                 <MessageContent
                                   content={formatCustomTags(
                                     applyRegexes(msg.mes || "", activeCharacter)
                                   )}
-                                  themeMode={isLightMode ? 'light' : 'dark'}
-                                  characterName={activeCharacter?.name}
                                 />
                               </div>
                             </div>
@@ -2178,7 +2133,6 @@ export function ChatViewer({
                                       prose-strong:font-bold prose-code:text-pink-300
                                       prose-pre:bg-black/30 prose-pre:max-w-full
                                       [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 break-words w-full"
-                                  style={{ color: msg.is_user ? bubbleTheme.userTextColor : bubbleTheme.botTextColor }}
                                 >
                                   <MessageContent
                                     content={formatCustomTags(
@@ -2187,8 +2141,6 @@ export function ChatViewer({
                                         activeCharacter,
                                       ),
                                     )}
-                                    themeMode={isLightMode ? 'light' : 'dark'}
-                                    characterName={activeCharacter?.name}
                                   />
                                 </div>
                               </div>

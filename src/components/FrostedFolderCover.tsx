@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Folder } from "../lib/db";
 import { getFallbackAvatar } from "../lib/avatar";
-import { Folder as FolderIcon, Sparkles, Plus, Check } from "lucide-react";
+import { Folder as FolderIcon, Sparkles, Plus } from "lucide-react";
 
 export interface FolderPreviewItem {
   url: string;
@@ -132,11 +132,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
           </div>
         )}
         {isSelected && (
-          <div className="absolute inset-0 ring-2 ring-white [.light-theme_&]:!ring-black ring-inset bg-white/10 [.light-theme_&]:!bg-black/5 rounded-xl pointer-events-none z-20 flex items-center justify-center">
-            <div className="w-5 h-5 rounded-full bg-white text-black [.light-theme_&]:!bg-black [.light-theme_&]:!text-white flex items-center justify-center shadow-md">
-              <Check className="w-3 h-3 stroke-[3]" />
-            </div>
-          </div>
+          <div className="absolute inset-0 bg-black/45 rounded-xl pointer-events-none z-20" />
         )}
       </div>
     );
@@ -176,11 +172,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
             />
             <div className="absolute inset-0 bg-black/35 border border-white/20 rounded-2xl" />
             {isSelected && (
-              <div className="absolute inset-0 ring-4 ring-white [.light-theme_&]:!ring-black ring-inset bg-white/10 [.light-theme_&]:!bg-black/5 rounded-2xl pointer-events-none z-10 flex items-start justify-end p-2.5">
-                <div className="w-5 h-5 rounded-full bg-white text-black [.light-theme_&]:!bg-black [.light-theme_&]:!text-white flex items-center justify-center shadow-md">
-                  <Check className="w-3 h-3 stroke-[3]" />
-                </div>
-              </div>
+              <div className="absolute inset-0 bg-black/45 rounded-2xl pointer-events-none z-10" />
             )}
           </div>
         )}
@@ -212,11 +204,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
             </div>
           )}
           {isSelected && (
-            <div className="absolute inset-0 ring-4 ring-white [.light-theme_&]:!ring-black ring-inset bg-white/10 [.light-theme_&]:!bg-black/5 rounded-2xl pointer-events-none z-10 flex items-start justify-end p-2.5">
-              <div className="w-5 h-5 rounded-full bg-white text-black [.light-theme_&]:!bg-black [.light-theme_&]:!text-white flex items-center justify-center shadow-md">
-                <Check className="w-3 h-3 stroke-[3]" />
-              </div>
-            </div>
+            <div className="absolute inset-0 bg-black/45 rounded-2xl pointer-events-none z-10" />
           )}
         </div>
       </div>

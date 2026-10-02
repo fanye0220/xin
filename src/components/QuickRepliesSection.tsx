@@ -376,9 +376,9 @@ export function QuickRepliesSection({ character, onUpdate, isLightMode: propIsLi
               </button>
               <button 
                 onClick={() => setIsSelectModalOpen(true)}
-                className="flex-1 py-2.5 rounded-xl font-medium text-sm transition flex items-center justify-center gap-2 cursor-pointer bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:hover:!bg-blue-700 [.light-theme_&]:!text-white"
+                className="flex-1 py-2.5 rounded-xl font-medium text-sm transition flex items-center justify-center gap-2 cursor-pointer bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:hover:!bg-blue-700 [.light-theme_&]:!text-[#ffffff]"
               >
-                <Library className="w-4 h-4 text-blue-300 [.light-theme_&]:!text-white" /> 从库中选择
+                <Library className="w-4 h-4 text-blue-300 [.light-theme_&]:!text-[#ffffff]" /> 从库中选择
               </button>
               <button 
                 onClick={() => fileInputRef.current?.click()}
@@ -405,9 +405,9 @@ export function QuickRepliesSection({ character, onUpdate, isLightMode: propIsLi
               </button>
               <button 
                 onClick={() => setIsSelectModalOpen(true)}
-                className="px-5 py-2.5 rounded-xl font-medium text-sm transition flex items-center gap-2 cursor-pointer active:scale-98 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:hover:!bg-blue-700 [.light-theme_&]:!text-white"
+                className="px-5 py-2.5 rounded-xl font-medium text-sm transition flex items-center gap-2 cursor-pointer active:scale-98 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:hover:!bg-blue-700 [.light-theme_&]:!text-[#ffffff]"
               >
-                <Library className="w-4 h-4 text-blue-300 [.light-theme_&]:!text-white" /> 从库中选择
+                <Library className="w-4 h-4 text-blue-300 [.light-theme_&]:!text-[#ffffff]" /> 从库中选择
               </button>
             </div>
           </div>

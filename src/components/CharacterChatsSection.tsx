@@ -144,7 +144,7 @@ export function CharacterChatsSection({
       /(?:<|&lt;|\[+|\\\[+|\{+)\s*(?:think|thought|thinking)\s*(?:>|&gt;|\]+|\\\]+|\}+)([\s\S]*?)(?:<|&lt;|\[+|\\\[+|\{+)\/\s*(?:think|thought|thinking)\s*(?:>|&gt;|\]+|\\\]+|\}+)/gi;
     result = result.replace(
       thinkRegex,
-      '<details class="text-sm bg-[rgba(255,255,255,0.05)] [.light-theme_&]:bg-black/5 border border-[rgba(255,255,255,0.1)] [.light-theme_&]:border-black/10 rounded-lg p-2 my-2 w-full max-w-full overflow-hidden"><summary class="cursor-pointer font-bold text-[#8491CD] hover:opacity-80 transition-opacity select-none">🤔 思维链</summary><div class="mt-2 text-[#707CB1] break-words whitespace-pre-wrap max-w-full overflow-x-auto">$1</div></details>',
+      '<details class="text-sm bg-[rgba(255,255,255,0.05)] [.light-theme_&]:bg-[#000000]/5 border border-[rgba(255,255,255,0.1)] [.light-theme_&]:border-[#000000]/10 rounded-lg p-2 my-2 w-full max-w-full overflow-hidden"><summary class="cursor-pointer font-bold text-[#8491CD] hover:opacity-80 transition-opacity select-none">🤔 思维链</summary><div class="mt-2 text-[#707CB1] break-words whitespace-pre-wrap max-w-full overflow-x-auto">$1</div></details>',
     );
 
     const processedTags = new Set(
@@ -167,7 +167,7 @@ export function CharacterChatsSection({
       );
       result = result.replace(
         pairedRe,
-        `<details class="text-sm bg-[rgba(255,255,255,0.05)] [.light-theme_&]:bg-black/5 border border-[rgba(255,255,255,0.1)] [.light-theme_&]:border-black/10 rounded-lg p-2 my-2 w-full max-w-full overflow-hidden"><summary class="cursor-pointer font-bold text-[#8491CD] select-none">${tag}</summary><div class="mt-2 text-[#707CB1] whitespace-pre-wrap break-words max-w-full overflow-x-auto">$1</div></details>`,
+        `<details class="text-sm bg-[rgba(255,255,255,0.05)] [.light-theme_&]:bg-[#000000]/5 border border-[rgba(255,255,255,0.1)] [.light-theme_&]:border-[#000000]/10 rounded-lg p-2 my-2 w-full max-w-full overflow-hidden"><summary class="cursor-pointer font-bold text-[#8491CD] select-none">${tag}</summary><div class="mt-2 text-[#707CB1] whitespace-pre-wrap break-words max-w-full overflow-x-auto">$1</div></details>`,
       );
       const singleRe = new RegExp(
         `(?:<|&lt;|\\[|\\{)\\s*${escapedTag}(?:\\s+(?:[^>&\\]\\}]+))?\\/?\\s*(?:>|&gt;|\\]|\\})`,
@@ -648,9 +648,9 @@ export function CharacterChatsSection({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 20 }}
             transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-            className="fixed inset-0 z-[120] bg-slate-950/85 backdrop-blur-md flex flex-col p-2 pt-[max(1.75rem,env(safe-area-inset-top))] sm:p-5 sm:pt-[max(1.75rem,env(safe-area-inset-top))] [.light-theme_&]:bg-black/30"
+            className="fixed inset-0 z-[120] bg-slate-950/85 backdrop-blur-md flex flex-col p-2 pt-[max(1.75rem,env(safe-area-inset-top))] sm:p-5 sm:pt-[max(1.75rem,env(safe-area-inset-top))] [.light-theme_&]:bg-[#000000]/30"
           >
-            <div className="max-w-4xl mx-auto w-full flex flex-col h-full bg-slate-900/90 backdrop-blur-2xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl ring-1 ring-white/5 [.light-theme_&]:bg-white/95 [.light-theme_&]:border-black/10 [.light-theme_&]:shadow-[0_8px_40px_rgba(0,0,0,0.12)]">
+            <div className="max-w-4xl mx-auto w-full flex flex-col h-full bg-slate-900/90 backdrop-blur-2xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl ring-1 ring-white/5 [.light-theme_&]:bg-[#ffffff]/95 [.light-theme_&]:border-[#000000]/10 [.light-theme_&]:shadow-[0_8px_40px_rgba(0,0,0,0.12)]">
               {/* Reader Header */}
               <div className="px-4 py-3 sm:px-5 sm:py-3.5 border-b border-white/10 flex justify-between items-center shrink-0 bg-white/[0.02]">
                 <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
@@ -947,7 +947,7 @@ export function CharacterChatsSection({
                                   />
                                 </div>
                               ) : (
-                                <div className="w-10 h-10 rounded-full bg-white/10 text-slate-300 border border-white/20 flex items-center justify-center shadow-lg font-bold [.light-theme_&]:bg-blue-600 [.light-theme_&]:text-white [.light-theme_&]:border-transparent [.light-theme_&]:shadow-blue-500/20">
+                                <div className="w-10 h-10 rounded-full bg-white/10 text-slate-300 border border-white/20 flex items-center justify-center shadow-lg font-bold [.light-theme_&]:bg-blue-600 [.light-theme_&]:text-[#ffffff] [.light-theme_&]:border-transparent [.light-theme_&]:shadow-blue-500/20">
                                   {msg.name?.charAt(0) || "U"}
                                 </div>
                               )
@@ -1050,10 +1050,10 @@ export function CharacterChatsSection({
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-black/5 rounded-t-3xl p-5 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
+              className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-[#000000]/5 rounded-t-3xl p-5 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
             >
               {/* Indicator Handle */}
-              <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-black/10 rounded-full mx-auto mb-4" />
+              <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-[#000000]/10 rounded-full mx-auto mb-4" />
 
               <h3 className="text-base sm:text-lg font-bold text-center text-white [.light-theme_&]:!text-[#0f172a] mb-1.5">
                 删除聊天记录？

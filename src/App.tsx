@@ -88,11 +88,11 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
               <Loader2 className="w-4 h-4 text-blue-400 animate-spin shrink-0 [.light-theme_&]:text-blue-400" />
             )}
             
-            <span className="text-xs sm:text-sm font-medium text-slate-100 whitespace-nowrap [.light-theme_&]:text-slate-900">
+            <span className="text-xs sm:text-sm font-medium text-slate-100 whitespace-nowrap [.light-theme_&]:text-white">
               {isPaused ? '打标已暂停' : hasError ? '打标遇到错误' : '自动打标中'}
             </span>
 
-            <span className="text-[11px] font-semibold text-blue-300 bg-blue-500/20 [.light-theme_&]:!border [.light-theme_&]:!border-blue-200/80 px-2 py-0.5 rounded-full shrink-0 [.light-theme_&]:text-blue-600 [.light-theme_&]:bg-blue-50">
+            <span className="text-[11px] font-semibold text-blue-300 bg-blue-500/20 [.light-theme_&]:!border [.light-theme_&]:!border-purple-200/80 px-2 py-0.5 rounded-full shrink-0 [.light-theme_&]:text-white/60 [.light-theme_&]:bg-white/10">
               {progress.current}/{progress.total}
             </span>
 
@@ -101,7 +101,7 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
                 e.stopPropagation();
                 import('./lib/taggerState').then(({ taggerState }) => taggerState.dismiss());
               }}
-              className="p-1 hover:bg-white/20 rounded-full transition text-white/50 hover:text-white shrink-0 ml-0.5 [.light-theme_&]:hover:bg-black/5 [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-slate-800"
+              className="p-1 hover:bg-white/20 rounded-full transition text-white/50 hover:text-white shrink-0 ml-0.5 [.light-theme_&]:hover:bg-white/20 [.light-theme_&]:text-white/60 [.light-theme_&]:hover:text-white"
               title="隐藏悬浮窗"
             >
               <X className="w-3.5 h-3.5" />
@@ -501,7 +501,6 @@ export default function App() {
             refreshKey={refreshKey}
             onActiveViewChange={(hasInner) => { chatViewerHasInnerRef.current = hasInner; }}
             backSignal={chatViewerBackSignal}
-            isLightMode={isLightMode}
           />
         ) : (
           <CharacterList
@@ -520,6 +519,7 @@ export default function App() {
           />
         )}
 
+
         <AnimatePresence>
           {summaryModalChar && (
             <CharacterSummaryModal
@@ -535,7 +535,6 @@ export default function App() {
             />
           )}
         </AnimatePresence>
-
         <AnimatePresence>
           {selectedCharId && (
             <CharacterDetail
@@ -566,7 +565,6 @@ export default function App() {
               onClose={() => setGlobalChatViewerId(null)} 
               onOpenImport={handleOpenImportModal}
               refreshKey={refreshKey}
-              isLightMode={isLightMode}
             />
           </motion.div>
         )}
