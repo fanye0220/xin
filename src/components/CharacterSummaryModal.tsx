@@ -105,7 +105,7 @@ export function CharacterSummaryModal({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
-        className="fixed inset-0 bg-black/60 [.light-theme_&]:bg-[#000000]/40 backdrop-blur-sm"
+        className="fixed inset-0 bg-black/60 [.light-theme_&]:bg-black/40 backdrop-blur-sm"
       />
 
       {/* Card Modal */}
@@ -131,7 +131,7 @@ export function CharacterSummaryModal({
           {/* Close Button */}
           <button
             onClick={onClose}
-            className="absolute top-3 right-3 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-md transition cursor-pointer z-20 active:scale-95 border-0 [.light-theme_&]:!bg-[#000000]/10 [.light-theme_&]:!text-[#0f172a]"
+            className="absolute top-3 right-3 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-md transition cursor-pointer z-20 active:scale-95 border-0 [.light-theme_&]:!bg-black/10 [.light-theme_&]:!text-[#0f172a]"
             title="关闭"
           >
             <X className="w-5 h-5" />
@@ -224,7 +224,7 @@ export function CharacterSummaryModal({
               onClose();
               onOpenDetail(character.id);
             }}
-            className="w-full py-2.5 sm:py-3 rounded-full font-bold text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#000000] [.light-theme_&]:hover:!bg-neutral-800 [.light-theme_&]:!text-[#ffffff] shadow-sm"
+            className="w-full py-2.5 sm:py-3 rounded-full font-bold text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:hover:!bg-neutral-800 [.light-theme_&]:!text-white shadow-sm"
           >
             <span>进入详情页</span>
             <ChevronRight className="w-4 h-4" />

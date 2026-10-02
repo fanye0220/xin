@@ -367,19 +367,19 @@ export function TrashBin({ onClose }: Props) {
             animate={{ y: 0, opacity: 1, scale: 1, x: "-50%" }}
             exit={{ y: 20, opacity: 0, scale: 0.95, x: "-50%" }}
             transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-            className="floating-pill-dock fixed bottom-6 left-1/2 z-50 max-w-[95vw] sm:max-w-max rounded-full px-3 py-1.5 transition-all overflow-hidden"
+            className="floating-pill-dock fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] rounded-full px-2 sm:px-3 py-1.5 transition-all shadow-2xl max-w-[calc(100vw-1rem)] sm:max-w-max"
           >
             <div
-              className="flex items-center gap-1 sm:gap-1.5 px-1 overflow-x-auto hide-scrollbar"
+              className="flex items-center gap-0.5 sm:gap-1.5 px-0.5 overflow-x-auto hide-scrollbar"
               style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
             >
               <button
                 type="button"
                 onClick={handleSelectAll}
-                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0"
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-2.5 sm:px-3 py-1 rounded-full transition active:scale-90 shrink-0 cursor-pointer"
               >
-                <CheckCircle2 className="w-5 h-5 stroke-[1.8]" />
-                <span className="font-medium text-[10px] leading-none tracking-tight">
+                <CheckCircle2 className="w-4.5 h-4.5 sm:w-5 sm:h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight whitespace-nowrap">
                   {selectedIds.size === trashedCharacters.length ? '取消' : '全选'}
                 </span>
               </button>
@@ -388,10 +388,10 @@ export function TrashBin({ onClose }: Props) {
                 type="button"
                 onClick={handleBatchRestore}
                 disabled={selectedIds.size === 0}
-                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-blue-400 disabled:opacity-30 disabled:pointer-events-none"
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-2.5 sm:px-3 py-1 rounded-full transition active:scale-90 shrink-0 hover:!text-blue-500 disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
               >
-                <RotateCcw className="w-5 h-5 stroke-[1.8]" />
-                <span className="font-medium text-[10px] leading-none tracking-tight">
+                <RotateCcw className="w-4.5 h-4.5 sm:w-5 sm:h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight whitespace-nowrap">
                   恢复{selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
                 </span>
               </button>
@@ -400,10 +400,10 @@ export function TrashBin({ onClose }: Props) {
                 type="button"
                 onClick={handleBatchHardDelete}
                 disabled={selectedIds.size === 0}
-                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-rose-500 disabled:opacity-30 disabled:pointer-events-none"
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-2.5 sm:px-3 py-1 rounded-full transition active:scale-90 shrink-0 hover:!text-rose-500 disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
               >
-                <Trash2 className="w-5 h-5 stroke-[1.8]" />
-                <span className="font-medium text-[10px] leading-none tracking-tight">
+                <Trash2 className="w-4.5 h-4.5 sm:w-5 sm:h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight whitespace-nowrap">
                   删除{selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
                 </span>
               </button>
@@ -414,10 +414,10 @@ export function TrashBin({ onClose }: Props) {
                   setSelectionMode(false);
                   setSelectedIds(new Set());
                 }}
-                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-slate-400"
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-2.5 sm:px-3 py-1 rounded-full transition active:scale-90 shrink-0 hover:!text-slate-400 cursor-pointer"
               >
-                <X className="w-5 h-5 stroke-[1.8]" />
-                <span className="font-medium text-[10px] leading-none tracking-tight">退出</span>
+                <X className="w-4.5 h-4.5 sm:w-5 sm:h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight whitespace-nowrap">退出</span>
               </button>
             </div>
           </motion.div>

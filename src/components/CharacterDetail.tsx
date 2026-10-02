@@ -687,7 +687,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
       
       <div className="relative z-10 min-h-screen flex flex-col">
         {/* Header - Real Pure White 40% translucency glass in light theme and 20% in dark theme */}
-        <header className="sticky top-0 p-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] flex items-center justify-between bg-black/20 [.light-theme_&]:bg-[#ffffff]/40 backdrop-blur-xl border-b border-white/10 [.light-theme_&]:border-[#000000]/5 z-20">
+        <header className="sticky top-0 p-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] flex items-center justify-between bg-black/20 [.light-theme_&]:bg-[#ffffff]/40 backdrop-blur-xl border-b border-white/10 [.light-theme_&]:border-black/5 z-20">
           <div className="flex items-center gap-2 min-w-0">
             <button onClick={handleBack} className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 text-white [.light-theme_&]:text-[#1c1c1e] transition shrink-0" title="返回">
               <ArrowLeft className="w-6 h-6" />
@@ -757,7 +757,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 [.light-theme_&]:bg-[#000000]/40 backdrop-blur-sm z-[200] flex items-end justify-center"
+              className="fixed inset-0 bg-black/60 [.light-theme_&]:bg-black/40 backdrop-blur-sm z-[200] flex items-end justify-center"
               onClick={() => setShowDeleteConfirm(false)}
             >
               <motion.div
@@ -766,10 +766,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                 exit={{ y: '100%' }}
                 transition={{ type: 'spring', damping: 28, stiffness: 300 }}
                 onClick={(e) => e.stopPropagation()}
-                className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-[#000000]/5 rounded-t-3xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
+                className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-black/5 rounded-t-3xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
               >
                 {/* Indicator Handle */}
-                <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-[#000000]/10 rounded-full mx-auto mb-3" />
+                <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-black/10 rounded-full mx-auto mb-3" />
 
                 <h3 className="text-base sm:text-lg font-bold text-center text-white [.light-theme_&]:!text-[#0f172a] mb-1">
                   删除角色？
@@ -810,7 +810,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 [.light-theme_&]:bg-[#000000]/40 backdrop-blur-sm z-[200] flex items-end justify-center"
+              className="fixed inset-0 bg-black/60 [.light-theme_&]:bg-black/40 backdrop-blur-sm z-[200] flex items-end justify-center"
               onClick={() => setShowDownloadChoice(false)}
             >
               <motion.div
@@ -819,10 +819,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                 exit={{ y: '100%' }}
                 transition={{ type: 'spring', damping: 28, stiffness: 300 }}
                 onClick={(e) => e.stopPropagation()}
-                className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-[#000000]/5 rounded-t-3xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
+                className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-black/5 rounded-t-3xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
               >
                 {/* Indicator Handle */}
-                <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-[#000000]/10 rounded-full mx-auto mb-3" />
+                <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-black/10 rounded-full mx-auto mb-3" />
 
                 <h3 className="text-base sm:text-lg font-bold text-center text-white [.light-theme_&]:!text-[#0f172a] mb-1">
                   选择下载格式
@@ -981,7 +981,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               <span className="font-medium tracking-wide">
                 {currentFolderPath ? `文件夹: ${currentFolderPath}` : '未分类（点击归类）'}
               </span>
-              <ChevronRight className="w-3 h-3 text-white/40 [.light-theme_&]:text-[#000000]/30 group-hover:translate-x-0.5 transition-transform" />
+              <ChevronRight className="w-3 h-3 text-white/40 [.light-theme_&]:text-black/30 group-hover:translate-x-0.5 transition-transform" />
             </button>
           </div>
           
@@ -1013,14 +1013,14 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                   {/* Editable Fields: Creator, Version, Tags, Source */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-xs sm:text-sm">
                     {/* Creator */}
-                    <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-[#000000]/5 [.light-theme_&]:!border-transparent backdrop-blur-sm">
+                    <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent backdrop-blur-sm">
                       <span className="text-white/80 font-medium shrink-0 [.light-theme_&]:!text-[#0f172a] text-xs sm:text-sm">作者</span>
                       {isEditingCreator ? (
                         <div className="flex items-center gap-1.5 flex-1 min-w-0">
                           <input 
                             value={tempCreator} 
                             onChange={e => setTempCreator(e.target.value)} 
-                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-[#0f172a]"
+                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-white [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-[#0f172a]"
                             placeholder="作者名称"
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateCreator(tempCreator)}
@@ -1049,14 +1049,14 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                     </div>
 
                     {/* Version */}
-                    <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-[#000000]/5 [.light-theme_&]:!border-transparent backdrop-blur-sm">
+                    <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent backdrop-blur-sm">
                       <span className="text-white/80 font-medium shrink-0 [.light-theme_&]:!text-[#0f172a] text-xs sm:text-sm">版本</span>
                       {isEditingVersion ? (
                         <div className="flex items-center gap-1.5 flex-1 min-w-0">
                           <input 
                             value={tempVersion} 
                             onChange={e => setTempVersion(e.target.value)} 
-                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-[#0f172a]"
+                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-white [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-[#0f172a]"
                             placeholder="例如: 1.0"
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateVersion(tempVersion)}
@@ -1085,7 +1085,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                     </div>
 
                     {/* Tags */}
-                    <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-[#000000]/5 [.light-theme_&]:!border-transparent backdrop-blur-sm">
+                    <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent backdrop-blur-sm">
                       <span className="text-white/80 font-medium shrink-0 [.light-theme_&]:!text-[#0f172a] text-xs sm:text-sm">标签</span>
                       {isEditingTags ? (
                         <div className="flex items-center gap-1.5 flex-1 min-w-0">
@@ -1099,7 +1099,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                                 setTempTags(val);
                               }
                             }} 
-                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-[#0f172a]"
+                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-white [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-[#0f172a]"
                             placeholder="标签逗号分隔"
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateTags(tempTags)}
@@ -1128,14 +1128,14 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                     </div>
 
                     {/* Source */}
-                    <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-[#000000]/5 [.light-theme_&]:!border-transparent backdrop-blur-sm">
+                    <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent backdrop-blur-sm">
                       <span className="text-white/80 font-medium shrink-0 [.light-theme_&]:!text-[#0f172a] text-xs sm:text-sm">来源</span>
                       {isEditingSource ? (
                         <div className="flex items-center gap-1.5 flex-1 min-w-0">
                           <input 
                             value={tempSource} 
                             onChange={e => setTempSource(e.target.value)} 
-                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-[#0f172a]"
+                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-white [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-[#0f172a]"
                             placeholder="https://..."
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateSource(tempSource)}
@@ -1689,7 +1689,7 @@ function FullScreenTextModal({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.18 }}
-          className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex justify-center items-center p-4 sm:p-6 [.light-theme_&]:bg-[#000000]/40"
+          className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex justify-center items-center p-4 sm:p-6 [.light-theme_&]:bg-black/40"
           onClick={onClose}
         >
           <motion.div
@@ -1698,9 +1698,9 @@ function FullScreenTextModal({
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
             transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-slate-900 border border-white/10 shadow-2xl rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden [.light-theme_&]:bg-[#FCFCFC] [.light-theme_&]:border-[#000000]/5"
+            className="bg-slate-900 border border-white/10 shadow-2xl rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden [.light-theme_&]:bg-[#FCFCFC] [.light-theme_&]:border-black/5"
           >
-            <div className="flex-none p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/20 [.light-theme_&]:border-[#000000]/5 [.light-theme_&]:bg-[#000000]/5">
+            <div className="flex-none p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/20 [.light-theme_&]:border-black/5 [.light-theme_&]:bg-black/5">
               <h3 className="text-lg font-semibold text-white [.light-theme_&]:text-[#1c1c1e]">{title}</h3>
               <div className="flex items-center gap-2">
                 {!isEditing && onSave && (
@@ -1719,7 +1719,7 @@ function FullScreenTextModal({
                 <textarea 
                   value={editValue}
                   onChange={e => setEditValue(e.target.value)}
-                  className="w-full min-h-[300px] bg-black/30 border border-white/10 rounded-lg p-4 text-white text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 transition resize-none font-sans [.light-theme_&]:bg-[#000000]/5 [.light-theme_&]:border-[#000000]/10 [.light-theme_&]:text-[#1c1c1e]"
+                  className="w-full min-h-[300px] bg-black/30 border border-white/10 rounded-lg p-4 text-white text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 transition resize-none font-sans [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                   autoFocus
                 />
               ) : (
@@ -1731,7 +1731,7 @@ function FullScreenTextModal({
             </div>
 
             {isEditing && (
-              <div className="flex-none p-4 sm:p-6 border-t border-white/10 bg-black/20 flex justify-end gap-3 [.light-theme_&]:border-[#000000]/5 [.light-theme_&]:bg-[#000000]/5">
+              <div className="flex-none p-4 sm:p-6 border-t border-white/10 bg-black/20 flex justify-end gap-3 [.light-theme_&]:border-black/5 [.light-theme_&]:bg-black/5">
                 <button 
                   onClick={() => {
                     if (initialEditMode) {
@@ -1747,7 +1747,7 @@ function FullScreenTextModal({
                 </button>
                 <button 
                   onClick={handleSave} 
-                  className="px-6 py-2 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!text-[#ffffff] [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-2 shadow-sm cursor-pointer"
+                  className="px-6 py-2 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-2 shadow-sm cursor-pointer"
                 >
                   <Save className="w-4 h-4 stroke-[2.5]" />
                   保存
@@ -1828,7 +1828,7 @@ function TextPreview({
           <textarea 
             value={editValue}
             onChange={e => setEditValue(e.target.value)}
-            className="w-full bg-black/30 border border-white/10 rounded-xl p-3.5 text-white text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 min-h-[220px] resize-none [.light-theme_&]:!bg-[#000000]/5 [.light-theme_&]:!border-[#000000]/10 [.light-theme_&]:!text-[#0f172a]"
+            className="w-full bg-black/30 border border-white/10 rounded-xl p-3.5 text-white text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 min-h-[220px] resize-none [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#0f172a]"
             autoFocus
           />
           <div className="flex justify-end gap-3 pt-1">
@@ -1840,7 +1840,7 @@ function TextPreview({
             </button>
             <button 
               onClick={handleSave} 
-              className="px-5 py-1.5 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!text-[#ffffff] [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+              className="px-5 py-1.5 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-1.5 shadow-sm cursor-pointer"
             >
               <Save className="w-3.5 h-3.5 stroke-[2.5]" />
               保存
@@ -1965,7 +1965,7 @@ function AlternateGreetingCard({
           <textarea 
             value={editValue}
             onChange={e => setEditValue(e.target.value)}
-            className="w-full bg-black/30 border border-white/10 rounded-xl p-3.5 text-white text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 min-h-[220px] resize-none [.light-theme_&]:!bg-[#000000]/5 [.light-theme_&]:!border-[#000000]/10 [.light-theme_&]:!text-[#0f172a]"
+            className="w-full bg-black/30 border border-white/10 rounded-xl p-3.5 text-white text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 min-h-[220px] resize-none [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#0f172a]"
             autoFocus
           />
           <div className="flex justify-end gap-3 pt-1">
@@ -1977,7 +1977,7 @@ function AlternateGreetingCard({
             </button>
             <button 
               onClick={handleSave} 
-              className="px-5 py-1.5 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!text-[#ffffff] [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+              className="px-5 py-1.5 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-1.5 shadow-sm cursor-pointer"
             >
               <Save className="w-3.5 h-3.5 stroke-[2.5]" />
               保存
@@ -2173,7 +2173,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.18 }}
-            className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex justify-center items-center p-4 sm:p-6 [.light-theme_&]:bg-[#000000]/40"
+            className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex justify-center items-center p-4 sm:p-6 [.light-theme_&]:bg-black/40"
             onClick={() => {
               setEditingEntryIndex(null);
               setEditingEntry(null);
@@ -2184,10 +2184,10 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
               transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-              className="bg-slate-900 flex flex-col w-full max-h-[85vh] border border-white/10 rounded-2xl shadow-2xl max-w-3xl overflow-hidden [.light-theme_&]:bg-[#FCFCFC] [.light-theme_&]:border-[#000000]/5"
+              className="bg-slate-900 flex flex-col w-full max-h-[85vh] border border-white/10 rounded-2xl shadow-2xl max-w-3xl overflow-hidden [.light-theme_&]:bg-[#FCFCFC] [.light-theme_&]:border-black/5"
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex-none p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/20 [.light-theme_&]:border-[#000000]/5 [.light-theme_&]:bg-[#000000]/5">
+              <div className="flex-none p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/20 [.light-theme_&]:border-black/5 [.light-theme_&]:bg-black/5">
                 <h3 className="text-lg font-semibold text-white [.light-theme_&]:text-[#1c1c1e]">
                   {editingEntryIndex === -1 ? '新增世界书条目' : '编辑世界书条目'}
                 </h3>
@@ -2209,7 +2209,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     type="text" 
                     value={editingEntry.comment || editingEntry.name || ''}
                     onChange={(e) => setEditingEntry({...editingEntry, comment: e.target.value, name: e.target.value})}
-                    className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-[#000000]/5 [.light-theme_&]:border-[#000000]/10 [.light-theme_&]:text-[#1c1c1e]"
+                    className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                     placeholder="条目的标题，不影响匹配"
                   />
                 </div>
@@ -2219,7 +2219,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     type="text" 
                     value={(editingEntry.keys || []).join(', ')}
                     onChange={(e) => setEditingEntry({...editingEntry, keys: e.target.value.split(',').map((k: string)=>k.trim()).filter((k: string)=>k)})}
-                    className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-[#000000]/5 [.light-theme_&]:border-[#000000]/10 [.light-theme_&]:text-[#1c1c1e]"
+                    className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                   />
                 </div>
 
@@ -2230,7 +2230,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                       type="number" 
                       value={editingEntry.order ?? 100}
                       onChange={(e) => setEditingEntry({...editingEntry, order: parseInt(e.target.value) || 0})}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-[#000000]/5 [.light-theme_&]:border-[#000000]/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                     />
                   </div>
                   <div>
@@ -2238,7 +2238,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     <select
                       value={editingEntry.extensions?.position ?? editingEntry.position ?? 1}
                       onChange={(e) => setEditingEntry({...editingEntry, extensions: {...(editingEntry.extensions || {}), position: parseInt(e.target.value)}})}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-[#000000]/5 [.light-theme_&]:border-[#000000]/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                     >
                       <option value={0}>0 - 角色设定前 (Before Char Def)</option>
                       <option value={1}>1 - 角色设定后 (After Char Def)</option>
@@ -2255,7 +2255,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                       type="checkbox"
                       checked={!!editingEntry.constant}
                       onChange={(e) => setEditingEntry({...editingEntry, constant: e.target.checked})}
-                      className="rounded bg-black/30 border-white/10 text-blue-500 focus:ring-blue-500/20 [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-[#000000]/20"
+                      className="rounded bg-black/30 border-white/10 text-blue-500 focus:ring-blue-500/20 [.light-theme_&]:bg-white [.light-theme_&]:border-black/20"
                     />
                     常驻激活 (Constant)
                   </label>
@@ -2264,7 +2264,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                       type="checkbox"
                       checked={editingEntry.selective !== false}
                       onChange={(e) => setEditingEntry({...editingEntry, selective: e.target.checked})}
-                      className="rounded bg-black/30 border-white/10 text-blue-500 focus:ring-blue-500/20 [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-[#000000]/20"
+                      className="rounded bg-black/30 border-white/10 text-blue-500 focus:ring-blue-500/20 [.light-theme_&]:bg-white [.light-theme_&]:border-black/20"
                     />
                     条件触发 (Selective)
                   </label>
@@ -2275,12 +2275,12 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                   <textarea 
                     value={editingEntry.content || editingEntry.entry || ''}
                     onChange={(e) => setEditingEntry({...editingEntry, content: e.target.value, entry: e.target.value})}
-                    className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition min-h-[150px] resize-none [.light-theme_&]:bg-[#000000]/5 [.light-theme_&]:border-[#000000]/10 [.light-theme_&]:text-[#1c1c1e]"
+                    className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition min-h-[150px] resize-none [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                   />
                 </div>
               </div>
 
-              <div className="flex-none p-4 sm:p-6 border-t border-white/10 bg-black/20 flex justify-end gap-3 [.light-theme_&]:border-[#000000]/5 [.light-theme_&]:bg-[#000000]/5">
+              <div className="flex-none p-4 sm:p-6 border-t border-white/10 bg-black/20 flex justify-end gap-3 [.light-theme_&]:border-black/5 [.light-theme_&]:bg-black/5">
                 <button 
                   onClick={() => {
                     setEditingEntryIndex(null);
@@ -2292,7 +2292,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                 </button>
                 <button 
                   onClick={saveEntry} 
-                  className="px-6 py-2 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!text-[#ffffff] [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-2 shadow-sm cursor-pointer"
+                  className="px-6 py-2 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-2 shadow-sm cursor-pointer"
                 >
                   <Save className="w-4 h-4 stroke-[2.5]" />
                   保存

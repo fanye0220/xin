@@ -448,10 +448,10 @@ export interface CharacterCard {
   hasBlobsSeparated?: boolean;
   sortOrder?: number;
   tags?: string[];
+  aiSummary?: string;
   isTool?: boolean;
   isQR?: boolean;
   category?: string;
-  aiSummary?: string;
 }
 
 export interface ChatLog {
