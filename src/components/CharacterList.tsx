@@ -10,12 +10,9 @@ import {
   ChevronRight,
   Trash2,
   CheckCircle2,
-  Check,
   Cloud,
   X,
   FolderInput,
-  FolderPlus,
-  UploadCloud,
   Search,
   LayoutGrid,
   List,
@@ -29,7 +26,6 @@ import {
   ArrowUpDown,
   LayoutDashboard,
   Link,
-  Link2,
   Loader2,
   Image as ImageIcon,
 } from "lucide-react";
@@ -72,8 +68,6 @@ import {
   closestCenter,
   KeyboardSensor,
   PointerSensor,
-  MouseSensor,
-  TouchSensor,
   useSensor,
   useSensors,
   DragEndEvent,
@@ -161,29 +155,25 @@ function SortableItemWrapper({
       {...listeners}
       className={`select-none relative transition-transform duration-150 ${className} ${
         showDropHighlight
-          ? "ring-4 ring-blue-500 ring-offset-2 ring-offset-[#1c1c1e] [.light-theme_&]:ring-offset-white rounded-2xl shadow-[0_0_25px_rgba(59,130,246,0.6)] scale-[1.04]"
+          ? "ring-4 ring-purple-500 ring-offset-2 ring-offset-slate-900 rounded-2xl shadow-[0_0_25px_rgba(168,85,247,0.7)] scale-[1.04]"
           : showFolderDropHighlight
-            ? "ring-4 ring-blue-500 ring-offset-2 ring-offset-[#1c1c1e] [.light-theme_&]:ring-offset-white rounded-2xl shadow-[0_0_25px_rgba(59,130,246,0.6)] scale-[1.04]"
+            ? "ring-4 ring-blue-500 ring-offset-2 ring-offset-slate-900 rounded-2xl shadow-[0_0_25px_rgba(59,130,246,0.7)] scale-[1.04]"
             : ""
       }`}
     >
       {children}
       {showDropHighlight && (
-        <div className="absolute inset-0 z-30 bg-blue-600/30 backdrop-blur-[2px] rounded-2xl flex flex-col items-center justify-center border-2 border-blue-400 pointer-events-none animate-pulse shadow-inner">
-          <div className="w-10 h-10 rounded-2xl bg-blue-500/90 backdrop-blur-md flex items-center justify-center text-white shadow-lg mb-1.5 border border-white/20">
-            <Link2 className="w-5 h-5 stroke-[2.2]" />
-          </div>
-          <span className="text-[11px] font-bold text-white bg-slate-900/95 [.light-theme_&]:bg-slate-800 px-3 py-1 rounded-full shadow-lg border border-blue-400/40 tracking-tight">
+        <div className="absolute inset-0 z-30 bg-purple-600/35 backdrop-blur-[1px] rounded-2xl flex flex-col items-center justify-center border-2 border-purple-400 pointer-events-none animate-pulse shadow-inner">
+          <Link className="w-8 h-8 text-white drop-shadow-lg mb-1" />
+          <span className="text-[11px] font-bold text-white bg-purple-800/90 px-2.5 py-1 rounded-full shadow-lg border border-purple-400/30">
             松手立即绑定
           </span>
         </div>
       )}
       {showFolderDropHighlight && (
-        <div className="absolute inset-0 z-30 bg-blue-600/30 backdrop-blur-[2px] rounded-3xl sm:rounded-2xl flex flex-col items-center justify-center border-2 border-blue-400 pointer-events-none animate-pulse shadow-inner">
-          <div className="w-10 h-10 rounded-2xl bg-blue-500/90 backdrop-blur-md flex items-center justify-center text-white shadow-lg mb-1.5 border border-white/20">
-            <FolderInput className="w-5 h-5 stroke-[2.2]" />
-          </div>
-          <span className="text-[11px] font-bold text-white bg-slate-900/95 [.light-theme_&]:bg-slate-800 px-3 py-1 rounded-full shadow-lg border border-blue-400/40 tracking-tight">
+        <div className="absolute inset-0 z-30 bg-blue-600/35 backdrop-blur-[1px] rounded-2xl flex flex-col items-center justify-center border-2 border-blue-400 pointer-events-none animate-pulse shadow-inner">
+          <FolderInput className="w-8 h-8 text-white drop-shadow-lg mb-1" />
+          <span className="text-[11px] font-bold text-white bg-blue-800/90 px-2.5 py-1 rounded-full shadow-lg border border-blue-400/30">
             松手移入文件夹
           </span>
         </div>
@@ -255,7 +245,6 @@ export function CharacterList({
   onOpenSidebar,
   refreshTrigger,
   isDetailOpen = false,
-  isLightMode = false,
 }: Props) {
   const [characters, setCharacters] = useState<CharacterCard[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -396,30 +385,11 @@ export function CharacterList({
       folderPageMemory.set(folderKey, page);
     }
   }, [folderKey, page, debouncedSearchQuery, selectedTags.length]);
-
-  const [tagActionModal, setTagActionModal] = useState<string | null>(null);
-  const [renamingTagData, setRenamingTagData] = useState<{ old: string; new: string } | null>(null);
-  const tagLongPressTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const tagLongPressTriggeredRef = useRef(false);
-
-  const handleTagTouchStart = (tag: string) => {
-    tagLongPressTriggeredRef.current = false;
-    tagLongPressTimerRef.current = setTimeout(() => {
-      tagLongPressTriggeredRef.current = true;
-      if (typeof navigator !== "undefined" && navigator.vibrate) {
-        try { navigator.vibrate(40); } catch (e) {}
-      }
-      setTagActionModal(tag);
-    }, 500);
-  };
-
-  const handleTagTouchEnd = () => {
-    if (tagLongPressTimerRef.current) {
-      clearTimeout(tagLongPressTimerRef.current);
-      tagLongPressTimerRef.current = null;
-    }
-  };
-
+  const [isEditingTags, setIsEditingTags] = useState(false);
+  const [editingTagValue, setEditingTagValue] = useState<{
+    old: string;
+    new: string;
+  } | null>(null);
   const [tagSearchQuery, setTagSearchQuery] = useState("");
   const [isTagSearchOpen, setIsTagSearchOpen] = useState(false);
 
@@ -644,7 +614,6 @@ export function CharacterList({
     null,
   );
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
-  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
   const [isBindModalOpen, setIsBindModalOpen] = useState(false);
@@ -658,19 +627,6 @@ export function CharacterList({
     triggered: boolean;
     startY?: number;
   }>({ timer: null, triggered: false });
-
-  const [googleUser, setGoogleUser] = useState<any>(null);
-
-  useEffect(() => {
-    import('../lib/drive').then(({ getAuthCurrentUser }) => {
-      setGoogleUser(getAuthCurrentUser());
-    });
-    const handleAuthChange = (e: any) => {
-      if (e.detail) setGoogleUser(e.detail.user);
-    };
-    window.addEventListener('google_auth_changed', handleAuthChange);
-    return () => window.removeEventListener('google_auth_changed', handleAuthChange);
-  }, []);
 
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
@@ -899,15 +855,9 @@ export function CharacterList({
   };
 
   const sensors = useSensors(
-    useSensor(MouseSensor, {
+    useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 6,
-      },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: {
-        delay: 200,
-        tolerance: 6,
+        distance: 5,
       },
     }),
     useSensor(KeyboardSensor, {
@@ -1309,6 +1259,8 @@ export function CharacterList({
 
       setIsFilterOpen(false);
       setIsSortOpen(false);
+      setIsEditingTags(false);
+      setEditingTagValue(null);
     };
 
     if (isFilterOpen || isSortOpen) {
@@ -1326,14 +1278,12 @@ export function CharacterList({
 
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
-  const toggleSelection = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
+  const toggleSelection = (id: string) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedIds(newSet);
+  };
 
   const handleSelectPage = () => {
     let allPageSelected = true;
@@ -2355,7 +2305,7 @@ export function CharacterList({
   };
 
   return (
-    <div className="pb-32 min-h-full bg-gradient-to-br from-slate-900 to-slate-800 text-white [.light-theme_&]:!bg-transparent [.light-theme_&]:!text-[#0f172a]" onTouchStart={handleRootTouchStart} onTouchEnd={handleRootTouchEnd}>
+    <div className="pb-32 min-h-full bg-gradient-to-br from-slate-900 to-slate-800 text-white" onTouchStart={handleRootTouchStart} onTouchEnd={handleRootTouchEnd}>
       <input
         type="file"
         ref={coverInputRef}
@@ -2365,9 +2315,9 @@ export function CharacterList({
       />
       <motion.header
         initial={{ y: 0 }}
-        animate={{ y: (isHeaderVisible || selectionMode) ? 0 : "-100%" }}
+        animate={{ y: isHeaderVisible ? 0 : "-100%" }}
         transition={{ duration: 0.22, ease: "easeOut" }}
-        className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur-xl border-b border-white/10 px-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] pb-4 mb-6 cursor-pointer [.light-theme_&]:!bg-[#ffffff]/90 [.light-theme_&]:!border-none"
+        className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur-xl border-b border-white/10 px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-4 mb-6 cursor-pointer"
         onClick={(e) => {
           if (e.target === e.currentTarget) {
             scrollToTop();
@@ -2376,43 +2326,32 @@ export function CharacterList({
       >
         {selectionMode ? (
           <motion.div
-            initial={{ opacity: 0, y: -10 }}
+            initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.15 }}
-            className="flex items-center justify-between w-full"
+            className="w-full flex items-center justify-between bg-slate-800/90 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-xl"
           >
-            <div className="flex items-center gap-3 min-w-0">
-              <button
-                onClick={() => {
-                  setSelectionMode(false);
-                  setSelectedIds(new Set());
-                }}
-                className="p-2 rounded-xl transition shrink-0 cursor-pointer active:scale-95 bg-white/5 hover:bg-white/10 text-slate-300 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#0f172a]"
-                title="退出选择"
-              >
-                <X className="w-5 h-5" />
-              </button>
-              <div className="min-w-0">
-                <h2 className="text-base sm:text-lg font-bold truncate leading-tight tracking-tight text-white [.light-theme_&]:!text-[#0f172a]">
-                  已选中 {selectedIds.size} 项
-                </h2>
-                <p className="text-xs truncate mt-0.5 text-slate-400 [.light-theme_&]:!text-[#64748b]">
-                  请确认对选中项的操作
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                setSelectionMode(false);
+                setSelectedIds(new Set());
+              }}
+              className="p-2 -ml-2 rounded-full hover:bg-white/10 transition"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <span className="font-bold text-lg flex-1 text-center">
+              已选择 {selectedIds.size} 项
+            </span>
+            <div className="flex items-center gap-2">
               <button
                 onClick={handleSelectPage}
-                className="px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 bg-white/5 hover:bg-white/10 text-slate-200 border-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-none"
+                className="text-purple-400 font-medium px-3 py-1.5 hover:bg-purple-400/10 rounded-lg transition text-sm whitespace-nowrap"
               >
                 全选本页
               </button>
               <button
                 onClick={handleSelectAll}
-                className="px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 bg-white/5 hover:bg-white/10 text-slate-200 border-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-none"
+                className="text-pink-400 font-medium px-3 py-1.5 hover:bg-pink-400/10 rounded-lg transition text-sm whitespace-nowrap"
               >
                 全选所有
               </button>
@@ -2430,18 +2369,18 @@ export function CharacterList({
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleBack}
-                      className="p-1 -ml-1 rounded-lg hover:bg-white/10 transition text-white/60 hover:text-white [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/5"
+                      className="p-1 -ml-1 rounded-lg hover:bg-white/10 transition text-white/60 hover:text-white"
                       title="返回上一层"
                     >
                       <ChevronLeft className="w-6 h-6" />
                     </button>
-                    <h1 className="text-2xl font-bold text-white truncate [.light-theme_&]:!text-[#0f172a]">
+                    <h1 className="text-2xl font-bold text-white truncate">
                       {folderId === "all" ? "全部角色" : currentFolderName}
                     </h1>
                   </div>
 
                   {folderId !== "all" && folderAncestors[folderId] && folderAncestors[folderId].length > 0 && (
-                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-xs text-white/50 [.light-theme_&]:!text-[#64748b]">
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-xs text-white/50">
                       <button
                         onClick={() => {
                           if (searchQuery) {
@@ -2450,16 +2389,16 @@ export function CharacterList({
                           }
                           onSelectFolder?.(null);
                         }}
-                        className="hover:text-blue-400 transition flex items-center gap-1 shrink-0 [.light-theme_&]:hover:!text-blue-600"
+                        className="hover:text-purple-400 transition flex items-center gap-1 shrink-0"
                       >
                         <Home className="w-3.5 h-3.5" />
                         <span>主页</span>
                       </button>
                       {folderAncestors[folderId].map((crumb, idx) => (
                         <React.Fragment key={crumb.id || idx}>
-                          <ChevronRight className="w-3 h-3 text-white/30 shrink-0 [.light-theme_&]:!text-[#94a3b8]" />
+                          <ChevronRight className="w-3 h-3 text-white/30 shrink-0" />
                           {idx === folderAncestors[folderId].length - 1 ? (
-                            <span className="font-semibold text-white/90 truncate max-w-[150px] sm:max-w-[220px] [.light-theme_&]:!text-[#0f172a]">
+                            <span className="font-semibold text-white/90 truncate max-w-[150px] sm:max-w-[220px]">
                               {crumb.name}
                             </span>
                           ) : (
@@ -2471,7 +2410,7 @@ export function CharacterList({
                                 }
                                 onSelectFolder?.(crumb.id);
                               }}
-                              className="hover:text-white [.light-theme_&]:hover:!text-[#0f172a] transition truncate max-w-[120px] shrink-0"
+                              className="hover:text-purple-400 transition truncate max-w-[120px] shrink-0"
                             >
                               {crumb.name}
                             </button>
@@ -2483,15 +2422,15 @@ export function CharacterList({
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <h1 className="text-2xl font-black text-white [.light-theme_&]:!text-[#1c1c1e] truncate tracking-wide">
+                  <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600 truncate tracking-wide">
                     MIU
                   </h1>
-                  <span className="text-[10px] font-semibold tracking-wider text-white/70 [.light-theme_&]:!text-[#1c1c1e]/70 bg-white/10 [.light-theme_&]:!bg-black/5 border border-white/15 [.light-theme_&]:!border-black/10 px-2 py-0.5 rounded-full select-none shadow-xs">
+                  <span className="text-[10px] font-bold tracking-wider text-purple-300 bg-purple-500/15 border border-purple-500/30 px-2 py-0.5 rounded-full select-none shadow-sm">
                     v3.0.4
                   </span>
                 </div>
               )}
-              <p className="text-slate-400 text-xs mt-0.5 truncate [.light-theme_&]:!text-[#64748b]">
+              <p className="text-slate-400 text-xs mt-0.5 truncate">
                 {folders.length > 0 && totalCharacters > 0
                   ? `${folders.length} 个文件夹 · ${totalCharacters} 个角色`
                   : folders.length > 0
@@ -2503,29 +2442,19 @@ export function CharacterList({
             <div className="flex items-center gap-2">
               <button
                 onClick={onOpenSidebar}
-                className="p-1.5 sm:p-2 rounded-xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition shrink-0 flex items-center justify-center min-w-[36px] min-h-[36px] [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"
-                title="打开导航菜单"
+                className="p-2 rounded-xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition shrink-0"
               >
-                {googleUser?.photoURL ? (
-                  <img 
-                    src={googleUser.photoURL} 
-                    alt="User" 
-                    referrerPolicy="no-referrer"
-                    className="w-5 h-5 sm:w-6 sm:h-6 rounded-full object-cover border border-white/20" 
-                  />
-                ) : (
-                  <Menu className="w-5 h-5" />
-                )}
+                <Menu className="w-5 h-5" />
               </button>
 
               <div className="relative flex-1 min-w-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 [.light-theme_&]:!text-[#64748b]" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
                 <input
                   type="text"
                   placeholder="搜索..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-blue-500/50 transition [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#8e8e93] [.light-theme_&]:focus:!bg-[#e4e7eb]"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/50 transition"
                 />
               </div>
 
@@ -2539,7 +2468,7 @@ export function CharacterList({
                         : "grid",
                   )
                 }
-                className="p-2 bg-white/5 border border-white/10 rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition shrink-0 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"
+                className="p-2 bg-white/5 border border-white/10 rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition shrink-0"
               >
                 {viewMode === "grid" ? (
                   <LayoutGrid className="w-5 h-5" />
@@ -2557,7 +2486,7 @@ export function CharacterList({
                     setIsSortOpen(!isSortOpen);
                     setIsFilterOpen(false);
                   }}
-                  className={`p-2 border rounded-xl transition cursor-pointer ${isSortOpen ? "bg-blue-500/20 text-blue-400 border-blue-500/50 [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-blue-600 [.light-theme_&]:!border-none" : "bg-white/5 text-white/60 border-white/10 hover:text-white hover:bg-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"}`}
+                  className={`p-2 border rounded-xl transition ${isSortOpen ? "bg-purple-500/20 text-purple-400 border-purple-500/50" : "bg-white/5 text-white/60 border-white/10 hover:text-white hover:bg-white/10"}`}
                 >
                   <ArrowUpDown className="w-5 h-5" />
                 </button>
@@ -2568,7 +2497,7 @@ export function CharacterList({
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 10 }}
-                      className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-white/10 rounded-2xl shadow-xl z-50 p-2 overflow-hidden [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-none [.light-theme_&]:!shadow-2xl"
+                      className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-white/10 rounded-2xl shadow-xl z-50 p-2 overflow-hidden"
                     >
                       {[
                         { value: "newest_import", label: "最新导入" },
@@ -2583,10 +2512,10 @@ export function CharacterList({
                             setSortBy(option.value as SortOption);
                             setIsSortOpen(false);
                           }}
-                          className={`w-full text-left px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-medium transition cursor-pointer ${
+                          className={`w-full text-left px-4 py-2.5 rounded-xl text-sm transition ${
                             sortBy === option.value
-                              ? "bg-blue-500/20 text-blue-400 font-semibold [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-blue-600"
-                              : "text-white/70 hover:bg-white/5 hover:text-white [.light-theme_&]:!text-[#334155] [.light-theme_&]:hover:!bg-[#f1f2f6] [.light-theme_&]:hover:!text-[#0f172a]"
+                              ? "bg-purple-500/20 text-purple-400 font-medium"
+                              : "text-white/70 hover:bg-white/5 hover:text-white"
                           }`}
                         >
                           {option.label}
@@ -2607,7 +2536,7 @@ export function CharacterList({
                     setIsFilterOpen(!isFilterOpen);
                     setIsSortOpen(false);
                   }}
-                  className={`p-2 border rounded-xl transition cursor-pointer ${selectedTags.length > 0 ? "bg-blue-500/20 text-blue-400 border-blue-500/50 [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-blue-600 [.light-theme_&]:!border-none" : "bg-white/5 text-white/60 border-white/10 hover:text-white hover:bg-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"}`}
+                  className={`p-2 border rounded-xl transition ${selectedTags.length > 0 ? "bg-purple-500/20 text-purple-400 border-purple-500/50" : "bg-white/5 text-white/60 border-white/10 hover:text-white hover:bg-white/10"}`}
                 >
                   <Filter className="w-5 h-5" />
                 </button>
@@ -2618,30 +2547,40 @@ export function CharacterList({
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 10 }}
-                      className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-slate-800 border border-white/10 rounded-3xl shadow-2xl z-50 p-5 sm:p-6 max-h-[65vh] overflow-y-auto overscroll-contain touch-pan-y miu-skin [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-none [.light-theme_&]:!shadow-2xl"
+                      className="absolute right-0 top-full mt-2 w-72 bg-slate-800 border border-white/10 rounded-2xl shadow-xl z-50 p-4 max-h-[60vh] overflow-y-auto overscroll-contain touch-pan-y"
                     >
-                      <div className="flex items-center justify-between mb-4 relative h-7">
+                      <div className="flex items-center justify-between mb-3 relative h-6">
                         {!isTagSearchOpen ? (
                           <div className="absolute inset-0 flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <h3 className="font-bold text-sm sm:text-base text-white [.light-theme_&]:!text-[#0f172a]">
+                              <h3 className="font-semibold text-white">
                                 按标签筛选
                               </h3>
                               <button
                                 onClick={() => setIsTagSearchOpen(true)}
-                                className="text-white/40 hover:text-white transition p-1 [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] cursor-pointer"
-                                title="搜索标签"
+                                className="text-white/40 hover:text-white transition"
                               >
                                 <Search className="w-4 h-4" />
                               </button>
                             </div>
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2">
                               {selectedTags.length > 0 && (
                                 <button
                                   onClick={() => setSelectedTags([])}
-                                  className="text-xs font-semibold text-red-400 hover:text-red-300 transition [.light-theme_&]:!text-red-500 [.light-theme_&]:hover:!text-red-600 cursor-pointer"
+                                  className="text-xs text-red-400 hover:text-red-300 transition"
                                 >
                                   清除选中
+                                </button>
+                              )}
+                              {allTags.length > 0 && (
+                                <button
+                                  onClick={() => {
+                                    setIsEditingTags(!isEditingTags);
+                                    setEditingTagValue(null);
+                                  }}
+                                  className="text-xs text-purple-400 hover:text-purple-300 transition"
+                                >
+                                  {isEditingTags ? "完成" : "编辑"}
                                 </button>
                               )}
                             </div>
@@ -2650,9 +2589,9 @@ export function CharacterList({
                           <motion.div
                             initial={{ width: 0, opacity: 0 }}
                             animate={{ width: "100%", opacity: 1 }}
-                            className="absolute right-0 flex items-center bg-white/10 rounded-xl overflow-hidden h-full px-2 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none"
+                            className="absolute right-0 flex items-center bg-white/10 rounded-lg overflow-hidden h-full"
                           >
-                            <Search className="w-4 h-4 text-white/40 shrink-0 [.light-theme_&]:!text-[#64748b]" />
+                            <Search className="w-3.5 h-3.5 text-white/40 ml-2 shrink-0" />
                             <input
                               autoFocus
                               type="text"
@@ -2661,24 +2600,24 @@ export function CharacterList({
                               onChange={(e) =>
                                 setTagSearchQuery(e.target.value)
                               }
-                              className="w-full bg-transparent text-xs sm:text-sm text-white placeholder:text-white/40 [.light-theme_&]:placeholder:!text-[#94a3b8] px-2 py-1 outline-none min-w-0 [.light-theme_&]:bg-transparent [.light-theme_&]:!text-[#0f172a]"
+                              className="w-full bg-transparent text-sm text-white px-2 py-1 outline-none min-w-0"
                             />
                             <button
                               onClick={() => {
                                 setIsTagSearchOpen(false);
                                 setTagSearchQuery("");
                               }}
-                              className="p-1 hover:bg-white/10 rounded-md text-white/60 hover:text-white transition shrink-0 [.light-theme_&]:hover:!bg-black/10 [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] cursor-pointer"
+                              className="p-1 hover:bg-white/10 rounded-md mr-0.5 text-white/60 hover:text-white transition shrink-0"
                             >
-                              <X className="w-3.5 h-3.5" />
+                              <X className="w-3 h-3" />
                             </button>
                           </motion.div>
                         )}
                       </div>
                       {allTags.length === 0 ? (
-                        <p className="text-xs sm:text-sm text-white/40 py-4 [.light-theme_&]:!text-[#64748b]">无可用标签</p>
+                        <p className="text-sm text-white/40">无可用标签</p>
                       ) : (
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pt-1">
+                        <div className="flex flex-wrap gap-2">
                           {allTags
                             .filter((tag) =>
                               tag
@@ -2688,17 +2627,135 @@ export function CharacterList({
                             .map((tag) => {
                               const isSelected = selectedTags.includes(tag);
 
+                              if (isEditingTags) {
+                                if (editingTagValue?.old === tag) {
+                                  return (
+                                    <div
+                                      key={tag}
+                                      className="flex items-center gap-1 w-full bg-black/20 p-1 rounded-lg border border-purple-500/50"
+                                    >
+                                      <input
+                                        autoFocus
+                                        type="text"
+                                        value={editingTagValue.new}
+                                        onChange={(e) =>
+                                          setEditingTagValue({
+                                            ...editingTagValue,
+                                            new: e.target.value,
+                                          })
+                                        }
+                                        className="flex-1 bg-transparent text-sm text-white px-2 py-1 outline-none"
+                                        onKeyDown={async (e) => {
+                                          if (
+                                            e.key === "Enter" &&
+                                            editingTagValue.new.trim() &&
+                                            editingTagValue.new.trim() !== tag
+                                          ) {
+                                            await import("../lib/db").then(
+                                              (m) =>
+                                                m.renameTag(
+                                                  tag,
+                                                  editingTagValue.new.trim(),
+                                                ),
+                                            );
+                                            setEditingTagValue(null);
+                                            loadData();
+                                            import("../lib/db").then((m) =>
+                                              m.getAllTags().then(setAllTags),
+                                            );
+                                          } else if (e.key === "Escape") {
+                                            setEditingTagValue(null);
+                                          }
+                                        }}
+                                      />
+                                      <button
+                                        onClick={async () => {
+                                          if (
+                                            editingTagValue.new.trim() &&
+                                            editingTagValue.new.trim() !== tag
+                                          ) {
+                                            await import("../lib/db").then(
+                                              (m) =>
+                                                m.renameTag(
+                                                  tag,
+                                                  editingTagValue.new.trim(),
+                                                ),
+                                            );
+                                            setEditingTagValue(null);
+                                            loadData();
+                                            import("../lib/db").then((m) =>
+                                              m.getAllTags().then(setAllTags),
+                                            );
+                                          } else {
+                                            setEditingTagValue(null);
+                                          }
+                                        }}
+                                        className="p-1.5 text-green-400 hover:bg-green-400/20 rounded-md transition"
+                                      >
+                                        <CheckCircle2 className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => setEditingTagValue(null)}
+                                        className="p-1.5 text-white/40 hover:bg-white/10 rounded-md transition"
+                                      >
+                                        <X className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  );
+                                }
+
+                                return (
+                                  <div
+                                    key={tag}
+                                    className="flex items-center gap-1 bg-white/5 rounded-lg pl-3 pr-1 py-1 border border-white/10"
+                                  >
+                                    <span className="text-sm text-white/80">
+                                      {tag}
+                                    </span>
+                                    <button
+                                      onClick={() =>
+                                        setEditingTagValue({
+                                          old: tag,
+                                          new: tag,
+                                        })
+                                      }
+                                      className="p-1 text-white/40 hover:text-blue-400 hover:bg-blue-400/10 rounded transition"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={async () => {
+                                        if (
+                                          confirm(
+                                            `确定要删除标签 "${tag}" 吗？这会从所有角色中移除该标签。`,
+                                          )
+                                        ) {
+                                          await import("../lib/db").then((m) =>
+                                            m.deleteTag(tag),
+                                          );
+                                          setSelectedTags(
+                                            selectedTags.filter(
+                                              (t) => t !== tag,
+                                            ),
+                                          );
+                                          loadData();
+                                          import("../lib/db").then((m) =>
+                                            m.getAllTags().then(setAllTags),
+                                          );
+                                        }
+                                      }}
+                                      className="p-1 text-white/40 hover:text-red-400 hover:bg-red-400/10 rounded transition"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                );
+                              }
+
                               return (
                                 <button
                                   key={tag}
-                                  onTouchStart={() => handleTagTouchStart(tag)}
-                                  onTouchEnd={handleTagTouchEnd}
-                                  onTouchMove={handleTagTouchEnd}
-                                  onMouseDown={() => handleTagTouchStart(tag)}
-                                  onMouseUp={handleTagTouchEnd}
-                                  onMouseLeave={handleTagTouchEnd}
                                   onClick={() => {
-                                    if (tagLongPressTriggeredRef.current) return;
                                     if (isSelected) {
                                       setSelectedTags(
                                         selectedTags.filter((t) => t !== tag),
@@ -2707,12 +2764,7 @@ export function CharacterList({
                                       setSelectedTags([...selectedTags, tag]);
                                     }
                                   }}
-                                  className={`px-3.5 py-1.5 rounded-2xl text-xs sm:text-sm font-medium transition-all cursor-pointer select-none active:scale-95 border-none ${
-                                    isSelected 
-                                      ? "bg-blue-500/25 text-blue-300 font-semibold [.light-theme_&]:!bg-blue-600 [.light-theme_&]:!text-[#ffffff] shadow-xs" 
-                                      : "bg-white/5 text-white/75 hover:text-white hover:bg-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!text-[#2c3e50] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:hover:!text-[#0f172a]"
-                                  }`}
-                                  title="点击筛选标签，长按管理标签"
+                                  className={`px-3 py-1.5 rounded-lg text-sm transition ${isSelected ? "bg-purple-500 text-white" : "bg-white/5 text-white/60 hover:bg-white/10"}`}
                                 >
                                   {tag}
                                 </button>
@@ -2725,50 +2777,18 @@ export function CharacterList({
                 </AnimatePresence>
               </div>
             </div>
-
-            {selectedTags.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1 pb-0.5">
-                <span className="text-xs text-white/50 [.light-theme_&]:!text-[#64748b] shrink-0">已筛选:</span>
-                {selectedTags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold bg-blue-500/20 text-blue-300 border-none [.light-theme_&]:!bg-blue-100/70 [.light-theme_&]:!text-blue-700 shrink-0"
-                  >
-                    <span>{tag}</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedTags(selectedTags.filter((t) => t !== tag));
-                      }}
-                      className="p-0.5 hover:bg-white/20 [.light-theme_&]:hover:!bg-blue-200 rounded-md transition cursor-pointer"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedTags([]);
-                  }}
-                  className="text-xs text-red-400 hover:text-red-300 [.light-theme_&]:!text-red-500 [.light-theme_&]:hover:!text-red-600 ml-1 shrink-0 font-medium cursor-pointer"
-                >
-                  清空
-                </button>
-              </div>
-            )}
           </motion.div>
         )}
       </motion.header>
 
       {totalItems === 0 ? (
-        <div className="flex flex-col items-center justify-center h-64 text-slate-400 px-4 [.light-theme_&]:!text-[#64748b]">
-          <BookOpen className="w-16 h-16 mb-4 opacity-50 [.light-theme_&]:!text-[#94a3b8]" />
-          <p className="[.light-theme_&]:!text-[#0f172a] font-medium">No characters found.</p>
-          <p className="text-sm [.light-theme_&]:!text-[#64748b]">Tap the + button to import.</p>
+        <div className="flex flex-col items-center justify-center h-64 text-slate-400 px-4">
+          <BookOpen className="w-16 h-16 mb-4 opacity-50" />
+          <p>No characters found.</p>
+          <p className="text-sm">Tap the + button to import.</p>
         </div>
       ) : (
-        <div className={`px-4 transition-all duration-200 ${selectionMode ? 'pb-36 sm:pb-40' : 'pb-12 sm:pb-16'}`}>
+        <div className="px-4">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -2807,7 +2827,30 @@ export function CharacterList({
                         : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-6"
                   }
                 >
-
+                  {page === 1 && !searchQuery && selectedTags.length === 0 && (
+                    <motion.div
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
+                      onClick={() => setIsCreatingFolder(true)}
+                      className={
+                        viewMode === "list"
+                          ? "flex items-center gap-4 p-3 bg-white/5 hover:bg-white/10 rounded-2xl cursor-pointer transition border border-dashed border-white/20"
+                          : "flex flex-col items-center cursor-pointer group break-inside-avoid w-full"
+                      }
+                    >
+                      <FrostedNewFolderCover viewMode={viewMode} />
+                      {viewMode !== "list" && (
+                        <div className="flex flex-col items-center w-full min-w-0 px-1 mt-1.5 text-center">
+                          <span className="text-xs font-semibold text-white/70 group-hover:text-white transition truncate w-full">
+                            新建文件夹
+                          </span>
+                          <span className="text-[10px] text-white/35 group-hover:text-white/50 transition truncate mt-0.5">
+                            点击创建
+                          </span>
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
 
                   {paginatedFolders.map((folder) => {
                     const previews = folderPreviews[folder.id] || [];
@@ -2815,17 +2858,14 @@ export function CharacterList({
                       <SortableItemWrapper
                         key={`folder-${folder.id}`}
                         id={`folder-${folder.id}`}
-                        disabled={selectionMode || !!searchQuery || selectedTags.length > 0}
+                        disabled={!!searchQuery || selectedTags.length > 0}
                         activeDragIsQR={activeIsQR}
                         activeDragCharId={activeChar?.id || null}
                       >
                         <motion.div
-                          animate={{ scale: selectedIds.has(folder.id) ? (viewMode === "list" ? 0.97 : 0.93) : 1 }}
-                          transition={{ duration: 0.12, ease: "easeOut" }}
-                          whileHover={selectionMode ? undefined : { scale: 1.03 }}
-                          whileTap={{ scale: 0.92 }}
+                          whileHover={{ scale: 1.03 }}
+                          whileTap={{ scale: 0.97 }}
                           onTouchStart={(e) => {
-                            if (selectionMode) return;
                             longPressRef.current.triggered = false;
                             longPressRef.current.startY = e.touches[0].clientY;
                             longPressRef.current.timer = setTimeout(() => {
@@ -2835,7 +2875,7 @@ export function CharacterList({
                                 setSelectedIds(new Set([folder.id]));
                                 setIsHeaderVisible(true);
                               }
-                            }, 280);
+                            }, 500);
                           }}
                           onTouchMove={(e) => {
                             if (longPressRef.current.timer) {
@@ -2856,7 +2896,6 @@ export function CharacterList({
                             }
                           }}
                           onMouseDown={() => {
-                            if (selectionMode) return;
                             longPressRef.current.triggered = false;
                             longPressRef.current.timer = setTimeout(() => {
                               longPressRef.current.triggered = true;
@@ -2865,7 +2904,7 @@ export function CharacterList({
                                 setSelectedIds(new Set([folder.id]));
                                 setIsHeaderVisible(true);
                               }
-                            }, 280);
+                            }, 500);
                           }}
                           onMouseUp={() => {
                             if (longPressRef.current.timer) {
@@ -2881,9 +2920,7 @@ export function CharacterList({
                           }}
                           onClick={(e) => {
                             if (longPressRef.current.triggered) {
-                              longPressRef.current.triggered = false;
                               e.preventDefault();
-                              e.stopPropagation();
                               return;
                             }
                             if (selectionMode) {
@@ -2898,41 +2935,56 @@ export function CharacterList({
                           }}
                           className={
                             viewMode === "list"
-                              ? "flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-colors duration-150 relative group select-none border bg-white/5 hover:bg-white/10 border-transparent overflow-hidden"
-                              : "flex flex-col items-center cursor-pointer group relative select-none break-inside-avoid w-full rounded-2xl p-1 transition-colors duration-150 border border-transparent overflow-hidden"
+                              ? "flex items-center gap-4 p-3 bg-white/5 hover:bg-white/10 rounded-2xl cursor-pointer transition relative group select-none border border-transparent"
+                              : "flex flex-col items-center cursor-pointer group relative select-none break-inside-avoid w-full"
                           }
                         >
+                          {selectionMode && (
+                            <div className="absolute top-2 right-2 z-20">
+                              <div
+                                className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                                  selectedIds.has(folder.id)
+                                    ? "bg-purple-500 border-purple-500"
+                                    : "border-white/40 bg-black/40 backdrop-blur-md"
+                                }`}
+                              >
+                                {selectedIds.has(folder.id) && (
+                                  <CheckCircle2 className="w-4 h-4 text-white" />
+                                )}
+                              </div>
+                            </div>
+                          )}
+                          
                           <FrostedFolderCover
                             folder={folder}
                             previews={previews}
                             viewMode={viewMode}
-                            isSelected={selectedIds.has(folder.id)}
                           />
 
                           {viewMode === "list" ? (
                             <div className="flex-1 min-w-0 flex flex-col justify-center">
                               <div className="flex items-center gap-2">
-                                <span className="font-semibold text-white/90 truncate [.light-theme_&]:!text-[#0f172a]">{folder.name}</span>
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 font-normal shrink-0 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 [.light-theme_&]:!border [.light-theme_&]:!border-blue-200">
+                                <span className="font-semibold text-white/90 truncate">{folder.name}</span>
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 font-normal shrink-0">
                                   {folderCounts[folder.id]?.chars ?? 0} 照片{folderCounts[folder.id]?.subfolders ? ` · ${folderCounts[folder.id]?.subfolders} 文件夹` : ''}
                                 </span>
                               </div>
                               {debouncedSearchQuery && folderPaths[folder.id] && folderPaths[folder.id] !== folder.name && (
-                                <span className="text-xs text-blue-300/70 truncate mt-0.5 [.light-theme_&]:!text-blue-600">
+                                <span className="text-xs text-purple-300/70 truncate mt-0.5">
                                   路径: {folderPaths[folder.id]}
                                 </span>
                               )}
                             </div>
                           ) : (
                             <div className="flex flex-col items-center w-full min-w-0 px-1 mt-1.5 text-center">
-                              <span className="text-xs font-semibold text-white/90 group-hover:text-white transition truncate w-full [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:group-hover:!text-black">
+                              <span className="text-xs font-semibold text-white/90 group-hover:text-white transition truncate w-full">
                                 {folder.name}
                               </span>
-                              <span className="text-[11px] text-white/45 group-hover:text-white/65 transition truncate mt-0.5 [.light-theme_&]:!text-[#64748b] [.light-theme_&]:group-hover:!text-[#334155]">
+                              <span className="text-[11px] text-white/45 group-hover:text-white/65 transition truncate mt-0.5">
                                 {folderCounts[folder.id]?.chars ?? 0} 照片{folderCounts[folder.id]?.subfolders ? ` · ${folderCounts[folder.id]?.subfolders} 文件夹` : ''}
                               </span>
                               {debouncedSearchQuery && folderPaths[folder.id] && folderPaths[folder.id] !== folder.name && (
-                                <span className="text-[10px] text-blue-300/70 truncate w-full text-center px-1 mt-0.5 [.light-theme_&]:!text-blue-600">
+                                <span className="text-[10px] text-purple-300/70 truncate w-full text-center px-1 mt-0.5">
                                   {folderPaths[folder.id]}
                                 </span>
                               )}
@@ -2946,10 +2998,10 @@ export function CharacterList({
               )}
 
               {paginatedFolders.length === 0 && characters.length === 0 && (searchQuery || selectedTags.length > 0) && (
-                <div className="flex flex-col items-center justify-center py-20 text-white/40 [.light-theme_&]:!text-[#64748b]">
-                  <Search className="w-12 h-12 mb-3 text-white/20 stroke-1 [.light-theme_&]:!text-[#94a3b8]" />
-                  <p className="text-base font-medium [.light-theme_&]:!text-[#0f172a]">未找到匹配的角色卡或文件夹</p>
-                  <p className="text-xs mt-1 text-white/30 [.light-theme_&]:!text-[#64748b]">
+                <div className="flex flex-col items-center justify-center py-20 text-white/40">
+                  <Search className="w-12 h-12 mb-3 text-white/20 stroke-1" />
+                  <p className="text-base font-medium">未找到匹配的角色卡或文件夹</p>
+                  <p className="text-xs mt-1 text-white/30">
                     已搜索全部目录，尝试更换关键词或清除筛选标签
                   </p>
                 </div>
@@ -2965,7 +3017,7 @@ export function CharacterList({
                     <SortableItemWrapper
                       key={`char-${char.id}`}
                       id={`char-${char.id}`}
-                      disabled={selectionMode || !!searchQuery || selectedTags.length > 0}
+                      disabled={!!searchQuery || selectedTags.length > 0}
                       className="w-full"
                       isQR={checkIsQR(char)}
                       activeDragIsQR={activeIsQR}
@@ -3003,7 +3055,7 @@ export function CharacterList({
                     <SortableItemWrapper
                       key={`char-${char.id}`}
                       id={`char-${char.id}`}
-                      disabled={selectionMode || !!searchQuery || selectedTags.length > 0}
+                      disabled={!!searchQuery || selectedTags.length > 0}
                       isQR={checkIsQR(char)}
                       activeDragIsQR={activeIsQR}
                       activeDragCharId={activeChar?.id || null}
@@ -3032,23 +3084,18 @@ export function CharacterList({
             </SortableContext>
           </DndContext>
 
-          {/* Dedicated bottom spacer when in selectionMode on mobile/desktop */}
-          {selectionMode && (
-            <div className="w-full h-36 sm:h-44 shrink-0 pointer-events-none" aria-hidden="true" />
-          )}
-
           {!selectionMode && (totalPages > 1 || totalItems > 0) && (
             <div className="flex justify-center items-center mt-12 mb-8 text-sm">
-              <div className="flex items-center bg-white/5 rounded-xl p-1 border border-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none">
+              <div className="flex items-center bg-white/5 rounded-xl p-1 border border-white/10">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition text-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"
+                  className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition text-white"
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
 
-                <div className="flex items-center gap-2 text-slate-400 px-2 [.light-theme_&]:!text-[#64748b]">
+                <div className="flex items-center gap-2 text-slate-400 px-2">
                   <span>第</span>
                   <input
                     type="text"
@@ -3069,28 +3116,28 @@ export function CharacterList({
                         e.currentTarget.blur();
                       }
                     }}
-                    className="w-10 bg-black/20 border border-white/10 rounded-lg px-1 py-1 text-center text-white font-medium focus:outline-none focus:border-blue-500 transition [.light-theme_&]:!bg-[#e4e7eb] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#0f172a]"
+                    className="w-10 bg-black/20 border border-white/10 rounded-lg px-1 py-1 text-center text-white font-medium focus:outline-none focus:border-purple-500 transition"
                   />
                   <span>/ {totalPages} 页</span>
-                  <div className="w-px h-4 bg-white/10 mx-1 [.light-theme_&]:!bg-[#cbd5e1]" />
+                  <div className="w-px h-4 bg-white/10 mx-1" />
                   <select
                     value={pageSize}
                     onChange={(e) => {
                       setPageSize(Number(e.target.value));
                       setPage(1);
                     }}
-                    className="bg-transparent border-none text-white font-medium focus:outline-none cursor-pointer py-1 [.light-theme_&]:!text-[#0f172a]"
+                    className="bg-transparent border-none text-white font-medium focus:outline-none cursor-pointer py-1"
                   >
-                    <option value={50} className="bg-slate-800 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]">
+                    <option value={50} className="bg-slate-800">
                       50/页
                     </option>
-                    <option value={100} className="bg-slate-800 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]">
+                    <option value={100} className="bg-slate-800">
                       100/页
                     </option>
-                    <option value={250} className="bg-slate-800 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]">
+                    <option value={250} className="bg-slate-800">
                       250/页
                     </option>
-                    <option value={500} className="bg-slate-800 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]">
+                    <option value={500} className="bg-slate-800">
                       500/页
                     </option>
                   </select>
@@ -3099,7 +3146,7 @@ export function CharacterList({
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
-                  className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition text-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"
+                  className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition text-white"
                 >
                   <ChevronRight className="w-5 h-5" />
                 </button>
@@ -3120,7 +3167,6 @@ export function CharacterList({
         onClose={() => setIsBindModalOpen(false)}
         onBind={handleBindQR}
         characters={characters}
-        isLightMode={isLightMode}
         qrChar={
           characters.find((c) => c.id === Array.from(selectedIds)[0]) || null
         }
@@ -3140,192 +3186,173 @@ export function CharacterList({
         }}
         qrChar={pendingQRBinding?.qrChar || null}
         targetChar={pendingQRBinding?.targetChar || null}
-        isLightMode={isLightMode}
       />
 
       <AnimatePresence>
+        {showScrollTop && !selectionMode && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: 20 }}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={scrollToTop}
+            className="fixed bottom-36 right-8 w-12 h-12 bg-slate-800/80 backdrop-blur-md border border-white/10 rounded-full flex items-center justify-center shadow-xl text-white/80 hover:text-white hover:bg-slate-700/80 transition z-40"
+          >
+            <ChevronLeft className="w-6 h-6 rotate-90" />
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {!selectionMode ? (
-          <div className="fixed bottom-20 right-6 sm:right-8 z-40 flex flex-col items-center gap-2.5">
-            {/* 1. 一键回顶 (半透明毛玻璃小球，触发滚动时显示在最上方) */}
-            <AnimatePresence>
-              {showScrollTop && (
-                <motion.button
-                  key="scroll-top-btn"
-                  initial={{ opacity: 0, scale: 0.8, y: 10 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.8, y: 10 }}
-                  whileHover={{ scale: 1.08 }}
-                  whileTap={{ scale: 0.92 }}
-                  onClick={scrollToTop}
-                  className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/65 hover:bg-slate-800/80 border border-white/15 text-white [.light-theme_&]:!bg-slate-800 [.light-theme_&]:hover:!bg-slate-700/10 [.light-theme_&]:!border-none [.light-theme_&]:!text-slate-100 [.light-theme_&]:!shadow-sm active:scale-95"
-                  title="回到顶部"
-                >
-                  <ChevronLeft className="w-5 h-5 rotate-90 stroke-[2.2]" />
-                </motion.button>
-              )}
-            </AnimatePresence>
-
-            {/* 2. 点击加号后展开的小球选项组 (新建文件夹 & 导入) */}
-            <AnimatePresence>
-              {isAddMenuOpen && (
-                <motion.div
-                  key="fab-popover-balls"
-                  initial={{ opacity: 0, y: 12, scale: 0.85 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 12, scale: 0.85 }}
-                  transition={{ duration: 0.16, ease: "easeOut" }}
-                  className="flex flex-col items-center gap-2.5"
-                >
-                  {/* 📁 新建文件夹小球 (单色图标) */}
-                  <motion.button
-                    whileHover={{ scale: 1.08 }}
-                    whileTap={{ scale: 0.92 }}
-                    onClick={() => {
-                      setIsAddMenuOpen(false);
-                      setIsCreatingFolder(true);
-                    }}
-                    className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/65 hover:bg-slate-800/80 border border-white/15 text-white [.light-theme_&]:!bg-slate-800 [.light-theme_&]:hover:!bg-slate-700/10 [.light-theme_&]:!border-none [.light-theme_&]:!text-slate-100 [.light-theme_&]:!shadow-sm active:scale-95"
-                    title="新建文件夹"
-                  >
-                    <FolderPlus className="w-4.5 h-4.5 stroke-[2]" />
-                  </motion.button>
-
-                  {/* 📥 导入角色/数据小球 (单色图标) */}
-                  <motion.button
-                    whileHover={{ scale: 1.08 }}
-                    whileTap={{ scale: 0.92 }}
-                    onClick={() => {
-                      setIsAddMenuOpen(false);
-                      onImport();
-                    }}
-                    className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/65 hover:bg-slate-800/80 border border-white/15 text-white [.light-theme_&]:!bg-slate-800 [.light-theme_&]:hover:!bg-slate-700/10 [.light-theme_&]:!border-none [.light-theme_&]:!text-slate-100 [.light-theme_&]:!shadow-sm active:scale-95"
-                    title="导入角色/数据"
-                  >
-                    <UploadCloud className="w-4.5 h-4.5 stroke-[2]" />
-                  </motion.button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* 3. 主加号 (➕) 触发小球 (单色图标) */}
-            <motion.button
-              key="fab-main-trigger"
-              whileHover={{ scale: 1.08 }}
-              whileTap={{ scale: 0.92 }}
-              onClick={() => setIsAddMenuOpen(!isAddMenuOpen)}
-              className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/75 hover:bg-slate-800/90 border border-white/15 text-white [.light-theme_&]:!bg-slate-800 [.light-theme_&]:hover:!bg-slate-700/10 [.light-theme_&]:!border-none [.light-theme_&]:!text-slate-100 [.light-theme_&]:!shadow-sm active:scale-95"
-              title="展开选项"
-            >
-              <Plus className={`w-5 h-5 stroke-[2.2] transition-transform duration-200 ${isAddMenuOpen ? 'rotate-45' : ''}`} />
-            </motion.button>
-          </div>
+          <motion.button
+            key="fab"
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            exit={{ scale: 0 }}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={onImport}
+            className="fixed bottom-20 right-8 w-14 h-14 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-xl shadow-purple-500/30 text-white z-40"
+          >
+            <Plus className="w-6 h-6" />
+          </motion.button>
         ) : (
           <motion.div
             key="bottom-bar"
-            initial={{ y: 24, opacity: 0, scale: 0.95, x: "-50%" }}
-            animate={{ y: 0, opacity: 1, scale: 1, x: "-50%" }}
-            exit={{ y: 20, opacity: 0, scale: 0.95, x: "-50%" }}
-            transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-            className="floating-pill-dock fixed bottom-6 left-1/2 z-50 rounded-full px-2 sm:px-3 py-1.5 transition-all max-w-[calc(100vw-1rem)] sm:max-w-max"
+            initial={{ y: 100, opacity: 0, x: "-50%" }}
+            animate={{ y: 0, opacity: 1, x: "-50%" }}
+            exit={{ y: 100, opacity: 0, x: "-50%" }}
+            className="fixed bottom-8 left-1/2 z-50 max-w-[95vw] sm:max-w-[80vw] bg-slate-800/80 backdrop-blur-2xl border border-white/10 rounded-full shadow-2xl overflow-hidden"
           >
             <div
-              className="flex items-center gap-0.5 sm:gap-1.5 px-0.5 overflow-x-auto hide-scrollbar"
+              className="flex items-center p-1 overflow-x-auto"
               style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
             >
-              <button
-                onClick={() => setIsMoveModalOpen(true)}
-                disabled={selectedIds.size === 0}
-                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 disabled:opacity-30 disabled:pointer-events-none"
-              >
-                <FolderInput className="w-5 h-5 stroke-[1.8]" />
-                <span className="font-medium text-[10px] leading-none tracking-tight">移动</span>
-              </button>
+              <style>{`
+                .no-scrollbar::-webkit-scrollbar {
+                  display: none;
+                }
+              `}</style>
+              <div className="flex items-center gap-2 no-scrollbar px-1">
+                <button
+                  onClick={() => setIsMoveModalOpen(true)}
+                  disabled={selectedIds.size === 0}
+                  className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-white/10 text-white/70 hover:text-blue-400 transition disabled:opacity-50 group shrink-0"
+                >
+                  <div className="p-2 rounded-full bg-white/5 group-hover:bg-blue-400/20 transition">
+                    <FolderInput className="w-5 h-5" />
+                  </div>
+                  <span className="font-medium text-[10px]">移动</span>
+                </button>
+                {selectedIds.size === 1 &&
+                  folders.some((f) => f.id === Array.from(selectedIds)[0]) && (
+                    <>
+                      <div className="w-px h-8 bg-white/10 shrink-0" />
+                      <button
+                        onClick={() => {
+                          const folderId = Array.from(selectedIds)[0];
+                          const folder = folders.find((f) => f.id === folderId);
+                          if (folder) {
+                            setEditingFolder(folder);
+                            setNewFolderName(folder.name);
+                            setSelectionMode(false);
+                            setSelectedIds(new Set());
+                          }
+                        }}
+                        className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-white/10 text-white/70 hover:text-yellow-400 transition group shrink-0"
+                      >
+                        <div className="p-2 rounded-full bg-white/5 group-hover:bg-yellow-400/20 transition">
+                          <Edit2 className="w-5 h-5" />
+                        </div>
+                        <span className="font-medium text-[10px]">重命名</span>
+                      </button>
+                    </>
+                  )}
+                {selectedIds.size === 1 &&
+                  (() => {
+                    const charId = Array.from(selectedIds)[0];
+                    const char = characters.find((c) => c.id === charId);
+                    return char && checkIsQR(char);
+                  })() && (
+                    <>
+                      <div className="w-px h-8 bg-white/10 shrink-0" />
+                      <button
+                        onClick={() => setIsBindModalOpen(true)}
+                        className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-white/10 text-white/70 hover:text-purple-400 transition group shrink-0"
+                      >
+                        <div className="p-2 rounded-full bg-white/5 group-hover:bg-purple-400/20 transition">
+                          <Link className="w-5 h-5" />
+                        </div>
+                        <span className="font-medium text-[10px]">绑定</span>
+                      </button>
+                    </>
+                  )}
 
-              {selectedIds.size === 1 &&
-                folders.some((f) => f.id === Array.from(selectedIds)[0]) && (
-                  <button
-                    onClick={() => {
-                      const folderId = Array.from(selectedIds)[0];
-                      const folder = folders.find((f) => f.id === folderId);
-                      if (folder) {
-                        setEditingFolder(folder);
-                        setNewFolderName(folder.name);
-                        setSelectionMode(false);
-                        setSelectedIds(new Set());
-                      }
-                    }}
-                    className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 disabled:opacity-30 disabled:pointer-events-none"
-                  >
-                    <Edit2 className="w-5 h-5 stroke-[1.8]" />
-                    <span className="font-medium text-[10px] leading-none tracking-tight">重命名</span>
-                  </button>
-                )}
+                {selectedIds.size > 0 &&
+                  Array.from(selectedIds).every((id) =>
+                    folders.some((f) => f.id === id),
+                  ) && (
+                    <>
+                      <div className="w-px h-8 bg-white/10 shrink-0" />
+                      <button
+                        onClick={() => {
+                          if (selectedIds.size === 1) {
+                            const selectedFolderId = Array.from(selectedIds)[0];
+                            const targetFolder = folders.find((f) => f.id === selectedFolderId);
+                            if (targetFolder) {
+                              setCoverPickerFolder(targetFolder);
+                              return;
+                            }
+                          }
+                          coverInputRef.current?.click();
+                        }}
+                        disabled={selectedIds.size === 0}
+                        className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-white/10 text-white/70 hover:text-orange-400 transition disabled:opacity-50 group shrink-0"
+                      >
+                        <div className="p-2 rounded-full bg-white/5 group-hover:bg-orange-400/20 transition">
+                          <ImageIcon className="w-5 h-5" />
+                        </div>
+                        <span className="font-medium text-[10px]">换封面</span>
+                      </button>
+                    </>
+                  )}
 
-              {selectedIds.size === 1 &&
-                (() => {
-                  const charId = Array.from(selectedIds)[0];
-                  const char = characters.find((c) => c.id === charId);
-                  return char && checkIsQR(char);
-                })() && (
-                  <button
-                    onClick={() => setIsBindModalOpen(true)}
-                    className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-blue-400 disabled:opacity-30 disabled:pointer-events-none"
-                  >
-                    <Link2 className="w-5 h-5 stroke-[1.8]" />
-                    <span className="font-medium text-[10px] leading-none tracking-tight">绑定</span>
-                  </button>
-                )}
-
-              {selectedIds.size > 0 &&
-                Array.from(selectedIds).every((id) =>
-                  folders.some((f) => f.id === id),
-                ) && (
-                  <button
-                    onClick={() => {
-                      if (selectedIds.size === 1) {
-                        const selectedFolderId = Array.from(selectedIds)[0];
-                        const targetFolder = folders.find((f) => f.id === selectedFolderId);
-                        if (targetFolder) {
-                          setCoverPickerFolder(targetFolder);
-                          return;
-                        }
-                      }
-                      coverInputRef.current?.click();
-                    }}
-                    disabled={selectedIds.size === 0}
-                    className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-orange-500 disabled:opacity-30 disabled:pointer-events-none"
-                  >
-                    <ImageIcon className="w-5 h-5 stroke-[1.8]" />
-                    <span className="font-medium text-[10px] leading-none tracking-tight">换封面</span>
-                  </button>
-                )}
-
-              <button
-                onClick={handleBatchCloudBackup}
-                disabled={selectedIds.size === 0}
-                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-blue-500 disabled:opacity-30 disabled:pointer-events-none"
-              >
-                <Cloud className="w-5 h-5 stroke-[1.8]" />
-                <span className="font-medium text-[10px] leading-none tracking-tight">传云盘</span>
-              </button>
-
-              <button
-                onClick={() => handleBatchExport()}
-                disabled={selectedIds.size === 0}
-                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-green-500 disabled:opacity-30 disabled:pointer-events-none"
-              >
-                <Download className="w-5 h-5 stroke-[1.8]" />
-                <span className="font-medium text-[10px] leading-none tracking-tight">导出</span>
-              </button>
-
-              <button
-                onClick={handleBatchDelete}
-                disabled={selectedIds.size === 0}
-                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-rose-500 disabled:opacity-30 disabled:pointer-events-none"
-              >
-                <Trash2 className="w-5 h-5 stroke-[1.8]" />
-                <span className="font-medium text-[10px] leading-none tracking-tight">删除</span>
-              </button>
+                <div className="w-px h-8 bg-white/10 shrink-0" />
+                <button
+                  onClick={handleBatchCloudBackup}
+                  disabled={selectedIds.size === 0}
+                  className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-blue-500/10 text-white/70 hover:text-blue-400 transition disabled:opacity-50 group shrink-0"
+                >
+                  <div className="p-2 rounded-full bg-white/5 group-hover:bg-blue-400/20 transition">
+                    <Cloud className="w-5 h-5" />
+                  </div>
+                  <span className="font-medium text-[10px]">传云盘</span>
+                </button>
+                <div className="w-px h-8 bg-white/10 shrink-0" />
+                <button
+                  onClick={() => handleBatchExport()}
+                  disabled={selectedIds.size === 0}
+                  className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-white/10 text-white/70 hover:text-green-400 transition disabled:opacity-50 group shrink-0"
+                >
+                  <div className="p-2 rounded-full bg-white/5 group-hover:bg-green-400/20 transition">
+                    <Download className="w-5 h-5" />
+                  </div>
+                  <span className="font-medium text-[10px]">导出</span>
+                </button>
+                <div className="w-px h-8 bg-white/10 shrink-0" />
+                <button
+                  onClick={handleBatchDelete}
+                  disabled={selectedIds.size === 0}
+                  className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-red-500/10 text-white/70 hover:text-red-400 transition disabled:opacity-50 group shrink-0"
+                >
+                  <div className="p-2 rounded-full bg-white/5 group-hover:bg-red-400/20 transition">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <span className="font-medium text-[10px]">删除</span>
+                </button>
+              </div>
             </div>
           </motion.div>
         )}
@@ -3334,32 +3361,34 @@ export function CharacterList({
       <AnimatePresence>
         {progress && (
           <motion.div
-            initial={{ opacity: 0, y: -20, x: '-50%', scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, x: '-50%', scale: 1 }}
-            exit={{ opacity: 0, y: -20, x: '-50%', scale: 0.95 }}
-            transition={{ type: "spring", stiffness: 400, damping: 30 }}
-            className={`fixed top-5 left-1/2 z-[200] backdrop-blur-xl border rounded-full px-4 py-2 sm:px-5 sm:py-2.5 flex items-center gap-3 max-w-[92vw] w-auto pointer-events-auto overflow-hidden select-none ${
-              isLightMode
-                ? 'bg-white/95 border-blue-100 shadow-[0_12px_36px_rgba(0,0,0,0.08)]'
-                : 'bg-slate-900/90 border-white/15 shadow-[0_12px_36px_rgba(0,0,0,0.3)]'
-            }`}
+            initial={{ opacity: 0, y: -50, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: -50, x: '-50%' }}
+            className="fixed top-12 sm:top-20 left-1/2 z-[200] bg-slate-800/90 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-3 sm:p-4 w-[90%] max-w-[16rem] sm:w-72 pointer-events-auto"
           >
-            <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${isLightMode ? 'bg-blue-50' : 'bg-blue-500/20'}`}>
-              <Loader2 className={`w-3.5 h-3.5 animate-spin shrink-0 ${isLightMode ? 'text-blue-600' : 'text-blue-400'}`} />
+            <div className="flex items-center gap-3 mb-2">
+              <Loader2 className="w-5 h-5 text-blue-400 animate-spin shrink-0" />
+              <div className="flex-1 min-w-0">
+                <h4 className="text-sm font-semibold text-white truncate">
+                  正在处理
+                </h4>
+                <p className="text-xs text-white/50 truncate">
+                  {progress.message}
+                </p>
+              </div>
+              <span className="text-xs font-medium text-blue-400/80 shrink-0">
+                {progress.total > 0
+                  ? Math.round((progress.current / progress.total) * 100)
+                  : 0}%
+              </span>
             </div>
-            <span className={`text-xs sm:text-sm font-medium whitespace-nowrap ${isLightMode ? 'text-[#0f172a]' : 'text-slate-100'}`}>
-              {progress.message || '正在处理'}
-            </span>
-            <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full shrink-0 tabular-nums ${
-              isLightMode ? 'text-blue-700 bg-blue-100' : 'text-blue-300 bg-blue-500/20'
-            }`}>
-              {progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0}%
-            </span>
-            <div className={`absolute bottom-0 left-0 right-0 h-[2.5px] overflow-hidden ${isLightMode ? 'bg-slate-200' : 'bg-black/30'}`}>
+            <div className="w-full bg-black/40 rounded-full h-1.5 overflow-hidden relative">
               <div 
-                className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-500 [.light-theme_&]:!from-blue-600 [.light-theme_&]:!to-blue-600 transition-all duration-300"
+                className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300 relative"
                 style={{ width: `${progress.total > 0 ? (progress.current / progress.total) * 100 : 0}%` }}
-              />
+              >
+                <div className="absolute inset-0 bg-white/20 animate-pulse" />
+              </div>
             </div>
           </motion.div>
         )}
@@ -3372,9 +3401,9 @@ export function CharacterList({
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-slate-800/90 backdrop-blur-2xl rounded-3xl p-5 sm:p-6 w-full max-w-xs sm:max-w-sm border border-white/10 shadow-2xl"
+              className="bg-slate-800/90 backdrop-blur-2xl rounded-3xl p-6 w-full max-w-sm border border-white/10 shadow-2xl"
             >
-              <h3 className="text-base sm:text-lg font-bold text-white mb-4 sm:mb-6 text-center">
+              <h3 className="text-lg font-semibold text-white mb-6 text-center">
                 {editingFolder ? "编辑文件夹" : "新建文件夹"}
               </h3>
               <input
@@ -3382,7 +3411,7 @@ export function CharacterList({
                 value={newFolderName}
                 onChange={(e) => setNewFolderName(e.target.value)}
                 placeholder="文件夹名称"
-                className="w-full bg-black/20 border border-white/10 rounded-2xl px-4 py-2.5 sm:py-3 text-white placeholder:text-white/40 focus:outline-none focus:border-blue-500/50 transition mb-4 sm:mb-6 text-center text-sm sm:text-base font-medium"
+                className="w-full bg-black/20 border border-white/10 rounded-2xl px-4 py-3 text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/50 transition mb-6 text-center text-lg"
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -3399,7 +3428,7 @@ export function CharacterList({
                   onClick={
                     editingFolder ? handleUpdateFolder : handleCreateFolder
                   }
-                  className="w-full py-2.5 sm:py-3 rounded-2xl bg-blue-500/80 hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold transition"
+                  className="w-full py-3 rounded-2xl bg-purple-500/80 hover:bg-purple-500 text-white font-medium transition"
                 >
                   {editingFolder ? "保存修改" : "创建"}
                 </button>
@@ -3410,7 +3439,7 @@ export function CharacterList({
                       setIsCreatingFolder(false);
                       setEditingFolder(null);
                     }}
-                    className="w-full py-2.5 sm:py-3 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs sm:text-sm font-semibold transition"
+                    className="w-full py-3 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-400 font-medium transition"
                   >
                     删除文件夹
                   </button>
@@ -3420,7 +3449,7 @@ export function CharacterList({
                     setIsCreatingFolder(false);
                     setEditingFolder(null);
                   }}
-                  className="w-full py-2.5 sm:py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-white/70 text-xs sm:text-sm font-semibold transition mt-1"
+                  className="w-full py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-white/70 font-medium transition mt-2"
                 >
                   取消
                 </button>
@@ -3431,12 +3460,12 @@ export function CharacterList({
       </AnimatePresence>
 
       {imageToCrop && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
           <div className="bg-slate-900 border border-white/10 rounded-3xl w-full max-w-lg flex flex-col shadow-2xl overflow-hidden max-h-[92vh] sm:max-h-[85vh]">
             <div className="p-3.5 sm:p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
               <div className="flex items-center gap-2">
                 <h3 className="text-base sm:text-lg font-bold text-white">调整封面图片</h3>
-                <span className="text-[10px] text-blue-300 bg-blue-500/15 border border-blue-400/25 px-2 py-0.5 rounded-md font-medium">
+                <span className="text-[10px] text-purple-300 bg-purple-500/15 border border-purple-400/25 px-2 py-0.5 rounded-md font-medium">
                   2:3 标准竖卡
                 </span>
               </div>
@@ -3474,7 +3503,7 @@ export function CharacterList({
                   step={0.05}
                   aria-labelledby="Zoom"
                   onChange={(e) => setZoom(Number(e.target.value))}
-                  className="flex-1 h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                  className="flex-1 h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
                 />
               </div>
 
@@ -3488,7 +3517,7 @@ export function CharacterList({
                 <button
                   onClick={handleSaveCrop}
                   disabled={isCropping}
-                  className="flex-1 sm:flex-none px-6 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-bold rounded-xl text-xs sm:text-sm transition flex items-center justify-center gap-1.5 shadow-lg shadow-blue-500/25"
+                  className="flex-1 sm:flex-none px-6 py-2 bg-purple-500 hover:bg-purple-600 disabled:opacity-50 text-white font-bold rounded-xl text-xs sm:text-sm transition flex items-center justify-center gap-1.5 shadow-lg shadow-purple-500/25"
                 >
                   {isCropping && <Loader2 className="w-4 h-4 animate-spin" />}
                   <span>保存封面</span>
@@ -3632,72 +3661,23 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
     isNearby,
   ]);
 
-  const touchHandledRef = useRef(false);
-  const touchStartXRef = useRef(0);
-  const touchStartYRef = useRef(0);
-
-  const handlePointerStart = (e: React.SyntheticEvent) => {
-    if (selectionMode) return;
-    let clientX = 0;
-    let clientY = 0;
-    if (e.type === "touchstart") {
-      touchHandledRef.current = true;
-      const touch = (e as React.TouchEvent).touches[0];
-      if (touch) {
-        clientX = touch.clientX;
-        clientY = touch.clientY;
-      }
-    } else if (e.type === "mousedown") {
-      if (touchHandledRef.current) return;
-      const mouse = e as React.MouseEvent;
-      clientX = mouse.clientX;
-      clientY = mouse.clientY;
-    }
-    touchStartXRef.current = clientX;
-    touchStartYRef.current = clientY;
-
+  const handleTouchStart = () => {
     isLongPress.current = false;
-    if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       isLongPress.current = true;
       onLongPress();
-    }, 500);
+    }, 500); // 500ms for long press
   };
 
-  const handlePointerMove = (e: React.SyntheticEvent) => {
-    if (!timerRef.current) return;
-    let clientX = 0;
-    let clientY = 0;
-    if (e.type === "touchmove" && (e as React.TouchEvent).touches[0]) {
-      clientX = (e as React.TouchEvent).touches[0].clientX;
-      clientY = (e as React.TouchEvent).touches[0].clientY;
-    } else if (e.type === "mousemove") {
-      clientX = (e as React.MouseEvent).clientX;
-      clientY = (e as React.MouseEvent).clientY;
-    }
-    const dx = Math.abs(clientX - touchStartXRef.current);
-    const dy = Math.abs(clientY - touchStartYRef.current);
-    if (dx > 6 || dy > 6) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  };
-
-  const handlePointerEnd = () => {
+  const handleTouchEnd = () => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
-      timerRef.current = null;
     }
-    setTimeout(() => {
-      touchHandledRef.current = false;
-    }, 300);
   };
 
   const handleClick = (e: React.MouseEvent) => {
     if (isLongPress.current) {
-      isLongPress.current = false;
       e.preventDefault();
-      e.stopPropagation();
       return;
     }
     onClick();
@@ -3711,21 +3691,18 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
     return (
       <motion.div
         ref={cardRef}
-        animate={{ scale: isSelected ? 0.97 : 1 }}
-        transition={{ duration: 0.12, ease: "easeOut" }}
-        whileHover={selectionMode ? undefined : { scale: 1.02 }}
-        whileTap={{ scale: 0.95 }}
+        whileHover={{ scale: selectionMode ? 1 : 1.02 }}
+        whileTap={{ scale: 0.98 }}
         onClick={handleClick}
-        onTouchStart={handlePointerStart}
-        onTouchEnd={handlePointerEnd}
-        onTouchMove={handlePointerMove}
-        onMouseDown={handlePointerStart}
-        onMouseMove={handlePointerMove}
-        onMouseUp={handlePointerEnd}
-        onMouseLeave={handlePointerEnd}
-        className="relative flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-colors duration-150 select-none bg-white/5 hover:bg-white/10 border border-transparent"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchEnd}
+        onMouseDown={handleTouchStart}
+        onMouseUp={handleTouchEnd}
+        onMouseLeave={handleTouchEnd}
+        className={`relative flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-all select-none ${isSelected ? "bg-purple-500/20 border-purple-500/50" : "bg-white/5 hover:bg-white/10 border-transparent"} border`}
       >
-        <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 relative">
+        <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0">
           <img
             src={url || undefined}
             alt={char.name}
@@ -3746,13 +3723,10 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
               } else setUrl(defaultFallback);
             }}
           />
-          {isSelected && (
-            <div className="absolute inset-0 bg-black/45 pointer-events-none z-[2]" />
-          )}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="font-medium text-white/90 truncate [.light-theme_&]:!text-[#0f172a]">{char.name}</h3>
+            <h3 className="font-medium text-white/90 truncate">{char.name}</h3>
             {badgeInfo && (
               <span className="text-[10px] bg-black/60 backdrop-blur-md border border-white/10 text-white/90 px-1.5 py-0.5 rounded-md flex-shrink-0 flex items-center gap-1 font-medium select-none">
                 <span className={`w-1.5 h-1.5 rounded-full ${badgeInfo.dotColor} shrink-0`} />
@@ -3764,7 +3738,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
                 {charTags.slice(0, 3).map((t: string) => (
                   <span
                     key={t}
-                    className="text-[9px] bg-slate-500/20 text-slate-400 px-1.5 py-0.5 rounded-sm flex-shrink-0 whitespace-nowrap [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!text-[#334155]"
+                    className="text-[9px] bg-slate-500/20 text-slate-400 px-1.5 py-0.5 rounded-sm flex-shrink-0 whitespace-nowrap"
                   >
                     {t}
                   </span>
@@ -3774,7 +3748,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
           </div>
           <div className="flex items-center gap-2 mt-0.5">
             {char.data?.creator && (
-              <p className="text-xs text-slate-500 truncate [.light-theme_&]:!text-[#64748b]">
+              <p className="text-xs text-slate-500 truncate">
                 by {char.data.creator}
               </p>
             )}
@@ -3785,6 +3759,25 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
             )} */}
           </div>
         </div>
+
+        <AnimatePresence>
+          {selectionMode && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="shrink-0"
+            >
+              {isSelected ? (
+                <div className="bg-purple-500 rounded-full text-white shadow-lg">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+              ) : (
+                <div className="bg-black/40 rounded-full border-2 border-white/60 w-6 h-6 shadow-sm" />
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     );
   }
@@ -3792,21 +3785,20 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   return (
     <motion.div
       ref={cardRef}
-      animate={{ scale: isSelected ? 0.93 : 1 }}
-      transition={{ duration: 0.12, ease: "easeOut" }}
-      whileHover={selectionMode ? undefined : { scale: 1.05 }}
-      whileTap={{ scale: isSelected ? 0.9 : 0.92 }}
+      whileHover={{ scale: selectionMode ? 1 : 1.05 }}
+      whileTap={{ scale: 0.95 }}
       onClick={handleClick}
-      onTouchStart={handlePointerStart}
-      onTouchEnd={handlePointerEnd}
-      onTouchMove={handlePointerMove}
-      onMouseDown={handlePointerStart}
-      onMouseMove={handlePointerMove}
-      onMouseUp={handlePointerEnd}
-      onMouseLeave={handlePointerEnd}
-      className={`relative ${viewMode === "masonry" ? "w-full min-h-[160px] aspect-[2/3] bg-white/5" : "aspect-[2/3]"} rounded-2xl overflow-hidden cursor-pointer shadow-lg border border-white/10 [.light-theme_&]:border-black/10 transition-colors duration-150 group select-none`}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchEnd}
+      onMouseDown={handleTouchStart}
+      onMouseUp={handleTouchEnd}
+      onMouseLeave={handleTouchEnd}
+      className={`relative ${viewMode === "masonry" ? "w-full min-h-[160px] aspect-[2/3] bg-white/5" : "aspect-[2/3]"} rounded-2xl overflow-hidden cursor-pointer shadow-lg border transition-all duration-300 group select-none ${isSelected ? "border-purple-500 ring-2 ring-purple-500" : "border-white/10"}`}
     >
-      <img
+      <motion.img
+        animate={{ scale: isSelected ? 0.9 : 1 }}
+        transition={{ duration: 0.2 }}
         src={url || undefined}
         alt={char.name}
         loading="lazy"
@@ -3827,10 +3819,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
           } else setUrl(defaultFallback);
         }}
       />
-      {isSelected && (
-        <div className="absolute inset-0 bg-black/45 pointer-events-none z-[2] transition-opacity" />
-      )}
-      <div className="absolute inset-0 bg-gradient-to-t from-[var(--overlay-bottom)] via-[var(--overlay-mid)] to-transparent flex flex-col justify-end p-3 pointer-events-none z-[3]">
+      <div className="absolute inset-0 bg-gradient-to-t from-[var(--overlay-bottom)] via-[var(--overlay-mid)] to-transparent flex flex-col justify-end p-3 pointer-events-none">
         <h3 className="font-semibold text-[#ffffff] text-sm sm:text-base leading-tight drop-shadow-md break-words truncate">
           {char.name}
         </h3>
@@ -3839,7 +3828,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
             {charTags.map((t: string) => (
               <span
                 key={t}
-                className="text-[9px] bg-[#000000]/40 backdrop-blur-md text-slate-300 px-1 py-0.5 rounded-sm truncate max-w-[60px]"
+                className="text-[9px] bg-[#000000]/40 backdrop-blur-md text-[#ffffff] px-1 py-0.5 rounded-sm truncate max-w-[60px]"
               >
                 {t}
               </span>
@@ -3854,6 +3843,25 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
           <span>{badgeInfo.label}</span>
         </div>
       )}
+
+      <AnimatePresence>
+        {selectionMode && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            className="absolute top-2 right-2 z-10"
+          >
+            {isSelected ? (
+              <div className="bg-purple-500 rounded-full text-white shadow-lg">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+            ) : (
+              <div className="bg-black/40 rounded-full border-2 border-white/60 w-6 h-6 shadow-sm" />
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 },
