@@ -16,6 +16,7 @@ import {
   FileJson,
   X,
   Settings2,
+  Sliders,
   Link,
   ChevronUp,
   ChevronDown,
@@ -1459,7 +1460,11 @@ export function ChatViewer({
                     setShowBubblePicker(!showBubblePicker);
                     if (isHeaderExpanded) setIsHeaderExpanded(false);
                   }}
-                  className={`w-10 h-10 flex items-center justify-center rounded-full transition hover:scale-105 active:scale-95 ${showBubblePicker ? "chat-header-btn-active" : "chat-header-btn"}`}
+                  className={`w-10 h-10 flex items-center justify-center rounded-full transition hover:scale-105 active:scale-95 ${
+                    showBubblePicker
+                      ? "chat-header-btn-active !bg-blue-500/20 !text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 [.light-theme_&]:!border [.light-theme_&]:!border-blue-200/80 shadow-xs"
+                      : "chat-header-btn"
+                  }`}
                   title={`当前气泡配色：${bubbleTheme.name}（点击切换）`}
                 >
                   <ColorSphere
@@ -1469,28 +1474,19 @@ export function ChatViewer({
                   />
                 </button>
 
-                {/* 更换用户头像 */}
-                <button
-                  onClick={() => setShowUserAvatarSheet(true)}
-                  className="w-10 h-10 flex items-center justify-center rounded-full chat-header-btn transition hover:scale-105 active:scale-95 cursor-pointer overflow-hidden p-1"
-                  title="点击更换你的头像"
-                >
-                  {userAvatar ? (
-                    <img src={userAvatar} alt="user avatar" className="w-full h-full rounded-full object-cover" />
-                  ) : (
-                    <User className="w-4.5 h-4.5 text-slate-300 [.light-theme_&]:!text-slate-600" />
-                  )}
-                </button>
-
                 <button
                   onClick={() => {
                     setIsHeaderExpanded(!isHeaderExpanded);
                     if (showBubblePicker) setShowBubblePicker(false);
                   }}
-                  className={`w-10 h-10 flex items-center justify-center rounded-full transition ${isHeaderExpanded ? "chat-header-btn-active" : "chat-header-btn"}`}
-                  title="界面设置"
+                  className={`w-10 h-10 flex items-center justify-center rounded-full transition hover:scale-105 active:scale-95 ${
+                    isHeaderExpanded
+                      ? "chat-header-btn-active !bg-blue-500/20 !text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 [.light-theme_&]:!border [.light-theme_&]:!border-blue-200/80 shadow-xs"
+                      : "chat-header-btn"
+                  }`}
+                  title="绑定角色与正则设置"
                 >
-                  <Settings2 className="w-5 h-5" />
+                  <Sliders className="w-4.5 h-4.5" />
                 </button>
 
                 <AnimatePresence>
@@ -2079,24 +2075,7 @@ export function ChatViewer({
                                   </div>
                                 </div>
 
-                                {/* Right Action Icons (Bookmark only) */}
-                                <div className="flex items-center gap-1 shrink-0 opacity-60 hover:opacity-100 transition-opacity">
-                                  <button
-                                    onClick={() => {
-                                      const next = new Set(bookmarkedIndices);
-                                      if (isBookmarked) next.delete(i);
-                                      else next.add(i);
-                                      setBookmarkedIndices(next);
-                                    }}
-                                    className={`p-1.5 rounded-lg hover:bg-black/10 transition cursor-pointer ${
-                                      isBookmarked ? "text-amber-400 opacity-100" : ""
-                                    }`}
-                                    title={isBookmarked ? "取消书签" : "添加书签"}
-                                  >
-                                    <Bookmark className="w-4 h-4 fill-current" />
-                                  </button>
                                 </div>
-                              </div>
 
                               {/* Card Body Content */}
                               <div 

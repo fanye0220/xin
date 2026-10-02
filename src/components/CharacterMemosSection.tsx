@@ -264,7 +264,7 @@ export function CharacterMemosSection({ characterId, isLightMode = false }: { ch
               </div>
               <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
                 <textarea 
-                  className="memo-input w-full bg-black/30 border border-white/10 rounded-lg p-4 text-white text-sm focus:outline-none focus:border-blue-500 transition min-h-[220px] resize-none [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                  className="w-full bg-black/30 border border-white/10 rounded-lg p-4 text-white text-sm focus:outline-none focus:border-blue-500 transition min-h-[220px] resize-none [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                   placeholder="在这里写下脑洞、小剧场或设定补充（支持 Markdown）"
                   value={newText}
                   onChange={e => setNewText(e.target.value)}
@@ -340,19 +340,19 @@ export function CharacterMemosSection({ characterId, isLightMode = false }: { ch
                           </div>
                       )}
 
-                                            {memo.type === 'text' && (
+                                             {memo.type === 'text' && (
                           <div className="p-5 cursor-pointer group/text relative" onClick={() => { setReadingMemo(memo); setEditMemoContent(memo.content); setIsEditingMemo(false); }}>
-                             <div className="prose prose-sm prose-invert memo-prose-adapt max-w-none text-white/80 leading-relaxed markdown-body line-clamp-[8]">
+                             <div className="prose prose-sm prose-invert [.light-theme_&]:!prose-slate memo-prose-adapt max-w-none text-white/80 [.light-theme_&]:!text-[#0f172a] leading-relaxed markdown-body line-clamp-[8]">
                                 <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
                                     {memo.content}
                                 </ReactMarkdown>
                              </div>
-                             <div className="absolute inset-0 bg-gradient-to-t from-[#1b2234] via-transparent to-transparent opacity-0 group-hover/text:opacity-100 transition-opacity flex items-end justify-center pb-4">
-                               <span className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-xs text-white shadow-lg pointer-events-none">
+                             <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 [.light-theme_&]:from-slate-200/90 via-transparent to-transparent opacity-0 group-hover/text:opacity-100 transition-opacity flex items-end justify-center pb-4">
+                               <span className="bg-white/10 [.light-theme_&]:!bg-black/10 backdrop-blur-md px-3 py-1 rounded-full text-xs text-white [.light-theme_&]:!text-[#0f172a] shadow-lg pointer-events-none">
                                  点击全屏阅读
                                </span>
                              </div>
-                             <div className="mt-4 text-[11px] text-white/30 relative z-10">
+                             <div className="mt-4 text-[11px] text-white/40 [.light-theme_&]:!text-slate-500 relative z-10">
                                 {new Date(memo.createdAt).toLocaleString()}
                              </div>
                           </div>
@@ -459,7 +459,7 @@ export function CharacterMemosSection({ characterId, isLightMode = false }: { ch
                   {isEditingMemo ? (
                     <div className="h-full flex flex-col gap-4">
                        <textarea 
-                           className="memo-input w-full flex-1 bg-black/30 border border-white/10 rounded-xl p-4 text-white text-sm sm:text-base focus:outline-none focus:border-blue-500 transition min-h-[220px] resize-none [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                           className="w-full flex-1 bg-black/30 border border-white/10 rounded-xl p-4 text-white text-sm sm:text-base focus:outline-none focus:border-blue-500 transition min-h-[220px] resize-none [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                            value={editMemoContent}
                            onChange={e => setEditMemoContent(e.target.value)}
                            autoFocus
@@ -473,7 +473,7 @@ export function CharacterMemosSection({ characterId, isLightMode = false }: { ch
                        </div>
                     </div>
                   ) : (
-                    <div className="prose prose-invert memo-prose-adapt prose-base sm:prose-lg max-w-none text-white/80 [.light-theme_&]:text-slate-800 leading-relaxed markdown-body" onClick={e => e.stopPropagation()}>
+                    <div className="prose prose-invert [.light-theme_&]:!prose-slate memo-prose-adapt prose-base sm:prose-lg max-w-none text-white/80 [.light-theme_&]:!text-[#0f172a] leading-relaxed markdown-body" onClick={e => e.stopPropagation()}>
                        <ReactMarkdown 
                            remarkPlugins={[remarkGfm]}
                            components={{

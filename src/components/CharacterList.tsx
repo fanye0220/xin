@@ -2355,7 +2355,7 @@ export function CharacterList({
   };
 
   return (
-    <div className="pb-32 min-h-full bg-gradient-to-br from-slate-900 to-slate-800 text-white [.light-theme_&]:!bg-transparent " onTouchStart={handleRootTouchStart} onTouchEnd={handleRootTouchEnd}>
+    <div className="miu50-home pb-32 min-h-full bg-gradient-to-br from-slate-900 to-slate-800 text-white [.light-theme_&]:!bg-transparent " onTouchStart={handleRootTouchStart} onTouchEnd={handleRootTouchEnd}>
       <input
         type="file"
         ref={coverInputRef}

@@ -845,7 +845,7 @@ export function CharacterVersionsSection({
       }
     }
 
-    const updatedChar: CharacterCard = {
+    const updatedChar: CharacterCard & { _skipTouchUpdatedAt?: boolean } = {
       ...character,
       data: JSON.parse(JSON.stringify(snapshot.data || {})),
       name: snapshot.cardName || character.name,
@@ -855,7 +855,8 @@ export function CharacterVersionsSection({
       tags: snapshot.tags || character.tags,
       activeVersionId: snapshot.id,
       versionHistory: updatedHistory,
-      updatedAt: character.updatedAt || Date.now(),
+      updatedAt: character.updatedAt,
+      _skipTouchUpdatedAt: true,
     };
 
     await saveCharacter(updatedChar);
@@ -990,34 +991,6 @@ export function CharacterVersionsSection({
             <span className="hidden sm:inline">创建快照</span>
             <span className="sm:hidden">快照</span>
           </button>
-
-          <button
-            onClick={() => setIsLinkModalOpen(true)}
-            className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
-            title="关联卡库已有卡片为历史版本"
-          >
-            <LinkIcon className="w-4 h-4 opacity-70" />
-            <span className="hidden sm:inline">绑定卡库旧版</span>
-            <span className="sm:hidden">绑定旧版</span>
-          </button>
-
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
-            title="导入 PNG 或 JSON 为历史版本"
-          >
-            <Upload className="w-4 h-4 opacity-70" />
-            <span className="hidden sm:inline">导入文件版本</span>
-            <span className="sm:hidden">导入</span>
-          </button>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".png,.json"
-            onChange={handleImportFileAsVersion}
-            className="hidden"
-          />
         </div>
       </div>
 
@@ -1203,7 +1176,7 @@ export function CharacterVersionsSection({
                 <GitBranch className="w-6 h-6 mx-auto text-slate-400 [.light-theme_&]:!text-slate-500 opacity-60" />
                 <p className="font-semibold text-xs version-card-title">暂无其它历史快照</p>
                 <p className="text-[11px] version-card-note max-w-sm mx-auto leading-relaxed">
-                  点击顶部的「+ 创建快照」按钮或「绑定卡库旧版」即可归档历史版本，点击卡片即可在各版本间即时滑动切换！
+                  点击顶部的「+ 创建快照」按钮即可归档当前版本，点击卡片即可在各版本间即时滑动切换！
                 </p>
               </div>
             </div>
@@ -1238,10 +1211,10 @@ export function CharacterVersionsSection({
                       <div className="timeline-divider-line flex-1 h-[1.5px] rounded-full" />
                     </div>
 
-                    {/* Floating Soft White Card: Clicking switches active version */}
+                    {/* Floating Soft White Card: Clicking toggles diff details, explicit button switches version */}
                     <div
                       onClick={() => {
-                        if (!isActive) handleSwitchVersion(snapshot);
+                        setExpandedDiffId(isExpanded ? null : snapshot.id);
                       }}
                       className={`soft-card rounded-2xl py-2.5 px-3.5 sm:py-3 sm:px-4 pl-4.5 sm:pl-5 relative overflow-hidden transition-all duration-300 space-y-1.5 sm:space-y-2 cursor-pointer ${
                         isActive 
@@ -1303,7 +1276,7 @@ export function CharacterVersionsSection({
                             }}
                             className={`px-2.5 py-1 rounded-full text-xs font-medium transition flex items-center gap-1 active:scale-95 cursor-pointer ${
                               isExpanded 
-                                ? 'bg-white text-black border border-white shadow-xs [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:!border-black' 
+                                ? 'soft-pill !bg-white/20 !text-white !border-white/30 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/15 [.light-theme_&]:!text-[#0f172a] shadow-xs' 
                                 : 'soft-pill'
                             }`}
                             title="查看与当前生效版本的智能差异对比"
