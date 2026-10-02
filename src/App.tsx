@@ -17,8 +17,9 @@ import { SettingsModal } from './components/SettingsModal';
 import { ChatViewer } from './components/ChatViewer';
 import { SyncWidget } from './components/SyncWidget';
 import { UpdateModal } from './components/UpdateModal';
+import { CharacterSummaryModal } from './components/CharacterSummaryModal';
 import { checkForAppUpdates, VersionInfo } from './config/version';
-import { migrateDatabase, getFolders } from './lib/db';
+import { migrateDatabase, getFolders, getCharacter, CharacterCard } from './lib/db';
 import { useTaggerState } from './lib/taggerState';
 import { isAndroid } from './lib/appBridge';
 import { handleBackRequest } from './lib/useBackHandler';
@@ -168,6 +169,35 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
+  const [summaryModalChar, setSummaryModalChar] = useState<CharacterCard | null>(null);
+
+  const handleSelectChar = useCallback(async (id: string | null, skipSummaryModal = false) => {
+    if (!id) {
+      setSelectedCharId(null);
+      setSummaryModalChar(null);
+      return;
+    }
+    if (skipSummaryModal) {
+      setSelectedCharId(id);
+      setSummaryModalChar(null);
+      return;
+    }
+    try {
+      const char = await getCharacter(id);
+      if (char) {
+        const charData = char.data?.data || char.data || {};
+        const summary = char.aiSummary || charData.aiSummary;
+        if (summary && summary.trim().length > 0) {
+          setSummaryModalChar(char);
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('Error checking character summary:', e);
+    }
+    setSelectedCharId(id);
+    setSummaryModalChar(null);
+  }, []);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importModalInitialFiles, setImportModalInitialFiles] = useState<FileList | File[] | null>(null);
   const handleOpenImportModal = useCallback((files?: FileList | File[]) => {
@@ -454,14 +484,14 @@ export default function App() {
         ) : selectedFolderId === 'duplicates' ? (
           <DuplicateDetector 
             onClose={() => { setSelectedFolderId(null); setRefreshKey(prev => prev + 1); }} 
-            onSelectChar={setSelectedCharId}
+            onSelectChar={handleSelectChar}
           />
         ) : selectedFolderId === 'autotagger' ? (
           <AutoTagger onClose={() => { setSelectedFolderId(null); setRefreshKey(prev => prev + 1); }} onOpenSettings={() => setIsSettingsOpen(true)} />
         ) : selectedFolderId === 'recommender' ? (
           <AIRecommender 
             onClose={() => { setSelectedFolderId(null); setRefreshKey(prev => prev + 1); }} 
-            onSelectChar={setSelectedCharId}
+            onSelectChar={handleSelectChar}
             onOpenSettings={() => setIsSettingsOpen(true)} 
           />
         ) : selectedFolderId === 'chatviewer' ? (
@@ -476,7 +506,7 @@ export default function App() {
           <CharacterList
             key={selectedFolderId}
             folderId={selectedFolderId}
-            onSelect={setSelectedCharId}
+            onSelect={handleSelectChar}
             onImport={() => setIsImportModalOpen(true)}
             onSelectFolder={(id) => {
               setSelectedFolderId(id);
@@ -489,6 +519,22 @@ export default function App() {
           />
         )}
 
+
+        <AnimatePresence>
+          {summaryModalChar && (
+            <CharacterSummaryModal
+              character={summaryModalChar}
+              onClose={() => setSummaryModalChar(null)}
+              onOpenDetail={(id) => handleSelectChar(id, true)}
+              onOpenChat={(id) => {
+                setSummaryModalChar(null);
+                setGlobalChatViewerId(id);
+              }}
+              onSummaryUpdated={() => setRefreshKey(prev => prev + 1)}
+              isLightMode={isLightMode}
+            />
+          )}
+        </AnimatePresence>
         <AnimatePresence>
           {selectedCharId && (
             <CharacterDetail

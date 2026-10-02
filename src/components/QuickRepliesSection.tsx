@@ -1,5 +1,5 @@
 import { getFallbackAvatar } from '../lib/avatar';
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Upload, FileJson, QrCode, Trash2, Download, Library, Share2 } from 'lucide-react';
 import { CharacterCard, saveCharacter, saveCharacters, getOrCreateNestedFolder, resolveFolderPath } from '../lib/db';
 import { SelectQRModal } from './SelectQRModal';
@@ -9,6 +9,7 @@ import { getDownloadTooltip } from '../lib/appBridge';
 interface Props {
   character: CharacterCard;
   onUpdate: (updatedCharacter: CharacterCard) => void;
+  isLightMode?: boolean;
 }
 
 interface QRSet {
@@ -18,10 +19,43 @@ interface QRSet {
   metadata?: any;
 }
 
-export function QuickRepliesSection({ character, onUpdate }: Props) {
+export function QuickRepliesSection({ character, onUpdate, isLightMode: propIsLightMode }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSelectModalOpen, setIsSelectModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
+  const [isLightMode, setIsLightMode] = useState(() => {
+    return (
+      propIsLightMode ??
+      (typeof document !== 'undefined' &&
+        (document.documentElement.classList.contains('light-theme') ||
+          localStorage.getItem('tavern_theme') === 'light'))
+    );
+  });
+
+  useEffect(() => {
+    if (propIsLightMode !== undefined) {
+      setIsLightMode(propIsLightMode);
+      return;
+    }
+    const checkTheme = () => {
+      setIsLightMode(
+        document.documentElement.classList.contains('light-theme') ||
+        localStorage.getItem('tavern_theme') === 'light'
+      );
+    };
+    checkTheme();
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+    window.addEventListener('storage', checkTheme);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('storage', checkTheme);
+    };
+  }, [propIsLightMode]);
 
   const targetData = character.data.data ? character.data.data : character.data;
 
@@ -281,18 +315,19 @@ export function QuickRepliesSection({ character, onUpdate }: Props) {
 
   return (
     <div className="mt-8">
-      <div className="flex items-center gap-2 mb-4 text-white/80">
-        <QrCode className="w-5 h-5" />
-        <h3 className="text-sm font-semibold uppercase tracking-wider">快速回复 (QUICK REPLIES)</h3>
+      <div className="flex items-center justify-between border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] pb-2 mb-3">
+        <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a]">
+          快速回复 (Quick Replies)
+        </h3>
       </div>
 
-      <div className="border border-dashed border-white/20 rounded-2xl p-6 bg-white/5 relative overflow-hidden">
+      <div className="rounded-2xl p-5 sm:p-6 relative overflow-hidden transition-colors bg-white/5 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!shadow-xs">
         {hasQuickReplies ? (
           <div className="flex flex-col gap-4">
             <div className="flex justify-between items-center">
-              <div className="flex items-center gap-2 text-green-400">
-                <div className="w-2 h-2 rounded-full bg-green-400"></div>
-                <span className="font-medium text-sm text-white/90">已绑定 {qrSets.length} 个快捷回复集</span>
+              <div className="flex items-center gap-2 text-green-400 [.light-theme_&]:!text-emerald-600">
+                <div className="w-2 h-2 rounded-full bg-green-400 [.light-theme_&]:!bg-emerald-500"></div>
+                <span className="font-medium text-sm text-white/90 [.light-theme_&]:!text-slate-800">已绑定 {qrSets.length} 个快捷回复集</span>
               </div>
               <button 
                 onClick={async () => {
@@ -303,7 +338,7 @@ export function QuickRepliesSection({ character, onUpdate }: Props) {
                   await saveCharacter(updatedChar);
                   onUpdate(updatedChar);
                 }}
-                className="text-white/40 hover:text-red-400 transition"
+                className="text-white/40 hover:text-red-400 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-red-500 transition cursor-pointer p-1 rounded-lg"
                 title="清空所有快速回复"
               >
                 <Trash2 className="w-5 h-5" />
@@ -312,14 +347,17 @@ export function QuickRepliesSection({ character, onUpdate }: Props) {
 
             <div className="flex flex-col gap-2">
               {qrSets.map((set) => (
-                <div key={set.id} className="bg-white/10 hover:bg-white/15 rounded-xl p-4 flex items-center justify-between transition group">
+                <div 
+                  key={set.id} 
+                  className="rounded-xl p-4 flex items-center justify-between transition group bg-white/5 hover:bg-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:hover:!bg-[#f1f5f9]"
+                >
                   <div className="min-w-0 flex-1">
-                    <div className="font-medium text-white/90 truncate">{set.sourceName}</div>
-                    <div className="text-white/50 text-xs mt-1">{set.replies.length} 个回复项</div>
+                    <div className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 truncate">{set.sourceName}</div>
+                    <div className="text-white/50 [.light-theme_&]:!text-[#64748b] text-xs mt-1">{set.replies.length} 个回复项</div>
                   </div>
                   <button 
                     onClick={() => handleDeleteSet(set.id)}
-                    className="p-2 text-white/40 hover:text-red-400 transition shrink-0"
+                    className="p-2 text-white/40 hover:text-red-400 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-red-500 transition shrink-0 cursor-pointer rounded-lg"
                     title="删除此配置"
                   >
                     <Trash2 className="w-5 h-5" />
@@ -328,46 +366,48 @@ export function QuickRepliesSection({ character, onUpdate }: Props) {
               ))}
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-2 mt-2">
+            <div className="flex flex-col sm:flex-row gap-2.5 mt-2">
               <button 
                 onClick={() => handleDownloadClick(true)}
-                className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition flex items-center justify-center gap-2"
+                className="flex-1 py-2.5 rounded-xl font-medium text-sm transition flex items-center justify-center gap-2 cursor-pointer bg-white/10 hover:bg-white/20 text-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]"
                 title={getDownloadTooltip("导出快速回复")}
               >
-                <Download className="w-4 h-4" /> 导出快速回复 
+                <Download className="w-4 h-4 text-white/80 [.light-theme_&]:!text-[#0f172a]" /> 导出快速回复 
               </button>
               <button 
                 onClick={() => setIsSelectModalOpen(true)}
-                className="flex-1 py-3 bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 rounded-xl font-medium transition flex items-center justify-center gap-2"
+                className="flex-1 py-2.5 rounded-xl font-medium text-sm transition flex items-center justify-center gap-2 cursor-pointer bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:hover:!bg-blue-700 [.light-theme_&]:!text-[#ffffff]"
               >
-                <Library className="w-4 h-4" /> 添加 (库)
+                <Library className="w-4 h-4 text-blue-300 [.light-theme_&]:!text-[#ffffff]" /> 从库中选择
               </button>
               <button 
                 onClick={() => fileInputRef.current?.click()}
-                className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition flex items-center justify-center gap-2"
+                className="flex-1 py-2.5 rounded-xl font-medium text-sm transition flex items-center justify-center gap-2 cursor-pointer bg-white/10 hover:bg-white/20 text-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]"
               >
-                <Upload className="w-4 h-4" /> 添加 (本地)
+                <Upload className="w-4 h-4 text-white/80 [.light-theme_&]:!text-[#0f172a]" /> 本地导入
               </button>
             </div>
           </div>
         ) : (
           <div className="text-center py-4">
-            <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4 text-white/40">
-              <Upload className="w-8 h-8" />
+            <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-3 transition-colors bg-white/5 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600">
+              <Upload className="w-6 h-6" />
             </div>
-            <p className="text-white/60 mb-6 font-medium text-sm">未绑定任何快速回复配置</p>
+            <p className="mb-6 font-medium text-sm text-white/40 [.light-theme_&]:!text-[#64748b]">
+              未绑定任何快速回复配置
+            </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
               <button 
                 onClick={() => fileInputRef.current?.click()}
-                className="px-6 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition flex items-center gap-2"
+                className="px-5 py-2.5 rounded-xl font-medium text-sm transition flex items-center gap-2 cursor-pointer active:scale-98 bg-white/10 hover:bg-white/20 text-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]"
               >
-                <Upload className="w-4 h-4" /> 本地导入
+                <Upload className="w-4 h-4 text-white/80 [.light-theme_&]:!text-[#0f172a]" /> 本地导入
               </button>
               <button 
                 onClick={() => setIsSelectModalOpen(true)}
-                className="px-6 py-2.5 bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 rounded-xl font-medium transition flex items-center gap-2"
+                className="px-5 py-2.5 rounded-xl font-medium text-sm transition flex items-center gap-2 cursor-pointer active:scale-98 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:hover:!bg-blue-700 [.light-theme_&]:!text-[#ffffff]"
               >
-                <Library className="w-4 h-4" /> 从库中选择
+                <Library className="w-4 h-4 text-blue-300 [.light-theme_&]:!text-[#ffffff]" /> 从库中选择
               </button>
             </div>
           </div>

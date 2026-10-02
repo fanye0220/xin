@@ -275,3 +275,61 @@ ${charInfos}
     throw error;
   }
 }
+
+export async function generateSummaryForCharacter(characterData: any): Promise<string> {
+  const char = characterData.data?.data || characterData.data || characterData;
+  
+  // 1. 提取世界书/设定集完整内容
+  let worldbookContent = '无';
+  const book = char.character_book || char.extensions?.character_book || characterData.character_book;
+  if (book && book.entries && Array.isArray(book.entries)) {
+    const validEntries = book.entries.filter((e: any) => e && (e.content || e.entry));
+    if (validEntries.length > 0) {
+      worldbookContent = validEntries
+        .map((e: any, idx: number) => {
+          const keys = e.keys ? (Array.isArray(e.keys) ? e.keys.join(', ') : e.keys) : `条目${idx + 1}`;
+          const text = e.content || e.entry || '';
+          return `[${keys}]: ${text}`;
+        })
+        .join('\n')
+        .substring(0, 3000);
+    }
+  }
+
+  // 2. 提取首条消息与备用开场白
+  const mainGreeting = char.first_mes || char.greeting || '';
+  const altGreetings = Array.isArray(char.alternate_greetings) ? char.alternate_greetings.join('\n---\n') : '';
+  const fullGreetings = [mainGreeting, altGreetings].filter(Boolean).join('\n---\n');
+
+  // 3. 构建深度分析 Prompt（严格优先：人设背景 -> 世界书 -> 开场白）
+  const prompt = `你是一个资深的角色人设与故事文案精炼师。请深入分析以下角色卡，全面梳理【核心人设/身份性格】、【世界书/背景设定】以及【开场白/故事契机】，为该角色撰写一份沉浸感极强、故事张力十足的角色简介（字数 150-450 字）。
+
+【分析优先级与权重】
+1. 人设与性格背景 (最高优先)：分析角色的真实身份、内外性格反差、过去经历、核心愿望与心理软肋。
+2. 世界书与世界观设定 (次高优先)：提取势力背景、力量体系、世界法则或角色所处环境。
+3. 开场白与与 {{user}} 的关系 (结合引导)：分析角色与 {{user}} 的宿怨/羁绊/利益牵扯，以及开场白中的剧情冲突点。
+
+【角色卡完整资料】
+角色名称: ${char.name || char.char_name || '未知'}
+
+【一、人设与性格背景】
+描述人设: ${(char.description || char.char_persona || '无').substring(0, 2000)}
+性格特点: ${(char.personality || '无').substring(0, 1000)}
+场景设定: ${(char.scenario || '无').substring(0, 800)}
+作者寄语/备注: ${(char.creator_notes || '无').substring(0, 500)}
+
+【二、世界书与关联设定】
+${worldbookContent}
+
+【三、开场白与剧情契机】
+${fullGreetings ? fullGreetings.substring(0, 2000) : '无'}
+
+【撰写格式与风格要求】
+- 语言生动流畅，富有小说文案的拉扯感与戏剧张力（可分为人设背景、世界/局势、与 user 的关系等段落，可用虚线或自然换行隔开）。
+- 必须全面结合【人设背景】与【世界书设定】，绝对不能只简单复述开场白对话！
+- 字数控制在 150 到 450 字之间。
+- 绝对不要输出任何无关的前缀说明（如"总结如下："、"这是一份简介"），直接输出最终精炼简介文本。`;
+
+  const text = await callAI(prompt, false);
+  return text.trim();
+}

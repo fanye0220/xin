@@ -451,6 +451,7 @@ export interface CharacterCard {
   isTool?: boolean;
   isQR?: boolean;
   category?: string;
+  aiSummary?: string;
 }
 
 export interface ChatLog {

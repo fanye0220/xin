@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getCharacters, saveCharacter, getCharacter } from './db';
-import { generateTagsForCharacters } from './ai';
+import { generateTagsForCharacters, generateSummaryForCharacter } from './ai';
 
 export interface TaggingLog {
   id: string;
@@ -25,7 +25,7 @@ export interface RetagReviewItem {
 
 class TaggerState {
   isTagging = false;
-  taggingMode: 'untagged' | 'tagged' | null = null;
+  taggingMode: 'untagged' | 'tagged' | 'summary' | null = null;
   isPaused = false;
   stopRequested = false;
   apiKeyMissing = false;
@@ -33,6 +33,8 @@ class TaggerState {
   logs: TaggingLog[] = [];
   untaggedCharacters: any[] = [];
   taggedCharacters: any[] = [];
+  unsummarizedCharacters: any[] = [];
+  summarizedCharacters: any[] = [];
   retagReviewQueue: RetagReviewItem[] = [];
   batchSize = 10;
   logsExpanded = true;
@@ -59,6 +61,8 @@ class TaggerState {
     
     this.untaggedCharacters = [];
     this.taggedCharacters = [];
+    this.unsummarizedCharacters = [];
+    this.summarizedCharacters = [];
 
     allChars.forEach(c => {
       // 1. Skip soft-deleted / trash characters
@@ -90,6 +94,13 @@ class TaggerState {
         this.untaggedCharacters.push(c);
       } else {
         this.taggedCharacters.push(c);
+      }
+
+      const summary = c.aiSummary || data.aiSummary || rawData.aiSummary;
+      if (!summary) {
+        this.unsummarizedCharacters.push(c);
+      } else {
+        this.summarizedCharacters.push(c);
       }
     });
 
@@ -387,6 +398,92 @@ class TaggerState {
     this.isPaused = false;
     await this.loadCharacters();
   }
+
+  async startBatchSummary() {
+    if (this.unsummarizedCharacters.length === 0 || this.isTagging) return;
+
+    this.isTagging = true;
+    this.taggingMode = 'summary';
+    this.isPaused = false;
+    this.stopRequested = false;
+    this.apiKeyMissing = false;
+
+    const charsToProcess = this.batchSize === 0 ? this.unsummarizedCharacters : this.unsummarizedCharacters.slice(0, this.batchSize);
+    this.progress = { current: 0, total: charsToProcess.length, success: 0, failed: 0 };
+
+    this.logs = charsToProcess.map(c => ({
+      id: c.id,
+      name: c.data?.data?.name || c.data?.name || c.name || '未知角色',
+      status: 'pending' as const
+    }));
+    this.notify();
+
+    for (let i = 0; i < charsToProcess.length; i++) {
+      if (this.stopRequested) break;
+
+      while (this.isPaused) {
+        if (this.stopRequested) break;
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      if (this.stopRequested) break;
+
+      const char = charsToProcess[i];
+      try {
+        const fullChar = await getCharacter(char.id) || char;
+        const summary = await generateSummaryForCharacter(fullChar);
+
+        if (summary) {
+          fullChar.aiSummary = summary;
+          if (fullChar.data?.data) {
+            fullChar.data.data.aiSummary = summary;
+          } else if (fullChar.data) {
+            fullChar.data.aiSummary = summary;
+          }
+          await saveCharacter(fullChar);
+
+          this.progress.current++;
+          this.progress.success++;
+          const logIndex = this.logs.findIndex(l => l.id === char.id);
+          if (logIndex !== -1) {
+            this.logs[logIndex] = { ...this.logs[logIndex], status: 'success', tags: [summary.substring(0, 30) + '...'] };
+          }
+        } else {
+          this.progress.current++;
+          this.progress.failed++;
+          const logIndex = this.logs.findIndex(l => l.id === char.id);
+          if (logIndex !== -1) {
+            this.logs[logIndex] = { ...this.logs[logIndex], status: 'failed', errorMsg: 'AI未返回有效总结' };
+          }
+          if (this.errorCallback) this.errorCallback(`角色 ${char.data?.data?.name || char.data?.name || char.name} 总结失败：AI未返回有效总结`);
+        }
+      } catch (error: any) {
+        if (error.message === "API_KEY_MISSING") {
+          this.apiKeyMissing = true;
+          this.isTagging = false;
+          if (this.errorCallback) this.errorCallback("总结中断：未配置 API Key");
+          this.notify();
+          return;
+        }
+
+        console.error(`Failed to summarize char ${char.id}:`, error);
+        this.progress.current++;
+        this.progress.failed++;
+        const logIndex = this.logs.findIndex(l => l.id === char.id);
+        if (logIndex !== -1) {
+          this.logs[logIndex] = { ...this.logs[logIndex], status: 'failed', errorMsg: error.message || String(error) };
+        }
+        if (this.errorCallback) this.errorCallback(`总结中断：API 请求失败 (${error.message || String(error)})`);
+      }
+
+      this.notify();
+      await new Promise(resolve => setTimeout(resolve, 800));
+    }
+
+    this.isTagging = false;
+    this.isPaused = false;
+    await this.loadCharacters();
+  }
 }
 
 export const taggerState = new TaggerState();
@@ -400,6 +497,8 @@ export function useTaggerState() {
     logs: taggerState.logs,
     untaggedCharacters: taggerState.untaggedCharacters,
     taggedCharacters: taggerState.taggedCharacters,
+    unsummarizedCharacters: taggerState.unsummarizedCharacters,
+    summarizedCharacters: taggerState.summarizedCharacters,
     retagReviewQueue: taggerState.retagReviewQueue,
     batchSize: taggerState.batchSize,
     apiKeyMissing: taggerState.apiKeyMissing,
@@ -416,6 +515,8 @@ export function useTaggerState() {
         logs: [...taggerState.logs],
         untaggedCharacters: [...taggerState.untaggedCharacters],
         taggedCharacters: [...taggerState.taggedCharacters],
+        unsummarizedCharacters: [...taggerState.unsummarizedCharacters],
+        summarizedCharacters: [...taggerState.summarizedCharacters],
         retagReviewQueue: [...taggerState.retagReviewQueue],
         batchSize: taggerState.batchSize,
         apiKeyMissing: taggerState.apiKeyMissing,

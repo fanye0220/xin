@@ -2072,3 +2072,74 @@ div.border-rose-500\/40 svg {
   }
 }
 
+
+/* ===== Merged UI: character detail cards and tab typography ===== */
+.detail-card {
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.detail-card:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.light-theme .detail-card {
+  background-color: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.06) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03) !important;
+}
+.light-theme .detail-card:hover {
+  background-color: #f8fafc !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+.detail-card-text {
+  color: rgba(255, 255, 255, 0.9);
+}
+.light-theme .detail-card-text {
+  color: #0f172a !important;
+}
+.detail-card-text-muted {
+  color: rgba(255, 255, 255, 0.45);
+}
+.light-theme .detail-card-text-muted {
+  color: #64748b !important;
+}
+.char-detail-tab-active {
+  font-size: 0.875rem !important;
+  line-height: 1.25rem !important;
+}
+.char-detail-tab-inactive {
+  font-size: 0.875rem !important;
+  line-height: 1.25rem !important;
+}
+
+/* ===== Auto tagger action buttons: unified black ===== */
+.tagger-btn-black {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border-color: #27272a !important;
+}
+.tagger-btn-black:hover:not(:disabled) {
+  background-color: #18181b !important;
+  color: #ffffff !important;
+}
+.tagger-btn-black:active:not(:disabled) {
+  background-color: #27272a !important;
+  color: #ffffff !important;
+}
+.tagger-btn-black:disabled {
+  opacity: 0.4 !important;
+}
+.light-theme .tagger-btn-black {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border-color: #000000 !important;
+}
+.light-theme .tagger-btn-black:hover:not(:disabled) {
+  background-color: #18181b !important;
+  color: #ffffff !important;
+}
+.light-theme .tagger-btn-black:active:not(:disabled) {
+  background-color: #27272a !important;
+  color: #ffffff !important;
+}

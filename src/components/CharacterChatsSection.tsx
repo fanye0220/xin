@@ -144,7 +144,7 @@ export function CharacterChatsSection({
       /(?:<|&lt;|\[+|\\\[+|\{+)\s*(?:think|thought|thinking)\s*(?:>|&gt;|\]+|\\\]+|\}+)([\s\S]*?)(?:<|&lt;|\[+|\\\[+|\{+)\/\s*(?:think|thought|thinking)\s*(?:>|&gt;|\]+|\\\]+|\}+)/gi;
     result = result.replace(
       thinkRegex,
-      '<details class="text-sm bg-[rgba(255,255,255,0.05)] [.light-theme_&]:bg-black/5 border border-[rgba(255,255,255,0.1)] [.light-theme_&]:border-black/10 rounded-lg p-2 my-2 w-full max-w-full overflow-hidden"><summary class="cursor-pointer font-bold text-[#8491CD] hover:opacity-80 transition-opacity select-none">🤔 思维链</summary><div class="mt-2 text-[#707CB1] break-words whitespace-pre-wrap max-w-full overflow-x-auto">$1</div></details>',
+      '<details class="text-sm bg-[rgba(255,255,255,0.05)] [.light-theme_&]:bg-[#000000]/5 border border-[rgba(255,255,255,0.1)] [.light-theme_&]:border-[#000000]/10 rounded-lg p-2 my-2 w-full max-w-full overflow-hidden"><summary class="cursor-pointer font-bold text-[#8491CD] hover:opacity-80 transition-opacity select-none">🤔 思维链</summary><div class="mt-2 text-[#707CB1] break-words whitespace-pre-wrap max-w-full overflow-x-auto">$1</div></details>',
     );
 
     const processedTags = new Set(
@@ -167,7 +167,7 @@ export function CharacterChatsSection({
       );
       result = result.replace(
         pairedRe,
-        `<details class="text-sm bg-[rgba(255,255,255,0.05)] [.light-theme_&]:bg-black/5 border border-[rgba(255,255,255,0.1)] [.light-theme_&]:border-black/10 rounded-lg p-2 my-2 w-full max-w-full overflow-hidden"><summary class="cursor-pointer font-bold text-[#8491CD] select-none">${tag}</summary><div class="mt-2 text-[#707CB1] whitespace-pre-wrap break-words max-w-full overflow-x-auto">$1</div></details>`,
+        `<details class="text-sm bg-[rgba(255,255,255,0.05)] [.light-theme_&]:bg-[#000000]/5 border border-[rgba(255,255,255,0.1)] [.light-theme_&]:border-[#000000]/10 rounded-lg p-2 my-2 w-full max-w-full overflow-hidden"><summary class="cursor-pointer font-bold text-[#8491CD] select-none">${tag}</summary><div class="mt-2 text-[#707CB1] whitespace-pre-wrap break-words max-w-full overflow-x-auto">$1</div></details>`,
       );
       const singleRe = new RegExp(
         `(?:<|&lt;|\\[|\\{)\\s*${escapedTag}(?:\\s+(?:[^>&\\]\\}]+))?\\/?\\s*(?:>|&gt;|\\]|\\})`,
@@ -465,10 +465,10 @@ export function CharacterChatsSection({
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex flex-col flex-1 min-w-0">
-            <h3 className="text-xl font-bold text-white">
+            <h3 className="text-xl font-bold text-white/90 [.light-theme_&]:!text-[#0f172a]">
               <span className="truncate">
                 聊天记录{" "}
-                <span className="text-white/50 text-base font-normal">
+                <span className="text-white/50 [.light-theme_&]:!text-[#64748b] text-base font-normal">
                   ({chats.length})
                 </span>
               </span>
@@ -486,7 +486,7 @@ export function CharacterChatsSection({
                   }`}
                 >
                   <UploadCloud className={`w-4 h-4 animate-bounce shrink-0 ${isLightMode ? 'text-blue-500' : 'text-blue-400'}`} />
-                  <span className={`text-xs sm:text-sm font-medium whitespace-nowrap ${isLightMode ? 'text-slate-100' : 'text-slate-100'}`}>
+                  <span className={`text-xs sm:text-sm font-medium whitespace-nowrap ${isLightMode ? 'text-slate-800' : 'text-slate-100'}`}>
                     {importProgress.message || "正在导入记录"}
                   </span>
                   <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
@@ -506,7 +506,7 @@ export function CharacterChatsSection({
               )}
             </AnimatePresence>
           </div>
-          <div className="flex gap-2 self-start sm:self-auto w-full sm:w-auto mt-2 sm:mt-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap self-start sm:self-auto w-full sm:w-auto mt-2 sm:mt-0">
             <button
               onClick={() => {
                 if (onOpenImport) {
@@ -515,19 +515,19 @@ export function CharacterChatsSection({
                   fileInputRef.current?.click();
                 }
               }}
-              className="soft-pill flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
+              className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
               title="导入聊天记录"
             >
-              <UploadCloud className="w-3.5 h-3.5 opacity-70 shrink-0" />
-              <span>导入</span>
+              <UploadCloud className="w-4 h-4 opacity-70 shrink-0" />
+              <span>导入记录</span>
             </button>
             <button
               onClick={() => setIsCleanerOpen(true)}
-              className="soft-pill flex-1 sm:flex-none justify-center px-3 sm:px-3.5 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs hover:!text-red-400"
+              className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs hover:!text-red-400"
               title="清理记录和分支"
             >
-              <Trash2 className="w-3.5 h-3.5 opacity-70 shrink-0" />
-              <span>清理</span>
+              <Trash2 className="w-4 h-4 opacity-70 shrink-0" />
+              <span>清理记录</span>
             </button>
           </div>
           <input
@@ -549,10 +549,10 @@ export function CharacterChatsSection({
         </div>
 
         {chats.length === 0 ? (
-          <div className="flex flex-col items-center justify-center p-8 rounded-2xl bg-white/5 border border-white/5 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0] text-white/40 [.light-theme_&]:!text-[#64748b]">
-            <FileJson className="w-12 h-12 mb-3 opacity-50" />
-            <p className="text-sm font-medium">当前角色未包含聊天记录</p>
-            <p className="text-xs text-white/30 [.light-theme_&]:!text-[#94a3b8] mt-1">
+          <div className="flex flex-col items-center justify-center p-8 rounded-2xl bg-white/5 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!shadow-xs text-white/40 [.light-theme_&]:!text-[#64748b]">
+            <FileJson className="w-12 h-12 mb-3 opacity-50 text-white/40 [.light-theme_&]:!text-[#64748b]" />
+            <p className="text-sm font-medium text-white/70 [.light-theme_&]:!text-[#0f172a]">当前角色未包含聊天记录</p>
+            <p className="text-xs text-white/40 [.light-theme_&]:!text-[#64748b] mt-1">
               点击右上角导入按钮，或直接拖拽 JSONL/ZIP 文件到窗口中绑定
             </p>
           </div>
@@ -618,12 +618,12 @@ export function CharacterChatsSection({
                   </div>
 
                   <h4
-                    className="font-medium text-white mb-2 truncate text-sm flex-1"
+                    className="font-medium text-white [.light-theme_&]:!text-[#0f172a] mb-2 truncate text-sm flex-1"
                     title={chat.name}
                   >
                     {chat.name}
                   </h4>
-                  <div className="flex justify-between items-center text-xs text-white/40 mt-auto">
+                  <div className="flex justify-between items-center text-xs text-white/40 [.light-theme_&]:!text-slate-500 mt-auto">
                     <span className="flex items-center gap-1">
                       <Calendar className="w-3 h-3" />
                       {new Date(chat.createdAt).toLocaleDateString()}
@@ -648,9 +648,9 @@ export function CharacterChatsSection({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 20 }}
             transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-            className="fixed inset-0 z-[120] bg-slate-950/85 backdrop-blur-md flex flex-col p-2 pt-[max(1.75rem,env(safe-area-inset-top))] sm:p-5 sm:pt-[max(1.75rem,env(safe-area-inset-top))] [.light-theme_&]:bg-black/30"
+            className="fixed inset-0 z-[120] bg-slate-950/85 backdrop-blur-md flex flex-col p-2 pt-[max(1.75rem,env(safe-area-inset-top))] sm:p-5 sm:pt-[max(1.75rem,env(safe-area-inset-top))] [.light-theme_&]:bg-[#000000]/30"
           >
-            <div className="max-w-4xl mx-auto w-full flex flex-col h-full bg-slate-900/90 backdrop-blur-2xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl ring-1 ring-white/5 [.light-theme_&]:bg-white/95 [.light-theme_&]:border-black/10 [.light-theme_&]:shadow-[0_8px_40px_rgba(0,0,0,0.12)]">
+            <div className="max-w-4xl mx-auto w-full flex flex-col h-full bg-slate-900/90 backdrop-blur-2xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl ring-1 ring-white/5 [.light-theme_&]:bg-[#ffffff]/95 [.light-theme_&]:border-[#000000]/10 [.light-theme_&]:shadow-[0_8px_40px_rgba(0,0,0,0.12)]">
               {/* Reader Header */}
               <div className="px-4 py-3 sm:px-5 sm:py-3.5 border-b border-white/10 flex justify-between items-center shrink-0 bg-white/[0.02]">
                 <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
@@ -840,8 +840,8 @@ export function CharacterChatsSection({
               {/* Regex Switcher Bar (Lovespace Style) */}
               {regexScripts && regexScripts.length > 0 && (
                 <div className="regex-bar">
-                  <span className="text-[10px] text-white/40 uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-blue-400" />
+                  <span className="text-[11px] font-semibold text-white/60 [.light-theme_&]:!text-slate-700 uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1.5 select-none">
+                    <Sparkles className="w-3.5 h-3.5 text-blue-400 [.light-theme_&]:!text-blue-600" />
                     正则
                   </span>
                   {regexScripts.map((s, idx) => {
@@ -889,6 +889,7 @@ export function CharacterChatsSection({
                                 <MessageContent
                                   content={formattedText}
                                   characterName={characterName}
+                                  themeMode={isLightMode ? 'light' : 'dark'}
                                 />
                               </div>
                             </div>
@@ -905,10 +906,11 @@ export function CharacterChatsSection({
                               {msg.name || characterName}
                             </div>
                           )}
-                          <div className="msg-char text-white/90">
+                          <div className="msg-char text-white/90 [.light-theme_&]:!text-[#0f172a]">
                             <MessageContent
                               content={formattedText}
                               characterName={characterName}
+                              themeMode={isLightMode ? 'light' : 'dark'}
                             />
                           </div>
                         </div>
@@ -945,7 +947,7 @@ export function CharacterChatsSection({
                                   />
                                 </div>
                               ) : (
-                                <div className="w-10 h-10 rounded-full bg-white/10 text-slate-300 border border-white/20 flex items-center justify-center shadow-lg font-bold [.light-theme_&]:bg-blue-600 [.light-theme_&]:text-white [.light-theme_&]:border-transparent [.light-theme_&]:shadow-blue-500/20">
+                                <div className="w-10 h-10 rounded-full bg-white/10 text-slate-300 border border-white/20 flex items-center justify-center shadow-lg font-bold [.light-theme_&]:bg-blue-600 [.light-theme_&]:text-[#ffffff] [.light-theme_&]:border-transparent [.light-theme_&]:shadow-blue-500/20">
                                   {msg.name?.charAt(0) || "U"}
                                 </div>
                               )
@@ -998,6 +1000,7 @@ export function CharacterChatsSection({
                                 <MessageContent
                                   content={formattedText}
                                   characterName={characterName}
+                                  themeMode={isLightMode ? 'light' : 'dark'}
                                 />
                               </div>
                             </div>
@@ -1047,10 +1050,10 @@ export function CharacterChatsSection({
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-black/5 rounded-t-3xl p-5 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
+              className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-[#000000]/5 rounded-t-3xl p-5 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
             >
               {/* Indicator Handle */}
-              <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-black/10 rounded-full mx-auto mb-4" />
+              <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-[#000000]/10 rounded-full mx-auto mb-4" />
 
               <h3 className="text-base sm:text-lg font-bold text-center text-white [.light-theme_&]:!text-[#0f172a] mb-1.5">
                 删除聊天记录？

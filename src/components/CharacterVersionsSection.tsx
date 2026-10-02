@@ -979,34 +979,34 @@ export function CharacterVersionsSection({
         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
           <button
             onClick={() => setIsCreatingSnapshot(prev => !prev)}
-            className={`px-3 sm:px-3.5 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 ${
+            className={`px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 ${
               isCreatingSnapshot 
-                ? 'bg-zinc-800 text-white border border-zinc-700 shadow-sm [.light-theme_&]:!bg-slate-900 [.light-theme_&]:!border-slate-900' 
+                ? 'bg-white text-black border border-white shadow-sm [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!border-[#000000] [.light-theme_&]:!text-[#ffffff]' 
                 : 'soft-pill'
             }`}
             title="创建当前版本快照"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">创建快照</span>
             <span className="sm:hidden">快照</span>
           </button>
 
           <button
             onClick={() => setIsLinkModalOpen(true)}
-            className="soft-pill px-3 sm:px-3.5 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
+            className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
             title="关联卡库已有卡片为历史版本"
           >
-            <LinkIcon className="w-3.5 h-3.5 opacity-70" />
+            <LinkIcon className="w-4 h-4 opacity-70" />
             <span className="hidden sm:inline">绑定卡库旧版</span>
             <span className="sm:hidden">绑定旧版</span>
           </button>
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="soft-pill px-3 sm:px-3.5 py-1.5 rounded-full text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
+            className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
             title="导入 PNG 或 JSON 为历史版本"
           >
-            <Upload className="w-3.5 h-3.5 opacity-70" />
+            <Upload className="w-4 h-4 opacity-70" />
             <span className="hidden sm:inline">导入文件版本</span>
             <span className="sm:hidden">导入</span>
           </button>
@@ -1033,18 +1033,18 @@ export function CharacterVersionsSection({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.98 }}
             transition={{ duration: 0.2 }}
-            className="version-modal-box rounded-3xl p-5 sm:p-6 shadow-xl relative overflow-hidden space-y-4 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-slate-200"
+            className="rounded-3xl p-5 sm:p-6 shadow-xl relative overflow-hidden space-y-4 bg-[#11141c] border border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#000000]/5 [.light-theme_&]:!shadow-xs"
           >
             <div className="flex items-center justify-between relative z-10">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
-                <h4 className="text-base font-bold text-slate-100 [.light-theme_&]:!text-slate-900">
+                <h4 className="text-base font-bold text-white/90 [.light-theme_&]:!text-[#0f172a]">
                   保存当前卡片为历史版本快照
                 </h4>
               </div>
               <button 
                 onClick={() => setIsCreatingSnapshot(false)}
-                className="w-8 h-8 rounded-full bg-slate-700/60 hover:bg-slate-700 text-slate-200 flex items-center justify-center cursor-pointer transition [.light-theme_&]:!bg-slate-800 [.light-theme_&]:!border [.light-theme_&]:!border-slate-200 [.light-theme_&]:!text-slate-600 [.light-theme_&]:hover:!bg-slate-100 [.light-theme_&]:hover:!text-slate-900 [.light-theme_&]:shadow-xs"
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/15 text-white/80 hover:text-white flex items-center justify-center cursor-pointer transition [.light-theme_&]:!bg-[#000000]/5 [.light-theme_&]:!text-slate-600 [.light-theme_&]:hover:!bg-black/10 [.light-theme_&]:hover:!text-[#0f172a] shadow-none border-0"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1052,7 +1052,7 @@ export function CharacterVersionsSection({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 relative z-10">
               <div>
-                <label className="block text-xs sm:text-sm font-semibold text-slate-200 [.light-theme_&]:!text-slate-700 mb-1.5">
+                <label className="block text-sm font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a] mb-1.5">
                   版本标识 / 版本号
                 </label>
                 <input
@@ -1060,11 +1060,11 @@ export function CharacterVersionsSection({
                   value={snapshotName}
                   onChange={e => setSnapshotName(e.target.value)}
                   placeholder={`例如 v${currentVersionStr} 或 设定初版备份`}
-                  className="version-input w-full rounded-2xl px-4 py-2.5 sm:py-3 text-sm outline-none focus:border-blue-500 transition [.light-theme_&]:!bg-slate-800 [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-slate-900 [.light-theme_&]:placeholder-slate-400"
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 sm:py-3 text-sm text-white/90 outline-none focus:border-blue-500/50 transition [.light-theme_&]:!bg-[#000000]/5 [.light-theme_&]:!border-transparent [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-slate-400"
                 />
               </div>
               <div>
-                <label className="block text-xs sm:text-sm font-semibold text-slate-200 [.light-theme_&]:!text-slate-700 mb-1.5">
+                <label className="block text-sm font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a] mb-1.5">
                   修改说明 / 迭代备注
                 </label>
                 <input
@@ -1072,21 +1072,21 @@ export function CharacterVersionsSection({
                   value={snapshotNote}
                   onChange={e => setSnapshotNote(e.target.value)}
                   placeholder="例如：优化人设提示词与第2段开场白"
-                  className="version-input w-full rounded-2xl px-4 py-2.5 sm:py-3 text-sm outline-none focus:border-blue-500 transition [.light-theme_&]:!bg-slate-800 [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-slate-900 [.light-theme_&]:placeholder-slate-400"
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 sm:py-3 text-sm text-white/90 outline-none focus:border-blue-500/50 transition [.light-theme_&]:!bg-[#000000]/5 [.light-theme_&]:!border-transparent [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-slate-400"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 pt-1.5 relative z-10">
+            <div className="flex items-center justify-end gap-3 pt-1.5 relative z-10">
               <button
                 onClick={() => setIsCreatingSnapshot(false)}
-                className="soft-pill px-4 py-2.5 rounded-full text-xs sm:text-sm font-semibold cursor-pointer transition active:scale-95"
+                className="px-4 py-2 rounded-full text-xs sm:text-sm font-medium cursor-pointer transition active:scale-95 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/5 [.light-theme_&]:!border [.light-theme_&]:!border-[#000000]/10 border-white/20 outline-none shadow-xs"
               >
                 取消
               </button>
               <button
                 onClick={handleCreateSnapshot}
-                className="px-6 py-2.5 rounded-full text-xs sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-500/20 cursor-pointer transition active:scale-95"
+                className="px-6 py-2 rounded-full text-xs sm:text-sm font-bold bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!border-[#000000] [.light-theme_&]:!text-[#ffffff] shadow-sm cursor-pointer transition active:scale-95 flex items-center justify-center"
               >
                 保存快照
               </button>
@@ -1147,16 +1147,16 @@ export function CharacterVersionsSection({
             {/* Single Current Active Card */}
             <div className="relative">
               <div className="soft-card rounded-2xl py-2.5 px-3.5 sm:py-3 sm:px-4 pl-4.5 sm:pl-5 relative overflow-hidden shadow-sm space-y-1.5 sm:space-y-2 border border-white/10 [.light-theme_&]:!border-slate-200 [.light-theme_&]:!shadow-xs">
-                <div className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-gradient-to-b from-emerald-400 to-teal-400 opacity-85 [.light-theme_&]:!bg-emerald-600 [.light-theme_&]:opacity-100 shadow-sm" />
+                <div className="absolute left-0 top-2 bottom-2 w-1.5 rounded-r-full bg-gradient-to-b from-blue-400 to-blue-600 opacity-90 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:opacity-100 shadow-[0_0_8px_rgba(59,130,246,0.4)]" />
 
                 <div className="flex items-center justify-between gap-2 relative z-10">
-                  <h4 className="version-card-title text-xs sm:text-sm font-bold tracking-tight flex items-center gap-1.5 min-w-0 truncate">
+                  <h4 className="version-card-title text-sm sm:text-base font-semibold tracking-tight flex items-center gap-1.5 min-w-0 truncate">
                     <span className="truncate">{character.name}</span>
                   </h4>
 
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 [.light-theme_&]:!bg-emerald-50 [.light-theme_&]:!text-emerald-800 [.light-theme_&]:!border-emerald-300 px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold flex items-center gap-1 shadow-xs">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 [.light-theme_&]:!bg-emerald-600 animate-pulse shrink-0 shadow-xs shadow-emerald-400/50" />
+                    <span className="bg-blue-500/15 text-blue-300 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-700 px-2.5 py-0.5 rounded-full text-xs font-semibold flex items-center gap-1.5 shadow-xs">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-400 [.light-theme_&]:!bg-blue-600 animate-pulse shrink-0 shadow-xs shadow-blue-400/50" />
                       <span className="hidden sm:inline">当前生效版本</span>
                       <span className="sm:hidden">当前生效</span>
                     </span>
@@ -1164,20 +1164,20 @@ export function CharacterVersionsSection({
                 </div>
 
                 <div className="relative z-10 space-y-1.5">
-                  <p className="version-card-note text-[11px] sm:text-xs leading-snug font-normal line-clamp-1 sm:line-clamp-2">
+                  <p className="version-card-note text-sm leading-relaxed font-normal line-clamp-1 sm:line-clamp-2">
                     {currentDescription || "当前卡片设定完整生效中，开场白与世界书随时可供溯源。"}
                   </p>
 
                   <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                    <span className="soft-pill px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium tracking-tight whitespace-nowrap">
+                    <span className="soft-pill px-2.5 py-0.5 rounded-full text-xs font-medium tracking-tight whitespace-nowrap">
                       {formatWordCount(currentDescription.length)}
                     </span>
-                    <span className="soft-pill px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium tracking-tight whitespace-nowrap">
+                    <span className="soft-pill px-2.5 py-0.5 rounded-full text-xs font-medium tracking-tight whitespace-nowrap">
                       <span className="sm:hidden">{currentGreetingsCount} 篇开场</span>
                       <span className="hidden sm:inline">{currentGreetingsCount} 篇开场白</span>
                     </span>
                     {currentWeatherBookCount > 0 && (
-                      <span className="soft-pill px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium tracking-tight whitespace-nowrap">
+                      <span className="soft-pill px-2.5 py-0.5 rounded-full text-xs font-medium tracking-tight whitespace-nowrap">
                         <span className="sm:hidden">{currentWeatherBookCount} 条世界书</span>
                         <span className="hidden sm:inline">{currentWeatherBookCount} 条世界书</span>
                       </span>
@@ -1186,8 +1186,8 @@ export function CharacterVersionsSection({
                 </div>
 
                 <div className="flex items-center justify-between gap-2 pt-1.5 sm:pt-2 border-t version-card-divider relative z-10">
-                  <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-medium version-card-sub">
-                    <Clock className="w-3 h-3 opacity-70 shrink-0" />
+                  <div className="flex items-center gap-1.5 text-xs font-medium version-card-sub">
+                    <Clock className="w-3.5 h-3.5 opacity-70 shrink-0" />
                     <span>修改时间: {formatDateTime(character.fileModifiedAt || character.updatedAt || character.createdAt)}</span>
                   </div>
 
@@ -1245,7 +1245,7 @@ export function CharacterVersionsSection({
                       }}
                       className={`soft-card rounded-2xl py-2.5 px-3.5 sm:py-3 sm:px-4 pl-4.5 sm:pl-5 relative overflow-hidden transition-all duration-300 space-y-1.5 sm:space-y-2 cursor-pointer ${
                         isActive 
-                          ? 'border border-white/20 shadow-md [.light-theme_&]:!border-slate-300 [.light-theme_&]:!shadow-xs' 
+                          ? 'border border-white/20 shadow-md [.light-theme_&]:!border-blue-400/80 [.light-theme_&]:!bg-[#f8faff] [.light-theme_&]:!shadow-xs' 
                           : 'hover:shadow-md hover:border-slate-300 dark:hover:border-slate-600 active:scale-[0.99]'
                       }`}
                     >
@@ -1253,21 +1253,21 @@ export function CharacterVersionsSection({
                       {isActive && (
                         <motion.div 
                           layoutId="version-active-slider-bar"
-                          className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-gradient-to-b from-emerald-400 to-teal-400 opacity-85 [.light-theme_&]:!bg-emerald-600 [.light-theme_&]:opacity-100 shadow-sm z-20" 
+                          className="absolute left-0 top-2 bottom-2 w-1.5 rounded-r-full bg-gradient-to-b from-blue-400 to-blue-600 opacity-90 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:opacity-100 shadow-[0_0_8px_rgba(59,130,246,0.4)] z-20" 
                           transition={{ type: "spring", stiffness: 350, damping: 28 }}
                         />
                       )}
 
                       {/* Top Row: Snapshot Title + Status or Actions */}
                       <div className="flex items-center justify-between gap-2 relative z-10 flex-wrap sm:flex-nowrap">
-                        <h4 className="version-card-title text-xs sm:text-sm font-bold tracking-tight flex items-center gap-1.5 min-w-0 truncate">
+                        <h4 className="version-card-title text-sm sm:text-base font-semibold tracking-tight flex items-center gap-1.5 min-w-0 truncate">
                           <span className="truncate">{snapshot.cardName || character.name || '未命名角色'}</span>
                           {snapshot.id === 'current-live' ? (
-                            <span className="px-1.5 py-0.5 rounded-md text-[10px] font-semibold text-blue-300 bg-blue-500/15 border border-blue-400/30 [.light-theme_&]:bg-blue-50 [.light-theme_&]:text-blue-700 [.light-theme_&]:border-blue-200 shrink-0">
+                            <span className="px-2 py-0.5 rounded-full text-xs font-medium text-white bg-white/10 border border-white/20 [.light-theme_&]:bg-neutral-100 [.light-theme_&]:text-neutral-800 [.light-theme_&]:border-neutral-200 shrink-0">
                               最新主卡
                             </span>
                           ) : (
-                            <span className="px-1.5 py-0.5 rounded-md text-[10px] font-normal text-slate-400 bg-white/5 border border-white/10 [.light-theme_&]:bg-slate-100 [.light-theme_&]:text-slate-600 [.light-theme_&]:border-slate-200 shrink-0">
+                            <span className="px-2 py-0.5 rounded-full text-xs font-normal text-slate-400 bg-white/5 border border-white/10 [.light-theme_&]:bg-slate-100 [.light-theme_&]:text-slate-600 [.light-theme_&]:border-slate-200 shrink-0">
                               {snapshot.sourceCharId ? '关联旧卡' : '历史快照'}
                             </span>
                           )}
@@ -1276,8 +1276,8 @@ export function CharacterVersionsSection({
                         {/* Action buttons */}
                         <div className="flex items-center gap-1 shrink-0">
                           {isActive ? (
-                            <span className="bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 [.light-theme_&]:!bg-emerald-50 [.light-theme_&]:!text-emerald-800 [.light-theme_&]:!border-emerald-300 px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold flex items-center gap-1 shadow-xs">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 [.light-theme_&]:!bg-emerald-600 animate-pulse shrink-0 shadow-xs shadow-emerald-400/50" />
+                            <span className="bg-blue-500/15 text-blue-300 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-700 px-2.5 py-0.5 rounded-full text-xs font-semibold flex items-center gap-1.5 shadow-xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 [.light-theme_&]:!bg-blue-600 animate-pulse shrink-0 shadow-xs shadow-blue-400/50" />
                               <span className="hidden sm:inline">当前生效版本</span>
                               <span className="sm:hidden">当前生效</span>
                             </span>
@@ -1288,9 +1288,9 @@ export function CharacterVersionsSection({
                                 e.stopPropagation();
                                 handleSwitchVersion(snapshot);
                               }}
-                              className="px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold text-slate-300 bg-white/10 hover:bg-white/20 hover:text-white border border-white/15 transition active:scale-95 cursor-pointer shadow-xs flex items-center gap-1 [.light-theme_&]:!bg-slate-100 [.light-theme_&]:!text-slate-700 [.light-theme_&]:!border-slate-200 [.light-theme_&]:hover:!bg-slate-200"
+                              className="soft-pill px-3 py-1 rounded-full text-xs font-semibold transition active:scale-95 cursor-pointer shadow-xs flex items-center gap-1 hover:border-white hover:text-white [.light-theme_&]:hover:border-black [.light-theme_&]:hover:text-black"
                             >
-                              <Check className="w-3 h-3" />
+                              <Check className="w-3.5 h-3.5" />
                               <span>切换至此版本</span>
                             </button>
                           )}
@@ -1301,16 +1301,16 @@ export function CharacterVersionsSection({
                               e.stopPropagation();
                               setExpandedDiffId(isExpanded ? null : snapshot.id);
                             }}
-                            className={`px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium transition flex items-center gap-1 active:scale-95 cursor-pointer ${
+                            className={`px-2.5 py-1 rounded-full text-xs font-medium transition flex items-center gap-1 active:scale-95 cursor-pointer ${
                               isExpanded 
-                                ? 'bg-blue-500/25 text-blue-200 border border-blue-400/40 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:!text-white shadow-xs' 
+                                ? 'bg-white text-black border border-white shadow-xs [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!text-[#ffffff] [.light-theme_&]:!border-[#000000]' 
                                 : 'soft-pill'
                             }`}
                             title="查看与当前生效版本的智能差异对比"
                           >
-                            <Eye className="w-3 h-3 opacity-70" />
+                            <Eye className="w-3.5 h-3.5 opacity-70" />
                             <span className="hidden sm:inline">对比</span>
-                            {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                            {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                           </button>
 
                           <button
@@ -1319,10 +1319,10 @@ export function CharacterVersionsSection({
                               e.stopPropagation();
                               handleExportSnapshot(snapshot);
                             }}
-                            className="soft-pill w-6 h-6 rounded-full flex items-center justify-center transition active:scale-95 cursor-pointer"
+                            className="soft-pill w-7 h-7 rounded-full flex items-center justify-center transition active:scale-95 cursor-pointer"
                             title="导出为此历史版本的 PNG 角色卡"
                           >
-                            <Download className="w-3 h-3 opacity-70" />
+                            <Download className="w-3.5 h-3.5 opacity-70" />
                           </button>
 
                           {snapshot.id !== 'current-live' && (
@@ -1332,10 +1332,10 @@ export function CharacterVersionsSection({
                                 e.stopPropagation();
                                 handleDeleteSnapshot(snapshot.id, snapshot.versionName);
                               }}
-                              className="soft-pill w-6 h-6 rounded-full flex items-center justify-center transition active:scale-95 cursor-pointer text-slate-400 hover:text-rose-500 hover:border-rose-300"
+                              className="soft-pill w-7 h-7 rounded-full flex items-center justify-center transition active:scale-95 cursor-pointer text-slate-400 hover:text-rose-500 hover:border-rose-300"
                               title="删除该版本快照"
                             >
-                              <Trash2 className="w-3 h-3 opacity-70" />
+                              <Trash2 className="w-3.5 h-3.5 opacity-70" />
                             </button>
                           )}
                         </div>
@@ -1351,14 +1351,14 @@ export function CharacterVersionsSection({
                             value={editingVersionName}
                             onChange={e => setEditingVersionName(e.target.value)}
                             placeholder="版本标识名称"
-                            className="version-input sm:w-1/3 px-2 py-1 text-[11px] rounded-lg outline-none focus:border-blue-500"
+                            className="version-input sm:w-1/3 px-3 py-1.5 text-xs sm:text-sm rounded-lg outline-none focus:border-blue-500"
                           />
                           <input
                             type="text"
                             value={editingNote}
                             onChange={e => setEditingNote(e.target.value)}
                             placeholder="输入版本备注 / 迭代说明..."
-                            className="version-input flex-1 px-2 py-1 text-[11px] rounded-lg outline-none focus:border-blue-500"
+                            className="version-input flex-1 px-3 py-1.5 text-xs sm:text-sm rounded-lg outline-none focus:border-blue-500"
                             autoFocus
                           />
                         </div>
@@ -1366,14 +1366,14 @@ export function CharacterVersionsSection({
                           <button
                             type="button"
                             onClick={() => setEditingSnapshotId(null)}
-                            className="px-2.5 py-0.5 rounded-full text-[11px] text-slate-300 hover:text-slate-100 cursor-pointer"
+                            className="px-3 py-1 rounded-full text-xs text-slate-300 hover:text-slate-100 cursor-pointer"
                           >
                             取消
                           </button>
                           <button
                             type="button"
                             onClick={() => handleSaveSnapshotNote(snapshot.id)}
-                            className="px-3 py-0.5 rounded-full text-[11px] font-semibold bg-blue-600 text-white hover:bg-blue-500 cursor-pointer shadow-xs"
+                            className="px-3.5 py-1 rounded-full text-xs font-semibold bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!border-[#000000] [.light-theme_&]:!text-[#ffffff] cursor-pointer shadow-xs"
                           >
                             保存备注
                           </button>
@@ -1382,7 +1382,7 @@ export function CharacterVersionsSection({
                     ) : (
                       <div className="group/note flex items-center justify-between gap-2" onClick={e => { e.stopPropagation(); handleStartEditNote(snapshot); }}>
                         <p 
-                          className="version-card-note text-[11px] sm:text-xs leading-snug font-normal line-clamp-1 sm:line-clamp-2 cursor-pointer transition hover:opacity-80"
+                          className="version-card-note text-sm leading-relaxed font-normal line-clamp-1 sm:line-clamp-2 cursor-pointer transition hover:opacity-80"
                           title="点击修改版本名称与备注"
                         >
                           {snapshot.note || snapDesc || '（暂无备注，点击修改...）'}
@@ -1400,13 +1400,13 @@ export function CharacterVersionsSection({
 
                     {/* Basic Metric Pills */}
                     <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                      <span className="soft-pill px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium tracking-tight whitespace-nowrap">
+                      <span className="soft-pill px-2.5 py-0.5 rounded-full text-xs font-medium tracking-tight whitespace-nowrap">
                         描: {formatWordCount(snapDesc.length)}
                       </span>
-                      <span className="soft-pill px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium tracking-tight whitespace-nowrap">
+                      <span className="soft-pill px-2.5 py-0.5 rounded-full text-xs font-medium tracking-tight whitespace-nowrap">
                         开场白: {snapGreetingsCount} 篇
                       </span>
-                      <span className="soft-pill px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium tracking-tight whitespace-nowrap">
+                      <span className="soft-pill px-2.5 py-0.5 rounded-full text-xs font-medium tracking-tight whitespace-nowrap">
                         世界书: {snapWbCount} 项
                       </span>
                     </div>
@@ -1414,8 +1414,8 @@ export function CharacterVersionsSection({
 
                   {/* Bottom Row: Modified Time + Avatar */}
                   <div className="flex items-center justify-between gap-2 pt-1.5 sm:pt-2 border-t version-card-divider relative z-10">
-                    <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-medium version-card-sub">
-                      <Clock className="w-3 h-3 opacity-70 shrink-0" />
+                    <div className="flex items-center gap-1.5 text-xs font-medium version-card-sub">
+                      <Clock className="w-3.5 h-3.5 opacity-70 shrink-0" />
                       <span>修改时间: {formatDateTime(snapshot.fileModifiedAt || snapshot.createdAt)}</span>
                     </div>
 
@@ -1628,7 +1628,7 @@ export function CharacterVersionsSection({
                     type="button"
                     disabled={!selectedCandidate}
                     onClick={handleConfirmLink}
-                    className="flex-1 py-3 sm:py-3.5 px-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm sm:text-base shadow-md shadow-blue-500/20 disabled:opacity-40 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer whitespace-nowrap"
+                    className="flex-1 py-3 sm:py-3.5 px-4 rounded-2xl bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-[#000000] [.light-theme_&]:!border-[#000000] [.light-theme_&]:!text-[#ffffff] font-bold text-sm sm:text-base shadow-sm disabled:opacity-40 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer whitespace-nowrap"
                   >
                     <LinkIcon className="w-4 h-4 shrink-0" />
                     关联
