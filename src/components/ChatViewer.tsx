@@ -16,6 +16,7 @@ import {
   FileJson,
   X,
   Settings2,
+  Sliders,
   Link,
   ChevronUp,
   ChevronDown,
@@ -36,7 +37,6 @@ import {
   Image as ImageIcon,
   FolderOpen,
   Palette,
-  Bookmark,
   LayoutList,
   MoreHorizontal,
 } from "lucide-react";
@@ -67,6 +67,123 @@ interface ChatMessage {
   send_date: number;
   mes: string;
   extra?: any;
+}
+
+function SplitAvatar({
+  characterAvatarUrl,
+  userAvatarUrl,
+  size = 22,
+  className = '',
+}: {
+  characterAvatarUrl?: string | null;
+  userAvatarUrl?: string | null;
+  size?: number;
+  className?: string;
+}) {
+  const uniqueId = React.useId().replace(/:/g, '');
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 100 100"
+      className={`inline-block shrink-0 select-none ${className}`}
+      style={{
+        filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.25))',
+      }}
+    >
+      <defs>
+        <clipPath id={`split-avatar-circle-${uniqueId}`}>
+          <circle cx="50" cy="50" r="48" />
+        </clipPath>
+        <clipPath id={`split-char-${uniqueId}`}>
+          <polygon points="0,0 100,0 0,100" />
+        </clipPath>
+        <clipPath id={`split-user-${uniqueId}`}>
+          <polygon points="100,0 100,100 0,100" />
+        </clipPath>
+      </defs>
+
+      <g clipPath={`url(#split-avatar-circle-${uniqueId})`}>
+        {/* 左上半部：角色头像（或角色默认剪影） */}
+        <g clipPath={`url(#split-char-${uniqueId})`}>
+          {characterAvatarUrl ? (
+            <image
+              href={characterAvatarUrl}
+              x="0"
+              y="0"
+              width="100"
+              height="100"
+              preserveAspectRatio="xMidYMid slice"
+            />
+          ) : (
+            <rect width="100" height="100" fill="#3b82f6" />
+          )}
+          {!characterAvatarUrl && (
+            <text
+              x="30"
+              y="45"
+              fill="#ffffff"
+              fontSize="28"
+              fontWeight="bold"
+              textAnchor="middle"
+              dominantBaseline="central"
+            >
+              C
+            </text>
+          )}
+        </g>
+
+        {/* 右下半部：用户头像（或用户默认剪影） */}
+        <g clipPath={`url(#split-user-${uniqueId})`}>
+          {userAvatarUrl ? (
+            <image
+              href={userAvatarUrl}
+              x="0"
+              y="0"
+              width="100"
+              height="100"
+              preserveAspectRatio="xMidYMid slice"
+            />
+          ) : (
+            <rect width="100" height="100" fill="#ec4899" />
+          )}
+          {!userAvatarUrl && (
+            <text
+              x="70"
+              y="75"
+              fill="#ffffff"
+              fontSize="28"
+              fontWeight="bold"
+              textAnchor="middle"
+              dominantBaseline="central"
+            >
+              U
+            </text>
+          )}
+        </g>
+
+        {/* 对角线精致分割线 */}
+        <line
+          x1="0"
+          y1="100"
+          x2="100"
+          y2="0"
+          stroke="rgba(255, 255, 255, 0.85)"
+          strokeWidth="3.5"
+        />
+      </g>
+
+      {/* 外圈保护圆环 */}
+      <circle
+        cx="50"
+        cy="50"
+        r="48"
+        fill="none"
+        stroke="rgba(0, 0, 0, 0.2)"
+        strokeWidth="2.5"
+      />
+    </svg>
+  );
 }
 
 export function ChatViewer({
@@ -132,7 +249,6 @@ export function ChatViewer({
   const [chatDisplayMode, setChatDisplayMode] = useState<'card' | 'bubble'>(
     () => (localStorage.getItem('miu_chat_display_mode') as any) || 'card'
   );
-  const [bookmarkedIndices, setBookmarkedIndices] = useState<Set<number>>(new Set());
   const [editingMsgIndex, setEditingMsgIndex] = useState<number | null>(null);
   const [editingMsgContent, setEditingMsgContent] = useState<string>("");
 
@@ -1459,7 +1575,11 @@ export function ChatViewer({
                     setShowBubblePicker(!showBubblePicker);
                     if (isHeaderExpanded) setIsHeaderExpanded(false);
                   }}
-                  className={`w-10 h-10 flex items-center justify-center rounded-full transition hover:scale-105 active:scale-95 ${showBubblePicker ? "chat-header-btn-active" : "chat-header-btn"}`}
+                  className={`w-10 h-10 flex items-center justify-center rounded-full transition hover:scale-105 active:scale-95 border-0 ${
+                    showBubblePicker
+                      ? "chat-header-btn-active !bg-blue-500/20 !text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 !border-0 [.light-theme_&]:!border-0 shadow-none"
+                      : "chat-header-btn !border-0"
+                  }`}
                   title={`当前气泡配色：${bubbleTheme.name}（点击切换）`}
                 >
                   <ColorSphere
@@ -1469,28 +1589,19 @@ export function ChatViewer({
                   />
                 </button>
 
-                {/* 更换用户头像 */}
-                <button
-                  onClick={() => setShowUserAvatarSheet(true)}
-                  className="w-10 h-10 flex items-center justify-center rounded-full chat-header-btn transition hover:scale-105 active:scale-95 cursor-pointer overflow-hidden p-1"
-                  title="点击更换你的头像"
-                >
-                  {userAvatar ? (
-                    <img src={userAvatar} alt="user avatar" className="w-full h-full rounded-full object-cover" />
-                  ) : (
-                    <User className="w-4.5 h-4.5 text-slate-300 [.light-theme_&]:!text-slate-600" />
-                  )}
-                </button>
-
                 <button
                   onClick={() => {
                     setIsHeaderExpanded(!isHeaderExpanded);
                     if (showBubblePicker) setShowBubblePicker(false);
                   }}
-                  className={`w-10 h-10 flex items-center justify-center rounded-full transition ${isHeaderExpanded ? "chat-header-btn-active" : "chat-header-btn"}`}
-                  title="界面设置"
+                  className={`w-10 h-10 flex items-center justify-center rounded-full transition hover:scale-105 active:scale-95 border-0 ${
+                    isHeaderExpanded
+                      ? "chat-header-btn-active !bg-blue-500/20 !text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 !border-0 [.light-theme_&]:!border-0 shadow-none"
+                      : "chat-header-btn !border-0"
+                  }`}
+                  title="绑定角色与正则设置"
                 >
-                  <Settings2 className="w-5 h-5" />
+                  <Sliders className="w-4.5 h-4.5" />
                 </button>
 
                 <AnimatePresence>
@@ -1566,27 +1677,34 @@ export function ChatViewer({
                           <div className="flex-1 overflow-y-auto space-y-1 max-h-48 pr-1 hide-scrollbar">
                              <button
                                 onClick={() => handleUpdateBinding("")}
-                                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition font-medium cursor-pointer ${
+                                className={`bubble-picker-item w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm transition cursor-pointer ${
                                   (!activeChat.characterId && !activeCharacter?.id)
-                                    ? 'bg-blue-500/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 font-semibold'
-                                    : 'text-white/90 hover:bg-white/10 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-slate-100'
+                                    ? 'is-selected font-semibold'
+                                    : ''
                                 }`}
                              >
-                                暂不绑定
+                                <span>暂不绑定</span>
+                                {(!activeChat.characterId && !activeCharacter?.id) && (
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                )}
                              </button>
-                             {(bindableCharacters.length > 0 ? bindableCharacters : characters).filter(c => c.name.toLowerCase().includes(characterSearchQuery.toLowerCase())).map(c => (
-                                <button
-                                   key={c.id}
-                                   onClick={() => handleUpdateBinding(c.id)}
-                                   className={`w-full text-left px-3 py-2 rounded-lg text-sm transition truncate font-medium cursor-pointer ${
-                                     activeChat.characterId === c.id || activeCharacter?.id === c.id
-                                       ? 'bg-blue-500/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 font-semibold'
-                                       : 'text-white/90 hover:bg-white/10 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-slate-100'
-                                   }`}
-                                >
-                                   {c.name}
-                                </button>
-                             ))}
+                             {(bindableCharacters.length > 0 ? bindableCharacters : characters).filter(c => c.name.toLowerCase().includes(characterSearchQuery.toLowerCase())).map(c => {
+                                const isSelected = activeChat.characterId === c.id || activeCharacter?.id === c.id;
+                                return (
+                                  <button
+                                     key={c.id}
+                                     onClick={() => handleUpdateBinding(c.id)}
+                                     className={`bubble-picker-item w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm transition truncate cursor-pointer ${
+                                       isSelected ? 'is-selected font-semibold' : ''
+                                     }`}
+                                  >
+                                     <span className="truncate">{c.name}</span>
+                                     {isSelected && (
+                                       <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                     )}
+                                  </button>
+                                );
+                             })}
                           </div>
                         </div>
                         {activeCharacter && (
@@ -2007,7 +2125,6 @@ export function ChatViewer({
 
                       if (chatDisplayMode === 'card') {
                         const tokenCount = Math.round((msg.mes || "").length * 0.75);
-                        const isBookmarked = bookmarkedIndices.has(i);
                         const cardBgColor = msg.is_user ? bubbleTheme.userColor : bubbleTheme.botColor;
                         const cardTextColor = msg.is_user ? bubbleTheme.userTextColor : bubbleTheme.botTextColor;
 
@@ -2079,24 +2196,7 @@ export function ChatViewer({
                                   </div>
                                 </div>
 
-                                {/* Right Action Icons (Bookmark only) */}
-                                <div className="flex items-center gap-1 shrink-0 opacity-60 hover:opacity-100 transition-opacity">
-                                  <button
-                                    onClick={() => {
-                                      const next = new Set(bookmarkedIndices);
-                                      if (isBookmarked) next.delete(i);
-                                      else next.add(i);
-                                      setBookmarkedIndices(next);
-                                    }}
-                                    className={`p-1.5 rounded-lg hover:bg-black/10 transition cursor-pointer ${
-                                      isBookmarked ? "text-amber-400 opacity-100" : ""
-                                    }`}
-                                    title={isBookmarked ? "取消书签" : "添加书签"}
-                                  >
-                                    <Bookmark className="w-4 h-4 fill-current" />
-                                  </button>
                                 </div>
-                              </div>
 
                               {/* Card Body Content */}
                               <div 

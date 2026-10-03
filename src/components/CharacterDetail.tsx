@@ -1176,8 +1176,8 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         </div>
 
         {/* Tabs */}
-        <div className="sticky top-[72px] z-20 -mx-4 px-4 py-2 mb-4">
-          <div className="flex gap-2 overflow-x-auto hide-scrollbar">
+        <div className="sticky top-[72px] z-20 -mx-4 px-4 py-2 mb-4 bg-transparent [.light-theme_&]:!bg-transparent [.light-theme_&]:!backdrop-blur-none backdrop-blur-md">
+          <div className="flex gap-2 overflow-x-auto hide-scrollbar scroll-smooth px-1 py-1 pr-8">
           {(isSpecialData ? [
              { id: 'data_viewer', icon: User, label: '数据详情' },
           ] : [
@@ -1206,7 +1206,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`relative flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap focus:outline-none focus:ring-0 active:outline-none outline-none select-none cursor-pointer z-0 ${
+              className={`relative flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium transition-colors whitespace-nowrap focus:outline-none focus:ring-0 active:outline-none outline-none select-none cursor-pointer z-0 shrink-0 ${
                 activeTab === tab.id
                   ? 'char-detail-tab-active shadow-sm font-semibold'
                   : 'char-detail-tab-inactive'
@@ -1858,7 +1858,7 @@ function TextPreview({
               <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
                 <FormattedCardContent content={content} character={character} clampLines={3} />
               </div>
-              <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
+              <div className="mt-1.5 text-purple-400 [.light-theme_&]:!text-purple-600 group-hover:text-purple-300 [.light-theme_&]:group-hover:!text-purple-700 text-xs font-medium flex items-center gap-1 transition-colors">
                 <span>展开全文</span>
                 <ChevronDown className="w-3 h-3" />
               </div>
@@ -1868,7 +1868,7 @@ function TextPreview({
               <FormattedCardContent content={content} character={character} />
               <button 
                 onClick={(e) => { e.stopPropagation(); setIsExpanded(false); }}
-                className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] [.light-theme_&]:!text-blue-600 text-xs font-medium py-1.5 hover:bg-[#60A5FA]/10 [.light-theme_&]:hover:bg-blue-50 rounded-lg transition w-full cursor-pointer"
+                className="mt-3 flex items-center justify-center gap-1 text-purple-400 [.light-theme_&]:!text-purple-600 text-xs font-medium py-1.5 hover:bg-purple-500/10 [.light-theme_&]:hover:!bg-purple-50 rounded-lg transition w-full cursor-pointer"
               >
                 <ChevronUp className="w-3.5 h-3.5" /> 收起
               </button>
@@ -1881,7 +1881,7 @@ function TextPreview({
               <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
                 <FormattedCardContent content={content} character={character} clampLines={3} />
               </div>
-              <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
+              <div className="mt-1.5 text-purple-400 [.light-theme_&]:!text-purple-600 group-hover:text-purple-300 [.light-theme_&]:group-hover:!text-purple-700 text-xs font-medium flex items-center gap-1 transition-colors">
                 <span>展开全文</span>
                 <ChevronDown className="w-3 h-3" />
               </div>
@@ -1937,7 +1937,7 @@ function AlternateGreetingCard({
   return (
     <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
       <div className="flex flex-wrap sm:flex-nowrap justify-between items-center gap-2 mb-1.5">
-        <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 text-sm truncate">
+        <h4 className="font-semibold text-purple-300 [.light-theme_&]:!text-purple-700 text-sm truncate">
           备用开场白 {index + 1}
         </h4>
         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -1993,7 +1993,7 @@ function AlternateGreetingCard({
             <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
               <FormattedCardContent content={content} character={character} clampLines={3} />
             </div>
-            <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
+            <div className="mt-1.5 text-purple-400 [.light-theme_&]:!text-purple-600 group-hover:text-purple-300 [.light-theme_&]:group-hover:!text-purple-700 text-xs font-medium flex items-center gap-1 transition-colors">
               <span>展开全文</span>
               <ChevronDown className="w-3 h-3" />
             </div>
@@ -2405,7 +2405,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                 <div className="flex-1 min-w-0 w-full">
                   <div className="flex flex-wrap sm:flex-nowrap justify-between items-start gap-2 mb-1 w-full">
                     <div className="flex flex-col min-w-0 flex-1">
-                      <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 truncate">
+                      <h4 className="font-semibold text-purple-300 [.light-theme_&]:!text-purple-700 truncate">
                         {title}
                       </h4>
                       {keysDisplay && keysDisplay !== title && (
@@ -2441,7 +2441,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                         {entry.content || entry.entry || ''}
                         <button 
                           onClick={(e) => { e.stopPropagation(); setViewingEntryIndex(null); }}
-                          className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] [.light-theme_&]:!text-blue-600 text-xs font-medium py-1.5 hover:bg-[#60A5FA]/10 [.light-theme_&]:hover:bg-blue-50 rounded-lg transition w-full cursor-pointer"
+                          className="mt-3 flex items-center justify-center gap-1 text-purple-400 [.light-theme_&]:!text-purple-600 text-xs font-medium py-1.5 hover:bg-purple-500/10 [.light-theme_&]:hover:!bg-purple-50 rounded-lg transition w-full cursor-pointer"
                         >
                           <ChevronUp className="w-3.5 h-3.5" /> 收起 
                         </button>
@@ -2449,7 +2449,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     ) : (
                       <>
                         <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">{entry.content || entry.entry || ''}</div>
-                        <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
+                        <div className="mt-1.5 text-purple-400 [.light-theme_&]:!text-purple-600 group-hover:text-purple-300 [.light-theme_&]:group-hover:!text-purple-700 text-xs font-medium flex items-center gap-1 transition-colors">
                           <span>展开全文</span>
                           <ChevronDown className="w-3 h-3" />
                         </div>

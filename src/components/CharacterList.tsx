@@ -656,6 +656,7 @@ export function CharacterList({
   const longPressRef = useRef<{
     timer: NodeJS.Timeout | null;
     triggered: boolean;
+    startX?: number;
     startY?: number;
   }>({ timer: null, triggered: false });
 
@@ -947,25 +948,36 @@ export function CharacterList({
     const isFolder = activeIdStr.startsWith("folder-");
 
     if (isFolder) {
-      if (sortBy !== "custom") {
-        setSortBy("custom");
-      }
-
       const activeId = activeIdStr.replace("folder-", "");
       const overId = overIdStr.replace("folder-", "");
 
+      // 1. Immediately update paginatedFolders state synchronously for real-time UI response
+      const oldPagIndex = paginatedFolders.findIndex((f) => f.id === activeId);
+      const newPagIndex = paginatedFolders.findIndex((f) => f.id === overId);
+
+      if (oldPagIndex !== -1 && newPagIndex !== -1 && oldPagIndex !== newPagIndex) {
+        const newPag = arrayMove(paginatedFolders, oldPagIndex, newPagIndex);
+        setPaginatedFolders(newPag);
+      }
+
+      // 2. Immediately update full folders array and persist sortOrder
       const oldIndex = folders.findIndex((f) => f.id === activeId);
       const newIndex = folders.findIndex((f) => f.id === overId);
 
-      if (oldIndex !== -1 && newIndex !== -1) {
+      if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
         const newFolders = arrayMove(folders, oldIndex, newIndex);
-        setFolders(newFolders);
-        // Save new order to db
         newFolders.forEach((f, i) => {
           f.sortOrder = i;
-          saveFolder(f);
         });
+        setFolders(newFolders);
+        // Persist new orders to db
+        await Promise.all(newFolders.map((f) => saveFolder(f)));
       }
+
+      if (sortBy !== "custom") {
+        setSortBy("custom");
+      }
+      return;
     } else {
       const activeId = activeIdStr.replace("char-", "");
       const overId = overIdStr.replace("char-", "");
@@ -2774,6 +2786,10 @@ export function CharacterList({
             collisionDetection={closestCenter}
             onDragStart={(event) => {
               isDraggingRef.current = true;
+              if (longPressRef.current.timer) {
+                clearTimeout(longPressRef.current.timer);
+                longPressRef.current.timer = null;
+              }
               const idStr = String(event.active.id);
               setActiveDragId(idStr);
             }}
@@ -2825,25 +2841,26 @@ export function CharacterList({
                           whileHover={selectionMode ? undefined : { scale: 1.03 }}
                           whileTap={{ scale: 0.92 }}
                           onTouchStart={(e) => {
-                            if (selectionMode) return;
+                            if (selectionMode || isDraggingRef.current) return;
                             longPressRef.current.triggered = false;
+                            longPressRef.current.startX = e.touches[0].clientX;
                             longPressRef.current.startY = e.touches[0].clientY;
+                            if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
                             longPressRef.current.timer = setTimeout(() => {
+                              if (isDraggingRef.current) return;
                               longPressRef.current.triggered = true;
                               if (!selectionMode) {
                                 setSelectionMode(true);
                                 setSelectedIds(new Set([folder.id]));
                                 setIsHeaderVisible(true);
                               }
-                            }, 280);
+                            }, 500);
                           }}
                           onTouchMove={(e) => {
-                            if (longPressRef.current.timer) {
-                              const dy = Math.abs(
-                                e.touches[0].clientY -
-                                  (longPressRef.current.startY || 0),
-                              );
-                              if (dy > 10) {
+                            if (longPressRef.current.timer && e.touches[0]) {
+                              const dx = Math.abs(e.touches[0].clientX - (longPressRef.current.startX || 0));
+                              const dy = Math.abs(e.touches[0].clientY - (longPressRef.current.startY || 0));
+                              if (dx > 6 || dy > 6 || isDraggingRef.current) {
                                 clearTimeout(longPressRef.current.timer);
                                 longPressRef.current.timer = null;
                               }
@@ -2855,17 +2872,31 @@ export function CharacterList({
                               longPressRef.current.timer = null;
                             }
                           }}
-                          onMouseDown={() => {
-                            if (selectionMode) return;
+                          onMouseDown={(e) => {
+                            if (selectionMode || isDraggingRef.current) return;
                             longPressRef.current.triggered = false;
+                            longPressRef.current.startX = e.clientX;
+                            longPressRef.current.startY = e.clientY;
+                            if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
                             longPressRef.current.timer = setTimeout(() => {
+                              if (isDraggingRef.current) return;
                               longPressRef.current.triggered = true;
                               if (!selectionMode) {
                                 setSelectionMode(true);
                                 setSelectedIds(new Set([folder.id]));
                                 setIsHeaderVisible(true);
                               }
-                            }, 280);
+                            }, 500);
+                          }}
+                          onMouseMove={(e) => {
+                            if (longPressRef.current.timer) {
+                              const dx = Math.abs(e.clientX - (longPressRef.current.startX || 0));
+                              const dy = Math.abs(e.clientY - (longPressRef.current.startY || 0));
+                              if (dx > 6 || dy > 6 || isDraggingRef.current) {
+                                clearTimeout(longPressRef.current.timer);
+                                longPressRef.current.timer = null;
+                              }
+                            }
                           }}
                           onMouseUp={() => {
                             if (longPressRef.current.timer) {
@@ -2880,7 +2911,7 @@ export function CharacterList({
                             }
                           }}
                           onClick={(e) => {
-                            if (longPressRef.current.triggered) {
+                            if (longPressRef.current.triggered || Date.now() - lastDragEndTimeRef.current < 450) {
                               longPressRef.current.triggered = false;
                               e.preventDefault();
                               e.stopPropagation();
@@ -3367,14 +3398,14 @@ export function CharacterList({
 
       <AnimatePresence>
         {(isCreatingFolder || editingFolder) && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 [.light-theme_&]:!bg-black/30 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-slate-800/90 backdrop-blur-2xl rounded-3xl p-5 sm:p-6 w-full max-w-xs sm:max-w-sm border border-white/10 shadow-2xl"
+              className="bg-slate-800/90 [.light-theme_&]:!bg-white backdrop-blur-2xl rounded-3xl p-5 sm:p-6 w-full max-w-xs sm:max-w-sm border border-white/10 [.light-theme_&]:!border-[#e2e8f0] shadow-2xl"
             >
-              <h3 className="text-base sm:text-lg font-bold text-white mb-4 sm:mb-6 text-center">
+              <h3 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a] mb-4 sm:mb-6 text-center">
                 {editingFolder ? "编辑文件夹" : "新建文件夹"}
               </h3>
               <input
@@ -3382,7 +3413,7 @@ export function CharacterList({
                 value={newFolderName}
                 onChange={(e) => setNewFolderName(e.target.value)}
                 placeholder="文件夹名称"
-                className="w-full bg-black/20 border border-white/10 rounded-2xl px-4 py-2.5 sm:py-3 text-white placeholder:text-white/40 focus:outline-none focus:border-blue-500/50 transition mb-4 sm:mb-6 text-center text-sm sm:text-base font-medium"
+                className="w-full bg-black/20 border border-white/10 rounded-2xl px-4 py-2.5 sm:py-3 text-white placeholder:text-white/40 focus:outline-none focus:border-blue-500/50 transition mb-4 sm:mb-6 text-center text-sm sm:text-base font-medium [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-slate-400"
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -3396,31 +3427,34 @@ export function CharacterList({
               />
               <div className="flex flex-col gap-2">
                 <button
+                  type="button"
                   onClick={
                     editingFolder ? handleUpdateFolder : handleCreateFolder
                   }
-                  className="w-full py-2.5 sm:py-3 rounded-2xl bg-blue-500/80 hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold transition"
+                  className="w-full py-2.5 sm:py-3 rounded-2xl bg-blue-500/80 hover:bg-blue-500 text-white [.light-theme_&]:!bg-blue-600 [.light-theme_&]:hover:!bg-blue-700 [.light-theme_&]:!text-white text-xs sm:text-sm font-semibold transition active:scale-95 cursor-pointer"
                 >
                   {editingFolder ? "保存修改" : "创建"}
                 </button>
                 {editingFolder && (
                   <button
+                    type="button"
                     onClick={() => {
                       handleDeleteFolder(editingFolder.id, editingFolder.name);
                       setIsCreatingFolder(false);
                       setEditingFolder(null);
                     }}
-                    className="w-full py-2.5 sm:py-3 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs sm:text-sm font-semibold transition"
+                    className="w-full py-2.5 sm:py-3 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-400 [.light-theme_&]:!bg-rose-50 [.light-theme_&]:!text-rose-600 [.light-theme_&]:hover:!bg-rose-100 text-xs sm:text-sm font-semibold transition active:scale-95 cursor-pointer"
                   >
                     删除文件夹
                   </button>
                 )}
                 <button
+                  type="button"
                   onClick={() => {
                     setIsCreatingFolder(false);
                     setEditingFolder(null);
                   }}
-                  className="w-full py-2.5 sm:py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-white/70 text-xs sm:text-sm font-semibold transition mt-1"
+                  className="w-full py-2.5 sm:py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-white/70 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] text-xs sm:text-sm font-semibold transition mt-1 active:scale-95 cursor-pointer text-center"
                 >
                   取消
                 </button>

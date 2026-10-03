@@ -14,8 +14,6 @@ import {
   Settings,
   Moon,
   Sun,
-  Wifi,
-  Battery,
   Lock,
   Unlock,
   Check
@@ -431,16 +429,20 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
       >
         {/* Lock/Unlock Badge Overlay inside Viewport */}
         {hasWallpaper && (
-          <div className="absolute top-2.5 right-3.5 z-20 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] text-white/90 flex items-center gap-1 border border-white/20 select-none pointer-events-none">
+          <div className={`absolute top-2.5 right-3.5 z-20 px-2 py-0.5 rounded-full backdrop-blur-md text-[10px] flex items-center gap-1 border select-none pointer-events-none transition-colors ${
+            isPositionLocked
+              ? 'bg-black/60 border-white/20 text-white/90 [.light-theme_&]:!bg-emerald-50/95 [.light-theme_&]:!border-emerald-200 [.light-theme_&]:!text-emerald-800 shadow-xs'
+              : 'bg-black/60 border-white/20 text-white/90 [.light-theme_&]:!bg-amber-50/95 [.light-theme_&]:!border-amber-200 [.light-theme_&]:!text-amber-800 shadow-xs'
+          }`}>
             {isPositionLocked ? (
               <>
-                <Lock className="w-2.5 h-2.5 text-emerald-400" />
-                <span className="text-emerald-300 font-medium">已锁定</span>
+                <Lock className="w-2.5 h-2.5 text-emerald-400 [.light-theme_&]:!text-emerald-600" />
+                <span className="text-emerald-300 font-semibold [.light-theme_&]:!text-emerald-800">已锁定</span>
               </>
             ) : (
               <>
-                <Unlock className="w-2.5 h-2.5 text-amber-300 animate-pulse" />
-                <span className="text-amber-200 font-medium">移动中</span>
+                <Unlock className="w-2.5 h-2.5 text-amber-300 animate-pulse [.light-theme_&]:!text-amber-600" />
+                <span className="text-amber-200 font-semibold [.light-theme_&]:!text-amber-800">移动中</span>
               </>
             )}
           </div>
@@ -453,36 +455,18 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
               className="w-full h-full bg-cover bg-center transition-opacity duration-150"
               style={{
                 backgroundImage: `url(${config.url})`,
-                opacity: currentOpacity,
+                opacity: !isPositionLocked ? 1 : Math.max(0.65, currentOpacity),
                 transform: `translate3d(${currentOffsetX}%, ${currentOffsetY}%, 0) scale(${currentScale})`,
                 transformOrigin: 'center center',
+                filter: 'contrast(1.03) brightness(1.02)',
               }}
             />
           </div>
         )}
 
-        {/* Wallpaper Tint / Dimming Overlay (Only in dark theme; never dim in light theme) */}
-        {hasWallpaper && isDarkTheme && (
-          <div 
-            className="absolute inset-0 pointer-events-none transition-all duration-300 z-0 bg-black/20"
-          />
-        )}
-
-        {/* Realistic Phone Status Bar */}
-        <div className={`pt-2.5 px-4 flex items-center justify-between relative z-10 shrink-0 pointer-events-none text-[10px] font-medium tracking-tight ${
-          isDarkTheme ? 'text-white/80' : '!text-[#1c1c1e]'
-        }`}>
-          <span>11:13</span>
-          <div className="flex items-center gap-1.5 text-[10px]">
-            <Wifi className="w-3 h-3 stroke-[2]" />
-            <span className="text-[9px] font-bold">5G</span>
-            <Battery className="w-3.5 h-3.5 stroke-[2]" />
-          </div>
-        </div>
-
-        {/* Top Header inside Viewport */}
-        <div className="pt-2 px-3 pb-1 flex items-center justify-between relative z-10 shrink-0 pointer-events-none">
-          <span className={`text-[10px] font-bold tracking-wider uppercase drop-shadow-sm ${
+        {/* Top Header inside Viewport (Directly matches real FolderSidebar) */}
+        <div className="pt-3 px-3.5 pb-1.5 flex items-center justify-between relative z-10 shrink-0 pointer-events-none">
+          <span className={`text-[11px] font-bold tracking-wider uppercase drop-shadow-sm ${
             isDarkTheme ? 'text-white/70' : '!text-[#1c1c1e]'
           }`}>MIU PROFILE</span>
           <div className={`w-4.5 h-4.5 rounded-full flex items-center justify-center text-xs ${
@@ -672,14 +656,14 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
       {hasWallpaper && (
         <div className="flex items-center justify-center gap-1.5 text-xs sm:text-sm select-none mt-2.5 px-2 text-center">
           {isPositionLocked ? (
-            <div className="flex items-center gap-1.5 font-semibold px-3.5 py-1.5 rounded-full border shadow-xs text-emerald-300 bg-emerald-500/15 border-emerald-500/30">
-              <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>壁纸位置已锁定（点击【更换 / 调整壁纸】开放挪动）</span>
+            <div className="flex items-center gap-1.5 font-semibold px-3.5 py-1.5 rounded-full border shadow-xs text-emerald-300 bg-emerald-500/15 border-emerald-500/30 [.light-theme_&]:!bg-emerald-50 [.light-theme_&]:!border-emerald-200 [.light-theme_&]:!text-emerald-800">
+              <Lock className="w-4 h-4 text-emerald-400 shrink-0 [.light-theme_&]:!text-emerald-600" />
+              <span>壁纸已锁定</span>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 font-semibold px-3.5 py-1.5 rounded-full border shadow-xs text-amber-300 bg-amber-500/15 border-amber-500/30">
-              <PinchDiagonalIcon className="w-4 h-4 text-amber-400 shrink-0 stroke-[2]" />
-              <span>可滑动拖拽或捏合调整，满意后请点击【确认壁纸位置】</span>
+            <div className="flex items-center gap-1.5 font-semibold px-3.5 py-1.5 rounded-full border shadow-xs text-amber-300 bg-amber-500/15 border-amber-500/30 [.light-theme_&]:!bg-amber-50 [.light-theme_&]:!border-amber-200 [.light-theme_&]:!text-amber-800">
+              <PinchDiagonalIcon className="w-4 h-4 text-amber-400 shrink-0 stroke-[2] [.light-theme_&]:!text-amber-600" />
+              <span>可滑动拖拽/捏合调整</span>
             </div>
           )}
         </div>
@@ -690,10 +674,10 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
         {/* Slider 1: 壁纸透明度 */}
         <div className="space-y-1">
           <div className="flex items-center justify-between text-sm">
-            <span className="font-semibold text-slate-100">
+            <span className="font-semibold text-slate-100 [.light-theme_&]:!text-[#0f172a]">
               壁纸透明度
             </span>
-            <span className="font-mono font-medium text-slate-300">
+            <span className="font-mono font-medium text-slate-300 [.light-theme_&]:!text-[#64748b]">
               {Math.round(currentOpacity * 100)}%
             </span>
           </div>
@@ -710,17 +694,17 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                 opacity: val,
               });
             }}
-            className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none bg-slate-700"
+            className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none bg-slate-700 [.light-theme_&]:!bg-[#e2e8f0]"
           />
         </div>
 
         {/* Slider 2: 账号卡片毛玻璃透明度 */}
         <div className="space-y-1">
           <div className="flex items-center justify-between text-sm">
-            <span className="font-semibold text-slate-100">
+            <span className="font-semibold text-slate-100 [.light-theme_&]:!text-[#0f172a]">
               账号卡片透明度
             </span>
-            <span className="font-mono font-medium text-slate-300">
+            <span className="font-mono font-medium text-slate-300 [.light-theme_&]:!text-[#64748b]">
               {currentCardOpacity <= 0.01 ? '全透 (0%)' : `${Math.round(currentCardOpacity * 100)}%`}
             </span>
           </div>
@@ -737,17 +721,17 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                 cardOpacity: val,
               });
             }}
-            className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none bg-slate-700"
+            className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none bg-slate-700 [.light-theme_&]:!bg-[#e2e8f0]"
           />
         </div>
 
         {/* Slider 3: 底部设置栏透明度 */}
         <div className="space-y-1">
           <div className="flex items-center justify-between text-sm">
-            <span className="font-semibold text-slate-100">
+            <span className="font-semibold text-slate-100 [.light-theme_&]:!text-[#0f172a]">
               底栏设置透明度
             </span>
-            <span className="font-mono font-medium text-slate-300">
+            <span className="font-mono font-medium text-slate-300 [.light-theme_&]:!text-[#64748b]">
               {currentBottomOpacity <= 0.01 ? '全透 (0%)' : `${Math.round(currentBottomOpacity * 100)}%`}
             </span>
           </div>
@@ -764,7 +748,7 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                 bottomOpacity: val,
               });
             }}
-            className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none bg-slate-700"
+            className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none bg-slate-700 [.light-theme_&]:!bg-[#e2e8f0]"
           />
         </div>
       </div>
@@ -779,10 +763,10 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                 type="button"
                 onClick={() => {
                   setIsPositionLocked(true);
-                  setToastFeedback('已确认并锁定壁纸位置，防止误触挪动');
+                  setToastFeedback('壁纸已锁定');
                   setTimeout(() => setToastFeedback(null), 2500);
                 }}
-                className="px-4 py-2 rounded-full text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 shadow-md transition flex items-center gap-1.5 cursor-pointer active:scale-95 animate-pulse shrink-0"
+                className="px-4 py-2 rounded-full text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 shadow-sm transition flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0"
                 title="确认当前位置并锁定展示"
               >
                 <Check className="w-4 h-4" />
@@ -794,7 +778,7 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                 onClick={() => {
                   fileInputRef.current?.click();
                 }}
-                className="px-3.5 py-2 rounded-full text-xs sm:text-sm font-medium transition flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0 text-slate-100 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700/60"
+                className="px-3.5 py-2 rounded-full text-xs sm:text-sm font-medium transition flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0 text-slate-100 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700/60 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#f1f5f9] shadow-xs"
                 title="选择本地新图片"
               >
                 <Upload className="w-4 h-4" />
@@ -805,7 +789,7 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                 <button
                   type="button"
                   onClick={handleResetTransform}
-                  className="px-3 py-2 rounded-full text-xs sm:text-sm font-medium transition flex items-center gap-1 cursor-pointer active:scale-95 shrink-0 text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700 border border-slate-700/60"
+                  className="px-3 py-2 rounded-full text-xs sm:text-sm font-medium transition flex items-center gap-1 cursor-pointer active:scale-95 shrink-0 text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700 border border-slate-700/60 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!bg-[#f1f5f9] shadow-xs"
                   title="复原缩放与位置"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
@@ -820,10 +804,10 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                 type="button"
                 onClick={() => {
                   setIsPositionLocked(false);
-                  setToastFeedback('已解锁，现可滑动拖拽或捏合缩放图片，完成后请点击【确认壁纸位置】');
+                  setToastFeedback('可滑动拖拽/捏合调整');
                   setTimeout(() => setToastFeedback(null), 3000);
                 }}
-                className="px-4 py-2 rounded-full text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-500/20 transition flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0"
+                className="px-4 py-2 rounded-full text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 shadow-sm transition flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0"
                 title="开启壁纸位置拖拽与调整模式"
               >
                 <Unlock className="w-4 h-4" />
@@ -836,7 +820,7 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
                   setIsPositionLocked(false);
                   fileInputRef.current?.click();
                 }}
-                className="px-3.5 py-2 rounded-full text-xs sm:text-sm font-medium transition flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0 text-slate-100 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700/60"
+                className="px-3.5 py-2 rounded-full text-xs sm:text-sm font-medium transition flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0 text-slate-100 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700/60 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#f1f5f9] shadow-xs"
                 title="选择本地新图片"
               >
                 <Upload className="w-4 h-4" />
@@ -851,10 +835,10 @@ export function SidebarWallpaperTab({ config, onChange }: Props) {
               e.stopPropagation();
               handleClearWallpaper();
             }}
-            className="px-3.5 py-2 rounded-full text-xs sm:text-sm font-medium transition flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0 text-rose-300 hover:text-rose-200 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/25"
+            className="px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0 border-0 outline-none bg-[#FE2C55]/20 hover:bg-[#FE2C55]/30 text-rose-200 [.light-theme_&]:!bg-[#fff0f2] [.light-theme_&]:hover:!bg-[#ffe4e6] [.light-theme_&]:active:!bg-[#fecdd3] [.light-theme_&]:!text-[#e11d48] [.light-theme_&]:!border-0 shadow-none"
             title="移除当前壁纸，恢复默认深色"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="w-3.5 h-3.5 stroke-[2.2] text-rose-300 [.light-theme_&]:!text-[#e11d48]" />
             <span>清除壁纸</span>
           </button>
         </div>

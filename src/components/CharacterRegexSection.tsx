@@ -255,7 +255,7 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                       </div>
                       <button 
                         onClick={(e) => { e.stopPropagation(); setExpandedIndex(null); }}
-                        className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] [.light-theme_&]:!text-blue-600 text-xs font-medium py-1.5 hover:bg-[#60A5FA]/10 [.light-theme_&]:hover:bg-blue-50 rounded-lg transition w-full cursor-pointer"
+                        className="mt-3 flex items-center justify-center gap-1 text-purple-400 [.light-theme_&]:!text-purple-600 text-xs font-medium py-1.5 hover:bg-purple-500/10 [.light-theme_&]:hover:!bg-purple-50 rounded-lg transition w-full cursor-pointer"
                       >
                         <ChevronUp className="w-3.5 h-3.5" /> 收起 
                       </button>
@@ -265,7 +265,7 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                       <div className="detail-card-text-muted text-sm line-clamp-2 break-words w-full font-mono">
                         {script.regex || script.findRegex || '未设定'}
                       </div>
-                      <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
+                      <div className="mt-1.5 text-purple-400 [.light-theme_&]:!text-purple-600 group-hover:text-purple-300 [.light-theme_&]:group-hover:!text-purple-700 text-xs font-medium flex items-center gap-1 transition-colors">
                         <span>展开全文</span>
                         <ChevronDown className="w-3 h-3" />
                       </div>

@@ -197,30 +197,30 @@ export function CharacterMemosSection({ characterId, isLightMode = false }: { ch
         <h3 className="text-xl font-bold text-white/90 [.light-theme_&]:!text-[#0f172a]">
            <span className="truncate">备忘录与剧场</span>
         </h3>
-        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap self-start sm:self-auto w-full sm:w-auto">
+        <div className="grid grid-cols-3 gap-1.5 sm:flex sm:items-center sm:gap-2 w-full sm:w-auto">
             <button
                 onClick={() => setIsReorderingMode(!isReorderingMode)}
-                className={`px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium transition active:scale-95 shadow-xs flex items-center justify-center gap-1.5 cursor-pointer ${
+                className={`px-2.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium transition active:scale-95 shadow-xs flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap ${
                   isReorderingMode 
                     ? 'bg-blue-600 text-white border border-blue-500 shadow-sm [.light-theme_&]:!border-blue-600' 
                     : 'soft-pill'
                 }`}
             >
-                <Edit className="w-4 h-4 opacity-70" />
+                <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-70 shrink-0" />
                 <span>{isReorderingMode ? '完成' : '排序'}</span>
             </button>
             <button
                 onClick={() => setIsAddingMode(true)}
-                className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium transition active:scale-95 shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                className="soft-pill px-2.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium transition active:scale-95 shadow-xs flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap"
             >
-                <Plus className="w-4 h-4 opacity-70" />
+                <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-70 shrink-0" />
                 <span>新建笔记</span>
             </button>
             <button
                 onClick={() => fileInputRef.current?.click()}
-                className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium transition active:scale-95 shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                className="soft-pill px-2.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium transition active:scale-95 shadow-xs flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap"
             >
-                <FileUp className="w-4 h-4 opacity-70" />
+                <FileUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-70 shrink-0" />
                 <span>导入文件</span>
             </button>
         </div>
@@ -340,19 +340,19 @@ export function CharacterMemosSection({ characterId, isLightMode = false }: { ch
                           </div>
                       )}
 
-                                            {memo.type === 'text' && (
+                                             {memo.type === 'text' && (
                           <div className="p-5 cursor-pointer group/text relative" onClick={() => { setReadingMemo(memo); setEditMemoContent(memo.content); setIsEditingMemo(false); }}>
-                             <div className="prose prose-sm prose-invert memo-prose-adapt max-w-none text-white/80 leading-relaxed markdown-body line-clamp-[8]">
+                             <div className="prose prose-sm prose-invert [.light-theme_&]:!prose-slate memo-prose-adapt max-w-none text-white/80 [.light-theme_&]:!text-[#0f172a] leading-relaxed markdown-body line-clamp-[8]">
                                 <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
                                     {memo.content}
                                 </ReactMarkdown>
                              </div>
-                             <div className="absolute inset-0 bg-gradient-to-t from-[#1b2234] via-transparent to-transparent opacity-0 group-hover/text:opacity-100 transition-opacity flex items-end justify-center pb-4">
-                               <span className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-xs text-white shadow-lg pointer-events-none">
+                             <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 [.light-theme_&]:from-slate-200/90 via-transparent to-transparent opacity-0 group-hover/text:opacity-100 transition-opacity flex items-end justify-center pb-4">
+                               <span className="bg-white/10 [.light-theme_&]:!bg-black/10 backdrop-blur-md px-3 py-1 rounded-full text-xs text-white [.light-theme_&]:!text-[#0f172a] shadow-lg pointer-events-none">
                                  点击全屏阅读
                                </span>
                              </div>
-                             <div className="mt-4 text-[11px] text-white/30 relative z-10">
+                             <div className="mt-4 text-[11px] text-white/40 [.light-theme_&]:!text-slate-500 relative z-10">
                                 {new Date(memo.createdAt).toLocaleString()}
                              </div>
                           </div>
@@ -473,7 +473,7 @@ export function CharacterMemosSection({ characterId, isLightMode = false }: { ch
                        </div>
                     </div>
                   ) : (
-                    <div className="prose prose-invert memo-prose-adapt prose-base sm:prose-lg max-w-none text-white/80 [.light-theme_&]:text-slate-800 leading-relaxed markdown-body" onClick={e => e.stopPropagation()}>
+                    <div className="prose prose-invert [.light-theme_&]:!prose-slate memo-prose-adapt prose-base sm:prose-lg max-w-none text-white/80 [.light-theme_&]:!text-[#0f172a] leading-relaxed markdown-body" onClick={e => e.stopPropagation()}>
                        <ReactMarkdown 
                            remarkPlugins={[remarkGfm]}
                            components={{

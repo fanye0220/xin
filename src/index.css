@@ -526,10 +526,30 @@ button:focus-visible,
   --tw-prose-quote-borders: #cbd5e1 !important;
   --tw-prose-captions: #64748b !important;
   --tw-prose-code: #0f172a !important;
-  --tw-prose-pre-code: #e2e8f0 !important;
-  --tw-prose-pre-bg: #1e293b !important;
+  --tw-prose-pre-code: #0f172a !important;
+  --tw-prose-pre-bg: #f1f5f9 !important;
   --tw-prose-th-borders: #cbd5e1 !important;
   --tw-prose-td-borders: #e2e8f0 !important;
+}
+
+.light-theme .memo-prose-adapt,
+.light-theme .memo-prose-adapt p,
+.light-theme .memo-prose-adapt h1,
+.light-theme .memo-prose-adapt h2,
+.light-theme .memo-prose-adapt h3,
+.light-theme .memo-prose-adapt h4,
+.light-theme .memo-prose-adapt li,
+.light-theme .memo-prose-adapt span,
+.light-theme .memo-prose-adapt strong,
+.light-theme .memo-prose-adapt blockquote {
+  color: #0f172a !important;
+}
+.light-theme .memo-prose-adapt a {
+  color: #2563eb !important;
+}
+.light-theme .memo-prose-adapt code {
+  color: #0f172a !important;
+  background-color: rgba(0, 0, 0, 0.05) !important;
 }
 
 /* Memo Section Header & Empty State */
@@ -1482,7 +1502,7 @@ button:focus-visible,
 }
 
 .detail-card-text-muted {
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(255, 255, 255, 0.7);
 }
 .light-theme .detail-card-text-muted {
   color: #64748b !important;
@@ -1626,6 +1646,72 @@ button:focus-visible,
   border-color: transparent !important;
 }
 
+/* Floating Tagger Widget Pill (App.tsx) */
+.tagger-floating-pill {
+  background-color: rgba(10, 10, 12, 0.95) !important;
+  backdrop-filter: blur(24px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6) !important;
+}
+.light-theme .tagger-floating-pill {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #0f172a !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08) !important;
+}
+.light-theme .tagger-floating-text {
+  color: #0f172a !important;
+}
+.light-theme .tagger-floating-close {
+  color: #64748b !important;
+}
+.light-theme .tagger-floating-close:hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+/* AutoTagger Log Box */
+.tagger-log-container {
+  background-color: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.light-theme .tagger-log-container {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03) !important;
+}
+
+.tagger-log-header {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.9);
+}
+.light-theme .tagger-log-header {
+  background-color: #f8fafc !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+.tagger-log-item {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background-color: transparent;
+}
+.tagger-log-item:last-child {
+  border-bottom: none;
+}
+.light-theme .tagger-log-item {
+  border-bottom: 1px solid #e2e8f0 !important;
+  background-color: #ffffff !important;
+}
+.light-theme .tagger-log-item:last-child {
+  border-bottom: none !important;
+}
+.light-theme .tagger-log-item:hover {
+  background-color: #f8fafc !important;
+}
+
 /* Chat Header Pill & Search Box */
 .chat-header-pill {
   background-color: rgba(18, 18, 22, 0.98) !important;
@@ -1675,11 +1761,14 @@ button:focus-visible,
 .chat-header-btn-active {
   background-color: rgba(59, 130, 246, 0.2) !important;
   color: #60a5fa !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 .light-theme .chat-header-btn-active {
   background-color: #eff6ff !important;
   color: #2563eb !important;
-  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.2) inset !important;
+  box-shadow: none !important;
+  border: none !important;
 }
 
 .chat-header-title-text {
@@ -2171,33 +2260,3 @@ div.border-rose-500\/40 svg {
   }
 }
 
-/* ===== Auto tagger action buttons: unified black ===== */
-.tagger-btn-black {
-  background-color: #000000 !important;
-  color: #ffffff !important;
-  border-color: #27272a !important;
-}
-.tagger-btn-black:hover:not(:disabled) {
-  background-color: #18181b !important;
-  color: #ffffff !important;
-}
-.tagger-btn-black:active:not(:disabled) {
-  background-color: #27272a !important;
-  color: #ffffff !important;
-}
-.tagger-btn-black:disabled {
-  opacity: 0.4 !important;
-}
-.light-theme .tagger-btn-black {
-  background-color: #000000 !important;
-  color: #ffffff !important;
-  border-color: #000000 !important;
-}
-.light-theme .tagger-btn-black:hover:not(:disabled) {
-  background-color: #18181b !important;
-  color: #ffffff !important;
-}
-.light-theme .tagger-btn-black:active:not(:disabled) {
-  background-color: #27272a !important;
-  color: #ffffff !important;
-}

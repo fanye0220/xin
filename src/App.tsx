@@ -77,22 +77,22 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
             animate={{ opacity: 1, y: 0, x: '-50%' }}
             exit={{ opacity: 0, y: -20, x: '-50%' }}
             onClick={onClick}
-            className={`fixed ${errorToast ? 'top-16' : 'top-5'} left-1/2 z-50 bg-slate-900/90 backdrop-blur-xl border border-white/15 shadow-[0_8px_30px_rgba(0,0,0,0.25)] rounded-full px-4 py-2 sm:px-4.5 sm:py-2 flex items-center gap-2.5 max-w-[92vw] w-auto cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all overflow-hidden group select-none miu-skin [.light-theme_&]:bg-slate-800/90 [.light-theme_&]:border-white/10 [.light-theme_&]:shadow-2xl [.light-theme_&]:hover:bg-slate-700/90`}
+            className={`tagger-floating-pill fixed ${errorToast ? 'top-16' : 'top-5'} left-1/2 z-50 rounded-full px-4 py-2 sm:px-4.5 sm:py-2 flex items-center gap-2.5 max-w-[92vw] w-auto cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all overflow-hidden group select-none`}
             title="点击打开打标面板"
           >
             {isPaused ? (
-              <Pause className="w-4 h-4 text-yellow-400 shrink-0 [.light-theme_&]:text-yellow-400" />
+              <Pause className="w-4 h-4 text-yellow-400 shrink-0 [.light-theme_&]:!text-amber-500" />
             ) : hasError ? (
-              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 [.light-theme_&]:text-red-400" />
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 [.light-theme_&]:!text-red-500" />
             ) : (
-              <Loader2 className="w-4 h-4 text-blue-400 animate-spin shrink-0 [.light-theme_&]:text-blue-400" />
+              <Loader2 className="w-4 h-4 text-blue-400 animate-spin shrink-0 [.light-theme_&]:!text-blue-600" />
             )}
             
-            <span className="text-xs sm:text-sm font-medium text-slate-100 whitespace-nowrap [.light-theme_&]:text-slate-900">
+            <span className="text-xs sm:text-sm font-medium text-slate-100 whitespace-nowrap tagger-floating-text [.light-theme_&]:!text-[#0f172a]">
               {isPaused ? '打标已暂停' : hasError ? '打标遇到错误' : '自动打标中'}
             </span>
 
-            <span className="text-[11px] font-semibold text-blue-300 bg-blue-500/20 [.light-theme_&]:!border [.light-theme_&]:!border-blue-200/80 px-2 py-0.5 rounded-full shrink-0 [.light-theme_&]:text-blue-600 [.light-theme_&]:bg-blue-50">
+            <span className="text-[11px] font-semibold text-blue-300 bg-blue-500/20 [.light-theme_&]:!border [.light-theme_&]:!border-blue-200/80 px-2 py-0.5 rounded-full shrink-0 [.light-theme_&]:!text-blue-600 [.light-theme_&]:!bg-blue-50">
               {progress.current}/{progress.total}
             </span>
 
@@ -101,16 +101,16 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
                 e.stopPropagation();
                 import('./lib/taggerState').then(({ taggerState }) => taggerState.dismiss());
               }}
-              className="p-1 hover:bg-white/20 rounded-full transition text-white/50 hover:text-white shrink-0 ml-0.5 [.light-theme_&]:hover:bg-black/5 [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-slate-800"
+              className="p-1 hover:bg-white/20 rounded-full transition text-white/50 hover:text-white shrink-0 ml-0.5 tagger-floating-close [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-slate-800 [.light-theme_&]:hover:!bg-black/5 cursor-pointer"
               title="隐藏悬浮窗"
             >
               <X className="w-3.5 h-3.5" />
             </button>
 
             {/* 微型内置进度条 */}
-            <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-blue-500/10 overflow-hidden [.light-theme_&]:bg-black/40">
+            <div className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-transparent overflow-hidden pointer-events-none">
               <div 
-                className={`h-full transition-all duration-300 ${isPaused ? 'bg-amber-500 [.light-theme_&]:bg-yellow-500' : hasError ? 'bg-red-500 [.light-theme_&]:bg-red-500' : 'bg-gradient-to-r from-[#a855f7] via-[#ec4899] to-[#a855f7] [.light-theme_&]:bg-gradient-to-r [.light-theme_&]:from-blue-500 [.light-theme_&]:to-blue-500'}`}
+                className={`h-full transition-all duration-300 ${isPaused ? 'bg-amber-500' : hasError ? 'bg-red-500' : 'bg-gradient-to-r from-[#a855f7] via-[#ec4899] to-[#a855f7] [.light-theme_&]:!from-blue-500 [.light-theme_&]:!to-indigo-500'}`}
                 style={{ width: `${(progress.current / Math.max(1, progress.total)) * 100}%` }}
               />
             </div>

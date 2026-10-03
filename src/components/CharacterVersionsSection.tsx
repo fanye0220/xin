@@ -845,7 +845,7 @@ export function CharacterVersionsSection({
       }
     }
 
-    const updatedChar: CharacterCard = {
+    const updatedChar: CharacterCard & { _skipTouchUpdatedAt?: boolean } = {
       ...character,
       data: JSON.parse(JSON.stringify(snapshot.data || {})),
       name: snapshot.cardName || character.name,
@@ -855,7 +855,8 @@ export function CharacterVersionsSection({
       tags: snapshot.tags || character.tags,
       activeVersionId: snapshot.id,
       versionHistory: updatedHistory,
-      updatedAt: character.updatedAt || Date.now(),
+      updatedAt: character.updatedAt,
+      _skipTouchUpdatedAt: true,
     };
 
     await saveCharacter(updatedChar);
@@ -977,40 +978,6 @@ export function CharacterVersionsSection({
 
         {/* Clean Monochrome Header Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-          <button
-            onClick={() => setIsCreatingSnapshot(prev => !prev)}
-            className={`px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 ${
-              isCreatingSnapshot 
-                ? 'bg-white text-black border border-white shadow-sm [.light-theme_&]:!bg-black [.light-theme_&]:!border-black [.light-theme_&]:!text-white' 
-                : 'soft-pill'
-            }`}
-            title="创建当前版本快照"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">创建快照</span>
-            <span className="sm:hidden">快照</span>
-          </button>
-
-          <button
-            onClick={() => setIsLinkModalOpen(true)}
-            className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
-            title="关联卡库已有卡片为历史版本"
-          >
-            <LinkIcon className="w-4 h-4 opacity-70" />
-            <span className="hidden sm:inline">绑定卡库旧版</span>
-            <span className="sm:hidden">绑定旧版</span>
-          </button>
-
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
-            title="导入 PNG 或 JSON 为历史版本"
-          >
-            <Upload className="w-4 h-4 opacity-70" />
-            <span className="hidden sm:inline">导入文件版本</span>
-            <span className="sm:hidden">导入</span>
-          </button>
-
           <input
             ref={fileInputRef}
             type="file"
@@ -1018,6 +985,37 @@ export function CharacterVersionsSection({
             onChange={handleImportFileAsVersion}
             className="hidden"
           />
+
+          <button
+            onClick={() => setIsCreatingSnapshot(prev => !prev)}
+            className={`px-3.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 ${
+              isCreatingSnapshot 
+                ? 'bg-white text-black border border-white shadow-sm [.light-theme_&]:!bg-black [.light-theme_&]:!border-black [.light-theme_&]:!text-white' 
+                : 'soft-pill'
+            }`}
+            title="创建当前版本快照"
+          >
+            <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-80 shrink-0" />
+            <span>创建快照</span>
+          </button>
+
+          <button
+            onClick={() => setIsLinkModalOpen(true)}
+            className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0"
+            title="将卡库中已有卡片关联/绑定为本角色的历史版本"
+          >
+            <LinkIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-80 shrink-0" />
+            <span>绑定已有卡</span>
+          </button>
+
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0"
+            title="直接导入本地 .png 或 .json 文件为新版本"
+          >
+            <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-80 shrink-0" />
+            <span>导入文件</span>
+          </button>
         </div>
       </div>
 
@@ -1199,12 +1197,35 @@ export function CharacterVersionsSection({
                 </div>
               </div>
 
-              <div className="version-empty-card mt-4 p-5 sm:p-6 rounded-2xl text-center space-y-1.5 shadow-xs">
+              <div className="version-empty-card mt-4 p-5 sm:p-6 rounded-2xl text-center space-y-2 shadow-xs">
                 <GitBranch className="w-6 h-6 mx-auto text-slate-400 [.light-theme_&]:!text-slate-500 opacity-60" />
                 <p className="font-semibold text-xs version-card-title">暂无其它历史快照</p>
                 <p className="text-[11px] version-card-note max-w-sm mx-auto leading-relaxed">
-                  点击顶部的「+ 创建快照」按钮或「绑定卡库旧版」即可归档历史版本，点击卡片即可在各版本间即时滑动切换！
+                  您可以保存当前快照，也可以将卡库同名卡绑定进来，或直接导入旧卡文件进行多版本滑动切换。
                 </p>
+                <div className="flex items-center justify-center gap-2 pt-1 flex-wrap">
+                  <button
+                    onClick={() => setIsCreatingSnapshot(true)}
+                    className="soft-pill px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 cursor-pointer hover:scale-105 transition"
+                  >
+                    <Plus className="w-3.5 h-3.5 opacity-80 shrink-0" />
+                    <span>创建快照</span>
+                  </button>
+                  <button
+                    onClick={() => setIsLinkModalOpen(true)}
+                    className="soft-pill px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 cursor-pointer hover:scale-105 transition"
+                  >
+                    <LinkIcon className="w-3.5 h-3.5 opacity-80 shrink-0" />
+                    <span>绑定已有卡</span>
+                  </button>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="soft-pill px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 cursor-pointer hover:scale-105 transition"
+                  >
+                    <Upload className="w-3.5 h-3.5 opacity-80 shrink-0" />
+                    <span>导入文件</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1238,10 +1259,10 @@ export function CharacterVersionsSection({
                       <div className="timeline-divider-line flex-1 h-[1.5px] rounded-full" />
                     </div>
 
-                    {/* Floating Soft White Card: Clicking switches active version */}
+                    {/* Floating Soft White Card: Clicking toggles diff details, explicit button switches version */}
                     <div
                       onClick={() => {
-                        if (!isActive) handleSwitchVersion(snapshot);
+                        setExpandedDiffId(isExpanded ? null : snapshot.id);
                       }}
                       className={`soft-card rounded-2xl py-2.5 px-3.5 sm:py-3 sm:px-4 pl-4.5 sm:pl-5 relative overflow-hidden transition-all duration-300 space-y-1.5 sm:space-y-2 cursor-pointer ${
                         isActive 
@@ -1303,7 +1324,7 @@ export function CharacterVersionsSection({
                             }}
                             className={`px-2.5 py-1 rounded-full text-xs font-medium transition flex items-center gap-1 active:scale-95 cursor-pointer ${
                               isExpanded 
-                                ? 'bg-white text-black border border-white shadow-xs [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:!border-black' 
+                                ? 'soft-pill !bg-white/20 !text-white !border-white/30 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/15 [.light-theme_&]:!text-[#0f172a] shadow-xs' 
                                 : 'soft-pill'
                             }`}
                             title="查看与当前生效版本的智能差异对比"
@@ -1503,7 +1524,7 @@ export function CharacterVersionsSection({
                 <div className="flex items-center justify-between pb-3.5 border-b version-modal-border relative z-10 shrink-0">
                   <div className="min-w-0 pr-2">
                     <h3 className="text-base sm:text-lg font-bold version-modal-title flex items-center gap-2 truncate">
-                      <LinkIcon className="w-5 h-5 shrink-0 text-blue-500" />
+                      <LinkIcon className="w-5 h-5 shrink-0 opacity-80" />
                       关联已有卡片为历史版本
                     </h3>
                     <p className="text-xs sm:text-sm version-modal-desc mt-0.5 line-clamp-1 sm:line-clamp-none">

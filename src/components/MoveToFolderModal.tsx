@@ -97,8 +97,8 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
           className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 [.light-theme_&]:hover:!bg-black/5 transition text-left cursor-pointer"
           style={{ paddingLeft: `${depth * 1.5 + 0.75}rem` }}
         >
-          <div className="w-10 h-10 rounded-lg bg-white/10 text-white/80 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-slate-700 flex items-center justify-center shrink-0">
-            <FolderIcon className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl bg-white/10 text-white/90 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] flex items-center justify-center shrink-0">
+            <FolderIcon className="w-5 h-5 stroke-[2] text-white/80 [.light-theme_&]:!text-[#0f172a]" />
           </div>
           <span className="font-medium text-white [.light-theme_&]:!text-[#0f172a] truncate">{folder.name}</span>
         </button>
@@ -169,8 +169,8 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
                 onClick={() => onMove(null)}
                 className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 [.light-theme_&]:hover:!bg-black/5 transition text-left cursor-pointer"
               >
-                <div className="w-10 h-10 rounded-lg bg-white/5 [.light-theme_&]:!bg-black/5 flex items-center justify-center text-white/50 [.light-theme_&]:!text-slate-600 shrink-0">
-                  <FolderIcon className="w-5 h-5" />
+                <div className="w-10 h-10 rounded-xl bg-white/10 text-white/90 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] flex items-center justify-center shrink-0">
+                  <FolderIcon className="w-5 h-5 stroke-[2] text-white/80 [.light-theme_&]:!text-[#0f172a]" />
                 </div>
                 <span className="font-medium text-white [.light-theme_&]:!text-[#0f172a]">主页 (移除文件夹)</span>
               </button>
@@ -184,8 +184,8 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
                     onClick={() => onMove(folder.id)}
                     className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 [.light-theme_&]:hover:!bg-black/5 transition text-left cursor-pointer"
                   >
-                    <div className="w-10 h-10 rounded-lg bg-white/10 text-white/80 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-slate-700 flex items-center justify-center shrink-0">
-                      <FolderIcon className="w-5 h-5" />
+                    <div className="w-10 h-10 rounded-xl bg-white/10 text-white/90 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] flex items-center justify-center shrink-0">
+                      <FolderIcon className="w-5 h-5 stroke-[2] text-white/80 [.light-theme_&]:!text-[#0f172a]" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-white [.light-theme_&]:!text-[#0f172a] truncate">{folder.name}</div>
@@ -215,9 +215,9 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-slate-800/90 [.light-theme_&]:!bg-white backdrop-blur-2xl rounded-3xl p-5 sm:p-6 w-full max-w-xs sm:max-w-sm border border-white/10 [.light-theme_&]:!border-black/5 shadow-2xl"
+                className="bg-slate-900/95 [.light-theme_&]:!bg-white backdrop-blur-2xl rounded-3xl p-5 sm:p-6 w-full max-w-xs sm:max-w-sm border border-white/10 [.light-theme_&]:!border-[#e2e8f0] shadow-2xl"
               >
-                <h3 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a] mb-4 sm:mb-6 text-center">
+                <h3 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a] mb-4 sm:mb-5 text-center">
                   新建文件夹
                 </h3>
                 <input
@@ -225,7 +225,7 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
                   value={newFolderName}
                   onChange={(e) => setNewFolderName(e.target.value)}
                   placeholder="文件夹名称"
-                  className="w-full bg-black/20 [.light-theme_&]:!bg-black/5 border border-white/10 [.light-theme_&]:!border-black/10 rounded-2xl px-4 py-2.5 sm:py-3 text-white [.light-theme_&]:!text-[#0f172a] placeholder:text-white/40 [.light-theme_&]:placeholder:!text-slate-400 focus:outline-none focus:border-blue-500/50 transition mb-4 sm:mb-6 text-center text-sm sm:text-base font-medium"
+                  className="version-input w-full rounded-2xl px-4 py-2.5 sm:py-3 text-center text-sm sm:text-base font-medium mb-4 sm:mb-5 outline-none transition"
                   autoFocus
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
@@ -236,17 +236,19 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
                     }
                   }}
                 />
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-2.5">
                   <button
+                    type="button"
                     onClick={handleCreateFolder}
                     disabled={!newFolderName.trim()}
-                    className="w-full py-2.5 sm:py-3 rounded-2xl bg-blue-500/80 hover:bg-blue-500 disabled:opacity-40 text-white text-xs sm:text-sm font-semibold transition cursor-pointer"
+                    className="w-full py-2.5 sm:py-3 rounded-2xl font-medium text-xs sm:text-sm transition active:scale-98 cursor-pointer bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:hover:!bg-blue-700 [.light-theme_&]:!text-white disabled:opacity-40 disabled:pointer-events-none shadow-xs"
                   >
                     创建
                   </button>
                   <button
+                    type="button"
                     onClick={() => setShowCreateModal(false)}
-                    className="w-full py-2.5 sm:py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-white/70 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-slate-600 [.light-theme_&]:hover:!bg-black/10 text-xs sm:text-sm font-semibold transition mt-1 cursor-pointer"
+                    className="w-full py-2.5 sm:py-3 rounded-2xl font-medium text-xs sm:text-sm transition active:scale-98 cursor-pointer bg-white/10 hover:bg-white/20 text-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]"
                   >
                     取消
                   </button>
