@@ -455,7 +455,7 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                       <button
                         onClick={() => taggerState.startTagging()}
                         disabled={untaggedCharacters.length === 0}
-                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm bg-[#FE2C55] hover:bg-[#E02447] active:bg-[#D41C3E] text-white transition-all active:scale-[0.98] shadow-md shadow-[#FE2C55]/25 disabled:opacity-40 disabled:shadow-none whitespace-nowrap cursor-pointer border-0 border-none"
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm bg-black hover:bg-neutral-900 text-white [.light-theme_&]:!bg-[#000000] [.light-theme_&]:hover:!bg-[#1c1c1e] [.light-theme_&]:!text-white transition-all active:scale-[0.98] shadow-sm disabled:opacity-40 disabled:shadow-none whitespace-nowrap cursor-pointer border-0 border-none"
                       >
                         <Play className="w-3.5 sm:w-4 h-3.5 sm:h-4 fill-current" />
                         开始打标
@@ -518,7 +518,7 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                       <button
                         onClick={() => taggerState.startRetagging()}
                         disabled={taggedCharacters.length === 0}
-                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm bg-[#FE2C55] hover:bg-[#E02447] active:bg-[#D41C3E] text-white transition-all active:scale-[0.98] shadow-md shadow-[#FE2C55]/25 disabled:opacity-40 disabled:shadow-none whitespace-nowrap cursor-pointer border-0 border-none"
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm bg-black hover:bg-neutral-900 text-white [.light-theme_&]:!bg-[#000000] [.light-theme_&]:hover:!bg-[#1c1c1e] [.light-theme_&]:!text-white transition-all active:scale-[0.98] shadow-sm disabled:opacity-40 disabled:shadow-none whitespace-nowrap cursor-pointer border-0 border-none"
                       >
                         <Play className="w-3.5 sm:w-4 h-3.5 sm:h-4 fill-current" />
                         开始重新打标
@@ -572,7 +572,7 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                        </button>
                        <button
                          onClick={() => taggerState.approveAllRetags()}
-                         className="w-full sm:w-auto justify-center px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-[#FE2C55] hover:bg-[#E02447] text-white border-0 border-none text-xs sm:text-sm font-bold transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap shadow-md shadow-[#FE2C55]/25 cursor-pointer"
+                         className="w-full sm:w-auto justify-center px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-black hover:bg-neutral-800 text-white border-0 border-none [.light-theme_&]:!bg-[#000000] [.light-theme_&]:hover:!bg-[#1c1c1e] [.light-theme_&]:!text-white text-xs sm:text-sm font-bold transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap shadow-sm cursor-pointer"
                        >
                          <CheckCircle2 className="w-3.5 h-3.5 hidden sm:block" /> 全部替换
                        </button>
@@ -616,7 +616,7 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                       <button
                         onClick={() => taggerState.startBatchSummary()}
                         disabled={unsummarizedCharacters.length === 0}
-                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm bg-[#FE2C55] hover:bg-[#E02447] active:bg-[#D41C3E] text-white transition-all active:scale-[0.98] shadow-md shadow-[#FE2C55]/25 disabled:opacity-40 disabled:shadow-none whitespace-nowrap cursor-pointer border-0 outline-none"
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm bg-black hover:bg-neutral-900 text-white [.light-theme_&]:!bg-[#000000] [.light-theme_&]:hover:!bg-[#1c1c1e] [.light-theme_&]:!text-white transition-all active:scale-[0.98] shadow-sm disabled:opacity-40 disabled:shadow-none whitespace-nowrap cursor-pointer border-0 outline-none"
                       >
                         <span>开始生成总结</span>
                       </button>
