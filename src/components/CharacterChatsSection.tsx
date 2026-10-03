@@ -579,9 +579,6 @@ export function CharacterChatsSection({
           <div className="flex flex-col items-center justify-center p-8 rounded-2xl bg-white/5 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!shadow-xs text-white/40 [.light-theme_&]:!text-[#64748b]">
             <FileJson className="w-12 h-12 mb-3 opacity-50 text-white/40 [.light-theme_&]:!text-[#64748b]" />
             <p className="text-sm font-medium text-white/70 [.light-theme_&]:!text-[#0f172a]">当前角色未包含聊天记录</p>
-            <p className="text-xs text-white/40 [.light-theme_&]:!text-[#64748b] mt-1">
-              点击右上角导入按钮，或直接拖拽 JSONL/ZIP 文件到窗口中绑定
-            </p>
           </div>
         ) : (
           <>

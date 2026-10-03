@@ -13,8 +13,6 @@ const TrashedCharacterCard = ({
   selectionMode, 
   isSelected, 
   onToggleSelect,
-  onRestore,
-  onHardDelete,
   index = 0,
 }: { 
   key?: React.Key, 
@@ -22,8 +20,6 @@ const TrashedCharacterCard = ({
   selectionMode: boolean,
   isSelected: boolean,
   onToggleSelect: (id: string) => void,
-  onRestore: (id: string) => void,
-  onHardDelete: (id: string) => void,
   index?: number,
 }) => {
   const defaultFallback = getFallbackAvatar(char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
@@ -176,30 +172,6 @@ const TrashedCharacterCard = ({
         </p>
       </div>
 
-      {!selectionMode && (
-        <div
-          className="flex flex-row sm:flex-col gap-2.5 shrink-0"
-          onMouseDown={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
-          onContextMenu={(e) => e.stopPropagation()}
-        >
-          <button
-            onClick={(e) => { e.stopPropagation(); onRestore(char.id); }}
-            className="p-2.5 sm:p-3 bg-green-500/20 text-green-400 hover:bg-green-500/30 [.light-theme_&]:!bg-[#dcfce7] [.light-theme_&]:!text-[#16a34a] [.light-theme_&]:hover:!bg-[#bbf7d0] rounded-xl transition-all active:scale-90 shadow-sm cursor-pointer"
-            title="恢复"
-          >
-            <RotateCcw className="w-5 h-5" />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onHardDelete(char.id); }}
-            className="p-2.5 sm:p-3 bg-red-500/20 text-red-400 hover:bg-red-500/30 [.light-theme_&]:!bg-[#fee2e2] [.light-theme_&]:!text-[#dc2626] [.light-theme_&]:hover:!bg-[#fecaca] rounded-xl transition-all active:scale-90 shadow-sm cursor-pointer"
-            title="永久删除"
-          >
-            <Trash2 className="w-5 h-5" />
-          </button>
-        </div>
-      )}
-
       {selectionMode && (
         <div className="shrink-0 z-30 ml-2">
           {isSelected ? (
@@ -252,19 +224,6 @@ export function TrashBin({ onClose }: Props) {
     if (confirm('确定要清空回收站吗？所有角色将被永久删除。')) {
       await emptyTrash();
       loadTrash();
-    }
-  };
-
-  // 单张卡片的恢复 / 永久删除（与批量模式并存）
-  const handleItemRestore = async (id: string) => {
-    await restoreCharacter(id);
-    await loadTrash();
-  };
-
-  const handleItemHardDelete = async (id: string) => {
-    if (confirm('确定要永久删除此角色吗？此操作不可恢复。')) {
-      await deleteCharacter(id);
-      await loadTrash();
     }
   };
 
@@ -381,8 +340,6 @@ export function TrashBin({ onClose }: Props) {
                   selectionMode={selectionMode}
                   isSelected={selectedIds.has(char.id)}
                   onToggleSelect={toggleSelect}
-                  onRestore={handleItemRestore}
-                  onHardDelete={handleItemHardDelete}
                 />
               ))}
             </div>

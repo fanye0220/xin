@@ -1,4 +1,5 @@
 import { Capacitor } from "@capacitor/core";
+import { CURRENT_APP_VERSION } from "../config/version";
 import { getFallbackAvatar, resolveAvatarUrl } from "../lib/avatar";
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -2563,7 +2564,7 @@ export function CharacterList({
                     MIU
                   </h1>
                   <span className="text-[10px] font-semibold tracking-wider text-white/70 [.light-theme_&]:!text-[#1c1c1e]/70 bg-white/10 [.light-theme_&]:!bg-black/5 border border-white/15 [.light-theme_&]:!border-black/10 px-2 py-0.5 rounded-full select-none shadow-xs">
-                    v3.0.4
+                    v{CURRENT_APP_VERSION}
                   </span>
                 </div>
               )}

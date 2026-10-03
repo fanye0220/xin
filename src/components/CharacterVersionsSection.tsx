@@ -1001,7 +1001,7 @@ export function CharacterVersionsSection({
         </div>
 
         {/* Clean Monochrome Header Controls */}
-        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-nowrap overflow-x-auto hide-scrollbar shrink-0 max-w-full">
           <input
             ref={fileInputRef}
             type="file"
@@ -1012,7 +1012,7 @@ export function CharacterVersionsSection({
 
           <button
             onClick={() => setIsCreatingSnapshot(prev => !prev)}
-            className={`px-3.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 ${
+            className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 shrink-0 whitespace-nowrap ${
               isCreatingSnapshot 
                 ? 'bg-white text-black border border-white shadow-sm [.light-theme_&]:!bg-black [.light-theme_&]:!border-black [.light-theme_&]:!text-white' 
                 : 'soft-pill'
@@ -1025,7 +1025,7 @@ export function CharacterVersionsSection({
 
           <button
             onClick={() => setIsLinkModalOpen(true)}
-            className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0"
+            className="soft-pill px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 shrink-0 whitespace-nowrap"
             title="将卡库中旧卡片关联/绑定为本角色的历史版本"
           >
             <LinkIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-80 shrink-0" />
@@ -1034,7 +1034,7 @@ export function CharacterVersionsSection({
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0"
+            className="soft-pill px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 shrink-0 whitespace-nowrap"
             title="直接导入本地 .png 或 .json 文件为新版本"
           >
             <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-80 shrink-0" />

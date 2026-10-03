@@ -4,6 +4,8 @@
 
 技术栈：React 19 + TypeScript + Vite 6 + Tailwind CSS 4。数据默认存在浏览器 IndexedDB，不依赖后端服务。
 
+当前版本：3.0.5
+
 ## 一、部署到 Vercel
 
 1. 把本目录内容提交并推送到 GitHub 仓库。
@@ -29,7 +31,16 @@ npm run preview    # 本地预览 dist/
 npm run lint       # tsc --noEmit 类型检查
 ```
 
-## 三、目录说明
+## 三、网页版与本地应用的区别
+
+网页版靠 `src/lib/appBridge.ts` 的 `isAndroid()` 判断运行环境，下面两处只有打包成本地 App（Android）时才会出现，网页部署里自动隐藏：
+
+- 导入窗口里的「拉取酒馆卡片」（走本地 App 的 Java 桥接，浏览器里用不了）
+- 设置 → 关于与更新 →「版本自动检查 / 检查更新」，以及启动 3 秒后的静默版本检测（那是给本地 App 发版推送用的）
+
+版本号只维护一处：`src/config/version.ts` 的 `CURRENT_APP_VERSION`（主页和设置页都读它）。
+
+## 四、目录说明
 
 | 路径 | 说明 |
 | --- | --- |
@@ -39,7 +50,3 @@ npm run lint       # tsc --noEmit 类型检查
 | `firebase-applet-config.json` | 云盘同步用的 Firebase 配置，代码里直接 import，请保留 |
 | `capacitor.config.ts`、`AndroidBridgeInstructions.md` | 打包安卓 App 用；只做网页版可以忽略 |
 | `合并说明.md` | 各版本合并记录，可自行删除 |
-
-## 四、关于「检查更新」
-
-应用设置里有「检查更新」，默认读取 `https://raw.githubusercontent.com/fanye0220/miu/main/version.json`，可在设置里改成自己的地址；网页版不用它也不影响使用。

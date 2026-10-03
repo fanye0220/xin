@@ -253,7 +253,8 @@ export default function App() {
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
 
   useEffect(() => {
-    // 启动 3 秒后静默检测远端版本更新
+    // 启动 3 秒后静默检测远端版本更新（网页版没有本地应用，跳过；仅本地应用才需要）
+    if (!isAndroid()) return;
     const timer = setTimeout(async () => {
       const ignoredVer = localStorage.getItem('miu_ignored_version');
       const res = await checkForAppUpdates();
