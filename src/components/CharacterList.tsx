@@ -10,7 +10,6 @@ import {
   ChevronRight,
   Trash2,
   CheckCircle2,
-  Check,
   Cloud,
   X,
   FolderInput,
@@ -20,7 +19,6 @@ import {
   LayoutGrid,
   List,
   Filter,
-  Folder as FolderIcon,
   Home,
   Menu,
   Edit2,
@@ -32,6 +30,7 @@ import {
   Link2,
   Loader2,
   Image as ImageIcon,
+  Heart,
 } from "lucide-react";
 import {
   getCharacters,
@@ -44,6 +43,7 @@ import {
   getCharacterThumb,
   updateCharacterCover,
   updateCharacterSortOrder,
+  toggleCharacterFavorite,
   Folder,
   getFolders,
   getAllTags,
@@ -173,7 +173,7 @@ function SortableItemWrapper({
           <div className="w-10 h-10 rounded-2xl bg-blue-500/90 backdrop-blur-md flex items-center justify-center text-white shadow-lg mb-1.5 border border-white/20">
             <Link2 className="w-5 h-5 stroke-[2.2]" />
           </div>
-          <span className="text-[11px] font-bold text-white bg-slate-900/95 [.light-theme_&]:bg-slate-800 px-3 py-1 rounded-full shadow-lg border border-blue-400/40 tracking-tight">
+          <span className="text-[11px] font-bold !text-white !bg-[#0f172a] px-3 py-1 rounded-full shadow-lg border border-blue-400/40 tracking-tight">
             松手立即绑定
           </span>
         </div>
@@ -183,7 +183,7 @@ function SortableItemWrapper({
           <div className="w-10 h-10 rounded-2xl bg-blue-500/90 backdrop-blur-md flex items-center justify-center text-white shadow-lg mb-1.5 border border-white/20">
             <FolderInput className="w-5 h-5 stroke-[2.2]" />
           </div>
-          <span className="text-[11px] font-bold text-white bg-slate-900/95 [.light-theme_&]:bg-slate-800 px-3 py-1 rounded-full shadow-lg border border-blue-400/40 tracking-tight">
+          <span className="text-[11px] font-bold !text-white !bg-[#0f172a] px-3 py-1 rounded-full shadow-lg border border-blue-400/40 tracking-tight">
             松手移入文件夹
           </span>
         </div>
@@ -255,8 +255,48 @@ export function CharacterList({
   onOpenSidebar,
   refreshTrigger,
   isDetailOpen = false,
-  isLightMode = false,
+  isLightMode: propIsLightMode = false,
 }: Props) {
+  const [isLightMode, setIsLightMode] = useState(() => {
+    if (typeof propIsLightMode === "boolean" && propIsLightMode) return true;
+    return (
+      typeof document !== "undefined" &&
+      (document.documentElement.classList.contains("light-theme") ||
+        document.body.classList.contains("light-theme") ||
+        localStorage.getItem("tavern_theme") === "light")
+    );
+  });
+
+  useEffect(() => {
+    const checkTheme = () => {
+      const isLight =
+        Boolean(propIsLightMode) ||
+        (typeof document !== "undefined" &&
+          (document.documentElement.classList.contains("light-theme") ||
+            document.body.classList.contains("light-theme") ||
+            localStorage.getItem("tavern_theme") === "light"));
+      setIsLightMode(isLight);
+    };
+    checkTheme();
+    const observer = new MutationObserver(checkTheme);
+    if (typeof document !== "undefined") {
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["class"],
+      });
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ["class"],
+      });
+      window.addEventListener("storage", checkTheme);
+    }
+    return () => {
+      observer.disconnect();
+      if (typeof window !== "undefined") {
+        window.removeEventListener("storage", checkTheme);
+      }
+    };
+  }, [propIsLightMode]);
   const [characters, setCharacters] = useState<CharacterCard[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [paginatedFolders, setPaginatedFolders] = useState<Folder[]>([]);
@@ -780,6 +820,10 @@ export function CharacterList({
 
   const handleBack = async () => {
     if (!folderId) return;
+    if (folderId === "favorites" || folderId === "all") {
+      onSelectFolder?.(null);
+      return;
+    }
     const allFolders = await getFolders();
     const current = allFolders.find((f) => f.id === folderId);
     onSelectFolder?.(current?.parentId || null);
@@ -902,13 +946,13 @@ export function CharacterList({
   const sensors = useSensors(
     useSensor(MouseSensor, {
       activationConstraint: {
-        distance: 6,
+        distance: 10,
       },
     }),
     useSensor(TouchSensor, {
       activationConstraint: {
-        delay: 200,
-        tolerance: 6,
+        delay: 250,
+        tolerance: 8,
       },
     }),
     useSensor(KeyboardSensor, {
@@ -988,7 +1032,7 @@ export function CharacterList({
         const targetFolder = folders.find((f) => f.id === targetFolderId);
         if (targetFolder) {
           const idsToMove =
-            selectedIds.has(activeId) && selectedIds.size > 1
+            selectedIds.has(activeId) && selectedIds.size > 0
               ? Array.from(selectedIds).filter(
                   (id) => !folders.some((f) => f.id === id),
                 )
@@ -998,10 +1042,8 @@ export function CharacterList({
           setCharacters((prev) => prev.filter((c) => !movedCharIds.has(c.id)));
           setTotalCharacters((prev) => Math.max(0, prev - movedCharIds.size));
           setTotalItems((prev) => Math.max(0, prev - movedCharIds.size));
-          if (selectedIds.has(activeId)) {
-            setSelectedIds(new Set());
-            setSelectionMode(false);
-          }
+          setSelectedIds(new Set());
+          setSelectionMode(false);
 
           for (const cId of idsToMove) {
             const char = await getCharacter(cId);
@@ -1135,6 +1177,9 @@ export function CharacterList({
           currentFolders = allFoldersData.filter((f) => !f.parentId);
         }
         setCurrentFolderName(null);
+      } else if (folderId === "favorites") {
+        currentFolders = [];
+        setCurrentFolderName("我的收藏");
       } else {
         const currentFolder = allFoldersData.find((f) => f.id === folderId);
         if (currentFolder) setCurrentFolderName(currentFolder.name);
@@ -2366,6 +2411,25 @@ export function CharacterList({
     loadData();
   };
 
+  const handleToggleFavorite = async (e: React.MouseEvent, charId: string) => {
+    e.stopPropagation();
+    try {
+      const newFav = await toggleCharacterFavorite(charId);
+      setCharacters((prev) =>
+        prev.map((c) =>
+          c.id === charId
+            ? { ...c, isFavorite: newFav, updatedAt: Date.now() }
+            : c
+        )
+      );
+      if (folderId === "favorites" && !newFav) {
+        setCharacters((prev) => prev.filter((c) => c.id !== charId));
+      }
+    } catch (err) {
+      console.error("Failed to toggle favorite:", err);
+    }
+  };
+
   return (
     <div className="pb-32 min-h-full bg-gradient-to-br from-slate-900 to-slate-800 text-white [.light-theme_&]:!bg-transparent [.light-theme_&]:!text-[#0f172a]" onTouchStart={handleRootTouchStart} onTouchEnd={handleRootTouchEnd}>
       <input
@@ -2448,7 +2512,7 @@ export function CharacterList({
                       <ChevronLeft className="w-6 h-6" />
                     </button>
                     <h1 className="text-2xl font-bold text-white truncate [.light-theme_&]:!text-[#0f172a]">
-                      {folderId === "all" ? "全部角色" : currentFolderName}
+                      {folderId === "all" ? "全部角色" : folderId === "favorites" ? "我的收藏" : currentFolderName}
                     </h1>
                   </div>
 
@@ -2512,32 +2576,32 @@ export function CharacterList({
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <button
                 onClick={onOpenSidebar}
-                className="p-1.5 sm:p-2 rounded-xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition shrink-0 flex items-center justify-center min-w-[36px] min-h-[36px] [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"
+                className="w-8 h-8 sm:w-8.5 sm:h-8.5 rounded-full bg-white/10 hover:bg-white/15 text-white/80 hover:text-white transition shrink-0 flex items-center justify-center border-0 border-none [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#cbd5e1] cursor-pointer shadow-xs"
                 title="打开导航菜单"
               >
                 {googleUser?.photoURL ? (
                   <img 
                     src={googleUser.photoURL} 
                     alt="User" 
-                    referrerPolicy="no-referrer"
-                    className="w-5 h-5 sm:w-6 sm:h-6 rounded-full object-cover border border-white/20" 
+                    referrerPolicy="no-referrer" 
+                    className="w-5 h-5 sm:w-5.5 sm:h-5.5 rounded-full object-cover" 
                   />
                 ) : (
-                  <Menu className="w-5 h-5" />
+                  <Menu className="w-4.5 h-4.5 stroke-[1.75]" />
                 )}
               </button>
 
               <div className="relative flex-1 min-w-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 [.light-theme_&]:!text-[#64748b]" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50 [.light-theme_&]:!text-[#64748b] stroke-[1.75]" />
                 <input
                   type="text"
                   placeholder="搜索..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-blue-500/50 transition [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#8e8e93] [.light-theme_&]:focus:!bg-[#e4e7eb]"
+                  className="w-full bg-white/10 hover:bg-white/15 focus:bg-white/15 border-0 border-none rounded-full pl-8.5 pr-4 py-1.5 sm:py-2 text-sm text-white placeholder:text-white/40 focus:outline-none transition [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1]/70 [.light-theme_&]:focus:!bg-[#cbd5e1]/70 [.light-theme_&]:!border-none [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#8e8e93] shadow-xs"
                 />
               </div>
 
@@ -2551,14 +2615,15 @@ export function CharacterList({
                         : "grid",
                   )
                 }
-                className="p-2 bg-white/5 border border-white/10 rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition shrink-0 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"
+                className="w-8 h-8 sm:w-8.5 sm:h-8.5 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/15 text-white/80 hover:text-white transition shrink-0 border-0 border-none [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:!border-none cursor-pointer shadow-xs"
+                title="切换布局"
               >
                 {viewMode === "grid" ? (
-                  <LayoutGrid className="w-5 h-5" />
+                  <LayoutGrid className="w-4.5 h-4.5 stroke-[1.75]" />
                 ) : viewMode === "masonry" ? (
-                  <LayoutDashboard className="w-5 h-5" />
+                  <LayoutDashboard className="w-4.5 h-4.5 stroke-[1.75]" />
                 ) : (
-                  <List className="w-5 h-5" />
+                  <List className="w-4.5 h-4.5 stroke-[1.75]" />
                 )}
               </button>
 
@@ -2569,9 +2634,10 @@ export function CharacterList({
                     setIsSortOpen(!isSortOpen);
                     setIsFilterOpen(false);
                   }}
-                  className={`p-2 border rounded-xl transition cursor-pointer ${isSortOpen ? "bg-blue-500/20 text-blue-400 border-blue-500/50 [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-blue-600 [.light-theme_&]:!border-none" : "bg-white/5 text-white/60 border-white/10 hover:text-white hover:bg-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"}`}
+                  className={`w-8 h-8 sm:w-8.5 sm:h-8.5 rounded-full flex items-center justify-center transition cursor-pointer border-0 border-none [.light-theme_&]:!border-none shadow-xs ${isSortOpen ? "bg-blue-500/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-[#007aff]" : "bg-white/10 hover:bg-white/15 text-white/80 hover:text-white [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a]"}`}
+                  title="排序"
                 >
-                  <ArrowUpDown className="w-5 h-5" />
+                  <ArrowUpDown className="w-4.5 h-4.5 stroke-[1.75]" />
                 </button>
 
                 <AnimatePresence>
@@ -2580,7 +2646,7 @@ export function CharacterList({
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 10 }}
-                      className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-white/10 rounded-2xl shadow-xl z-50 p-2 overflow-hidden [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-none [.light-theme_&]:!shadow-2xl"
+                      className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border-0 border-none rounded-2xl shadow-xl z-50 p-2 overflow-hidden [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-none [.light-theme_&]:!shadow-xl"
                     >
                       {[
                         { value: "newest_import", label: "最新导入" },
@@ -2595,7 +2661,7 @@ export function CharacterList({
                             setSortBy(option.value as SortOption);
                             setIsSortOpen(false);
                           }}
-                          className={`w-full text-left px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-medium transition cursor-pointer ${
+                          className={`w-full text-left px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-medium transition cursor-pointer border-0 border-none ${
                             sortBy === option.value
                               ? "bg-blue-500/20 text-blue-400 font-semibold [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-blue-600"
                               : "text-white/70 hover:bg-white/5 hover:text-white [.light-theme_&]:!text-[#334155] [.light-theme_&]:hover:!bg-[#f1f2f6] [.light-theme_&]:hover:!text-[#0f172a]"
@@ -2619,9 +2685,10 @@ export function CharacterList({
                     setIsFilterOpen(!isFilterOpen);
                     setIsSortOpen(false);
                   }}
-                  className={`p-2 border rounded-xl transition cursor-pointer ${selectedTags.length > 0 ? "bg-blue-500/20 text-blue-400 border-blue-500/50 [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-blue-600 [.light-theme_&]:!border-none" : "bg-white/5 text-white/60 border-white/10 hover:text-white hover:bg-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"}`}
+                  className={`w-8 h-8 sm:w-8.5 sm:h-8.5 rounded-full flex items-center justify-center transition cursor-pointer border-0 border-none [.light-theme_&]:!border-none shadow-xs ${selectedTags.length > 0 || isFilterOpen ? "bg-blue-500/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-[#007aff]" : "bg-white/10 hover:bg-white/15 text-white/80 hover:text-white [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a]"}`}
+                  title="筛选"
                 >
-                  <Filter className="w-5 h-5" />
+                  <Filter className="w-4.5 h-4.5 stroke-[1.75]" />
                 </button>
 
                 <AnimatePresence>
@@ -2737,38 +2804,6 @@ export function CharacterList({
                 </AnimatePresence>
               </div>
             </div>
-
-            {selectedTags.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1 pb-0.5">
-                <span className="text-xs text-white/50 [.light-theme_&]:!text-[#64748b] shrink-0">已筛选:</span>
-                {selectedTags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold bg-blue-500/20 text-blue-300 border-none [.light-theme_&]:!bg-blue-100/70 [.light-theme_&]:!text-blue-700 shrink-0"
-                  >
-                    <span>{tag}</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedTags(selectedTags.filter((t) => t !== tag));
-                      }}
-                      className="p-0.5 hover:bg-white/20 [.light-theme_&]:hover:!bg-blue-200 rounded-md transition cursor-pointer"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedTags([]);
-                  }}
-                  className="text-xs text-red-400 hover:text-red-300 [.light-theme_&]:!text-red-500 [.light-theme_&]:hover:!text-red-600 ml-1 shrink-0 font-medium cursor-pointer"
-                >
-                  清空
-                </button>
-              </div>
-            )}
           </motion.div>
         )}
       </motion.header>
@@ -2831,7 +2866,7 @@ export function CharacterList({
                       <SortableItemWrapper
                         key={`folder-${folder.id}`}
                         id={`folder-${folder.id}`}
-                        disabled={selectionMode || !!searchQuery || selectedTags.length > 0}
+                        disabled={!!searchQuery || selectedTags.length > 0}
                         activeDragIsQR={activeIsQR}
                         activeDragCharId={activeChar?.id || null}
                       >
@@ -2854,13 +2889,13 @@ export function CharacterList({
                                 setSelectedIds(new Set([folder.id]));
                                 setIsHeaderVisible(true);
                               }
-                            }, 500);
+                            }, 320);
                           }}
                           onTouchMove={(e) => {
                             if (longPressRef.current.timer && e.touches[0]) {
                               const dx = Math.abs(e.touches[0].clientX - (longPressRef.current.startX || 0));
                               const dy = Math.abs(e.touches[0].clientY - (longPressRef.current.startY || 0));
-                              if (dx > 6 || dy > 6 || isDraggingRef.current) {
+                              if (dx > 20 || dy > 20 || isDraggingRef.current) {
                                 clearTimeout(longPressRef.current.timer);
                                 longPressRef.current.timer = null;
                               }
@@ -2872,8 +2907,14 @@ export function CharacterList({
                               longPressRef.current.timer = null;
                             }
                           }}
+                          onTouchCancel={() => {
+                            if (longPressRef.current.timer) {
+                              clearTimeout(longPressRef.current.timer);
+                              longPressRef.current.timer = null;
+                            }
+                          }}
                           onMouseDown={(e) => {
-                            if (selectionMode || isDraggingRef.current) return;
+                            if (selectionMode || isDraggingRef.current || e.button !== 0) return;
                             longPressRef.current.triggered = false;
                             longPressRef.current.startX = e.clientX;
                             longPressRef.current.startY = e.clientY;
@@ -2886,13 +2927,13 @@ export function CharacterList({
                                 setSelectedIds(new Set([folder.id]));
                                 setIsHeaderVisible(true);
                               }
-                            }, 500);
+                            }, 320);
                           }}
                           onMouseMove={(e) => {
                             if (longPressRef.current.timer) {
                               const dx = Math.abs(e.clientX - (longPressRef.current.startX || 0));
                               const dy = Math.abs(e.clientY - (longPressRef.current.startY || 0));
-                              if (dx > 6 || dy > 6 || isDraggingRef.current) {
+                              if (dx > 20 || dy > 20 || isDraggingRef.current) {
                                 clearTimeout(longPressRef.current.timer);
                                 longPressRef.current.timer = null;
                               }
@@ -2908,6 +2949,14 @@ export function CharacterList({
                             if (longPressRef.current.timer) {
                               clearTimeout(longPressRef.current.timer);
                               longPressRef.current.timer = null;
+                            }
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            if (!selectionMode) {
+                              setSelectionMode(true);
+                              setSelectedIds(new Set([folder.id]));
+                              setIsHeaderVisible(true);
                             }
                           }}
                           onClick={(e) => {
@@ -2944,7 +2993,7 @@ export function CharacterList({
                             <div className="flex-1 min-w-0 flex flex-col justify-center">
                               <div className="flex items-center gap-2">
                                 <span className="font-semibold text-white/90 truncate [.light-theme_&]:!text-[#0f172a]">{folder.name}</span>
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 font-normal shrink-0 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 [.light-theme_&]:!border [.light-theme_&]:!border-blue-200">
+                                <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/15 text-blue-300 font-medium shrink-0 [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-[#007aff] [.light-theme_&]:!border-none">
                                   {folderCounts[folder.id]?.chars ?? 0} 照片{folderCounts[folder.id]?.subfolders ? ` · ${folderCounts[folder.id]?.subfolders} 文件夹` : ''}
                                 </span>
                               </div>
@@ -2976,6 +3025,16 @@ export function CharacterList({
                 </div>
               )}
 
+              {folderId === "favorites" && characters.length === 0 && !searchQuery && selectedTags.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-20 text-white/40 [.light-theme_&]:!text-[#64748b]">
+                  <Heart className="w-12 h-12 mb-3 text-rose-500/40 fill-rose-500/20 stroke-1" />
+                  <p className="text-base font-medium [.light-theme_&]:!text-[#0f172a]">暂无收藏的角色卡</p>
+                  <p className="text-xs mt-1 text-white/30 [.light-theme_&]:!text-[#64748b]">
+                    点击卡片右上角的红心图标即可快速收藏
+                  </p>
+                </div>
+              )}
+
               {paginatedFolders.length === 0 && characters.length === 0 && (searchQuery || selectedTags.length > 0) && (
                 <div className="flex flex-col items-center justify-center py-20 text-white/40 [.light-theme_&]:!text-[#64748b]">
                   <Search className="w-12 h-12 mb-3 text-white/20 stroke-1 [.light-theme_&]:!text-[#94a3b8]" />
@@ -2996,7 +3055,7 @@ export function CharacterList({
                     <SortableItemWrapper
                       key={`char-${char.id}`}
                       id={`char-${char.id}`}
-                      disabled={selectionMode || !!searchQuery || selectedTags.length > 0}
+                      disabled={!!searchQuery || selectedTags.length > 0}
                       className="w-full"
                       isQR={checkIsQR(char)}
                       activeDragIsQR={activeIsQR}
@@ -3018,6 +3077,7 @@ export function CharacterList({
                             setIsHeaderVisible(true);
                           }
                         }}
+                        onToggleFavorite={(e) => handleToggleFavorite(e, char.id)}
                       />
                     </SortableItemWrapper>
                   ))}
@@ -3034,7 +3094,7 @@ export function CharacterList({
                     <SortableItemWrapper
                       key={`char-${char.id}`}
                       id={`char-${char.id}`}
-                      disabled={selectionMode || !!searchQuery || selectedTags.length > 0}
+                      disabled={!!searchQuery || selectedTags.length > 0}
                       isQR={checkIsQR(char)}
                       activeDragIsQR={activeIsQR}
                       activeDragCharId={activeChar?.id || null}
@@ -3055,6 +3115,7 @@ export function CharacterList({
                             setIsHeaderVisible(true);
                           }
                         }}
+                        onToggleFavorite={(e) => handleToggleFavorite(e, char.id)}
                       />
                     </SortableItemWrapper>
                   ))}
@@ -3144,6 +3205,7 @@ export function CharacterList({
         isOpen={isMoveModalOpen}
         onClose={() => setIsMoveModalOpen(false)}
         onMove={handleMoveToFolder}
+        isLightMode={isLightMode}
       />
 
       <BindQRModal
@@ -3398,14 +3460,24 @@ export function CharacterList({
 
       <AnimatePresence>
         {(isCreatingFolder || editingFolder) && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 [.light-theme_&]:!bg-black/30 backdrop-blur-sm">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-slate-800/90 [.light-theme_&]:!bg-white backdrop-blur-2xl rounded-3xl p-5 sm:p-6 w-full max-w-xs sm:max-w-sm border border-white/10 [.light-theme_&]:!border-[#e2e8f0] shadow-2xl"
+              className={`w-full max-w-xs sm:max-w-sm rounded-3xl p-5 sm:p-6 shadow-2xl backdrop-blur-2xl select-none transition-colors border ${
+                isLightMode
+                  ? "bg-white text-[#0f172a] border-[#e2e8f0] shadow-xl [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]"
+                  : "bg-slate-800/95 text-white border-white/10 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0]"
+              }`}
             >
-              <h3 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a] mb-4 sm:mb-6 text-center">
+              <h3
+                className={`text-base sm:text-lg font-bold mb-4 sm:mb-6 text-center ${
+                  isLightMode
+                    ? "text-[#0f172a] [.light-theme_&]:!text-[#0f172a]"
+                    : "text-white [.light-theme_&]:!text-[#0f172a]"
+                }`}
+              >
                 {editingFolder ? "编辑文件夹" : "新建文件夹"}
               </h3>
               <input
@@ -3413,7 +3485,11 @@ export function CharacterList({
                 value={newFolderName}
                 onChange={(e) => setNewFolderName(e.target.value)}
                 placeholder="文件夹名称"
-                className="w-full bg-black/20 border border-white/10 rounded-2xl px-4 py-2.5 sm:py-3 text-white placeholder:text-white/40 focus:outline-none focus:border-blue-500/50 transition mb-4 sm:mb-6 text-center text-sm sm:text-base font-medium [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-slate-400"
+                className={`w-full rounded-2xl px-4 py-2.5 sm:py-3 mb-4 sm:mb-6 text-center text-sm sm:text-base font-medium transition outline-none border ${
+                  isLightMode
+                    ? "bg-[#f1f5f9] border-[#cbd5e1] text-[#0f172a] placeholder:text-[#94a3b8] focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1]"
+                    : "bg-black/20 border-white/10 text-white placeholder:text-white/40 focus:border-blue-500/50 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:placeholder:!text-[#94a3b8]"
+                }`}
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -3431,7 +3507,7 @@ export function CharacterList({
                   onClick={
                     editingFolder ? handleUpdateFolder : handleCreateFolder
                   }
-                  className="w-full py-2.5 sm:py-3 rounded-2xl bg-blue-500/80 hover:bg-blue-500 text-white [.light-theme_&]:!bg-blue-600 [.light-theme_&]:hover:!bg-blue-700 [.light-theme_&]:!text-white text-xs sm:text-sm font-semibold transition active:scale-95 cursor-pointer"
+                  className="w-full py-2.5 sm:py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold transition active:scale-95 shadow-md shadow-blue-500/20 cursor-pointer"
                 >
                   {editingFolder ? "保存修改" : "创建"}
                 </button>
@@ -3443,7 +3519,11 @@ export function CharacterList({
                       setIsCreatingFolder(false);
                       setEditingFolder(null);
                     }}
-                    className="w-full py-2.5 sm:py-3 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-400 [.light-theme_&]:!bg-rose-50 [.light-theme_&]:!text-rose-600 [.light-theme_&]:hover:!bg-rose-100 text-xs sm:text-sm font-semibold transition active:scale-95 cursor-pointer"
+                    className={`w-full py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-semibold transition active:scale-95 cursor-pointer ${
+                      isLightMode
+                        ? "bg-rose-50 hover:bg-rose-100 text-rose-600 [.light-theme_&]:!bg-rose-50 [.light-theme_&]:!text-rose-600"
+                        : "bg-red-500/10 hover:bg-red-500/20 text-red-400 [.light-theme_&]:!bg-rose-50 [.light-theme_&]:!text-rose-600"
+                    }`}
                   >
                     删除文件夹
                   </button>
@@ -3454,7 +3534,11 @@ export function CharacterList({
                     setIsCreatingFolder(false);
                     setEditingFolder(null);
                   }}
-                  className="w-full py-2.5 sm:py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-white/70 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] text-xs sm:text-sm font-semibold transition mt-1 active:scale-95 cursor-pointer text-center"
+                  className={`w-full py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-semibold transition mt-1 active:scale-95 cursor-pointer ${
+                    isLightMode
+                      ? "bg-[#f1f5f9] hover:bg-[#e2e8f0] text-[#334155] border border-[#cbd5e1]/40 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#334155]"
+                      : "bg-white/5 hover:bg-white/10 text-white/70 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#334155] [.light-theme_&]:!border [.light-theme_&]:!border-[#cbd5e1]/40"
+                  }`}
                 >
                   取消
                 </button>
@@ -3465,25 +3549,25 @@ export function CharacterList({
       </AnimatePresence>
 
       {imageToCrop && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <div className="bg-slate-900 border border-white/10 rounded-3xl w-full max-w-lg flex flex-col shadow-2xl overflow-hidden max-h-[92vh] sm:max-h-[85vh]">
-            <div className="p-3.5 sm:p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md pt-[max(1.75rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="bg-slate-900 [.light-theme_&]:!bg-[#ffffff] text-white [.light-theme_&]:!text-[#0f172a] border border-white/10 [.light-theme_&]:!border-[#e2e8f0] rounded-3xl w-full max-w-lg flex flex-col shadow-2xl overflow-hidden max-h-[92vh] sm:max-h-[85vh]">
+            <div className="p-4 border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] flex items-center justify-between bg-white/[0.02] [.light-theme_&]:!bg-transparent">
               <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-bold text-white">调整封面图片</h3>
-                <span className="text-[10px] text-blue-300 bg-blue-500/15 border border-blue-400/25 px-2 py-0.5 rounded-md font-medium">
-                  2:3 标准竖卡
+                <h3 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a]">调整封面图片</h3>
+                <span className="text-[10.5px] text-blue-400 bg-blue-500/15 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-[#007aff] px-2.5 py-0.5 rounded-full font-bold">
+                  2:3 竖卡
                 </span>
               </div>
 
               <button
                 onClick={closeCrop}
-                className="p-1.5 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition"
+                className="w-8.5 h-8.5 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] border-0 border-none cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5 stroke-[2]" />
               </button>
             </div>
 
-            <div className="flex-1 min-h-[260px] relative w-full bg-black/60">
+            <div className="flex-1 min-h-[280px] relative w-full bg-black/70">
               <Cropper
                 image={imageToCrop}
                 crop={crop}
@@ -3497,9 +3581,9 @@ export function CharacterList({
               />
             </div>
 
-            <div className="p-3.5 sm:p-4 border-t border-white/10 bg-white/[0.02] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="p-4 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0] bg-white/[0.02] [.light-theme_&]:!bg-[#f8fafc] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3.5">
               <div className="flex items-center gap-3">
-                <span className="text-xs text-white/50 font-medium shrink-0">缩放</span>
+                <span className="text-xs text-white/60 [.light-theme_&]:!text-[#64748b] font-medium shrink-0">缩放</span>
                 <input
                   type="range"
                   value={zoom}
@@ -3508,21 +3592,21 @@ export function CharacterList({
                   step={0.05}
                   aria-labelledby="Zoom"
                   onChange={(e) => setZoom(Number(e.target.value))}
-                  className="flex-1 h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                  className="flex-1 h-2 bg-white/10 [.light-theme_&]:!bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                 />
               </div>
 
               <div className="flex items-center gap-2 justify-end">
                 <button
                   onClick={closeCrop}
-                  className="flex-1 sm:flex-none px-4 py-2 bg-white/5 hover:bg-white/10 text-white/80 font-medium rounded-xl text-xs sm:text-sm transition"
+                  className="flex-1 sm:flex-none px-4 py-2 bg-white/5 hover:bg-white/10 text-white/80 font-medium rounded-xl text-xs sm:text-sm transition [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#334155] border-0 border-none cursor-pointer"
                 >
                   取消
                 </button>
                 <button
                   onClick={handleSaveCrop}
                   disabled={isCropping}
-                  className="flex-1 sm:flex-none px-6 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-bold rounded-xl text-xs sm:text-sm transition flex items-center justify-center gap-1.5 shadow-lg shadow-blue-500/25"
+                  className="flex-1 sm:flex-none px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs sm:text-sm transition flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/25 border-0 border-none cursor-pointer"
                 >
                   {isCropping && <Loader2 className="w-4 h-4 animate-spin" />}
                   <span>保存封面</span>
@@ -3560,6 +3644,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   char,
   onClick,
   onLongPress,
+  onToggleFavorite,
   selectionMode,
   isSelected,
   viewMode,
@@ -3568,6 +3653,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   char: CharacterCard;
   onClick: () => void;
   onLongPress: () => void;
+  onToggleFavorite?: (e: React.MouseEvent) => void;
   selectionMode: boolean;
   isSelected: boolean;
   viewMode: "grid" | "list" | "masonry";
@@ -3669,6 +3755,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   const touchHandledRef = useRef(false);
   const touchStartXRef = useRef(0);
   const touchStartYRef = useRef(0);
+  const lastLongPressTimeRef = useRef(0);
 
   const handlePointerStart = (e: React.SyntheticEvent) => {
     if (selectionMode) return;
@@ -3682,7 +3769,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
         clientY = touch.clientY;
       }
     } else if (e.type === "mousedown") {
-      if (touchHandledRef.current) return;
+      if (touchHandledRef.current || (e as React.MouseEvent).button !== 0) return;
       const mouse = e as React.MouseEvent;
       clientX = mouse.clientX;
       clientY = mouse.clientY;
@@ -3694,8 +3781,9 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       isLongPress.current = true;
+      lastLongPressTimeRef.current = Date.now();
       onLongPress();
-    }, 500);
+    }, 320);
   };
 
   const handlePointerMove = (e: React.SyntheticEvent) => {
@@ -3711,7 +3799,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
     }
     const dx = Math.abs(clientX - touchStartXRef.current);
     const dy = Math.abs(clientY - touchStartYRef.current);
-    if (dx > 6 || dy > 6) {
+    if (dx > 20 || dy > 20) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
@@ -3728,7 +3816,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   };
 
   const handleClick = (e: React.MouseEvent) => {
-    if (isLongPress.current) {
+    if (isLongPress.current || Date.now() - lastLongPressTimeRef.current < 600) {
       isLongPress.current = false;
       e.preventDefault();
       e.stopPropagation();
@@ -3750,8 +3838,14 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
         whileHover={selectionMode ? undefined : { scale: 1.02 }}
         whileTap={{ scale: 0.95 }}
         onClick={handleClick}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (Date.now() - lastLongPressTimeRef.current < 800) return;
+          onLongPress();
+        }}
         onTouchStart={handlePointerStart}
         onTouchEnd={handlePointerEnd}
+        onTouchCancel={handlePointerEnd}
         onTouchMove={handlePointerMove}
         onMouseDown={handlePointerStart}
         onMouseMove={handlePointerMove}
@@ -3819,6 +3913,26 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
             )} */}
           </div>
         </div>
+
+        {/* Right side favorite button in list view */}
+        {!selectionMode && onToggleFavorite && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFavorite(e);
+            }}
+            className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 transition relative group active:scale-90 cursor-pointer shrink-0 z-10"
+            title={char.isFavorite ? "取消收藏" : "收藏"}
+          >
+            <Heart
+              className={`w-4.5 h-4.5 transition-all duration-200 ${
+                char.isFavorite
+                  ? "text-rose-500 fill-rose-500 scale-110 drop-shadow-[0_2px_6px_rgba(244,63,94,0.4)]"
+                  : "text-white/40 hover:text-rose-400 [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-rose-500"
+              }`}
+            />
+          </button>
+        )}
       </motion.div>
     );
   }
@@ -3831,14 +3945,20 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
       whileHover={selectionMode ? undefined : { scale: 1.05 }}
       whileTap={{ scale: isSelected ? 0.9 : 0.92 }}
       onClick={handleClick}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        if (Date.now() - lastLongPressTimeRef.current < 800) return;
+        onLongPress();
+      }}
       onTouchStart={handlePointerStart}
       onTouchEnd={handlePointerEnd}
+      onTouchCancel={handlePointerEnd}
       onTouchMove={handlePointerMove}
       onMouseDown={handlePointerStart}
       onMouseMove={handlePointerMove}
       onMouseUp={handlePointerEnd}
       onMouseLeave={handlePointerEnd}
-      className={`relative ${viewMode === "masonry" ? "w-full min-h-[160px] aspect-[2/3] bg-white/5" : "aspect-[2/3]"} rounded-2xl overflow-hidden cursor-pointer shadow-lg border border-white/10 [.light-theme_&]:border-black/10 transition-colors duration-150 group select-none`}
+      className={`relative ${viewMode === "masonry" ? "w-full min-h-[160px] aspect-[2/3] bg-white/5" : "aspect-[2/3]"} rounded-2xl overflow-hidden cursor-pointer shadow-lg border-0 [.light-theme_&]:border-0 transition-colors duration-150 group select-none`}
     >
       <img
         src={url || undefined}
@@ -3864,16 +3984,16 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
       {isSelected && (
         <div className="absolute inset-0 bg-black/45 pointer-events-none z-[2] transition-opacity" />
       )}
-      <div className="absolute inset-0 bg-gradient-to-t from-[var(--overlay-bottom)] via-[var(--overlay-mid)] to-transparent flex flex-col justify-end p-3 pointer-events-none z-[3]">
-        <h3 className="font-semibold text-[#ffffff] text-sm sm:text-base leading-tight drop-shadow-md break-words truncate">
+      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-3 pointer-events-none z-[3]">
+        <h3 className="font-semibold !text-white text-sm sm:text-base leading-tight drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)] break-words truncate">
           {char.name}
         </h3>
         {hasTags && (
-          <div className="flex flex-wrap gap-1 mt-1.5 h-[1.125rem] overflow-hidden -mr-1">
+          <div className="flex flex-wrap gap-1 mt-1.5 h-[1.25rem] overflow-hidden -mr-1">
             {charTags.map((t: string) => (
               <span
                 key={t}
-                className="text-[9px] bg-[#000000]/40 backdrop-blur-md text-slate-300 px-1 py-0.5 rounded-sm truncate max-w-[60px]"
+                className="text-[9.5px] bg-black/60 backdrop-blur-md !text-white/95 border border-white/20 px-1.5 py-0.5 rounded-md truncate max-w-[75px] font-medium leading-tight shadow-xs"
               >
                 {t}
               </span>
@@ -3887,6 +4007,30 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
           <span className={`w-1.5 h-1.5 rounded-full ${badgeInfo.dotColor} shrink-0`} />
           <span>{badgeInfo.label}</span>
         </div>
+      )}
+
+      {/* Top right Heart favorite button */}
+      {!selectionMode && onToggleFavorite && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite(e);
+          }}
+          className={`absolute top-2 right-2 z-10 w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-200 cursor-pointer active:scale-85 ${
+            char.isFavorite
+              ? "bg-black/50 text-rose-500 shadow-sm opacity-100"
+              : "bg-black/35 text-white/75 hover:text-rose-400 opacity-0 group-hover:opacity-100 max-sm:opacity-85"
+          }`}
+          title={char.isFavorite ? "取消收藏" : "收藏"}
+        >
+          <Heart
+            className={`w-4 h-4 transition-transform duration-200 ${
+              char.isFavorite
+                ? "fill-rose-500 text-rose-500 scale-110 drop-shadow-[0_1px_4px_rgba(244,63,94,0.5)]"
+                : "text-white/90 hover:text-white"
+            }`}
+          />
+        </button>
       )}
     </motion.div>
   );
@@ -3902,6 +4046,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   if (p.updatedAt !== n.updatedAt) return false;
   if (p.name !== n.name) return false;
   if (p.folderId !== n.folderId) return false;
+  if (p.isFavorite !== n.isFavorite) return false;
   if (p.deletedAt !== n.deletedAt) return false;
   if (p.avatarBlob !== n.avatarBlob) return false;
   if (p.localFilePath !== n.localFilePath) return false;

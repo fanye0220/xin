@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Folder as FolderIcon, FolderPlus, X, Search } from 'lucide-react';
+import { Folder as FolderIcon, FolderPlus, X, Search, Check } from 'lucide-react';
 import { getFolders, saveFolder, Folder } from '../lib/db';
 import { useBackHandler } from '../lib/useBackHandler';
 
@@ -8,12 +8,53 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onMove: (folderId: string | null) => void;
+  isLightMode?: boolean;
 }
 
-export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
+export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIsLightMode }: Props) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [search, setSearch] = useState('');
   
+  const [isLightMode, setIsLightMode] = useState(() => {
+    if (typeof propIsLightMode === 'boolean') return propIsLightMode;
+    return (
+      typeof document !== 'undefined' && (
+        document.documentElement.classList.contains('light-theme') ||
+        document.body.classList.contains('light-theme') ||
+        localStorage.getItem('tavern_theme') === 'light'
+      )
+    );
+  });
+
+  useEffect(() => {
+    if (typeof propIsLightMode === 'boolean') {
+      setIsLightMode(propIsLightMode);
+      return;
+    }
+    const checkTheme = () => {
+      const isLight =
+        typeof document !== 'undefined' && (
+          document.documentElement.classList.contains('light-theme') ||
+          document.body.classList.contains('light-theme') ||
+          localStorage.getItem('tavern_theme') === 'light'
+        );
+      setIsLightMode(Boolean(isLight));
+    };
+    checkTheme();
+    const observer = new MutationObserver(checkTheme);
+    if (typeof document !== 'undefined') {
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+      observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+      window.addEventListener('storage', checkTheme);
+    }
+    return () => {
+      observer.disconnect();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('storage', checkTheme);
+      }
+    };
+  }, [propIsLightMode]);
+
   // Standard Folder Creation Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -211,46 +252,87 @@ export function MoveToFolderModal({ isOpen, onClose, onMove }: Props) {
           {showCreateModal && (
             <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={(e) => e.stopPropagation()}>
               <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                initial={{ opacity: 0, scale: 0.95, y: 15 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                transition={{ type: "spring", duration: 0.28, bounce: 0.12 }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-slate-900/95 [.light-theme_&]:!bg-white backdrop-blur-2xl rounded-3xl p-5 sm:p-6 w-full max-w-xs sm:max-w-sm border border-white/10 [.light-theme_&]:!border-[#e2e8f0] shadow-2xl"
+                className={`w-full max-w-[340px] sm:max-w-[360px] rounded-3xl p-6 shadow-2xl backdrop-blur-2xl select-none transition-colors ${
+                  isLightMode
+                    ? "bg-white text-[#0f172a] border border-[#e2e8f0] shadow-xl"
+                    : "bg-[#16181f]/95 text-white border border-white/10"
+                }`}
               >
-                <h3 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a] mb-4 sm:mb-5 text-center">
-                  新建文件夹
-                </h3>
-                <input
-                  type="text"
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  placeholder="文件夹名称"
-                  className="version-input w-full rounded-2xl px-4 py-2.5 sm:py-3 text-center text-sm sm:text-base font-medium mb-4 sm:mb-5 outline-none transition"
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleCreateFolder();
-                    }
-                    if (e.key === "Escape") {
-                      setShowCreateModal(false);
-                    }
-                  }}
-                />
-                <div className="flex flex-col gap-2.5">
+                {/* Header: Title + Subtitle (without the top icon badge) */}
+                <div className="flex flex-col items-center text-center mb-5">
+                  <h3
+                    className={`text-base sm:text-lg font-bold ${
+                      isLightMode ? "text-[#0f172a]" : "text-white"
+                    }`}
+                  >
+                    新建文件夹
+                  </h3>
+                  <p
+                    className={`text-xs mt-1.5 ${
+                      isLightMode ? "text-[#64748b]" : "text-[#94a3b8]"
+                    }`}
+                  >
+                    创建新分类以便更好地归类整理角色卡
+                  </p>
+                </div>
+
+                {/* Input with inner folder icon */}
+                <div className="relative mb-5">
+                  <div
+                    className={`absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none ${
+                      isLightMode ? "text-[#94a3b8]" : "text-[#64748b]"
+                    }`}
+                  >
+                    <FolderIcon className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="text"
+                    value={newFolderName}
+                    onChange={(e) => setNewFolderName(e.target.value)}
+                    placeholder="输入文件夹名称..."
+                    className={`w-full pl-10 pr-4 py-2.5 sm:py-3 rounded-2xl text-sm font-medium outline-none transition ${
+                      isLightMode
+                        ? "bg-[#f8fafc] border border-[#cbd5e1] text-[#0f172a] placeholder:text-[#94a3b8] focus:bg-white focus:border-[#3b82f6] focus:ring-4 focus:ring-blue-500/15"
+                        : "bg-white/5 border border-white/10 text-white placeholder:text-[#64748b] focus:bg-white/10 focus:border-blue-500/60 focus:ring-4 focus:ring-blue-500/20"
+                    }`}
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleCreateFolder();
+                      }
+                      if (e.key === "Escape") {
+                        setShowCreateModal(false);
+                      }
+                    }}
+                  />
+                </div>
+
+                {/* Actions: Side-by-side Cancel & Submit */}
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateModal(false)}
+                    className={`flex-1 py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-medium transition cursor-pointer active:scale-95 ${
+                      isLightMode
+                        ? "bg-[#f1f5f9] hover:bg-[#e2e8f0] text-[#334155]"
+                        : "bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10"
+                    }`}
+                  >
+                    取消
+                  </button>
                   <button
                     type="button"
                     onClick={handleCreateFolder}
                     disabled={!newFolderName.trim()}
-                    className="w-full py-2.5 sm:py-3 rounded-2xl font-medium text-xs sm:text-sm transition active:scale-98 cursor-pointer bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:hover:!bg-blue-700 [.light-theme_&]:!text-white disabled:opacity-40 disabled:pointer-events-none shadow-xs"
+                    className="flex-1 py-2.5 sm:py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:pointer-events-none text-white text-xs sm:text-sm font-semibold transition active:scale-95 cursor-pointer shadow-md shadow-blue-500/25 flex items-center justify-center gap-1.5"
                   >
-                    创建
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowCreateModal(false)}
-                    className="w-full py-2.5 sm:py-3 rounded-2xl font-medium text-xs sm:text-sm transition active:scale-98 cursor-pointer bg-white/10 hover:bg-white/20 text-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]"
-                  >
-                    取消
+                    <Check className="w-4 h-4 stroke-[2.2]" />
+                    <span>创建</span>
                   </button>
                 </div>
               </motion.div>

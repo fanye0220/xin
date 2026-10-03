@@ -183,11 +183,11 @@ export function CharacterSummaryModal({
             <button
               onClick={handleRegenerateSummary}
               disabled={isGenerating}
-              className="text-xs text-white/50 hover:text-white flex items-center gap-1 transition cursor-pointer disabled:opacity-50 [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]"
+              className="text-xs text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-slate-900 transition-colors cursor-pointer disabled:opacity-40 border-0 outline-none bg-transparent p-0 flex items-center gap-1 hover:underline"
               title="重新生成总结"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
-              <span>重新总结</span>
+              {isGenerating && <Loader2 className="w-3 h-3 animate-spin" />}
+              <span>{isGenerating ? "正在重新总结..." : "重新总结"}</span>
             </button>
           </div>
 

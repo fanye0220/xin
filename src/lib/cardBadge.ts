@@ -78,7 +78,7 @@ export function getCardBadgeInfo(char: any): CardBadgeInfo | null {
     case "快速回复":
     case "qr":
     case "QR":
-      return { label: "快速回复", dotColor: "bg-emerald-400", type: "qr" };
+      return { label: "QR", dotColor: "bg-emerald-400", type: "qr" };
     case "预设":
     case "preset":
       return { label: "预设", dotColor: "bg-amber-400", type: "preset" };

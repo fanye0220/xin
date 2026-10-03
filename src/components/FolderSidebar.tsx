@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Folder as FolderIcon, Plus, Edit2, Trash2, X, ChevronRight, Tag, Settings, Sparkles, MessageSquare, Copy, Trash, Loader2, Moon, Sun, Smartphone } from 'lucide-react';
-import { Folder, getFolders, saveFolder, deleteFolder } from '../lib/db';
+import { Folder as FolderIcon, Plus, Edit2, Trash2, X, ChevronRight, Tag, Settings, Sparkles, MessageSquare, Copy, Trash, Loader2, Moon, Sun, Smartphone, Heart } from 'lucide-react';
+import { Folder, getFolders, saveFolder, deleteFolder, getFavoriteCharacterCount } from '../lib/db';
 import { initAuth, googleSignIn, logout } from '../lib/drive';
 import { useSidebarWallpaper } from '../lib/sidebarWallpaper';
 
@@ -39,6 +39,7 @@ function GoogleGIcon({ className = "w-5 h-5" }: { className?: string }) {
 export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpenSettings, onFolderChanged }: Props) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
+  const [favoriteCount, setFavoriteCount] = useState(0);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
@@ -147,9 +148,11 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
     const data = await getFolders();
     setFolders(data.sort((a, b) => b.createdAt - a.createdAt));
     try {
-      const { getFolderItemCounts } = await import('../lib/db');
+      const { getFolderItemCounts, getFavoriteCharacterCount } = await import('../lib/db');
       const counts = await getFolderItemCounts(data.map(f => f.id));
       setItemCounts(counts);
+      const favCount = await getFavoriteCharacterCount();
+      setFavoriteCount(favCount);
     } catch (e) {
       console.error(e);
     }
@@ -609,6 +612,34 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
 
         {/* Primary Menu Rows */}
         <div className="space-y-0.5">
+          {/* 我的收藏 (有收藏角色或当前处于收藏夹时自动展示) */}
+          {(favoriteCount > 0 || selectedFolderId === 'favorites') && (
+            <button
+              onClick={() => {
+                onSelectFolder('favorites');
+                onClose();
+              }}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition active:scale-[0.98] cursor-pointer ${getMenuItemClass(selectedFolderId === 'favorites')}`}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <Heart className="w-4.5 h-4.5 text-current stroke-[1.7] shrink-0" />
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="sidebar-menu-text text-sm font-medium truncate">我的收藏</span>
+                  {favoriteCount > 0 && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full shrink-0 border ${
+                      isFullWallpaper 
+                        ? (isDarkTheme ? '!text-[rgba(255,255,255,0.85)] bg-white/15 border-white/20' : '!text-[#1c1c1e] bg-black/5 border-black/10') 
+                        : 'text-slate-400 bg-slate-700/50 border-slate-600/30 [.light-theme_&]:bg-black/5 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:border-black/10'
+                    }`}>
+                      {favoriteCount}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <ChevronRight className={`w-4 h-4 shrink-0 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.65)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
+            </button>
+          )}
+
           {/* 聊天记录 */}
           <button
             onClick={() => {

@@ -382,12 +382,12 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
     return (
       <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
         <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-2 ${
-          'bg-blue-500/20'
+          isLight ? 'bg-neutral-100 text-black' : 'bg-white/10 text-white'
         }`}>
-          <Cloud className="w-8 h-8 text-blue-400" />
+          <Cloud className="w-8 h-8" />
         </div>
         <h3 className={`text-lg font-bold ${isLight ? 'text-black' : 'text-white'}`}>Google Drive 云端备份</h3>
-        <p className={`text-sm max-w-xs ${isLight ? 'text-neutral-500' : 'text-white/50'}`}>
+        <p className={`text-sm max-w-xs ${isLight ? 'text-neutral-500' : 'text-white/60'}`}>
           连接你的 Google 账号，将所有角色卡片、对话记录安全地备份到你的私人网盘中。
         </p>
         <button
@@ -420,30 +420,30 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
           {user?.photoURL ? (
             <img src={user.photoURL} alt="Avatar" className="w-10 h-10 rounded-full" />
           ) : (
-            <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
-              <Cloud className="w-5 h-5 text-blue-400" />
+            <div className="w-10 h-10 rounded-full bg-white/10 text-white flex items-center justify-center border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-black/10">
+              <Cloud className="w-5 h-5 opacity-80" />
             </div>
           )}
           <div>
             <div className="text-sm font-bold text-white [.light-theme_&]:!text-[#0f172a]">{user?.displayName || '已连接账号'}</div>
-            <div className="text-xs text-white/50 [.light-theme_&]:!text-slate-600">{user?.email}</div>
+            <div className="text-xs text-white/60 [.light-theme_&]:!text-slate-600">{user?.email}</div>
           </div>
         </div>
         <button
           onClick={handleLogout}
-          className="text-xs px-3.5 py-1.5 rounded-lg transition font-bold cursor-pointer bg-white/5 text-white/70 hover:bg-white/10 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/10 border-0 outline-none"
+          className="text-xs px-3.5 py-1.5 rounded-lg transition font-bold cursor-pointer bg-white/10 text-white hover:bg-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/10 border-0 outline-none"
         >
           退出
         </button>
       </div>
 
-      <div className="flex p-1 rounded-2xl mb-6 border bg-black/20 border-white/10 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10">
+      <div className="flex p-1 rounded-2xl mb-6 border bg-white/5 border-white/10 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10">
         <button
           onClick={() => setActiveTab('backup')}
           className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
             activeTab === 'backup' 
-              ? 'bg-white/10 text-white shadow-sm [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-xs' 
-              : 'text-white/50 hover:text-white/80 hover:bg-white/5 [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]'
+              ? 'bg-white text-black shadow-xs [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-xs' 
+              : 'text-white/60 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]'
           }`}
         >
           完整备份库
@@ -452,8 +452,8 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
           onClick={() => setActiveTab('cloud_drive')}
           className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
             activeTab === 'cloud_drive' 
-              ? 'bg-white/10 text-white shadow-sm [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-xs' 
-              : 'text-white/50 hover:text-white/80 hover:bg-white/5 [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]'
+              ? 'bg-white text-black shadow-xs [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-xs' 
+              : 'text-white/60 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]'
           }`}
         >
           云端卡库
@@ -469,17 +469,17 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
               <button
                 onClick={handleOneClickCloudSync}
                 disabled={oneClickProgress !== null || syncFolderProgress !== null}
-                className="w-full py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm flex justify-center items-center gap-2 transition disabled:opacity-50 min-h-[44px] cursor-pointer bg-blue-500 hover:bg-blue-600 text-white border-0 outline-none"
+                className="w-full py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm flex justify-center items-center gap-2 transition disabled:opacity-50 min-h-[44px] cursor-pointer bg-white hover:bg-neutral-200 text-black [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/10 [.light-theme_&]:!border-transparent border-0 outline-none"
                 title="全量上传本地卡片并同步文件夹结构"
               >
                 {oneClickProgress ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    <Loader2 className="w-4 h-4 animate-spin shrink-0 text-black [.light-theme_&]:!text-[#0f172a]" />
                     <span className="truncate text-xs sm:text-sm">同步中 {oneClickProgress.current}/{oneClickProgress.total}</span>
                   </>
                 ) : (
                   <>
-                    <Upload className="w-4 h-4 shrink-0 stroke-[2.5]" />
+                    <Upload className="w-4 h-4 shrink-0 stroke-[2.5] text-black [.light-theme_&]:!text-[#0f172a]" />
                     <span>全量同步</span>
                   </>
                 )}
@@ -488,24 +488,24 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
               <button
                 onClick={handleSyncFolderStructure}
                 disabled={syncFolderProgress !== null || oneClickProgress !== null}
-                className="w-full py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold flex justify-center items-center gap-2 transition disabled:opacity-50 min-h-[44px] cursor-pointer bg-white/5 hover:bg-white/10 text-white/90 border border-white/10 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/10 [.light-theme_&]:!border-transparent"
+                className="w-full py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold flex justify-center items-center gap-2 transition disabled:opacity-50 min-h-[44px] cursor-pointer bg-white/5 hover:bg-white/10 text-white border border-white/10 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/10 [.light-theme_&]:!border-transparent"
                 title="仅整理对齐云端卡片的文件夹分类，不重复上传文件（秒级完成）"
               >
                 {syncFolderProgress ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin shrink-0 text-blue-400" />
+                    <Loader2 className="w-4 h-4 animate-spin shrink-0 text-white [.light-theme_&]:!text-[#0f172a]" />
                     <span className="truncate text-xs sm:text-sm">{syncFolderProgress.total > 0 ? `${syncFolderProgress.current}/${syncFolderProgress.total}` : '对齐中...'}</span>
                   </>
                 ) : (
                   <>
-                    <FolderSync className="w-4 h-4 shrink-0 text-blue-400" />
+                    <FolderSync className="w-4 h-4 shrink-0 text-white [.light-theme_&]:!text-[#0f172a]" />
                     <span>对齐分类</span>
                   </>
                 )}
               </button>
             </div>
 
-            <div className="flex items-center justify-between text-[11px] px-1 text-white/40 [.light-theme_&]:!text-slate-600 font-medium">
+            <div className="flex items-center justify-between text-[11px] px-1 text-white/50 [.light-theme_&]:!text-slate-600 font-medium">
               <span>全量同步：上传并整理卡片</span>
               <span>对齐分类：仅整理目录结构(秒级)</span>
             </div>
@@ -513,7 +513,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
             <label className="flex items-center justify-between p-3.5 sm:p-4 border rounded-2xl cursor-pointer transition bg-white/5 hover:bg-white/10 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-black/10 [.light-theme_&]:!shadow-xs">
               <div>
                 <div className="text-sm font-bold text-white [.light-theme_&]:!text-[#0f172a]">挂机自动同步</div>
-                <div className="text-xs mt-0.5 text-white/50 [.light-theme_&]:!text-slate-600">
+                <div className="text-xs mt-0.5 text-white/60 [.light-theme_&]:!text-slate-600">
                   网页打开期间每隔30分钟自动静默覆盖备份到云端。
                 </div>
               </div>
@@ -528,8 +528,8 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
               >
                 <div className={`w-11 h-6 rounded-full transition-colors duration-200 ease-in-out p-0.5 flex items-center border ${
                   isAutoBackup
-                    ? 'bg-blue-500 border-blue-500 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!border-[#007aff]'
-                    : 'bg-black/40 border-white/20 [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-[#cbd5e1]'
+                    ? 'bg-blue-600 border-blue-600 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!border-[#007aff]'
+                    : 'bg-white/10 border-white/20 [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-[#cbd5e1]'
                 }`}>
                   <div className={`w-5 h-5 rounded-full transition-transform duration-200 ease-in-out shadow-sm bg-white ${
                     isAutoBackup
@@ -542,14 +542,14 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
 
           </div>
 
-          <div className="p-3.5 sm:p-4 border rounded-2xl space-y-3 bg-white/5 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-black/10 [.light-theme_&]:!shadow-xs">
+          <div className="p-3.5 sm:p-4 border rounded-2xl space-y-3 bg-white/5 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!shadow-xs">
 
             <div className="flex items-center justify-between">
-              <h4 className="text-xs sm:text-sm font-bold text-white/70 [.light-theme_&]:!text-[#0f172a]">完整打包备份 (旧版)</h4>
+              <h4 className="text-xs sm:text-sm font-medium text-white/90 [.light-theme_&]:!text-[#64748b]">完整打包备份 (旧版)</h4>
 
               <button 
                 onClick={() => {if(token) loadBackups(token)}} 
-                className="text-xs transition px-3 py-1 rounded-full cursor-pointer font-bold bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 [.light-theme_&]:!bg-[#e8f2ff] [.light-theme_&]:!text-[#2563eb] [.light-theme_&]:hover:!bg-[#dbeafe] [.light-theme_&]:hover:!text-[#1d4ed8]"
+                className="text-xs transition px-3 py-1 rounded-full border cursor-pointer font-medium bg-white/10 hover:bg-white/15 text-white/80 border-white/10 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!border-transparent [.light-theme_&]:!text-[#007aff] [.light-theme_&]:hover:!bg-[#dbeafe]"
               >
                 刷新
               </button>
@@ -558,7 +558,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
             <button
               onClick={handleUploadBackup}
               disabled={syncInfo.isActive}
-              className="w-full py-2.5 rounded-xl font-bold flex justify-center items-center gap-2 transition disabled:opacity-50 text-xs sm:text-sm border cursor-pointer bg-white/5 hover:bg-white/10 text-white/80 border-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e2e8f0]"
+              className="w-full py-2.5 rounded-xl font-medium flex justify-center items-center gap-2 transition disabled:opacity-50 text-xs sm:text-sm border cursor-pointer bg-white/10 hover:bg-white/15 text-white border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#1e293b] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!shadow-xs"
             >
               {syncInfo.isActive && syncInfo.taskName === '手动备份' ? (
                 <>
@@ -585,13 +585,13 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
             ) : (
               <div className="space-y-2">
                 {backups.map(b => (
-                  <div key={b.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 border rounded-xl group transition gap-3 sm:gap-4 w-full bg-black/40 border-white/5 hover:border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-black/10 [.light-theme_&]:hover:!border-blue-300 [.light-theme_&]:!shadow-xs">
+                  <div key={b.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 border rounded-xl group transition gap-3 sm:gap-4 w-full bg-black/40 border-white/5 hover:border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!border-blue-300 [.light-theme_&]:!shadow-xs">
                     <div className="flex-1 min-w-0 flex flex-col gap-1">
                       <div className="flex items-center justify-between gap-2">
                          <div className="text-sm font-bold truncate min-w-0 flex-shrink text-white [.light-theme_&]:!text-[#0f172a]" title={b.name}>{b.name}</div>
-                         <span className="text-xs flex-shrink-0 font-mono text-white/40 [.light-theme_&]:!text-slate-600">{formatSize(b.size)}</span>
+                         <span className="text-xs flex-shrink-0 font-mono text-white/50 [.light-theme_&]:!text-slate-500">{formatSize(b.size)}</span>
                       </div>
-                      <div className="text-xs w-full text-white/50 [.light-theme_&]:!text-slate-600">
+                      <div className="text-xs w-full text-white/50 [.light-theme_&]:!text-slate-500">
                         {new Date(b.createdTime).toLocaleString()}
                       </div>
                     </div>
@@ -602,27 +602,19 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                         title="下载并恢复到本应用"
                         disabled={syncInfo.isActive || actionFileId === b.id}
                         onClick={() => handleDownloadBackup(b.id)}
-                        className={`flex-1 sm:flex-none flex items-center justify-center py-1.5 px-3 rounded-lg transition disabled:opacity-50 cursor-pointer font-medium text-xs shadow-xs ${
-                          isLight 
-                            ? 'bg-[#e8f2ff] text-[#2563eb] hover:bg-[#dbeafe] hover:text-[#1d4ed8]' 
-                            : 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-400/80 hover:text-blue-400'
-                        }`}
+                        className="flex-1 sm:flex-none flex items-center justify-center py-1.5 px-3 rounded-lg transition disabled:opacity-50 cursor-pointer font-medium text-xs shadow-xs bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#e8f2ff] [.light-theme_&]:!text-[#007aff] [.light-theme_&]:hover:!bg-[#d8e8fe] [.light-theme_&]:!border-transparent"
                       >
                         {syncInfo.isActive && syncInfo.taskName === '恢复数据' && actionFileId === b.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                        <span className="text-xs ml-1 sm:hidden">恢复</span>
+                        <span className="text-xs ml-1">恢复</span>
                       </button>
                       <button 
                         title="删除"
                         disabled={syncInfo.isActive || actionFileId === b.id}
                         onClick={() => handleDeleteBackup(b.id)}
-                        className={`flex-1 sm:flex-none flex items-center justify-center py-1.5 px-2.5 rounded-lg border transition disabled:opacity-50 cursor-pointer ${
-                          isLight 
-                            ? 'border-[#fecdd3] bg-[#fff0f2] text-[#e11d48] hover:bg-[#ffe4e6] hover:text-[#be123c]' 
-                            : 'bg-red-500/10 border-red-500/20 text-red-400/80 hover:bg-red-500/20 hover:text-red-400'
-                        }`}
+                        className="flex-1 sm:flex-none flex items-center justify-center py-1.5 px-2.5 rounded-lg border transition disabled:opacity-50 cursor-pointer border-white/10 text-white/60 hover:text-red-400 hover:bg-red-500/10 [.light-theme_&]:!border-transparent [.light-theme_&]:!bg-[#fef2f2] [.light-theme_&]:!text-[#ff3b30] [.light-theme_&]:hover:!bg-[#fee2e2] [.light-theme_&]:hover:!text-[#d70015]"
                       >
-                        <Trash2 className="w-4 h-4" />
-                        <span className="text-xs ml-1 sm:hidden">删除</span>
+                        <Trash2 className="w-4 h-4 stroke-[2.2]" />
+                        <span className="text-xs ml-1">删除</span>
                       </button>
                     </div>
                   </div>
@@ -637,7 +629,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
         <div className="space-y-6">
           
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <h3 className="text-base sm:text-lg font-bold text-white/90 [.light-theme_&]:!text-[#0f172a]">我的云端角色卡</h3>
+            <h3 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a]">我的云端角色卡</h3>
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <div className="relative flex-1 sm:w-48">
                 <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
@@ -653,7 +645,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
               </div>
               <button
                 onClick={() => { if(token) loadCloudChars(token); }}
-                className="text-xs sm:text-sm px-3.5 sm:px-4 py-1.5 rounded-full transition shrink-0 active:scale-[0.98] border cursor-pointer font-semibold bg-white/5 hover:bg-white/10 text-white/70 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!shadow-xs"
+                className="text-xs sm:text-sm px-3.5 sm:px-4 py-1.5 rounded-full transition shrink-0 active:scale-[0.98] border cursor-pointer font-semibold bg-white/10 hover:bg-white/15 text-white/80 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!shadow-xs"
               >
                 刷新
               </button>
@@ -676,14 +668,14 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
             ) : (
               <>
                 {!searchCloudQuery && (
-                  <div className="flex items-center gap-2 mb-4 text-sm overflow-x-auto whitespace-nowrap pb-2 text-white/60 [.light-theme_&]:!text-slate-600 font-medium">
-                    <button onClick={() => setCurrentCloudPath("")} className="transition cursor-pointer text-white/70 hover:text-white [.light-theme_&]:!text-[#0f172a] font-bold hover:underline">云端根目录</button>
+                  <div className="flex items-center gap-2 mb-4 text-sm overflow-x-auto whitespace-nowrap pb-2 text-white/60 [.light-theme_&]:!text-[#64748b] font-normal">
+                    <button onClick={() => setCurrentCloudPath("")} className="transition cursor-pointer text-white/70 hover:text-white [.light-theme_&]:!text-[#64748b] font-normal hover:underline">云端根目录</button>
                     {currentCloudPath && currentCloudPath.split('/').map((part, idx, arr) => (
                       <div key={idx} className="flex items-center gap-2 shrink-0">
                         <ChevronRight className="w-4 h-4 opacity-50" />
                         <button 
                           onClick={() => setCurrentCloudPath(arr.slice(0, idx + 1).join('/'))}
-                          className="transition cursor-pointer text-white/70 hover:text-white [.light-theme_&]:!text-[#0f172a] font-bold hover:underline"
+                          className="transition cursor-pointer text-white/70 hover:text-white [.light-theme_&]:!text-[#64748b] font-normal hover:underline"
                         >
                           {formatCloudName(part)}
                         </button>
@@ -697,15 +689,14 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                     {cloudFolders.map(folderName => {
                       const fullFolderPath = currentCloudPath ? `${currentCloudPath}/${folderName}` : folderName;
                       return (
-                      <div key={folderName} className="relative group inline-flex items-stretch border rounded-2xl transition overflow-hidden shadow-xs max-w-full bg-white/5 hover:bg-white/10 border-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0]">
+                      <div key={folderName} className="relative group inline-flex items-center rounded-full transition overflow-hidden shadow-xs max-w-full bg-white/5 hover:bg-white/10 border border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!border-black/5 [.light-theme_&]:!shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
                         <button
                           onClick={() => setCurrentCloudPath(fullFolderPath)}
-                          className="flex items-center gap-2 sm:gap-2.5 pl-3.5 pr-2 py-2 sm:py-2.5 sm:pl-4 sm:pr-3 text-left min-w-0 shrink cursor-pointer"
+                          className="flex items-center gap-2 pl-3.5 pr-1 py-1.5 text-left min-w-0 shrink cursor-pointer"
                         >
-                          <Folder className="w-5 h-5 text-blue-500 shrink-0" />
-                          <span className="text-[14px] font-bold truncate max-w-[130px] sm:max-w-[200px] text-white/90 [.light-theme_&]:!text-[#0f172a]">{formatCloudName(folderName)}</span>
+                          <Folder className="w-4.5 h-4.5 text-blue-500 [.light-theme_&]:!text-[#007aff] shrink-0 stroke-[1.8]" />
+                          <span className="text-xs sm:text-sm font-normal truncate max-w-[130px] sm:max-w-[200px] text-white/90 [.light-theme_&]:!text-[#1e293b]">{formatCloudName(folderName)}</span>
                         </button>
-                        <div className="w-[1px] my-2 bg-white/10 [.light-theme_&]:!bg-[#e2e8f0]"></div>
                         <button
                           onClick={async (e) => {
                             e.stopPropagation();
@@ -727,10 +718,10 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                                 }
                             }
                           }}
-                          className="px-3 sm:px-3.5 text-red-400/80 hover:text-red-400 hover:bg-red-500/20 active:bg-red-500/30 transition shrink-0 flex items-center justify-center cursor-pointer [.light-theme_&]:!text-red-500 [.light-theme_&]:hover:!bg-red-50"
+                          className="pr-3 pl-1 text-red-400 hover:text-red-500 transition shrink-0 flex items-center justify-center cursor-pointer [.light-theme_&]:!text-[#ff3b30] [.light-theme_&]:hover:!text-[#d70015]"
                           title="删除文件夹"
                         >
-                          <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                          <Trash2 className="w-4 h-4 stroke-[1.8]" />
                         </button>
                       </div>
                     )})}
@@ -790,8 +781,8 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                         isLight ? 'bg-[#ffffff] border-[#f1f5f9]' : 'bg-black/40 border-white/10'
                       }`}>
                         <div>
-                           <h4 className={`font-semibold text-xs sm:text-sm truncate ${isLight ? 'text-slate-900' : 'text-white/90'}`} title={charName}>{charName}</h4>
-                           <p className={`text-[10px] sm:text-xs mt-0.5 truncate ${isLight ? 'text-slate-500' : 'text-white/50'}`}>
+                           <h4 className={`font-normal text-xs sm:text-sm truncate ${isLight ? 'text-[#1e293b]' : 'text-white/90'}`} title={charName}>{charName}</h4>
+                           <p className={`text-[10px] sm:text-xs mt-0.5 truncate ${isLight ? 'text-[#64748b]' : 'text-white/50'}`}>
                               {char.size ? formatSize(char.size) : '未知大小'}
                              {char.createdTime ? ` · ${new Date(char.createdTime).toLocaleDateString()}` : ''}
                            </p>
@@ -800,19 +791,19 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                            <button 
                              onClick={() => handleRestoreCloudFileToApp(char.id, char.name, charName, isChat, char.appProperties?.folderPath)}
                              disabled={downloadingId === char.id}
-                             className="flex-1 py-1 sm:py-1.5 rounded-lg flex items-center justify-center gap-1 transition disabled:opacity-50 cursor-pointer font-semibold bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/30 [.light-theme_&]:!bg-[#e8f2ff] [.light-theme_&]:!text-[#2563eb] [.light-theme_&]:!border-[#bfdbfe] [.light-theme_&]:hover:!bg-[#dbeafe] shadow-xs"
+                             className="flex-1 py-1 sm:py-1.5 rounded-lg flex items-center justify-center gap-1 transition disabled:opacity-50 cursor-pointer font-medium bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#e8f2ff] [.light-theme_&]:!text-[#007aff] [.light-theme_&]:hover:!bg-[#d8e8fe] [.light-theme_&]:!border-transparent shadow-xs"
                              title="下载并解包恢复至 App 角色库"
                            >
                              {downloadingId === char.id ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> : <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
-                             <span className="text-[10px] sm:text-xs font-semibold whitespace-nowrap">下载</span>
+                             <span className="text-[10px] sm:text-xs font-medium whitespace-nowrap">下载</span>
                            </button>
                            <button 
                              onClick={() => handleDeleteCloudChar(char.id, charName)}
                              disabled={downloadingId === char.id}
-                             className="p-1 sm:p-1.5 rounded-lg border flex items-center justify-center transition disabled:opacity-50 shrink-0 cursor-pointer bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 [.light-theme_&]:!bg-[#fff0f2] [.light-theme_&]:!border-[#fecdd3] [.light-theme_&]:!text-[#e11d48] [.light-theme_&]:hover:!bg-[#ffe4e6]"
+                             className="p-1 sm:p-1.5 rounded-lg border flex items-center justify-center transition disabled:opacity-50 shrink-0 cursor-pointer border-white/10 text-white/60 hover:text-red-400 hover:bg-red-500/10 [.light-theme_&]:!border-transparent [.light-theme_&]:!bg-[#fef2f2] [.light-theme_&]:!text-[#ff3b30] [.light-theme_&]:hover:!bg-[#fee2e2] [.light-theme_&]:hover:!text-[#d70015]"
                              title="删除"
                            >
-                             <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                             <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.2]" />
                            </button>
                         </div>
                       </div>

@@ -92,7 +92,7 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
               {isPaused ? '打标已暂停' : hasError ? '打标遇到错误' : '自动打标中'}
             </span>
 
-            <span className="text-[11px] font-semibold text-blue-300 bg-blue-500/20 [.light-theme_&]:!border [.light-theme_&]:!border-blue-200/80 px-2 py-0.5 rounded-full shrink-0 [.light-theme_&]:!text-blue-600 [.light-theme_&]:!bg-blue-50">
+            <span className="text-[11px] font-semibold text-blue-300 bg-blue-500/20 px-2.5 py-0.5 rounded-full shrink-0 [.light-theme_&]:!text-blue-600 [.light-theme_&]:!bg-blue-50 border-0 border-none outline-none">
               {progress.current}/{progress.total}
             </span>
 
@@ -231,7 +231,17 @@ export default function App() {
 
   useEffect(() => {
     const checkTheme = () => {
-      setIsLightMode(document.documentElement.classList.contains('light-theme'));
+      const isLight = document.documentElement.classList.contains('light-theme') || localStorage.getItem('tavern_theme') === 'light';
+      setIsLightMode(isLight);
+      if (isLight) {
+        document.body.classList.add('light-theme');
+        document.body.style.backgroundColor = '#eef4fe';
+        document.documentElement.style.backgroundColor = '#eef4fe';
+      } else {
+        document.body.classList.remove('light-theme');
+        document.body.style.backgroundColor = '#0a0a0c';
+        document.documentElement.style.backgroundColor = '#0a0a0c';
+      }
     };
     checkTheme();
     const observer = new MutationObserver(checkTheme);
@@ -311,7 +321,7 @@ export default function App() {
         closedSomething = true;
         if (state.selectedFolderId === 'chatviewer' && chatViewerHasInnerRef.current) {
           setChatViewerBackSignal((v) => v + 1);
-        } else if (['trash', 'duplicates', 'autotagger', 'recommender', 'chatviewer'].includes(state.selectedFolderId)) {
+        } else if (['trash', 'duplicates', 'autotagger', 'recommender', 'chatviewer', 'favorites'].includes(state.selectedFolderId)) {
           setSelectedFolderId(null);
         } else {
           getFolders().then(allFolders => {
@@ -393,7 +403,7 @@ export default function App() {
               closedSomething = true;
               if (state.selectedFolderId === 'chatviewer' && chatViewerHasInnerRef.current) {
                 setChatViewerBackSignal((v) => v + 1);
-              } else if (['trash', 'duplicates', 'autotagger', 'recommender', 'chatviewer'].includes(state.selectedFolderId)) {
+              } else if (['trash', 'duplicates', 'autotagger', 'recommender', 'chatviewer', 'favorites'].includes(state.selectedFolderId)) {
                 setSelectedFolderId(null);
               } else {
                 getFolders().then(allFolders => {
@@ -443,7 +453,7 @@ export default function App() {
 
   return (
     <div className={`font-sans antialiased fixed inset-0 flex overflow-hidden transition-colors duration-200 ${
-      isLightMode ? 'light-theme bg-[#f7f7f9] text-[#1c1c1e]' : 'bg-[#0a0a0c] text-white'
+      isLightMode ? 'light-theme bg-[#eef4fe] text-[#1c1c1e]' : 'bg-[#0a0a0c] text-white'
     }`}>
       
       {/* Sidebar Drawer */}

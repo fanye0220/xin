@@ -77,30 +77,36 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
       >
         {items.length > 0 ? (
           <div className="relative w-10 h-11 flex items-center justify-center">
-            {/* Back Card */}
-            <div
-              className="absolute w-8 h-10 rounded-lg overflow-hidden shadow-sm border border-white/20 bg-slate-800"
-              style={{ transform: "rotate(-5deg) translateX(-3px)", willChange: "transform" }}
-            >
-              <img
-                src={items[1]?.url || items[0].url}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                className="w-full h-full object-cover pointer-events-none opacity-80"
-                onError={(e) => {
-                  const target = items[1] || items[0];
-                  if (target?.seed) {
-                    const category = target.tags?.join(",") || (target.isTool ? "tool" : undefined);
-                    e.currentTarget.src = getFallbackAvatar(target.seed, category);
-                  }
-                }}
-              />
-            </div>
+            {/* Back Card - 2nd image preview when available */}
+            {items.length >= 2 && (
+              <div
+                className="absolute w-8 h-10 rounded-lg overflow-hidden shadow-xs border-0 outline-none"
+                style={{ transform: "rotate(-5deg) translateX(-3px)", willChange: "transform" }}
+              >
+                <img
+                  src={items[1].url}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  className="w-full h-full object-cover pointer-events-none"
+                  onError={(e) => {
+                    if (items[1]?.seed) {
+                      const category = items[1].tags?.join(",") || (items[1].isTool ? "tool" : undefined);
+                      e.currentTarget.src = getFallbackAvatar(items[1].seed, category);
+                    }
+                  }}
+                />
+              </div>
+            )}
             {/* Front Card */}
             <div
-              className="absolute w-8 h-10 rounded-lg overflow-hidden shadow-md border border-white/35 bg-slate-800"
-              style={{ transform: "rotate(3deg) translateX(3px)", willChange: "transform" }}
+              className={`absolute w-8 h-10 rounded-lg overflow-hidden shadow-xs border-0 outline-none ${
+                items.length >= 2 ? "" : ""
+              }`}
+              style={{
+                transform: items.length >= 2 ? "rotate(3deg) translateX(3px)" : "none",
+                willChange: "transform",
+              }}
             >
               <img
                 src={items[0].url}
@@ -109,7 +115,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
                 decoding="async"
                 className="w-full h-full object-cover pointer-events-none"
                 onError={(e) => {
-                  if (items[0].seed) {
+                  if (items[0]?.seed) {
                     const category = items[0].tags?.join(",") || (items[0].isTool ? "tool" : undefined);
                     e.currentTarget.src = getFallbackAvatar(items[0].seed, category);
                   }
@@ -120,14 +126,14 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
         ) : (
           <div className="relative w-10 h-11 flex items-center justify-center">
             <div
-              className="absolute w-8 h-10 rounded-lg border border-dashed border-white/20 bg-white/5"
+              className="absolute w-8 h-10 rounded-lg border border-dashed border-white/15 [.light-theme_&]:!border-slate-300 bg-white/5"
               style={{ transform: "rotate(-5deg) translateX(-3px)" }}
             />
             <div
-              className="absolute w-8 h-10 rounded-lg border border-dashed border-white/35 bg-white/10 flex items-center justify-center text-white/40 shadow-sm"
+              className="absolute w-8 h-10 rounded-lg border border-dashed border-white/20 [.light-theme_&]:!border-slate-300 bg-white/10 flex items-center justify-center text-white/40 shadow-xs"
               style={{ transform: "rotate(3deg) translateX(3px)" }}
             >
-              <FolderIcon className="w-3.5 h-3.5 text-blue-400" />
+              <FolderIcon className="w-3.5 h-3.5 text-blue-400 [.light-theme_&]:!text-[#007aff]" />
             </div>
           </div>
         )}
@@ -138,7 +144,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
     );
   }
 
-  // Grid & Masonry View: Pure 2-Card Stack Artwork with GPU-accelerated transforms
+  // Grid & Masonry View: 2-Card Stack Artwork with zero borders or black outlines
   const hasBackCard = items.length >= 2;
   const hasFrontCard = items.length >= 1;
 
@@ -147,10 +153,10 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
       className={`relative w-full aspect-[2/3] select-none group flex items-center justify-center p-1.5 ${className}`}
     >
       <div className="relative w-full h-full flex items-center justify-center transform-gpu">
-        {/* 1. Back Layer (Only rendered when 2nd card preview exists) */}
+        {/* 1. Back Layer (Rendered when 2nd card preview exists, no black overlay or border) */}
         {hasBackCard && (
           <div
-            className="absolute w-[94%] h-[95%] rounded-2xl overflow-hidden shadow-md transition-transform duration-300 origin-bottom-left group-hover:-rotate-6 group-hover:-translate-x-1"
+            className="absolute w-[94%] h-[95%] rounded-2xl overflow-hidden shadow-xs border-0 outline-none transition-transform duration-300 origin-bottom-left group-hover:-rotate-6 group-hover:-translate-x-1"
             style={{
               transform: "rotate(-3.5deg) translate(-2.5px, 2px)",
               zIndex: 1,
@@ -162,7 +168,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
               alt=""
               loading="lazy"
               decoding="async"
-              className="w-full h-full object-cover pointer-events-none opacity-80"
+              className="w-full h-full object-cover pointer-events-none"
               onError={(e) => {
                 if (items[1]?.seed) {
                   const category = items[1].tags?.join(",") || (items[1].isTool ? "tool" : undefined);
@@ -170,16 +176,15 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
                 }
               }}
             />
-            <div className="absolute inset-0 bg-black/35 border border-white/20 rounded-2xl" />
             {isSelected && (
               <div className="absolute inset-0 bg-black/45 rounded-2xl pointer-events-none z-10 transition-opacity" />
             )}
           </div>
         )}
 
-        {/* 2. Front Layer (Main Front Card with Image) */}
+        {/* 2. Front Layer (Main Front Card with Image, zero border or black outline) */}
         <div
-          className="absolute w-[94%] h-[95%] rounded-2xl overflow-hidden shadow-lg border border-white/20 bg-slate-800 transition-all duration-300 group-hover:scale-[1.02] group-hover:-translate-y-1 group-hover:border-white/40"
+          className="absolute w-[94%] h-[95%] rounded-2xl overflow-hidden shadow-sm border-0 outline-none transition-all duration-300 group-hover:scale-[1.02] group-hover:-translate-y-1"
           style={{ zIndex: 2, willChange: "transform" }}
         >
           {hasFrontCard ? (
@@ -199,7 +204,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
           ) : (
             /* Empty Card Background */
             <div className="w-full h-full rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xs flex flex-col items-center justify-center p-2 text-center text-white/40 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-slate-400">
-              <FolderIcon className="w-4.5 h-4.5 sm:w-6 sm:h-6 opacity-45 mb-1 shrink-0" />
+              <FolderIcon className="w-4.5 h-4.5 sm:w-6 sm:h-6 opacity-45 mb-1 shrink-0 [.light-theme_&]:!text-[#007aff]" />
               <span className="text-[10px] sm:text-xs font-medium tracking-wide opacity-80 select-none">空文件夹</span>
             </div>
           )}

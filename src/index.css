@@ -109,8 +109,8 @@
   --color-blue-200: #004080;
   --color-blue-100: #002244;
   
-  --overlay-bottom: rgba(255, 255, 255, 0.20);
-  --overlay-mid: rgba(255, 255, 255, 0.05);
+  --overlay-bottom: rgba(0, 0, 0, 0.90);
+  --overlay-mid: rgba(0, 0, 0, 0.35);
   
   --color-purple-600: #dcb8ff;
   --color-purple-500: #ebd4ff;
@@ -206,9 +206,13 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
 }
 
-/* Obsidian dark theme styling matching screenshot reference */
 html:not(.light-theme) {
   color-scheme: dark;
+}
+
+html.light-theme {
+  color-scheme: light;
+  background-color: #eef4fe !important;
 }
 
 html:not(.light-theme) body {
@@ -216,32 +220,10 @@ html:not(.light-theme) body {
   color: #f4f4f5;
 }
 
-html:not(.light-theme) .border-white\/10 {
-  border-color: rgba(255, 255, 255, 0.07);
-}
-
-html:not(.light-theme) .border-white\/20 {
-  border-color: rgba(255, 255, 255, 0.12);
-}
-
-html:not(.light-theme) .bg-white\/5 {
-  background-color: rgba(255, 255, 255, 0.04);
-}
-
-html:not(.light-theme) .bg-white\/10 {
-  background-color: rgba(255, 255, 255, 0.08);
-}
-.rounded-xl {
-  border-radius: 1.25rem !important; /* Make things rounder */
-}
-.rounded-2xl {
-  border-radius: 1.5rem !important;
-}
-.rounded-tr-sm {
-  border-top-right-radius: 0.25rem !important;
-}
-.rounded-tl-sm {
-  border-top-left-radius: 0.25rem !important;
+html.light-theme body,
+body.light-theme {
+  background-color: #eef4fe !important;
+  color: #1c1c1e !important;
 }
 
 body {
@@ -1287,10 +1269,10 @@ button:focus-visible,
 
 /* Floating Pill Dock for Long Press / Batch Action Bars */
 .top-selection-dock {
-  background-color: rgba(18, 22, 32, 0.85) !important;
-  backdrop-filter: blur(20px) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
-  border: none !important;
+  background-color: rgba(22, 24, 35, 0.92) !important;
+  backdrop-filter: blur(24px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
   color: #ffffff !important;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5) !important;
 }
@@ -1350,12 +1332,12 @@ button:focus-visible,
 }
 
 .floating-pill-dock {
-  background-color: #121620 !important;
-  backdrop-filter: blur(20px) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
-  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  background-color: rgba(22, 24, 35, 0.88) !important;
+  backdrop-filter: blur(24px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
   color: #ffffff !important;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6) !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5) !important;
 }
 
 .light-theme .floating-pill-dock {
@@ -1470,8 +1452,8 @@ button:focus-visible,
 }
 .light-theme .char-detail-glass-card {
   background-color: #ffffff !important;
-  border: 1px solid rgba(0, 0, 0, 0.08) !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05) !important;
+  border: 1px solid #dbe6f6 !important;
+  box-shadow: 0 4px 25px rgba(0, 40, 100, 0.05), 0 1px 3px rgba(0, 0, 0, 0.02) !important;
 }
 
 /* Character Detail Card (Matching Regex / Worldbook Cards) */
@@ -1486,12 +1468,12 @@ button:focus-visible,
 }
 .light-theme .detail-card {
   background-color: #ffffff !important;
-  border: 1px solid rgba(0, 0, 0, 0.06) !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03) !important;
+  border: 1px solid #e2ecf9 !important;
+  box-shadow: 0 1px 4px rgba(0, 40, 100, 0.03) !important;
 }
 .light-theme .detail-card:hover {
-  background-color: #f8fafc !important;
-  border-color: rgba(0, 0, 0, 0.1) !important;
+  background-color: #f7faff !important;
+  border-color: #cbdcf7 !important;
 }
 
 .detail-card-text {
@@ -1502,7 +1484,7 @@ button:focus-visible,
 }
 
 .detail-card-text-muted {
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.45);
 }
 .light-theme .detail-card-text-muted {
   color: #64748b !important;
@@ -1657,9 +1639,9 @@ button:focus-visible,
 }
 .light-theme .tagger-floating-pill {
   background-color: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
+  border: 1px solid rgba(226, 232, 240, 0.9) !important;
   color: #0f172a !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05) !important;
 }
 .light-theme .tagger-floating-text {
   color: #0f172a !important;

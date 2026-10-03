@@ -233,6 +233,19 @@ async function resolveFullCardBinaryAssets(char: CharacterCard): Promise<{
 }> {
   let avatarBlob = char.avatarBlob;
 
+  // 0. If avatarBlob is empty and blobs are stored separately in IndexedDB, fetch from blobs store
+  if (!avatarBlob && (char.hasBlobsSeparated || char.id)) {
+    try {
+      const { getCharacterBlob } = await import('../lib/db');
+      const blobObj = await getCharacterBlob(char.id);
+      if (blobObj && blobObj.avatarBlob) {
+        avatarBlob = blobObj.avatarBlob;
+      }
+    } catch (e) {
+      console.warn('getCharacterBlob failed for character', e);
+    }
+  }
+
   // 1. If avatarBlob is empty, attempt to read local physical file (Android SAF or filesystem)
   if (!avatarBlob && char.localFilePath) {
     try {
@@ -277,6 +290,14 @@ async function resolveFullCardBinaryAssets(char: CharacterCard): Promise<{
   let avatarHistory: Blob[] | undefined = undefined;
   if (char.avatarHistory && char.avatarHistory.length > 0) {
     avatarHistory = [...char.avatarHistory];
+  } else if (char.id) {
+    try {
+      const { getCharacterBlob } = await import('../lib/db');
+      const blobObj = await getCharacterBlob(char.id);
+      if (blobObj && blobObj.avatarHistory && blobObj.avatarHistory.length > 0) {
+        avatarHistory = [...blobObj.avatarHistory];
+      }
+    } catch (e) {}
   }
 
   return { avatarBlob, completeCardPngBlob, avatarHistory };
@@ -845,11 +866,13 @@ export function CharacterVersionsSection({
       }
     }
 
-    const updatedChar: CharacterCard & { _skipTouchUpdatedAt?: boolean } = {
+    const chosenBlob = snapshot.avatarBlob || snapshot.completeCardPngBlob || character.avatarBlob;
+
+    const updatedChar: CharacterCard & { _skipTouchUpdatedAt?: boolean; _isExplicitAvatarUpdate?: boolean } = {
       ...character,
       data: JSON.parse(JSON.stringify(snapshot.data || {})),
       name: snapshot.cardName || character.name,
-      avatarBlob: snapshot.avatarBlob || snapshot.completeCardPngBlob || character.avatarBlob,
+      avatarBlob: chosenBlob,
       avatarHistory: snapshot.avatarHistory || character.avatarHistory,
       avatarUrlFallback: snapshot.avatarUrlFallback || character.avatarUrlFallback,
       tags: snapshot.tags || character.tags,
@@ -857,6 +880,7 @@ export function CharacterVersionsSection({
       versionHistory: updatedHistory,
       updatedAt: character.updatedAt,
       _skipTouchUpdatedAt: true,
+      _isExplicitAvatarUpdate: Boolean(chosenBlob),
     };
 
     await saveCharacter(updatedChar);
@@ -1002,10 +1026,10 @@ export function CharacterVersionsSection({
           <button
             onClick={() => setIsLinkModalOpen(true)}
             className="soft-pill px-3.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0"
-            title="将卡库中已有卡片关联/绑定为本角色的历史版本"
+            title="将卡库中旧卡片关联/绑定为本角色的历史版本"
           >
             <LinkIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-80 shrink-0" />
-            <span>绑定已有卡</span>
+            <span>绑定旧卡</span>
           </button>
 
           <button
@@ -1201,31 +1225,8 @@ export function CharacterVersionsSection({
                 <GitBranch className="w-6 h-6 mx-auto text-slate-400 [.light-theme_&]:!text-slate-500 opacity-60" />
                 <p className="font-semibold text-xs version-card-title">暂无其它历史快照</p>
                 <p className="text-[11px] version-card-note max-w-sm mx-auto leading-relaxed">
-                  您可以保存当前快照，也可以将卡库同名卡绑定进来，或直接导入旧卡文件进行多版本滑动切换。
+                  可通过上方按钮创建当前快照、绑定卡库旧卡，或直接导入旧卡文件进行多版本滑动切换。
                 </p>
-                <div className="flex items-center justify-center gap-2 pt-1 flex-wrap">
-                  <button
-                    onClick={() => setIsCreatingSnapshot(true)}
-                    className="soft-pill px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 cursor-pointer hover:scale-105 transition"
-                  >
-                    <Plus className="w-3.5 h-3.5 opacity-80 shrink-0" />
-                    <span>创建快照</span>
-                  </button>
-                  <button
-                    onClick={() => setIsLinkModalOpen(true)}
-                    className="soft-pill px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 cursor-pointer hover:scale-105 transition"
-                  >
-                    <LinkIcon className="w-3.5 h-3.5 opacity-80 shrink-0" />
-                    <span>绑定已有卡</span>
-                  </button>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="soft-pill px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 cursor-pointer hover:scale-105 transition"
-                  >
-                    <Upload className="w-3.5 h-3.5 opacity-80 shrink-0" />
-                    <span>导入文件</span>
-                  </button>
-                </div>
               </div>
             </div>
           </div>

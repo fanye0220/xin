@@ -49,6 +49,23 @@ export function looksLikeChatMessage(obj: any): boolean {
   );
 }
 
+export function parseJsonlChat(text: string): any[] {
+  if (!text) return [];
+  const lines = text.trim().split("\n");
+  const messages: any[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].trim();
+    if (!l) continue;
+    try {
+      const parsed = JSON.parse(l);
+      if (parsed && typeof parsed === "object" && !looksLikeChatHeader(parsed) && looksLikeChatMessage(parsed)) {
+        messages.push(parsed);
+      }
+    } catch {}
+  }
+  return messages;
+}
+
 /**
  * 清洗一组解析后的「消息」：
  *  - 丢弃会话元数据头；
@@ -93,33 +110,65 @@ export function looksLikeChatPayload(parsed: any): boolean {
 }
 
 export function parseTextChatLog(text: string, defaultName: string = "Character"): { messages: any[]; isChat: boolean } {
-  const lines = text.trim().split("\n");
+  const trimmed = text.trim();
+  if (!trimmed) return { messages: [], isChat: false };
+
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const sanitized = sanitizeChatMessages(parsed);
+      if (sanitized.isChat) return sanitized;
+    } catch {}
+
+    const jsonlMsgs = parseJsonlChat(trimmed);
+    if (jsonlMsgs.length > 0) return { messages: jsonlMsgs, isChat: true };
+  }
+
+  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
   const messages: any[] = [];
-  
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    // Basic detection for "Name: Message" or "Name : Message"
-    const match = line.match(/^([^:]+):\s*(.*)$/);
-    if (match) {
-      const name = match[1].trim();
-      const mes = match[2].trim();
-      messages.push({
-        name: name,
-        is_user: name.toLowerCase() === "you" || name.toLowerCase() === "user",
+  let currentMsg: any = null;
+  const speakerRegex = /^([^\s\[\]{}<>:：\/\\#@]{1,25})\s*[:：]\s*(.*)$/;
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const trimmedLine = rawLine.trim();
+    if (!trimmedLine && !currentMsg) continue;
+
+    const match = trimmedLine.match(speakerRegex);
+    const isTimestamp = match && /^\d+$/.test(match[1]);
+    const isUrl = match && /^(https?|ftp|file|data)$/i.test(match[1]);
+
+    if (match && !isTimestamp && !isUrl) {
+      const speaker = match[1].trim();
+      const firstLineContent = match[2];
+
+      if (currentMsg) messages.push(currentMsg);
+      currentMsg = {
+        name: speaker,
+        mes: firstLineContent,
+        is_user:
+          speaker.toLowerCase() === "you" ||
+          speaker.toLowerCase() === "user" ||
+          speaker === "你" ||
+          (defaultName ? speaker.toLowerCase() !== defaultName.toLowerCase() : false),
         is_name: true,
-        mes: mes,
-        send_date: Date.now()
-      });
+        send_date: Date.now() + messages.length * 1000,
+      };
     } else {
-      messages.push({
-        name: defaultName,
-        is_user: false,
-        is_name: true,
-        mes: line.trim(),
-        send_date: Date.now()
-      });
+      if (currentMsg) {
+        currentMsg.mes = currentMsg.mes ? currentMsg.mes + "\n" + rawLine : rawLine;
+      } else if (trimmedLine) {
+        currentMsg = {
+          name: defaultName,
+          mes: rawLine,
+          is_user: false,
+          is_name: true,
+          send_date: Date.now(),
+        };
+      }
     }
   }
-  
+
+  if (currentMsg) messages.push(currentMsg);
   return { messages, isChat: messages.length > 0 };
 }

@@ -203,26 +203,43 @@ export async function generateTagsForCharacters(characters: any[]): Promise<stri
     throw new Error("API_KEY_MISSING");
   }
 
-  const prompt = `你是一个资深的角色分类专家。请根据以下角色卡的详细信息，为每个角色提取 3 到 6 个最核心的中文标签（Tag）。
+  const prompt = `你是一个资深且敏锐的二次元与角色扮演（Roleplay/Tavern）角色分类专家。
+请根据以下角色卡的详细信息，深入理解其核心魅力与人设特征，为每个角色提取 3 到 6 个最核心、最贴切的中文标签（Tag）。
 
-【标签提取要求】
-1. 优先提取：角色身份职业、性格特征、核心萌点/人设类型（如：傲娇、腹黑、摄政王、青梅竹马、修罗场等）、时代/世界背景（如：古代架空、现代都市、赛博朋克等）。
-2. 标签要精准简短（每个标签 2-5 个字），符合网络小说/角色扮演玩家的常见习惯。
-3. 必须输出 JSON 数组格式，其中包含每个角色的 tags 数组。
+【标签提取规范与偏好】
+1. 核心人设与萌点（极其重要）：如傲娇、腹黑、病娇、爹系、高岭之花、忠犬、疯批、清冷白月光、阳光开朗、暴躁别扭、强取豪夺等。
+2. 身份与职业特征：如摄政王、同桌、养父、总裁、师尊、锦衣卫、AI女仆、刺客、偶像等。
+3. 关系与互动题材：如青梅竹马、先婚后爱、师徒、宿敌、修罗场、养成、双向奔赴、破镜重圆等。
+4. 世界观与题材背景：如古代架空、现代都市、玄幻仙侠、赛博朋克、末世科幻、西幻魔幻等。
+5. 标签格式规范：
+   - 每个标签 2 到 4 个汉字为佳，精准凝练，符合中文酒馆玩家与网文分类习惯；
+   - 严禁空泛或无意义标签（如“男角色”、“人类”、“剧情”等）；
+   - 杜绝重复同义标签；
+   - 必须输出纯 JSON 格式。
 
-【待处理角色列表】
-${characters.map((c, i) => `--- 角色 ${i + 1} (ID: ${c.id}) ---
-姓名: ${c.data?.name || c.data?.char_name || c.name || '未知'}
-描述/人设: ${(c.data?.description || c.data?.char_persona || '').substring(0, 500)}
-性格: ${(c.data?.personality || '').substring(0, 300)}
-场景: ${(c.data?.scenario || '').substring(0, 300)}
-开场白: ${(c.data?.first_mes || c.data?.greeting || '').substring(0, 500)}
-`).join('\n')}
+【待分类角色列表】
+${characters.map((c, i) => {
+  const data = c.data?.data || c.data || c;
+  const id = c.id || data.id || `char_${i + 1}`;
+  const name = c.name || data.name || data.char_name || '未知角色';
+  const desc = (data.description || data.char_persona || data.persona || '').substring(0, 600);
+  const personality = (data.personality || '').substring(0, 300);
+  const scenario = (data.scenario || '').substring(0, 300);
+  const firstMes = (data.first_mes || data.greeting || '').substring(0, 500);
+  const existingTags = (Array.isArray(data.tags) ? data.tags : Array.isArray(c.tags) ? c.tags : []).slice(0, 8).join('、');
 
-请按格式返回 JSON：
+  return `--- 角色 ${i + 1} (ID: ${id}) ---
+姓名: ${name}
+${existingTags ? `已有标签(供参考): ${existingTags}\n` : ''}人设与外貌: ${desc || '无详细描述'}
+性格描述: ${personality || '无'}
+背景与场景: ${scenario || '无'}
+开场白剧情: ${firstMes || '无'}`;
+}).join('\n\n')}
+
+请按如下 JSON 格式返回：
 {
   "results": [
-    { "id": "角色1的ID", "tags": ["标签1", "标签2", "标签3"] }
+    { "id": "角色的实际ID", "tags": ["标签1", "标签2", "标签3", "标签4"] }
   ]
 }`;
 
@@ -240,7 +257,8 @@ ${characters.map((c, i) => `--- 角色 ${i + 1} (ID: ${c.id}) ---
 
     if (parsed && Array.isArray(parsed.results)) {
       return characters.map(c => {
-        const item = parsed.results.find((r: any) => r.id === c.id || String(r.id) === String(c.id));
+        const charId = c.id || c.data?.data?.id || c.data?.id;
+        const item = parsed.results.find((r: any) => r.id === charId || String(r.id) === String(charId));
         return item && Array.isArray(item.tags) ? item.tags : [];
       });
     }

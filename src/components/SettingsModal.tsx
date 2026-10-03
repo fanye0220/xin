@@ -587,7 +587,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
               </button>
               <button
                 onClick={handleSave}
-                className="px-5 py-2 rounded-full text-xs sm:text-sm font-bold active:scale-95 transition flex items-center gap-1.5 shadow-sm cursor-pointer border-0 outline-none bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-[#0066d6]"
+                className="px-5 py-2 rounded-full text-xs sm:text-sm font-bold active:scale-95 transition flex items-center gap-1.5 shadow-sm cursor-pointer border-0 outline-none bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#9dc4f8] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#8bb5ec]"
               >
                 <Save className="w-3.5 h-3.5 stroke-[2.5]" />
                 保存设置

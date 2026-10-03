@@ -4,10 +4,72 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Trash2, X, Merge, MessageSquarePlus, 
   Link as LinkIcon, FileText, Folder, Lock, Unlock, ChevronLeft, ChevronRight,
-  Sparkles, Filter, ShieldCheck, Info, RotateCcw, History, Check, CheckCircle2
+  Sparkles, Filter, ShieldCheck, Info, RotateCcw, History, Check, CheckCircle2,
+  Database
 } from 'lucide-react';
 import { CharacterCard, DuplicateGroup, findDuplicates, deleteCharacter, saveCharacter } from '../lib/db';
 import { getLocalImageUrl } from '../lib/appBridge';
+
+// 综合字数、世界书、开场白、拓展条目的完整度评分算法
+export function computeCompletenessScore(char: CharacterCard): {
+  score: number;
+  wordCount: number;
+  worldbookCount: number;
+  greetingsCount: number;
+} {
+  const data = char.data?.data || char.data || {};
+  
+  const desc = (data.description || data.char_persona || '').trim();
+  const personality = (data.personality || '').trim();
+  const scenario = (data.scenario || '').trim();
+  const firstMes = (data.first_mes || data.greeting || '').trim();
+  const mesExample = (data.mes_example || '').trim();
+  const systemPrompt = (data.system_prompt || '').trim();
+
+  // 1. 核心人设设定字数
+  const coreText = desc + personality + scenario + firstMes + mesExample + systemPrompt;
+  const wordCount = coreText.length;
+
+  // 2. 世界书条目数与世界书内容总字数
+  const entries = data.character_book?.entries || data.extensions?.character_book?.entries || [];
+  const worldbookCount = Array.isArray(entries) ? entries.length : 0;
+  let worldbookTextLength = 0;
+  if (Array.isArray(entries)) {
+    entries.forEach((e: any) => {
+      worldbookTextLength += (e.content || e.text || e.comment || '').length;
+    });
+  }
+
+  // 3. 备选开场白数量与总字数
+  const altGreetings = data.alternate_greetings || [];
+  const greetingsCount = (firstMes ? 1 : 0) + (Array.isArray(altGreetings) ? altGreetings.length : 0);
+  let altGreetingsLength = 0;
+  if (Array.isArray(altGreetings)) {
+    altGreetings.forEach((g: any) => {
+      altGreetingsLength += (typeof g === 'string' ? g : '').length;
+    });
+  }
+
+  const tagsCount = Array.isArray(data.tags) ? data.tags.length : (Array.isArray(char.tags) ? char.tags.length : 0);
+
+  // 4. AI 简介
+  const summary = (char.aiSummary || data.aiSummary || (char as any).data?.aiSummary || '').trim();
+  const summaryBonus = summary ? 200 + Math.min(summary.length, 300) : 0;
+
+  // 综合权重打分: 字数基础分 + 每条世界书奖励 500 分 + 每个开场白奖励 300 分 + 每个标签 20 分 + AI简介加分
+  const score = wordCount 
+    + (worldbookCount * 500 + worldbookTextLength) 
+    + (greetingsCount * 300 + altGreetingsLength) 
+    + (tagsCount * 20)
+    + summaryBonus;
+
+  return {
+    score,
+    wordCount: wordCount + worldbookTextLength + altGreetingsLength,
+    worldbookCount,
+    greetingsCount
+  };
+}
 
 // Helper for simple avatar image retrieval with robust fallback
 function CharAvatarImg({ char, className }: { char: CharacterCard, className: string }) {
@@ -105,9 +167,10 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
   });
 
   const pageSize = 10;
-  const longPressRef = useRef<{ timer: NodeJS.Timeout | null, triggered: boolean, startY?: number }>({ 
+  const longPressRef = useRef<{ timer: NodeJS.Timeout | null, triggered: boolean, startX?: number, startY?: number, lastTriggerTime?: number }>({ 
     timer: null, 
-    triggered: false 
+    triggered: false,
+    lastTriggerTime: 0
   });
 
   const toggleLock = (id: string, e?: React.MouseEvent) => {
@@ -199,6 +262,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
     let mergedSource = targetData.extensions.source || targetData.source || '';
     let mergedTags = [...(targetData.tags || [])];
     let mergedQrFilename = targetData.extensions.qr_filename || '';
+    let mergedSummary = (keptChar.aiSummary || targetData.aiSummary || updatedData.aiSummary || '').trim();
     
     let mergedHistory = [...(keptChar.avatarHistory || [])];
     const seenBlobSizes = new Set(mergedHistory.map(b => b.size));
@@ -206,6 +270,16 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
 
     for (const other of otherChars) {
       const otherTarget = other.data.data ? other.data.data : other.data;
+
+      // 合并 AI 简介：若保留卡片没有简介或被合并卡片有更详尽的简介，则保留最佳简介
+      const otherSummary = (other.aiSummary || otherTarget.aiSummary || (other.data as any)?.aiSummary || '').trim();
+      if (otherSummary) {
+        if (!mergedSummary) {
+          mergedSummary = otherSummary;
+        } else if (otherSummary.length > mergedSummary.length) {
+          mergedSummary = otherSummary;
+        }
+      }
       
       const otherQRSets = otherTarget.extensions?.tavern_qr_sets || [];
       for (const qrSet of otherQRSets) {
@@ -255,6 +329,14 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
       targetData.extensions.qr_filename = mergedQrFilename;
     }
     
+    if (mergedSummary) {
+      targetData.aiSummary = mergedSummary;
+      if (updatedData.data) {
+        updatedData.data.aiSummary = mergedSummary;
+      }
+      updatedData.aiSummary = mergedSummary;
+    }
+
     if (!updatedData.data) {
       updatedData.source = mergedSource;
       updatedData.tags = mergedTags;
@@ -272,6 +354,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
       ...keptChar, 
       folderId: targetFolderId,
       data: updatedData,
+      aiSummary: mergedSummary || keptChar.aiSummary,
       avatarHistory: mergedHistory.length > 0 ? mergedHistory : undefined
     };
     await saveCharacter(finalChar);
@@ -298,7 +381,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
     }
     const folderNotice = destFolder ? `\n📁 卡片将保留并归类在文件夹：「${destFolder}」` : '';
 
-    if (!confirm(`确定要保留此卡，合并其他未锁定卡片的快捷回复(QR)、替换头像、来源链接和标签，并删除其他卡片吗？${lockNotice}${folderNotice}`)) return;
+    if (!confirm(`确定要保留此卡，合并其他未锁定卡片的快捷回复(QR)、替换头像、AI简介、来源链接和标签，并删除其他卡片吗？${lockNotice}${folderNotice}`)) return;
 
     await mergeAndSave(keptChar, otherChars);
 
@@ -323,37 +406,59 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
     setSelectedIds(newSet);
   };
 
-  const handleSelectDuplicates = (keep: 'earliest' | 'newest' = 'newest') => {
+  const handleSelectDuplicates = (keep: 'earliest' | 'newest' | 'most_complete' = 'most_complete') => {
     const newSet = new Set<string>();
     duplicateGroups.forEach(group => {
       const chars = group.characters.map(c => c.char);
-      const sorted = [...chars].sort((a, b) => b.createdAt - a.createdAt);
-      
-      const charToKeep = keep === 'newest' ? sorted[0] : sorted[sorted.length - 1];
-      
-      for (let i = 0; i < sorted.length; i++) {
-        const c = sorted[i];
-        if (c.id === charToKeep.id) continue;
-        if (lockedIds.has(c.id)) continue;
+      if (chars.length <= 1) return;
+
+      let charToKeep: CharacterCard;
+      if (keep === 'most_complete') {
+        const sorted = [...chars].sort((a, b) => {
+          const scoreA = computeCompletenessScore(a).score;
+          const scoreB = computeCompletenessScore(b).score;
+          if (scoreB !== scoreA) return scoreB - scoreA;
+          return b.createdAt - a.createdAt;
+        });
+        charToKeep = sorted[0];
+
+        for (let i = 1; i < sorted.length; i++) {
+          const c = sorted[i];
+          if (!lockedIds.has(c.id)) {
+            newSet.add(c.id);
+          }
+        }
+      } else {
+        const sorted = [...chars].sort((a, b) => b.createdAt - a.createdAt);
+        charToKeep = keep === 'newest' ? sorted[0] : sorted[sorted.length - 1];
         
-        const cData = c.data?.data || c.data || {};
-        const kData = charToKeep.data?.data || charToKeep.data || {};
-        
-        const sameName = (c.name || cData.name || '').trim() === (charToKeep.name || kData.name || '').trim();
-        const sameDesc = (cData.description || '').trim() === (kData.description || '').trim();
-        const sameFirst = (cData.first_mes || '').trim() === (kData.first_mes || '').trim();
-        const samePersonality = (cData.personality || '').trim() === (kData.personality || '').trim();
-        const sameScenario = (cData.scenario || '').trim() === (kData.scenario || '').trim();
-        const sameMesExample = (cData.mes_example || '').trim() === (kData.mes_example || '').trim();
-        
-        const cWorldbook = JSON.stringify(cData.character_book?.entries || cData.extensions?.character_book?.entries || []);
-        const kWorldbook = JSON.stringify(kData.character_book?.entries || kData.extensions?.character_book?.entries || []);
-        const sameWorldbook = cWorldbook === kWorldbook;
-        
-        const isExactlySameData = sameName && sameDesc && sameFirst && samePersonality && sameScenario && sameMesExample;
-        
-        if (isExactlySameData && sameWorldbook) {
-           newSet.add(c.id);
+        for (let i = 0; i < sorted.length; i++) {
+          const c = sorted[i];
+          if (c.id === charToKeep.id) continue;
+          if (lockedIds.has(c.id)) continue;
+          
+          const cData = c.data?.data || c.data || {};
+          const kData = charToKeep.data?.data || charToKeep.data || {};
+          
+          const sameName = (c.name || cData.name || '').trim() === (charToKeep.name || kData.name || '').trim();
+          const sameDesc = (cData.description || '').trim() === (kData.description || '').trim();
+          const sameFirst = (cData.first_mes || '').trim() === (kData.first_mes || '').trim();
+          const samePersonality = (cData.personality || '').trim() === (kData.personality || '').trim();
+          const sameScenario = (cData.scenario || '').trim() === (kData.scenario || '').trim();
+          const sameMesExample = (cData.mes_example || '').trim() === (kData.mes_example || '').trim();
+          
+          const cWorldbook = JSON.stringify(cData.character_book?.entries || cData.extensions?.character_book?.entries || []);
+          const kWorldbook = JSON.stringify(kData.character_book?.entries || kData.extensions?.character_book?.entries || []);
+          const sameWorldbook = cWorldbook === kWorldbook;
+          
+          const isExactlySameData = sameName && sameDesc && sameFirst && samePersonality && sameScenario && sameMesExample;
+          
+          if (isExactlySameData && sameWorldbook) {
+             newSet.add(c.id);
+          } else {
+             // 如果同名且处于同一重复分组，也属于可快捷选中的较旧/较新项
+             newSet.add(c.id);
+          }
         }
       }
     });
@@ -369,7 +474,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
     }
     const validSelectedSet = new Set(validIds);
 
-    if (confirm(`确定要删除选中的 ${validIds.length} 张重复卡片吗？\n（已自动跳过并保护锁定的卡片；删除过程中会自动合并快捷回复(QR)、替换头像、来源和标签，并自动保留卡片已归类的嵌套文件夹路径）`)) {
+    if (confirm(`确定要删除选中的 ${validIds.length} 张重复卡片吗？\n（已自动跳过并保护锁定的卡片；删除过程中会自动合并快捷回复(QR)、替换头像、AI简介、来源和标签，并自动保留卡片已归类的嵌套文件夹路径）`)) {
       setLoading(true);
 
       for (const group of duplicateGroups) {
@@ -515,6 +620,10 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                           const isLocked = lockedIds.has(char.id);
                           const folderPath = folderPathMap[char.id] || (char.folderId ? "分类文件夹" : "主页 (未分类)");
 
+                          const completeness = computeCompletenessScore(char);
+                          const maxScoreInGroup = Math.max(...group.characters.map(c => computeCompletenessScore(c.char).score));
+                          const isMostComplete = group.characters.length > 1 && completeness.score === maxScoreInGroup;
+
                           return (
                             <div 
                               key={char.id} 
@@ -527,19 +636,25 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                               }`}
                               onTouchStart={(e) => {
                                 longPressRef.current.triggered = false;
-                                longPressRef.current.startY = e.touches[0].clientY;
+                                if (e.touches && e.touches[0]) {
+                                  longPressRef.current.startX = e.touches[0].clientX;
+                                  longPressRef.current.startY = e.touches[0].clientY;
+                                }
+                                if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
                                 longPressRef.current.timer = setTimeout(() => {
                                   longPressRef.current.triggered = true;
-                                  if (!selectionMode && !isLocked) {
+                                  longPressRef.current.lastTriggerTime = Date.now();
+                                  if (!isLocked) {
                                     setSelectionMode(true);
-                                    setSelectedIds(new Set([char.id]));
+                                    setSelectedIds(prev => new Set(prev).add(char.id));
                                   }
                                 }, 320);
                               }}
                               onTouchMove={(e) => {
-                                if (longPressRef.current.timer) {
+                                if (longPressRef.current.timer && e.touches && e.touches[0]) {
+                                  const dx = Math.abs(e.touches[0].clientX - (longPressRef.current.startX || 0));
                                   const dy = Math.abs(e.touches[0].clientY - (longPressRef.current.startY || 0));
-                                  if (dy > 15) {
+                                  if (dx > 20 || dy > 20) {
                                     clearTimeout(longPressRef.current.timer);
                                     longPressRef.current.timer = null;
                                   }
@@ -551,16 +666,36 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                                   longPressRef.current.timer = null;
                                 }
                               }}
+                              onTouchCancel={() => {
+                                if (longPressRef.current.timer) {
+                                  clearTimeout(longPressRef.current.timer);
+                                  longPressRef.current.timer = null;
+                                }
+                              }}
                               onMouseDown={(e) => {
                                 if (e.button !== 0) return;
                                 longPressRef.current.triggered = false;
+                                longPressRef.current.startX = e.clientX;
+                                longPressRef.current.startY = e.clientY;
+                                if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
                                 longPressRef.current.timer = setTimeout(() => {
                                   longPressRef.current.triggered = true;
-                                  if (!selectionMode && !isLocked) {
+                                  longPressRef.current.lastTriggerTime = Date.now();
+                                  if (!isLocked) {
                                     setSelectionMode(true);
-                                    setSelectedIds(new Set([char.id]));
+                                    setSelectedIds(prev => new Set(prev).add(char.id));
                                   }
                                 }, 320);
+                              }}
+                              onMouseMove={(e) => {
+                                if (longPressRef.current.timer) {
+                                  const dx = Math.abs(e.clientX - (longPressRef.current.startX || 0));
+                                  const dy = Math.abs(e.clientY - (longPressRef.current.startY || 0));
+                                  if (dx > 20 || dy > 20) {
+                                    clearTimeout(longPressRef.current.timer);
+                                    longPressRef.current.timer = null;
+                                  }
+                                }
                               }}
                               onMouseUp={() => {
                                 if (longPressRef.current.timer) {
@@ -576,14 +711,17 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                               }}
                               onContextMenu={(e) => {
                                 e.preventDefault();
+                                if (Date.now() - (longPressRef.current.lastTriggerTime || 0) < 800) return;
                                 if (!isLocked) {
                                   setSelectionMode(true);
                                   toggleSelection(char.id);
                                 }
                               }}
-                              onClick={() => {
-                                if (longPressRef.current.triggered) {
+                              onClick={(e) => {
+                                if (longPressRef.current.triggered || Date.now() - (longPressRef.current.lastTriggerTime || 0) < 600) {
                                   longPressRef.current.triggered = false;
+                                  e.preventDefault();
+                                  e.stopPropagation();
                                   return;
                                 }
                                 if (selectionMode && !isLocked) {
@@ -667,19 +805,27 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                                   <span className="font-mono font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">{modifiedDate.toLocaleDateString()}</span>
                                 </div>
                                 <div className="flex items-center justify-between text-[11px]">
-                                  <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">设定字数</span>
-                                  <span className="font-mono font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">{(targetData.description || '').length} 字</span>
+                                  <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">设定 / 总字数</span>
+                                  <span className="font-mono font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">
+                                    {(targetData.description || '').length} 字 (总计 {completeness.wordCount} 字)
+                                  </span>
                                 </div>
                                 <div className="flex items-center justify-between text-[11px]">
                                   <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">备用开场 / 世界书</span>
                                   <span className="font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">
-                                    {targetData.alternate_greetings?.length || 0} 条 / {targetData.character_book?.entries?.length || 0} 项
+                                    {completeness.greetingsCount} 条 / {completeness.worldbookCount} 项
                                   </span>
                                 </div>
                               </div>
 
                               {/* Unboxed Metadata & Indicator Badges */}
                               <div className="flex flex-wrap items-center gap-1.5 mb-4 text-[11px]">
+                                {isMostComplete && (
+                                  <span className="px-2 py-0.5 rounded-md border font-semibold flex items-center gap-1 bg-emerald-500/15 text-emerald-300 border-emerald-500/25 [.light-theme_&]:!bg-emerald-50 [.light-theme_&]:!text-emerald-700 [.light-theme_&]:!border-emerald-200 shrink-0">
+                                    <Database className="w-3 h-3 text-emerald-400 [.light-theme_&]:!text-emerald-600" />
+                                    数据最全
+                                  </span>
+                                )}
                                 {isLocked && (
                                   <span className="px-2 py-0.5 rounded-md border font-medium flex items-center gap-1 bg-white/10 text-white border-white/15 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1] shrink-0">
                                     <ShieldCheck className="w-3 h-3 text-emerald-400 [.light-theme_&]:!text-emerald-600" />
@@ -796,6 +942,16 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
               className="flex items-center gap-0.5 sm:gap-1.5 px-0.5 overflow-x-auto hide-scrollbar"
               style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
             >
+              <button
+                type="button"
+                onClick={() => handleSelectDuplicates('most_complete')}
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-2 sm:px-2.5 py-1 rounded-full transition active:scale-90 shrink-0 hover:!text-emerald-400"
+                title="保留最全（综合对比：字数、世界书、开场白最多的一张）"
+              >
+                <Database className="w-4.5 h-4.5 sm:w-5 sm:h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight whitespace-nowrap">选最全</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => handleSelectDuplicates('newest')}

@@ -2,8 +2,8 @@ import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
 import { useState, useEffect, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, ChevronRight, Plus, Edit2, Power, X as XIcon, ChevronDown, ChevronUp, ExternalLink, Check, Upload, Send, Loader2, Share2, Folder as FolderIcon, History, AlertCircle, Maximize2, BookOpen, Sparkles, FileJson, Image as ImageIcon, Save } from 'lucide-react';
-import { getCharacter, deleteCharacter, saveCharacter, CharacterCard, getFolders, resolveFolderPath, getCachedMeta, getCharacterCategoryPrefix, isActualCharacterCard } from '../lib/db';
+import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, ChevronRight, Plus, Edit2, Power, X as XIcon, ChevronDown, ChevronUp, ExternalLink, Check, Upload, Send, Loader2, Share2, Folder as FolderIcon, History, AlertCircle, Maximize2, BookOpen, Sparkles, FileJson, Image as ImageIcon, Save, Heart } from 'lucide-react';
+import { getCharacter, deleteCharacter, saveCharacter, toggleCharacterFavorite, CharacterCard, getFolders, resolveFolderPath, getCachedMeta, getCharacterCategoryPrefix, isActualCharacterCard } from '../lib/db';
 import { getCardTypeBadgeInfo } from '../lib/cardType';
 import { parseTavernCard } from '../types/tavern';
 import { injectTavernData } from '../lib/png';
@@ -666,6 +666,16 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     onBack();
   };
 
+  const handleToggleFavorite = async () => {
+    if (!character) return;
+    try {
+      const newFav = await toggleCharacterFavorite(character.id);
+      setCharacter((prev) => prev ? { ...prev, isFavorite: newFav } : null);
+    } catch (e) {
+      console.error("Failed to toggle favorite:", e);
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -674,26 +684,43 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
       id="character-detail-scroll-container"
       onTouchStart={handleDetailTouchStart}
       onTouchEnd={handleDetailTouchEnd}
-      className="fixed inset-0 bg-black [.light-theme_&]:bg-[#f7f7f9] text-white [.light-theme_&]:text-[#1c1c1e] overflow-y-auto z-50"
+      className="fixed inset-0 bg-black [.light-theme_&]:bg-[#eef4fe] text-white [.light-theme_&]:text-[#1c1c1e] overflow-y-auto z-50"
     >
       {/* Blurred Background - Beautifully adapted for both dark and light themes */}
       <div 
-        className="fixed inset-0 bg-cover bg-center opacity-30 blur-3xl scale-110 pointer-events-none [.light-theme_&]:opacity-55 [.light-theme_&]:scale-125"
+        className="fixed inset-0 bg-cover bg-center opacity-30 blur-3xl scale-110 pointer-events-none [.light-theme_&]:opacity-40 [.light-theme_&]:scale-125"
         style={{ backgroundImage: avatarUrl ? `url(${avatarUrl})` : undefined }}
       />
       <div 
-        className="fixed inset-0 pointer-events-none bg-gradient-to-b from-black/20 via-transparent to-black/80 [.light-theme_&]:from-[#ffffff]/30 [.light-theme_&]:via-transparent [.light-theme_&]:to-[#f7f7f9]/80"
+        className="fixed inset-0 pointer-events-none bg-gradient-to-b from-black/20 via-transparent to-black/80 [.light-theme_&]:from-[#e8f1fd]/60 [.light-theme_&]:via-[#eef4fe]/40 [.light-theme_&]:to-[#e2eeff]/80"
       />
       
       <div className="relative z-10 min-h-screen flex flex-col">
-        {/* Header - Real Pure White 40% translucency glass in light theme and 20% in dark theme */}
-        <header className="sticky top-0 p-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] flex items-center justify-between bg-black/20 [.light-theme_&]:bg-[#ffffff]/40 backdrop-blur-xl border-b border-white/10 [.light-theme_&]:border-black/5 z-20">
+        {/* Header - Real Pure White translucency glass in light theme and 20% in dark theme */}
+        <header className="sticky top-0 p-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] flex items-center justify-between bg-black/20 [.light-theme_&]:bg-white/70 backdrop-blur-xl border-b border-white/10 [.light-theme_&]:border-blue-100/70 z-20">
           <div className="flex items-center gap-2 min-w-0">
             <button onClick={handleBack} className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 text-white [.light-theme_&]:text-[#1c1c1e] transition shrink-0" title="返回">
               <ArrowLeft className="w-6 h-6" />
             </button>
           </div>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* 收藏红心按钮 */}
+            {character && (
+              <button
+                onClick={handleToggleFavorite}
+                className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 transition relative group active:scale-90 cursor-pointer"
+                title={character.isFavorite ? "取消收藏" : "收藏"}
+              >
+                <Heart
+                  className={`w-5 h-5 transition-all duration-200 ${
+                    character.isFavorite
+                      ? "text-rose-500 fill-rose-500 scale-110 drop-shadow-[0_2px_8px_rgba(244,63,94,0.4)]"
+                      : "text-white/70 hover:text-white [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:hover:text-rose-500"
+                  }`}
+                />
+              </button>
+            )}
+
             {!isPreset && !isStandaloneWorldbook && !isTheme && (
               <button 
                 onClick={handleSendToST} 
@@ -901,7 +928,24 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
             className="w-32 h-32 rounded-full object-cover border-4 border-white/20 shadow-2xl cursor-pointer hover:scale-105 transition-transform"
           />
           {isEditingName ? (
-            <div className="flex items-center gap-2 mt-4">
+            <div className="flex items-center justify-center gap-2 mt-4 w-full px-4">
+              {/* Cancel Button on Left for symmetrical balance */}
+              <button 
+                onClick={() => {
+                  setIsEditingName(false);
+                  setEditNameValue(character.name);
+                }}
+                title="取消"
+                className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0 transition active:scale-90 cursor-pointer ${
+                  isLightMode
+                    ? "bg-[#f1f5f9] hover:bg-[#e2e8f0] text-[#64748b] hover:text-[#0f172a]"
+                    : "bg-white/10 hover:bg-white/20 text-white/70 hover:text-white"
+                }`}
+              >
+                <XIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              </button>
+
+              {/* Centered, sleekly proportioned input */}
               <input
                 type="text"
                 value={editNameValue}
@@ -913,23 +957,22 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                     setEditNameValue(character.name);
                   }
                 }}
-                className="bg-black/40 border border-white/20 rounded-lg px-3 py-1 text-xl sm:text-2xl font-bold text-center w-full max-w-[200px] focus:outline-none focus:border-blue-500"
+                className={`rounded-xl px-3 py-1 text-xl sm:text-2xl font-bold text-center outline-none transition shadow-2xs ${
+                  isLightMode
+                    ? "bg-white/95 border border-[#cbd5e1] text-[#0f172a] focus:border-[#3b82f6] focus:ring-3 focus:ring-blue-500/15"
+                    : "bg-black/40 border border-white/20 text-white focus:border-blue-500 focus:ring-3 focus:ring-blue-500/20"
+                }`}
+                style={{ width: `${Math.max(110, Math.min(220, (editNameValue.length + 1) * 22))}px` }}
                 autoFocus
               />
+
+              {/* Save Button on Right for symmetrical balance */}
               <button 
                 onClick={handleNameSave}
-                className="p-1.5 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition [.light-theme_&]:bg-[#1DB954]/10 [.light-theme_&]:text-[#1DB954]"
+                title="保存"
+                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shrink-0 transition active:scale-90 cursor-pointer shadow-xs shadow-blue-500/20"
               >
-                <Check className="w-5 h-5" />
-              </button>
-              <button 
-                onClick={() => {
-                  setIsEditingName(false);
-                  setEditNameValue(character.name);
-                }}
-                className="p-1.5 bg-white/10 text-white/60 rounded-lg hover:bg-white/20 transition"
-              >
-                <XIcon className="w-5 h-5" />
+                <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.4]" />
               </button>
             </div>
           ) : (
@@ -1574,6 +1617,13 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                   isLightMode={isLightMode}
                   onUpdateCharacter={(updated) => {
                     setCharacter(updated);
+                    setEditNameValue(updated.name);
+                    if (updated.avatarBlob) {
+                      const newUrl = URL.createObjectURL(updated.avatarBlob);
+                      setAvatarUrl(newUrl);
+                    } else if (updated.avatarUrlFallback) {
+                      setAvatarUrl(resolveAvatarUrl(updated.avatarUrlFallback, updated.name || updated.id));
+                    }
                     window.dispatchEvent(new CustomEvent('charactersUpdated'));
                   }}
                   onRefreshDetail={() => {
@@ -1858,7 +1908,7 @@ function TextPreview({
               <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
                 <FormattedCardContent content={content} character={character} clampLines={3} />
               </div>
-              <div className="mt-1.5 text-purple-400 [.light-theme_&]:!text-purple-600 group-hover:text-purple-300 [.light-theme_&]:group-hover:!text-purple-700 text-xs font-medium flex items-center gap-1 transition-colors">
+              <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
                 <span>展开全文</span>
                 <ChevronDown className="w-3 h-3" />
               </div>
@@ -1868,7 +1918,7 @@ function TextPreview({
               <FormattedCardContent content={content} character={character} />
               <button 
                 onClick={(e) => { e.stopPropagation(); setIsExpanded(false); }}
-                className="mt-3 flex items-center justify-center gap-1 text-purple-400 [.light-theme_&]:!text-purple-600 text-xs font-medium py-1.5 hover:bg-purple-500/10 [.light-theme_&]:hover:!bg-purple-50 rounded-lg transition w-full cursor-pointer"
+                className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] [.light-theme_&]:!text-blue-600 text-xs font-medium py-1.5 hover:bg-[#60A5FA]/10 [.light-theme_&]:hover:bg-blue-50 rounded-lg transition w-full cursor-pointer"
               >
                 <ChevronUp className="w-3.5 h-3.5" /> 收起
               </button>
@@ -1881,7 +1931,7 @@ function TextPreview({
               <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
                 <FormattedCardContent content={content} character={character} clampLines={3} />
               </div>
-              <div className="mt-1.5 text-purple-400 [.light-theme_&]:!text-purple-600 group-hover:text-purple-300 [.light-theme_&]:group-hover:!text-purple-700 text-xs font-medium flex items-center gap-1 transition-colors">
+              <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
                 <span>展开全文</span>
                 <ChevronDown className="w-3 h-3" />
               </div>
@@ -1937,7 +1987,7 @@ function AlternateGreetingCard({
   return (
     <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
       <div className="flex flex-wrap sm:flex-nowrap justify-between items-center gap-2 mb-1.5">
-        <h4 className="font-semibold text-purple-300 [.light-theme_&]:!text-purple-700 text-sm truncate">
+        <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 text-sm truncate">
           备用开场白 {index + 1}
         </h4>
         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -1993,7 +2043,7 @@ function AlternateGreetingCard({
             <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
               <FormattedCardContent content={content} character={character} clampLines={3} />
             </div>
-            <div className="mt-1.5 text-purple-400 [.light-theme_&]:!text-purple-600 group-hover:text-purple-300 [.light-theme_&]:group-hover:!text-purple-700 text-xs font-medium flex items-center gap-1 transition-colors">
+            <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
               <span>展开全文</span>
               <ChevronDown className="w-3 h-3" />
             </div>
@@ -2405,7 +2455,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                 <div className="flex-1 min-w-0 w-full">
                   <div className="flex flex-wrap sm:flex-nowrap justify-between items-start gap-2 mb-1 w-full">
                     <div className="flex flex-col min-w-0 flex-1">
-                      <h4 className="font-semibold text-purple-300 [.light-theme_&]:!text-purple-700 truncate">
+                      <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 truncate">
                         {title}
                       </h4>
                       {keysDisplay && keysDisplay !== title && (
@@ -2441,7 +2491,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                         {entry.content || entry.entry || ''}
                         <button 
                           onClick={(e) => { e.stopPropagation(); setViewingEntryIndex(null); }}
-                          className="mt-3 flex items-center justify-center gap-1 text-purple-400 [.light-theme_&]:!text-purple-600 text-xs font-medium py-1.5 hover:bg-purple-500/10 [.light-theme_&]:hover:!bg-purple-50 rounded-lg transition w-full cursor-pointer"
+                          className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] [.light-theme_&]:!text-blue-600 text-xs font-medium py-1.5 hover:bg-[#60A5FA]/10 [.light-theme_&]:hover:bg-blue-50 rounded-lg transition w-full cursor-pointer"
                         >
                           <ChevronUp className="w-3.5 h-3.5" /> 收起 
                         </button>
@@ -2449,7 +2499,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     ) : (
                       <>
                         <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">{entry.content || entry.entry || ''}</div>
-                        <div className="mt-1.5 text-purple-400 [.light-theme_&]:!text-purple-600 group-hover:text-purple-300 [.light-theme_&]:group-hover:!text-purple-700 text-xs font-medium flex items-center gap-1 transition-colors">
+                        <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
                           <span>展开全文</span>
                           <ChevronDown className="w-3 h-3" />
                         </div>

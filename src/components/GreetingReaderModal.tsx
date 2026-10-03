@@ -72,10 +72,16 @@ function parseParagraphTokens(text: string): TextSegment[] {
   if (!text) return [];
 
   // Match:
-  // 1. Chinese/Japanese/English quotation pairs: “...”, ‘...’, 「...」, 『...』, "...", 〝...〞
+  // 1. All SillyTavern/Tavern quotation pairs:
+  //    - English double quotes: "..."
+  //    - Chinese/Smart double quotes: “...”, ”...”, ”...“
+  //    - Asian corner brackets: 「...」, 『...』, 〝...〞
+  //    - European guillemets/chevrons: «...», ‹...›
+  //    - Chinese/Smart single quotes: ‘...’, ’...’
+  //    - English single quotes: '...'
   // 2. Asterisk actions/descriptions: *...*
-  // 3. Parentheses thoughts: （...）
-  const pattern = /(“[^”]*”|‘[^’]*’|「[^」]*」|『[^』]*』|〝[^〞]*〞|"[^"\n]+"|\*[^*]+\*|（[^）]*）)/g;
+  // 3. Parentheses thoughts: （...） or (...)
+  const pattern = /(“[^”\n]*”|”[^”\n]*”|‘[^’\n]*’|’[^’\n]*’|「[^」\n]*」|『[^』\n]*』|«[^»\n]*»|‹[^›\n]*›|〝[^〞\n]*〞|"(?:[^"\r\n]|(?!\r?\n\r?\n)\r?\n)+?"|(?<=^|\s|[.,!?;:([{\u3000-\u303f\uff00-\uffef])'(?:[^'\r\n]|(?!\r?\n\r?\n)\r?\n)+?'(?=$|\s|[.,!?;:)}\]\u3000-\u303f\uff00-\uffef])|\*[^*]+\*|（[^）]*）|\([^)]*\))/gu;
 
   const tokens: TextSegment[] = [];
   let lastIndex = 0;
@@ -95,7 +101,7 @@ function parseParagraphTokens(text: string): TextSegment[] {
         type: 'action',
         content: matched,
       });
-    } else if (matched.startsWith('（') && matched.endsWith('）')) {
+    } else if ((matched.startsWith('（') && matched.endsWith('）')) || (matched.startsWith('(') && matched.endsWith(')'))) {
       tokens.push({
         type: 'thought',
         content: matched,
@@ -128,13 +134,22 @@ function applySafeDialogueHighlight(text: string, highlightClass: string): strin
   if (!highlightClass || !text) return text;
   // Split by HTML tags and code blocks so we NEVER touch HTML attributes, styles or scripts
   const parts = text.split(/(<script[\s\S]*?<\/script\s*>|<style[\s\S]*?<\/style\s*>|<!--[\s\S]*?-->|<[^>]+>|```[\s\S]*?```|`[^`]+`)/gi);
+  
+  // All SillyTavern / Tavern dialogue quote markers:
+  // 1. English double quotes: "..."
+  // 2. Chinese/Smart double quotes: “...”, ”...”, ”...“
+  // 3. Asian corner brackets: 「...」, 『...』, 〝...〞
+  // 4. European guillemets/chevrons: «...», ‹...›, »...«
+  // 5. Chinese/Smart single quotes: ‘...’, ’...’
+  // 6. English single quotes: '...' (with boundary checks so contractions like don't / it's are never corrupted)
+  const dialogueRegex = /(“[^”\n]*”|”[^”\n]*”|‘[^’\n]*’|’[^’\n]*’|「[^」\n]*」|『[^』\n]*』|«[^»\n]*»|‹[^›\n]*›|〝[^〞\n]*〞|"(?:[^"\r\n]|(?!\r?\n\r?\n)\r?\n)+?"|(?<=^|\s|[.,!?;:([{\u3000-\u303f\uff00-\uffef])'(?:[^'\r\n]|(?!\r?\n\r?\n)\r?\n)+?'(?=$|\s|[.,!?;:)}\]\u3000-\u303f\uff00-\uffef]))/gu;
+
   return parts.map((part) => {
     if (!part) return '';
     if (part.startsWith('<') || part.startsWith('`')) {
       return part; // keep HTML tags and code blocks completely untouched!
     }
-    // Safely highlight Chinese and Japanese quotation pairs: “...”, 「...」, 『...』, 〝...〞, ‘...’
-    return part.replace(/(“[^”\n]*”|「[^」\n]*」|『[^』\n]*』|〝[^〞\n]*〞|‘[^’\n]*’)/g, `<span class="${highlightClass}">$1</span>`);
+    return part.replace(dialogueRegex, `<span class="${highlightClass}">$1</span>`);
   }).join('');
 }
 
@@ -1286,8 +1301,10 @@ export function GreetingReaderModal({
                 >
                   {/* Dialogue Quotes */}
                   {[
-                    { label: '“” 对话', prefix: '“', suffix: '”', title: '插入或包裹双引号对白' },
-                    { label: '『』', prefix: '『', suffix: '』', title: '插入或包裹直角引号' },
+                    { label: '“” 中文', prefix: '“', suffix: '”', title: '插入或包裹中文双引号对白' },
+                    { label: '"" 英文', prefix: '"', suffix: '"', title: '插入或包裹英文双引号对白' },
+                    { label: '「」', prefix: '「', suffix: '」', title: '插入或包裹日式直角单引号' },
+                    { label: '『』', prefix: '『', suffix: '』', title: '插入或包裹直角双引号' },
                     { label: '（）', prefix: '（', suffix: '）', title: '插入或包裹动作/心声括号' },
                     { label: '——', prefix: '——', suffix: '', title: '插入破折号' },
                     { label: '……', prefix: '……', suffix: '', title: '插入省略号' },
@@ -1902,7 +1919,7 @@ export function GreetingReaderModal({
                     >
                       <div>
                         <div className="text-sm font-medium" style={{ color: themeStyles.drawerText }}>启用对话台词高亮</div>
-                        <div className="text-xs opacity-60" style={{ color: themeStyles.drawerSubText }}>自动识别“”、「」引号内的对话台词</div>
+                        <div className="text-xs opacity-60" style={{ color: themeStyles.drawerSubText }}>自动识别中英文 ""、“”、「」『』«» 等酒馆全系引号对白</div>
                       </div>
                       <ThemedSwitch
                         checked={settings.highlightDialogue}

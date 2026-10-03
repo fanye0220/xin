@@ -1763,21 +1763,21 @@ export function ChatViewer({
 
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <div className="relative flex-1 sm:flex-initial">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/40 [.light-theme_&]:!text-[#64748b]" />
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/50 [.light-theme_&]:!text-[#64748b] stroke-[1.75]" />
                 <input
                   type="text"
                   placeholder="搜索..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full sm:w-40 pl-9 pr-4 py-2 bg-white/5 border border-white/10 rounded-full text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-white/30 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#94a3b8] [.light-theme_&]:focus:!border-blue-500 [.light-theme_&]:!shadow-xs"
+                  className="w-full sm:w-44 pl-9 pr-4 py-1.5 sm:py-2 bg-white/10 hover:bg-white/15 focus:bg-white/15 border border-transparent rounded-full text-sm text-white focus:outline-none focus:border-blue-500/40 transition-colors placeholder:text-white/40 [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1]/70 [.light-theme_&]:focus:!bg-[#cbd5e1]/70 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#8e8e93] shadow-xs"
                 />
               </div>
               <button
                 onClick={() => setIsCleanerOpen(true)}
-                className="p-2.5 border rounded-full transition shrink-0 flex items-center justify-center bg-white/5 border-white/10 text-white/50 hover:text-white hover:bg-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!shadow-xs cursor-pointer"
+                className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-full transition shrink-0 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white/80 hover:text-white border border-transparent [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a] cursor-pointer active:scale-95 shadow-xs"
                 title="清理记录和分支"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-4 h-4 stroke-[1.75]" />
               </button>
               <button
                 onClick={() => {
@@ -1787,10 +1787,10 @@ export function ChatViewer({
                     fileInputRef.current?.click();
                   }
                 }}
-                className="px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-full text-sm transition flex items-center justify-center gap-2 shrink-0 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!shadow-xs cursor-pointer"
+                className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-full transition shrink-0 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white/80 hover:text-white border border-transparent [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a] cursor-pointer active:scale-95 shadow-xs"
+                title="导入聊天记录"
               >
-                <UploadCloud className="w-4 h-4 text-blue-400 [.light-theme_&]:!text-blue-600" />
-                <span className="hidden sm:inline">导入</span>
+                <UploadCloud className="w-4 h-4 stroke-[1.75]" />
               </button>
             </div>
             <input
@@ -2008,7 +2008,7 @@ export function ChatViewer({
                                 </div>
                               ) : (
                                 <div
-                                  className="text-sm font-medium text-blue-300 [.light-theme_&]:!text-blue-600 cursor-pointer hover:text-blue-200 [.light-theme_&]:hover:!text-blue-700 transition flex items-center gap-2 mb-1"
+                                  className="text-sm font-semibold text-blue-400 [.light-theme_&]:!text-[#007aff] cursor-pointer hover:text-blue-300 [.light-theme_&]:hover:!text-blue-700 transition flex items-center gap-2 mb-1"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setEditingNoteFor(chat.id);
@@ -2021,13 +2021,13 @@ export function ChatViewer({
                                       <span className="truncate">
                                         {chat.note}
                                       </span>
-                                      <span className="text-xs text-blue-300/50 [.light-theme_&]:!text-blue-600/50 shrink-0 flex items-center gap-1 leading-none pt-0.5">
-                                        <Edit2 className="w-3 h-3" />
+                                      <span className="text-xs text-blue-400/70 [.light-theme_&]:!text-[#007aff]/70 shrink-0 flex items-center gap-1 leading-none pt-0.5">
+                                        <Edit2 className="w-3 h-3 stroke-[2]" />
                                       </span>
                                     </>
                                   ) : (
-                                    <span className="text-blue-300/50 [.light-theme_&]:!text-blue-600/60 flex items-center gap-1 font-normal">
-                                      <Plus className="w-3.5 h-3.5" />{" "}
+                                    <span className="text-blue-400/80 [.light-theme_&]:!text-[#007aff] flex items-center gap-1 font-medium">
+                                      <Plus className="w-3.5 h-3.5 stroke-[2.5]" />{" "}
                                       添加内容备注...
                                     </span>
                                   )}
@@ -2629,20 +2629,20 @@ export function ChatViewer({
       </AnimatePresence>
 
       {imageToCrop && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-2xl w-full max-w-md flex flex-col shadow-2xl overflow-hidden h-[500px] [.light-theme_&]:bg-[#ffffff]/90 [.light-theme_&]:backdrop-blur-3xl [.light-theme_&]:border-black/5">
-            <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02] [.light-theme_&]:bg-black/[0.02] [.light-theme_&]:border-black/5">
-              <h3 className="text-lg font-bold text-white [.light-theme_&]:text-[#1c1c1e]">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md">
+          <div className="bg-slate-900 [.light-theme_&]:!bg-[#ffffff] text-white [.light-theme_&]:!text-[#0f172a] border border-white/10 [.light-theme_&]:!border-[#e2e8f0] rounded-3xl w-full max-w-md flex flex-col shadow-2xl overflow-hidden h-[500px]">
+            <div className="p-4 border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] flex items-center justify-between bg-white/[0.02] [.light-theme_&]:!bg-transparent">
+              <h3 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a]">
                 调整头像
               </h3>
               <button
                 onClick={closeCrop}
-                className="p-1 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition [.light-theme_&]:hover:bg-black/5 [.light-theme_&]:text-[#8e8e93] [.light-theme_&]:hover:text-[#1c1c1e]"
+                className="w-8.5 h-8.5 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] border-0 border-none cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5 stroke-[2]" />
               </button>
             </div>
-            <div className="flex-1 relative w-full h-full bg-black/50">
+            <div className="flex-1 relative w-full h-full bg-black/70">
               <Cropper
                 image={imageToCrop}
                 crop={crop}
@@ -2655,20 +2655,20 @@ export function ChatViewer({
                 onZoomChange={setZoom}
               />
             </div>
-            <div className="p-4 border-t border-white/10 bg-white/[0.02] flex items-center justify-between gap-4">
+            <div className="p-4 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0] bg-white/[0.02] [.light-theme_&]:!bg-[#f8fafc] flex items-center justify-between gap-4">
               <input
                 type="range"
                 value={zoom}
                 min={1}
                 max={3}
-                step={0.1}
+                step={0.05}
                 aria-labelledby="Zoom"
                 onChange={(e) => setZoom(Number(e.target.value))}
-                className="flex-1 h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                className="flex-1 h-2 bg-white/10 [.light-theme_&]:!bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
               />
               <button
                 onClick={handleSaveCrop}
-                className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition"
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition shadow-md shadow-blue-500/25 border-0 border-none cursor-pointer"
               >
                 保存头像
               </button>

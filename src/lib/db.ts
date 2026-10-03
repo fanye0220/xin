@@ -445,6 +445,7 @@ export interface CharacterCard {
   fileModifiedAt?: number;
   deletedAt?: number;
   folderId?: string;
+  isFavorite?: boolean;
   hasBlobsSeparated?: boolean;
   sortOrder?: number;
   tags?: string[];
@@ -1115,6 +1116,7 @@ export interface CharMeta {
 
   deletedAt?: number;
   folderId?: string;
+  isFavorite?: boolean;
 
   avatarUrlFallback?: string;
   localFilePath?: string;
@@ -1133,6 +1135,13 @@ function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
   const isTool = cat !== "未归类";
   const isQR = cat === "快速回复";
   const fallbackAvatar = resolveAvatarUrl(val.avatarUrlFallback, val.name || val.id, cat);
+  const isFav = Boolean(
+    val.isFavorite ||
+    val.favorite ||
+    val.data?.data?.isFavorite ||
+    val.data?.isFavorite ||
+    val.data?.favorite
+  );
   return {
     id: val.id,
     createdAt: val.createdAt,
@@ -1143,6 +1152,7 @@ function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
     sortOrder: val.sortOrder,
     deletedAt: val.deletedAt,
     folderId: val.folderId,
+    isFavorite: isFav,
     tags: charTags,
     isTool,
     isQR,
@@ -1334,7 +1344,9 @@ export async function getFilteredCharacterCount(
     allMeta = allMeta.filter((c) => tags.every((t) => c.tags.includes(t)));
   }
 
-  if (folderId === null) {
+  if (folderId === "favorites") {
+    allMeta = allMeta.filter((c) => c.isFavorite);
+  } else if (folderId === null) {
     if (!searchQuery && tags.length === 0) {
       allMeta = allMeta.filter((c) => !c.folderId);
     }
@@ -1375,7 +1387,9 @@ export async function getCharacters(
     allMeta = allMeta.filter((c) => tags.every((t) => c.tags.includes(t)));
   }
 
-  if (folderId === null) {
+  if (folderId === "favorites") {
+    allMeta = allMeta.filter((c) => c.isFavorite);
+  } else if (folderId === null) {
     if (!searchQuery && tags.length === 0) {
       allMeta = allMeta.filter((c) => !c.folderId);
     }
@@ -2031,6 +2045,48 @@ export async function updateCharacterSortOrder(
       };
     }
   }
+}
+
+export async function toggleCharacterFavorite(id: string): Promise<boolean> {
+  const db = await initDB();
+  const tx = db.transaction(["characters", "char_meta"], "readwrite");
+  const charStore = tx.objectStore("characters");
+  const charMetaStore = tx.objectStore("char_meta");
+  
+  const char = await charStore.get(id);
+  if (!char) {
+    await tx.done;
+    return false;
+  }
+
+  const newFav = !char.isFavorite;
+  char.isFavorite = newFav;
+  char.updatedAt = Date.now();
+  if (char.data && typeof char.data === "object") {
+    char.data.isFavorite = newFav;
+  }
+  await charStore.put(char);
+
+  const meta = buildCharMeta(char);
+  await charMetaStore.put(meta);
+  await tx.done;
+
+  if (cachedMeta) {
+    const idx = cachedMeta.findIndex((m) => m.id === id);
+    if (idx >= 0) {
+      cachedMeta[idx] = {
+        ...cachedMeta[idx],
+        isFavorite: newFav,
+        updatedAt: char.updatedAt,
+      };
+    }
+  }
+  return newFav;
+}
+
+export async function getFavoriteCharacterCount(): Promise<number> {
+  const allMeta = await getCachedMeta();
+  return allMeta.filter((c) => !c.deletedAt && c.isFavorite).length;
 }
 
 export async function deleteCharactersBulk(

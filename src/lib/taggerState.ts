@@ -175,10 +175,9 @@ class TaggerState {
       if (this.stopRequested) break;
 
       const batch = charsToProcess.slice(i, i + API_BATCH_SIZE);
-      const batchData = batch.map(c => c.data?.data || c.data);
       
       try {
-        const tagsList = await generateTagsForCharacters(batchData);
+        const tagsList = await generateTagsForCharacters(batch);
 
         for (let j = 0; j < batch.length; j++) {
           const char = batch[j];
@@ -336,10 +335,9 @@ class TaggerState {
       if (this.stopRequested) break;
 
       const batch = charsToProcess.slice(i, i + API_BATCH_SIZE);
-      const batchData = batch.map(c => c.data?.data || c.data);
       
       try {
-        const tagsList = await generateTagsForCharacters(batchData);
+        const tagsList = await generateTagsForCharacters(batch);
 
         for (let j = 0; j < batch.length; j++) {
           const char = batch[j];

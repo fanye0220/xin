@@ -265,7 +265,7 @@ export function CharacterChatsSection({
             if (zipEntry.dir) continue;
 
             const lowerName = zipEntry.name.toLowerCase();
-            if (lowerName.endsWith(".json") || lowerName.endsWith(".jsonl")) {
+            if (lowerName.endsWith(".json") || lowerName.endsWith(".jsonl") || lowerName.endsWith(".txt")) {
               filesToProcess.push(zipEntry);
             }
           }
@@ -295,13 +295,12 @@ export function CharacterChatsSection({
             let messages: any[] = [];
 
             if (lowerName.endsWith(".jsonl")) {
-              const lines = text.trim().split("\n");
-              for (const line of lines) {
-                try {
-                  const p = JSON.parse(line);
-                  if (p) messages.push(p);
-                } catch (e) {}
-              }
+              const { parseJsonlChat } = await import("../lib/chatParse");
+              messages = parseJsonlChat(text);
+            } else if (lowerName.endsWith(".txt")) {
+              const { parseTextChatLog } = await import("../lib/chatParse");
+              const entryChatName = (zipEntry.name.split("/").pop() || zipEntry.name).replace(/\.[^/.]+$/, "");
+              messages = parseTextChatLog(text, entryChatName).messages;
             } else {
               try {
                 const j = JSON.parse(text);
@@ -312,9 +311,38 @@ export function CharacterChatsSection({
             const { sanitizeChatMessages } = await import("../lib/chatParse");
             const sanitized = sanitizeChatMessages(messages);
             if (sanitized.isChat && sanitized.messages.length > 0) {
+              // 压缩包内先按所在文件夹名找角色（跳过「聊天记录」这一层），再按聊天里的角色名找，最后才落到当前角色
+              let targetCharacterId = characterId;
+              try {
+                const pathParts = zipEntry.name.split("/");
+                let nameIndex = pathParts.length > 1 ? pathParts.length - 2 : -1;
+                if (nameIndex >= 0 && pathParts[nameIndex] === "聊天记录" && pathParts.length > 2) {
+                  nameIndex = pathParts.length - 3;
+                }
+                const folderName = nameIndex >= 0 ? pathParts[nameIndex] : "";
+                if (folderName) {
+                  const { initDB } = await import("../lib/db");
+                  const db = await initDB();
+                  const allChars: any[] = await db.getAll("characters");
+                  const folderMatch = allChars.find(
+                    (c: any) => c.name && c.name.toLowerCase() === folderName.toLowerCase(),
+                  );
+                  if (folderMatch) targetCharacterId = folderMatch.id;
+                  if (targetCharacterId === characterId) {
+                    const aiMessage = sanitized.messages.find((m: any) => !m.is_user && m.name);
+                    if (aiMessage && aiMessage.name) {
+                      const nameMatch = allChars.find(
+                        (c: any) => c.name && c.name.toLowerCase() === String(aiMessage.name).toLowerCase(),
+                      );
+                      if (nameMatch) targetCharacterId = nameMatch.id;
+                    }
+                  }
+                }
+              } catch (e) {}
+
               const newChat: ChatLog = {
                 id: `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                characterId,
+                characterId: targetCharacterId,
                 name: zipEntry.name.split("/").pop()?.replace(/\.[^/.]+$/, "") || "导入的记录",
                 messages: sanitized.messages,
                 createdAt: Date.now(),
@@ -330,13 +358,12 @@ export function CharacterChatsSection({
           const lowerName = file.name.toLowerCase();
 
           if (lowerName.endsWith(".jsonl")) {
-            const lines = text.trim().split("\n");
-            for (const line of lines) {
-              try {
-                const p = JSON.parse(line);
-                if (p) messages.push(p);
-              } catch (e) {}
-            }
+            const { parseJsonlChat } = await import("../lib/chatParse");
+            messages = parseJsonlChat(text);
+          } else if (lowerName.endsWith(".txt")) {
+            const { parseTextChatLog } = await import("../lib/chatParse");
+            const fileChatName = file.name.replace(/\.[^/.]+$/, "");
+            messages = parseTextChatLog(text, fileChatName).messages;
           } else {
             try {
               const j = JSON.parse(text);
@@ -534,7 +561,7 @@ export function CharacterChatsSection({
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".json,.jsonl,.zip"
+            accept=".json,.jsonl,.txt,.zip"
             className="hidden"
             onChange={(e) => {
               if (e.target.files?.length) {
@@ -574,19 +601,19 @@ export function CharacterChatsSection({
                         >
                           <input
                             autoFocus
-                            className="w-full bg-black/40 border border-blue-500/50 rounded flex px-2 py-1 text-sm text-blue-300 focus:outline-none placeholder-blue-300/30"
+                            className="w-full bg-black/40 border border-blue-500/50 rounded flex px-2 py-1 text-sm text-blue-400 [.light-theme_&]:!text-[#007aff] [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-blue-400 focus:outline-none placeholder-blue-300/30 [.light-theme_&]:placeholder-[#007aff]/40"
                             value={editNoteContent}
                             onChange={(e) => setEditNoteContent(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") handleSaveNote(chat);
                             }}
                             onBlur={() => handleSaveNote(chat)}
-                            placeholder="添加故事备注..."
+                            placeholder="添加内容备注..."
                           />
                         </div>
                       ) : (
                         <div
-                          className="text-sm font-medium text-blue-300 cursor-pointer hover:text-purple-200 transition flex items-center gap-2"
+                          className="text-sm font-semibold text-blue-400 [.light-theme_&]:!text-[#007aff] cursor-pointer hover:text-blue-300 [.light-theme_&]:hover:!text-blue-700 transition flex items-center gap-2"
                           onClick={(e) => {
                             e.stopPropagation();
                             setEditingNoteFor(chat.id);
@@ -597,13 +624,13 @@ export function CharacterChatsSection({
                           {chat.note ? (
                             <>
                               <span className="truncate">{chat.note}</span>
-                              <span className="text-xs text-blue-300/50 shrink-0 flex items-center gap-1 leading-none pt-0.5">
-                                <Edit2 className="w-3 h-3" />
+                              <span className="text-xs text-blue-400/70 [.light-theme_&]:!text-[#007aff]/70 shrink-0 flex items-center gap-1 leading-none pt-0.5">
+                                <Edit2 className="w-3 h-3 stroke-[2]" />
                               </span>
                             </>
                           ) : (
-                            <span className="text-blue-300/50 flex items-center gap-1 font-normal">
-                              <Plus className="w-3.5 h-3.5" /> 添加内容备注...
+                            <span className="text-blue-400/80 [.light-theme_&]:!text-[#007aff] flex items-center gap-1 font-medium">
+                              <Plus className="w-3.5 h-3.5 stroke-[2.5]" /> 添加内容备注...
                             </span>
                           )}
                         </div>
@@ -792,7 +819,7 @@ export function CharacterChatsSection({
                       ref={readerFileInputRef}
                       type="file"
                       multiple
-                      accept=".json,.jsonl,.zip"
+                      accept=".json,.jsonl,.txt,.zip"
                       className="hidden"
                       onChange={(e) => {
                         if (e.target.files?.length) {

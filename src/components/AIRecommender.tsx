@@ -172,12 +172,46 @@ export function AIRecommender({ onClose, onSelectChar, onOpenSettings }: { onClo
       const keywords = kwStr.split(/\s+/).filter(k => k.trim());
       addLog(`提取到关键词: [${keywords.join(', ')}]`, 'success');
 
-      // 2. Score characters based on keywords
-      addLog('正在本地角色库中匹配相关角色...');
+      // 2. Score characters based on keywords with priority for tags & AI summary
+      const taggedCount = allChars.filter(c => {
+        const d = c.data?.data || c.data || {};
+        const tags = d.tags || c.tags;
+        const summary = c.aiSummary || d.aiSummary;
+        return (Array.isArray(tags) && tags.length > 0) || (typeof summary === 'string' && summary.trim().length > 0);
+      }).length;
+
+      if (taggedCount > 0) {
+        addLog(`检测到 ${taggedCount} 个角色包含标签或 AI 简介，优先极速读取标签与简介匹配（未打标角色扫描完整人设）...`);
+      } else {
+        addLog('正在本地角色库中匹配相关角色设定...');
+      }
+
       const scored = allChars.map(c => {
-        const text = `${c.data?.name || c.data?.data?.name} ${c.data?.description || c.data?.data?.description} ${(c.data?.tags || c.data?.data?.tags || []).join(' ')}`.toLowerCase();
+        const d = c.data?.data || c.data || {};
+        const name = (c.name || d.name || d.char_name || '').toLowerCase();
+        const tags = (Array.isArray(d.tags) ? d.tags : Array.isArray(c.tags) ? c.tags : []).join(' ').toLowerCase();
+        const summary = (c.aiSummary || d.aiSummary || '').toLowerCase();
+        
         let score = 0;
-        keywords.forEach(k => { if (text.includes(k.toLowerCase())) score++; });
+        const hasTagOrSummary = tags.length > 0 || summary.length > 0;
+        
+        if (hasTagOrSummary) {
+          // 优先极速匹配标签与 AI 简介（提炼精华，匹配更快且权重更高）
+          keywords.forEach(k => {
+            const kLow = k.toLowerCase();
+            if (name.includes(kLow)) score += 5;
+            if (tags.includes(kLow)) score += 4;
+            if (summary.includes(kLow)) score += 3;
+          });
+        } else {
+          // 未打标角色：按原来的扫描完整设定、性格、场景与开场白
+          const fullText = `${name} ${d.description || d.char_persona || ''} ${d.personality || ''} ${d.scenario || ''} ${d.first_mes || ''}`.toLowerCase();
+          keywords.forEach(k => {
+            const kLow = k.toLowerCase();
+            if (fullText.includes(kLow)) score += 2;
+          });
+        }
+        
         return { char: c, score };
       }).sort((a, b) => b.score - a.score).slice(0, 30);
 
@@ -185,7 +219,14 @@ export function AIRecommender({ onClose, onSelectChar, onOpenSettings }: { onClo
       addLog(`初步筛选出 ${candidates.length} 个候选角色，正在请求 AI 进行深度评估...`);
 
       // 3. Ask AI to recommend from the candidates
-      const candidateInfo = candidates.map(c => `ID: ${c.id}\n姓名: ${c.data?.name || c.data?.data?.name}\n描述: ${(c.data?.description || c.data?.data?.description || '').substring(0, 150)}\n标签: ${(c.data?.tags || c.data?.data?.tags || []).join(',')}`).join('\n\n');
+      const candidateInfo = candidates.map(c => {
+        const d = c.data?.data || c.data || {};
+        const name = c.name || d.name || d.char_name || '未知角色';
+        const tags = (Array.isArray(d.tags) ? d.tags : Array.isArray(c.tags) ? c.tags : []).join(',');
+        const summary = c.aiSummary || d.aiSummary;
+        const desc = summary ? `简介: ${summary}` : `描述: ${(d.description || d.char_persona || '').substring(0, 200)}`;
+        return `ID: ${c.id}\n姓名: ${name}\n${tags ? `标签: ${tags}\n` : ''}${desc}`;
+      }).join('\n\n');
 
       const recPrompt = `你是一个专业的角色扮演推荐助手。
 请注意区分以下概念：
@@ -325,7 +366,7 @@ ${candidateInfo}
                   className={`flex-1 sm:flex-none min-h-[48px] flex items-center justify-center gap-2 px-5 sm:px-6 py-3 rounded-xl font-semibold text-sm sm:text-base transition-all select-none cursor-pointer touch-manipulation active:scale-95 disabled:pointer-events-none ${
                     isSearching || !prompt.trim()
                       ? 'bg-white/10 text-white/40 border border-white/5 [.light-theme_&]:!bg-[#e5e5ea] [.light-theme_&]:!text-[#8e8e93] [.light-theme_&]:!border-transparent cursor-not-allowed'
-                      : 'bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-500 hover:to-emerald-500 text-white shadow-lg shadow-blue-500/25 active:shadow-sm'
+                      : 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white shadow-md shadow-blue-500/20 [.light-theme_&]:!bg-none [.light-theme_&]:!bg-[#70a9ff] [.light-theme_&]:hover:!bg-[#5b9cf6] [.light-theme_&]:!text-white [.light-theme_&]:!shadow-sm'
                   }`}
                 >
                   {isSearching ? (
@@ -427,7 +468,7 @@ ${candidateInfo}
                           {data.tags && data.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1.5 mt-2">
                               {data.tags.slice(0, 5).map((tag: string, j: number) => (
-                                <span key={j} className="px-2 py-0.5 bg-blue-500/20 text-blue-300 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-700 [.light-theme_&]:!border-blue-200 rounded text-xs border border-blue-500/30 font-medium">
+                                <span key={j} className="px-2.5 py-0.5 bg-blue-500/15 text-blue-300 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!text-[#1d4ed8] rounded-md text-xs font-medium border-0 border-none">
                                   {tag}
                                 </span>
                               ))}

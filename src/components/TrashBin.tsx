@@ -13,6 +13,8 @@ const TrashedCharacterCard = ({
   selectionMode, 
   isSelected, 
   onToggleSelect,
+  onRestore,
+  onHardDelete,
   index = 0,
 }: { 
   key?: React.Key, 
@@ -20,6 +22,8 @@ const TrashedCharacterCard = ({
   selectionMode: boolean,
   isSelected: boolean,
   onToggleSelect: (id: string) => void,
+  onRestore: (id: string) => void,
+  onHardDelete: (id: string) => void,
   index?: number,
 }) => {
   const defaultFallback = getFallbackAvatar(char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
@@ -60,9 +64,11 @@ const TrashedCharacterCard = ({
     startX?: number;
     startY?: number;
     triggered: boolean;
+    lastTriggerTime?: number;
   }>({
     timer: null,
-    triggered: false
+    triggered: false,
+    lastTriggerTime: 0
   });
 
   const startLongPress = (clientX?: number, clientY?: number) => {
@@ -74,8 +80,9 @@ const TrashedCharacterCard = ({
     }
     longPressRef.current.timer = setTimeout(() => {
       longPressRef.current.triggered = true;
+      longPressRef.current.lastTriggerTime = Date.now();
       onToggleSelect(char.id);
-    }, 280);
+    }, 320);
   };
 
   const cancelLongPress = () => {
@@ -89,7 +96,7 @@ const TrashedCharacterCard = ({
     if (longPressRef.current.timer) {
       const dx = Math.abs(clientX - (longPressRef.current.startX || 0));
       const dy = Math.abs(clientY - (longPressRef.current.startY || 0));
-      if (dx > 10 || dy > 10) {
+      if (dx > 20 || dy > 20) {
         cancelLongPress();
       }
     }
@@ -98,7 +105,7 @@ const TrashedCharacterCard = ({
   return (
     <motion.div 
       onClick={(e) => {
-        if (longPressRef.current.triggered) {
+        if (longPressRef.current.triggered || Date.now() - (longPressRef.current.lastTriggerTime || 0) < 600) {
           e.preventDefault();
           e.stopPropagation();
           longPressRef.current.triggered = false;
@@ -109,7 +116,7 @@ const TrashedCharacterCard = ({
         }
       }}
       onTouchStart={(e) => {
-        if (!selectionMode) {
+        if (!selectionMode && e.touches && e.touches[0]) {
           startLongPress(e.touches[0].clientX, e.touches[0].clientY);
         }
       }}
@@ -132,6 +139,7 @@ const TrashedCharacterCard = ({
       onMouseLeave={cancelLongPress}
       onContextMenu={(e) => {
         e.preventDefault();
+        if (Date.now() - (longPressRef.current.lastTriggerTime || 0) < 800) return;
         onToggleSelect(char.id);
       }}
       className={`relative flex items-center gap-3 sm:gap-4 p-3.5 sm:p-4 rounded-2xl transition-all duration-200 group active:scale-[0.98] select-none ${
@@ -167,6 +175,30 @@ const TrashedCharacterCard = ({
           <span className="truncate">{daysLeft} 天后永久删除</span>
         </p>
       </div>
+
+      {!selectionMode && (
+        <div
+          className="flex flex-row sm:flex-col gap-2.5 shrink-0"
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); onRestore(char.id); }}
+            className="p-2.5 sm:p-3 bg-green-500/20 text-green-400 hover:bg-green-500/30 [.light-theme_&]:!bg-[#dcfce7] [.light-theme_&]:!text-[#16a34a] [.light-theme_&]:hover:!bg-[#bbf7d0] rounded-xl transition-all active:scale-90 shadow-sm cursor-pointer"
+            title="恢复"
+          >
+            <RotateCcw className="w-5 h-5" />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onHardDelete(char.id); }}
+            className="p-2.5 sm:p-3 bg-red-500/20 text-red-400 hover:bg-red-500/30 [.light-theme_&]:!bg-[#fee2e2] [.light-theme_&]:!text-[#dc2626] [.light-theme_&]:hover:!bg-[#fecaca] rounded-xl transition-all active:scale-90 shadow-sm cursor-pointer"
+            title="永久删除"
+          >
+            <Trash2 className="w-5 h-5" />
+          </button>
+        </div>
+      )}
 
       {selectionMode && (
         <div className="shrink-0 z-30 ml-2">
@@ -220,6 +252,19 @@ export function TrashBin({ onClose }: Props) {
     if (confirm('确定要清空回收站吗？所有角色将被永久删除。')) {
       await emptyTrash();
       loadTrash();
+    }
+  };
+
+  // 单张卡片的恢复 / 永久删除（与批量模式并存）
+  const handleItemRestore = async (id: string) => {
+    await restoreCharacter(id);
+    await loadTrash();
+  };
+
+  const handleItemHardDelete = async (id: string) => {
+    if (confirm('确定要永久删除此角色吗？此操作不可恢复。')) {
+      await deleteCharacter(id);
+      await loadTrash();
     }
   };
 
@@ -336,6 +381,8 @@ export function TrashBin({ onClose }: Props) {
                   selectionMode={selectionMode}
                   isSelected={selectedIds.has(char.id)}
                   onToggleSelect={toggleSelect}
+                  onRestore={handleItemRestore}
+                  onHardDelete={handleItemHardDelete}
                 />
               ))}
             </div>
