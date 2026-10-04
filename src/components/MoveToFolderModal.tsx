@@ -320,7 +320,7 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
                   </span>
 
                   {isSelected && (
-                    <Check className="w-4 h-4 text-blue-400 [.light-theme_&]:!text-blue-600 shrink-0 mr-1 stroke-[2.5]" />
+                    <Check className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mr-1 stroke-[2.5]" />
                   )}
 
                   {hasChildren && (
@@ -355,7 +355,7 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
 
               {/* Subfolders Recursive Container */}
               {hasChildren && isExpanded && (
-                <div className="relative pl-1 border-l ml-4 my-0.5 border-white/10 [.light-theme_&]:!border-[#e2e8f0]">
+                <div className="relative pl-1 border-l ml-4 my-0.5 border-slate-200 [.light-theme_&]:!border-[#e2e8f0] dark:border-white/10">
                   {renderFolderOptions(folder.id, depth + 1)}
                 </div>
               )}
@@ -481,10 +481,10 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
                   }`}
                   title="选择主页根目录"
                 >
-                  <Home className={`w-4 h-4 shrink-0 ${selectedFolderId === null ? 'text-blue-400 [.light-theme_&]:!text-blue-600' : 'opacity-70'}`} />
+                  <Home className={`w-4 h-4 shrink-0 ${selectedFolderId === null ? 'text-blue-600 dark:text-blue-400' : 'opacity-70'}`} />
                   <span>主页 (根目录)</span>
                   {selectedFolderId === null && (
-                    <Check className="w-3.5 h-3.5 text-blue-400 [.light-theme_&]:!text-blue-600 stroke-[2.5]" />
+                    <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 stroke-[2.5]" />
                   )}
                 </button>
               </div>
@@ -533,7 +533,7 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
                             )}
                           </div>
                           {isSelected && (
-                            <Check className="w-4 h-4 text-blue-400 [.light-theme_&]:!text-blue-600 shrink-0 mr-1 stroke-[2.5]" />
+                            <Check className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mr-1 stroke-[2.5]" />
                           )}
                         </div>
 
