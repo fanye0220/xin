@@ -772,7 +772,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                         className="rounded-2xl p-3 sm:p-4 border bg-slate-900/60 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!shadow-xs"
                       >
                         {/* Group Header */}
-                        <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-white/5 [.light-theme_&]:!border-slate-100">
+                        <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0]">
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="w-2 h-2 rounded-full shrink-0 bg-blue-400 [.light-theme_&]:!bg-blue-600" />
                             <h4 className="font-bold text-sm sm:text-base truncate text-white [.light-theme_&]:!text-[#0f172a]">
@@ -853,11 +853,11 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                                 </div>
 
                                 {/* Actions */}
-                                <div className="flex items-center gap-2 pt-2 border-t border-white/5 [.light-theme_&]:!border-slate-100">
+                                <div className="flex items-center gap-2 pt-2 border-t border-white/10 [.light-theme_&]:!border-[#f1f5f9]">
                                   <button 
                                     onClick={() => handleRestoreCloudFileToApp(char.id, char.name, charName, isChat, char.appProperties?.folderPath)}
                                     disabled={downloadingId === char.id}
-                                    className="flex-1 py-1.5 rounded-lg flex items-center justify-center gap-1 transition disabled:opacity-50 cursor-pointer font-semibold text-xs bg-blue-600/20 text-blue-300 border border-blue-500/30 hover:bg-blue-600/30 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!text-[#1d4ed8] [.light-theme_&]:!border-[#bfdbfe] [.light-theme_&]:hover:!bg-[#dbeafe] shadow-2xs"
+                                    className="flex-1 py-1.5 rounded-lg flex items-center justify-center gap-1 transition disabled:opacity-50 cursor-pointer font-semibold text-xs bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border border-blue-500/30 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!text-[#1d4ed8] [.light-theme_&]:!border-[#bfdbfe] [.light-theme_&]:hover:!bg-[#dbeafe] shadow-2xs"
                                     title="下载此版本并恢复到本地角色库"
                                   >
                                     {downloadingId === char.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}

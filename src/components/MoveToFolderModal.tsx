@@ -333,9 +333,7 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
 
               {/* Subfolders Recursive Container */}
               {hasChildren && isExpanded && (
-                <div className={`relative pl-1 border-l ml-4 my-0.5 ${
-                  isLightMode ? 'border-slate-200' : 'border-white/10'
-                }`}>
+                <div className="relative pl-1 border-l ml-4 my-0.5 border-slate-200 [.light-theme_&]:!border-[#e2e8f0] dark:border-white/10">
                   {renderFolderOptions(folder.id, depth + 1)}
                 </div>
               )}
