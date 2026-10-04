@@ -861,10 +861,10 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                                     e.stopPropagation();
                                     handleMergeAndKeep(char, group);
                                   }}
-                                  className={`px-3 py-2 rounded-xl transition text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer ${
+                                  className={`px-3 py-2 rounded-xl transition text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer border-0 border-none outline-none ${
                                     isLocked
-                                      ? 'bg-white/5 text-slate-500 border border-white/5 cursor-not-allowed [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#94a3b8] [.light-theme_&]:!border-[#e2e8f0]'
-                                      : 'bg-white/10 hover:bg-white/15 text-slate-200 hover:text-white border border-white/15 shadow-xs [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1]'
+                                      ? 'bg-white/5 text-slate-500 cursor-not-allowed [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#94a3b8] [.light-theme_&]:!border-none'
+                                      : 'bg-white/10 hover:bg-white/15 text-slate-200 hover:text-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-none'
                                   }`}
                                 >
                                   <Merge className={`w-3.5 h-3.5 shrink-0 ${isLocked ? 'text-slate-500 [.light-theme_&]:!text-[#94a3b8]' : 'text-slate-200 [.light-theme_&]:!text-[#0f172a]'}`} />
@@ -878,10 +878,10 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                                     e.stopPropagation();
                                     handleDelete(char.id);
                                   }}
-                                  className={`px-3 py-2 rounded-xl transition text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer ${
+                                  className={`px-3 py-2 rounded-xl transition text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer border-0 border-none outline-none ${
                                     isLocked
-                                      ? 'bg-white/5 text-slate-500 border border-white/5 cursor-not-allowed [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#94a3b8] [.light-theme_&]:!border-[#e2e8f0]'
-                                      : 'bg-white/[0.06] hover:bg-rose-500/15 text-rose-300/80 hover:text-rose-300 border border-white/10 hover:border-rose-500/30 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#fef2f2] [.light-theme_&]:!text-[#991b1b]/80 [.light-theme_&]:hover:!text-[#dc2626] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!border-[#fecaca]'
+                                      ? 'bg-white/5 text-slate-500 cursor-not-allowed [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#94a3b8] [.light-theme_&]:!border-none'
+                                      : 'bg-white/[0.06] hover:bg-rose-500/15 text-[#ff453a] hover:text-[#ff6961] [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#fee2e2] [.light-theme_&]:!text-[#ff3b30] [.light-theme_&]:hover:!text-[#e02e24] [.light-theme_&]:!border-none'
                                   }`}
                                 >
                                   <Trash2 className="w-3.5 h-3.5 shrink-0" />

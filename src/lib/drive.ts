@@ -364,6 +364,17 @@ export async function exportAllDataForBackup(onProgress: (msg: string) => void):
         }
       }
     }
+
+    if (char.avatarHistory && char.avatarHistory.length > 0) {
+      for (let idx = 0; idx < char.avatarHistory.length; idx++) {
+        const ab = char.avatarHistory[idx];
+        if (!ab) continue;
+        let ext = 'png';
+        if (ab.type === 'image/jpeg') ext = 'jpg';
+        else if (ab.type === 'image/webp') ext = 'webp';
+        zip.file(`${folderPath}/AvatarHistory/avatar_${idx + 1}.${ext}`, ab, { compression: "STORE" });
+      }
+    }
     
     if (charAvatarBlob && !charOriginalFile) {
        zip.file(`${folderPath}/avatar.png`, new Blob([charAvatarBlob], { type: charAvatarBlob.type || 'image/png' }), { compression: "STORE" });
@@ -566,24 +577,10 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
   // --- OLD LOGIC FALLBACK (for strictly compatible zip or older backups) ---
   const foldersEntry = loadedZip.file("folders.json");
   if (foldersEntry) {
-    onProgress("正在以兼容模式恢复分类数据...");
-    const foldersJson = await foldersEntry.async("string");
-    try {
-      const folders = JSON.parse(foldersJson);
-      for (const folder of folders) {
-        await saveFolder(folder);
-      }
-    } catch (e) {
-      console.error("Failed to restore folders", e);
-    }
-  }
-
-  const foldersEntryCompat = loadedZip.file("folders.json");
-  if (foldersEntryCompat) {
     onProgress("正在恢复分类数据...");
     try {
       const db = await initDB();
-      const foldersJson = await foldersEntryCompat.async("string");
+      const foldersJson = await foldersEntry.async("string");
       const folders = JSON.parse(foldersJson);
       const tx = db.transaction('folders', 'readwrite');
       const os = tx.objectStore('folders');
@@ -641,7 +638,7 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
   }
 
   const filesToProcess = Object.values(loadedZip.files);
-  const characterFolders = new Map<string, { meta?: any, card?: any, avatar?: Blob, versions?: Map<string, Blob> }>();
+  const characterFolders = new Map<string, { meta?: any, card?: any, avatar?: Blob, versions?: Map<string, Blob>, avatarHistory?: Blob[] }>();
 
   for (const file of filesToProcess) {
     if (file.dir) continue;
@@ -658,6 +655,9 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
           const vId = fileName.replace(/\.[^/.]+$/, "");
           if (!folderEntry.versions) folderEntry.versions = new Map();
           folderEntry.versions.set(vId, await file.async("blob"));
+        } else if (lowerName.includes("/avatarhistory/")) {
+          if (!folderEntry.avatarHistory) folderEntry.avatarHistory = [];
+          folderEntry.avatarHistory.push(await file.async("blob"));
         } else if (fileName === "character.json") {
           const content = await file.async("string");
           try {
@@ -689,11 +689,12 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
     }
   }
 
+  const charsToRestore: any[] = [];
   let charCount = 0;
   for (const [folderName, data] of characterFolders.entries()) {
     if (data.meta || data.card) {
       charCount++;
-      if (charCount % 5 === 0) onProgress(`正在以兼容模式恢复角色卡片 (${charCount}/${characterFolders.size})...`);
+      if (charCount % 10 === 0) onProgress(`正在解析角色卡片 (${charCount}/${characterFolders.size})...`);
       
       let charToSave: any = {};
       
@@ -731,6 +732,10 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
         charToSave.avatarBlob = data.avatar;
       }
 
+      if (data.avatarHistory && data.avatarHistory.length > 0) {
+        charToSave.avatarHistory = data.avatarHistory;
+      }
+
       if (charToSave.versionHistory && Array.isArray(charToSave.versionHistory)) {
         for (const snap of charToSave.versionHistory) {
           if (data.versions && data.versions.has(snap.id)) {
@@ -741,11 +746,20 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
         }
       }
       
-      try {
-        await saveCharacter(charToSave);
-      } catch (err) {
-        console.error("Failed to restore character compat:", charToSave.id, err);
-      }
+      charsToRestore.push(charToSave);
+    }
+  }
+
+  if (charsToRestore.length > 0) {
+    onProgress(`正在批量保存恢复的角色卡片 (${charsToRestore.length}个)...`);
+    const { saveCharacters } = await import("./db");
+    const BATCH_SIZE = 50;
+    for (let b = 0; b < charsToRestore.length; b += BATCH_SIZE) {
+      const batch = charsToRestore.slice(b, b + BATCH_SIZE);
+      const currentDone = Math.min(b + batch.length, charsToRestore.length);
+      onProgress(`正在写入数据库 (${currentDone}/${charsToRestore.length})...`);
+      await saveCharacters(batch);
+      await new Promise(r => setTimeout(r, 0));
     }
   }
 

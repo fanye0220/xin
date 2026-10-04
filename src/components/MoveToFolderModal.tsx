@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Folder as FolderIcon, 
@@ -29,7 +30,12 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
   const [search, setSearch] = useState('');
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [selectedFolderId, setSelectedFolderId] = useState<string | null | undefined>(undefined);
-  const [activeMenuFolderId, setActiveMenuFolderId] = useState<string | null>(null);
+  const [menuState, setMenuState] = useState<{
+    folder: Folder;
+    x: number;
+    y: number;
+    placement: 'top' | 'bottom';
+  } | null>(null);
   
   const [isLightMode, setIsLightMode] = useState(() => {
     if (typeof propIsLightMode === 'boolean') return propIsLightMode;
@@ -82,6 +88,10 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
   const [renameValue, setRenameValue] = useState('');
 
   useBackHandler(isOpen, () => {
+    if (menuState) {
+      setMenuState(null);
+      return true;
+    }
     if (showRenameModal) {
       setShowRenameModal(false);
       return true;
@@ -93,6 +103,23 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
     onClose();
     return true;
   });
+
+  const handleToggleMenu = (folder: Folder, e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (menuState?.folder.id === folder.id) {
+      setMenuState(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const isUpward = spaceBelow < 165;
+    setMenuState({
+      folder,
+      x: Math.min(window.innerWidth - 130, Math.max(12, rect.right - 115)),
+      y: isUpward ? rect.top - 6 : rect.bottom + 6,
+      placement: isUpward ? 'top' : 'bottom',
+    });
+  };
 
   const loadFolders = () => {
     getFolders().then(f => {
@@ -311,12 +338,9 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
                 <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveMenuFolderId(activeMenuFolderId === folder.id ? null : folder.id);
-                    }}
+                    onClick={(e) => handleToggleMenu(folder, e)}
                     className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                      activeMenuFolderId === folder.id
+                      menuState?.folder.id === folder.id
                         ? isLightMode ? 'bg-[#e2e8f0] text-[#0f172a]' : 'bg-white/20 text-white'
                         : isLightMode 
                           ? 'text-slate-400 hover:text-[#0f172a] hover:bg-[#f1f5f9]' 
@@ -326,75 +350,6 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
                   >
                     <MoreVertical className="w-3.5 h-3.5" />
                   </button>
-
-                  {/* Pure Text Dropdown Menu */}
-                  <AnimatePresence>
-                    {activeMenuFolderId === folder.id && (
-                      <>
-                        <div 
-                          className="fixed inset-0 z-40" 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveMenuFolderId(null);
-                          }} 
-                        />
-                        
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.95, y: -4 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.95, y: -4 }}
-                          transition={{ duration: 0.15 }}
-                          className={`absolute right-0 top-full mt-1 z-50 min-w-[110px] rounded-2xl shadow-xl py-1.5 border backdrop-blur-xl ${
-                            isLightMode 
-                              ? 'bg-white/95 border-[#e2e8f0] text-[#0f172a] shadow-lg' 
-                              : 'bg-[#1e222d]/95 border-white/10 text-white shadow-2xl'
-                          }`}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              setActiveMenuFolderId(null);
-                              handleOpenCreateModal(folder, e);
-                            }}
-                            className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer ${
-                              isLightMode ? 'hover:bg-[#f1f5f9] text-[#334155]' : 'hover:bg-white/10 text-slate-200'
-                            }`}
-                          >
-                            新建子分类
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              setActiveMenuFolderId(null);
-                              handleOpenRenameModal(folder, e);
-                            }}
-                            className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer ${
-                              isLightMode ? 'hover:bg-[#f1f5f9] text-[#334155]' : 'hover:bg-white/10 text-slate-200'
-                            }`}
-                          >
-                            重命名
-                          </button>
-
-                          <div className={`my-1 border-t ${isLightMode ? 'border-[#f1f5f9]' : 'border-white/10'}`} />
-
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              setActiveMenuFolderId(null);
-                              handleDeleteFolder(folder, e);
-                            }}
-                            className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer text-red-500 ${
-                              isLightMode ? 'hover:bg-red-50' : 'hover:bg-red-500/15'
-                            }`}
-                          >
-                            删除分类
-                          </button>
-                        </motion.div>
-                      </>
-                    )}
-                  </AnimatePresence>
                 </div>
               </div>
 
@@ -488,7 +443,12 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
           )}
           
           {/* Scrollable Folder Area */}
-          <div className="overflow-y-auto p-2.5 space-y-1 flex-1 custom-scrollbar">
+          <div 
+            className="overflow-y-auto p-2.5 space-y-1 flex-1 custom-scrollbar"
+            onScroll={() => {
+              if (menuState) setMenuState(null);
+            }}
+          >
             {/* Top Primary Actions: 新建根分类 & 移动到主页 */}
             {!search && (
               <div className={`grid grid-cols-2 gap-2 pb-2 mb-2 border-b ${
@@ -581,12 +541,9 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
                         <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveMenuFolderId(activeMenuFolderId === folder.id ? null : folder.id);
-                            }}
+                            onClick={(e) => handleToggleMenu(folder, e)}
                             className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                              activeMenuFolderId === folder.id
+                              menuState?.folder.id === folder.id
                                 ? isLightMode ? 'bg-[#e2e8f0] text-[#0f172a]' : 'bg-white/20 text-white'
                                 : isLightMode 
                                   ? 'text-slate-400 hover:text-[#0f172a] hover:bg-[#f1f5f9]' 
@@ -596,75 +553,6 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
                           >
                             <MoreVertical className="w-3.5 h-3.5" />
                           </button>
-
-                          {/* Pure Text Dropdown Menu */}
-                          <AnimatePresence>
-                            {activeMenuFolderId === folder.id && (
-                              <>
-                                <div 
-                                  className="fixed inset-0 z-40" 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setActiveMenuFolderId(null);
-                                  }} 
-                                />
-                                
-                                <motion.div
-                                  initial={{ opacity: 0, scale: 0.95, y: -4 }}
-                                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                                  exit={{ opacity: 0, scale: 0.95, y: -4 }}
-                                  transition={{ duration: 0.15 }}
-                                  className={`absolute right-0 top-full mt-1 z-50 min-w-[110px] rounded-2xl shadow-xl py-1.5 border backdrop-blur-xl ${
-                                    isLightMode 
-                                      ? 'bg-white/95 border-[#e2e8f0] text-[#0f172a] shadow-lg' 
-                                      : 'bg-[#1e222d]/95 border-white/10 text-white shadow-2xl'
-                                  }`}
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      setActiveMenuFolderId(null);
-                                      handleOpenCreateModal(folder, e);
-                                    }}
-                                    className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer ${
-                                      isLightMode ? 'hover:bg-[#f1f5f9] text-[#334155]' : 'hover:bg-white/10 text-slate-200'
-                                    }`}
-                                  >
-                                    新建子分类
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      setActiveMenuFolderId(null);
-                                      handleOpenRenameModal(folder, e);
-                                    }}
-                                    className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer ${
-                                      isLightMode ? 'hover:bg-[#f1f5f9] text-[#334155]' : 'hover:bg-white/10 text-slate-200'
-                                    }`}
-                                  >
-                                    重命名
-                                  </button>
-
-                                  <div className={`my-1 border-t ${isLightMode ? 'border-[#f1f5f9]' : 'border-white/10'}`} />
-
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      setActiveMenuFolderId(null);
-                                      handleDeleteFolder(folder, e);
-                                    }}
-                                    className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer text-red-500 ${
-                                      isLightMode ? 'hover:bg-red-50' : 'hover:bg-red-500/15'
-                                    }`}
-                                  >
-                                    删除分类
-                                  </button>
-                                </motion.div>
-                              </>
-                            )}
-                          </AnimatePresence>
                         </div>
                       </div>
                     );
@@ -940,6 +828,82 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
             </div>
           )}
         </AnimatePresence>
+        {/* Floating Portal Dropdown Menu */}
+        {typeof document !== 'undefined' && createPortal(
+          <AnimatePresence>
+            {isOpen && menuState && (
+              <div 
+                className="fixed inset-0 z-[120] select-none" 
+                onClick={() => setMenuState(null)} 
+                onTouchStart={(e) => e.stopPropagation()}
+              >
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: menuState.placement === 'top' ? 6 : -6 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: menuState.placement === 'top' ? 6 : -6 }}
+                  transition={{ duration: 0.15 }}
+                  style={{
+                    position: 'fixed',
+                    left: `${menuState.x}px`,
+                    top: menuState.placement === 'top' ? undefined : `${menuState.y}px`,
+                    bottom: menuState.placement === 'top' ? `${window.innerHeight - menuState.y}px` : undefined,
+                  }}
+                  className={`z-[121] min-w-[120px] rounded-2xl shadow-2xl py-1.5 border backdrop-blur-xl ${
+                    isLightMode 
+                      ? 'bg-white/95 border-[#e2e8f0] text-[#0f172a] shadow-xl' 
+                      : 'bg-[#1e222d]/95 border-white/10 text-white shadow-2xl'
+                  }`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      const f = menuState.folder;
+                      setMenuState(null);
+                      handleOpenCreateModal(f, e);
+                    }}
+                    className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer ${
+                      isLightMode ? 'hover:bg-[#f1f5f9] text-[#0f172a]' : 'hover:bg-white/10 text-slate-100'
+                    }`}
+                  >
+                    新建子分类
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      const f = menuState.folder;
+                      setMenuState(null);
+                      handleOpenRenameModal(f, e);
+                    }}
+                    className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer ${
+                      isLightMode ? 'hover:bg-[#f1f5f9] text-[#0f172a]' : 'hover:bg-white/10 text-slate-100'
+                    }`}
+                  >
+                    重命名
+                  </button>
+
+                  <div className={`my-1 border-t ${isLightMode ? 'border-[#f1f5f9]' : 'border-white/10'}`} />
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      const f = menuState.folder;
+                      setMenuState(null);
+                      handleDeleteFolder(f, e);
+                    }}
+                    className={`w-full px-3.5 py-2 text-xs font-semibold transition text-left cursor-pointer text-[#ff3b30] ${
+                      isLightMode ? 'hover:bg-[#ff3b30]/10 active:bg-[#ff3b30]/15' : 'hover:bg-[#ff3b30]/15 active:bg-[#ff3b30]/25'
+                    }`}
+                  >
+                    删除分类
+                  </button>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>,
+          document.body
+        )}
       </motion.div>
     </AnimatePresence>
   );

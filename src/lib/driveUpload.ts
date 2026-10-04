@@ -145,15 +145,22 @@ export async function resumableUploadToDrive(
   blob: Blob,
   mimeType: string,
   onProgress?: (uploaded: number, total: number) => void,
+  fileId?: string,
 ): Promise<DriveUploadResponse> {
+  const url = fileId
+    ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=resumable`
+    : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable';
+  const method = fileId ? 'PATCH' : 'POST';
+
   // 第一步：开一个上传会话，拿到本次上传专用的地址
-  const startRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
-    method: 'POST',
+  const startRes = await fetch(url, {
+    method,
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json; charset=UTF-8',
       'X-Upload-Content-Type': mimeType,
       'X-Upload-Content-Length': String(blob.size),
+      ...(method === 'PATCH' ? { 'X-HTTP-Method-Override': 'PATCH' } : {}),
     },
     body: JSON.stringify(metadata),
   });
@@ -263,6 +270,18 @@ export async function uploadBlobToDrive(
   mimeType: string,
   metadata: Record<string, any> = {},
 ): Promise<DriveUploadResponse> {
+  // Google Drive multipart 上传有 5MB 硬顶上限。若文件 >= 4.5MB，自动无缝切换到断点续传通道
+  if (blob.size >= 4.5 * 1024 * 1024) {
+    return resumableUploadToDrive(
+      accessToken,
+      metadata,
+      blob,
+      mimeType,
+      undefined,
+      fileId,
+    );
+  }
+
   return driveMultipartUpload(
     `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`,
     'PATCH',
@@ -280,6 +299,16 @@ export async function createDriveFileWithContent(
   blob: Blob,
   mimeType: string,
 ): Promise<DriveUploadResponse> {
+  // 若文件 >= 4.5MB，自动无缝切换到断点续传通道
+  if (blob.size >= 4.5 * 1024 * 1024) {
+    return resumableUploadToDrive(
+      accessToken,
+      metadata,
+      blob,
+      mimeType,
+    );
+  }
+
   return driveMultipartUpload(
     `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`,
     'POST',

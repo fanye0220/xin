@@ -2,6 +2,7 @@ import { getFallbackAvatar, resolveAvatarUrl } from "./avatar";
 import { openDB, DBSchema, IDBPDatabase } from "idb";
 import { getLocalImageUrl, isAndroid } from "./appBridge";
 import { sanitizeChatMessages } from "./chatParse";
+import { getCharacterTokenBreakdown } from "./tokens";
 
 // 本地 Android 文件同步已按需求关闭，后续只使用 IndexedDB + 云端同步。
 const ENABLE_ANDROID_FILE_SYNC = false;
@@ -453,6 +454,9 @@ export interface CharacterCard {
   isTool?: boolean;
   isQR?: boolean;
   category?: string;
+  sourceUrl?: string;
+  tokenCount?: number;
+  permanentTokens?: number;
 }
 
 export interface ChatLog {
@@ -1101,6 +1105,8 @@ export type SortOption =
   | "newest_import"
   | "oldest_import"
   | "recently_modified"
+  | "tokens_desc"
+  | "tokens_asc"
   | "a_z"
   | "z_a"
   | "custom";
@@ -1126,6 +1132,9 @@ export interface CharMeta {
   tags?: string[];
   isTool?: boolean;
   category?: string;
+
+  tokenCount?: number;
+  permanentTokens?: number;
 }
 
 function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
@@ -1142,6 +1151,17 @@ function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
     val.data?.isFavorite ||
     val.data?.favorite
   );
+
+  let tokenCount = val.tokenCount;
+  let permanentTokens = val.permanentTokens;
+  if ((tokenCount === undefined || permanentTokens === undefined) && val.data) {
+    try {
+      const breakdown = getCharacterTokenBreakdown(val.data);
+      tokenCount = breakdown.totalTokens;
+      permanentTokens = breakdown.permanentTokens;
+    } catch {}
+  }
+
   return {
     id: val.id,
     createdAt: val.createdAt,
@@ -1160,12 +1180,15 @@ function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
     localFilePath: val.localFilePath,
     hasBlobsSeparated: val.hasBlobsSeparated,
     avatarUrlFallback: fallbackAvatar,
+    tokenCount,
+    permanentTokens,
   };
 }
 
 let cachedMeta: CharMeta[] | null = null;
 let isBuildingCache = false;
 const REPAIR_CATEGORY_FLAG = "tavern_category_repair_v6_revert_stitcher";
+const REPAIR_TOKEN_FLAG = "tavern_meta_tokens_v4";
 
 export async function cleanupGhostCards(): Promise<{ cleanedCount: number }> {
   try {
@@ -1213,11 +1236,14 @@ export async function getCachedMeta(): Promise<CharMeta[]> {
   const db = await initDB();
   let newMeta = await db.getAll("char_meta");
 
-  const needsRepair = typeof localStorage !== 'undefined' && localStorage.getItem(REPAIR_CATEGORY_FLAG) !== 'true';
+  const needsRepair = typeof localStorage !== 'undefined' && (
+    localStorage.getItem(REPAIR_CATEGORY_FLAG) !== 'true' ||
+    localStorage.getItem(REPAIR_TOKEN_FLAG) !== 'true'
+  );
 
-  // 第一次升级/索引丢失/缺少 category 字段/需要修复历史错误分类时, 从完整角色表重建一次, 并写回轻量索引。
+  // 第一次升级/索引丢失/缺少 category 字段/缺少 token 统计/需要修复历史错误分类时, 从完整角色表重建一次, 并写回轻量索引。
   // 之后所有常用入口都只读 char_meta, 不再触碰大字段 data。
-  if (!newMeta || newMeta.length === 0 || newMeta.some((m) => m.category === undefined) || needsRepair) {
+  if (!newMeta || newMeta.length === 0 || newMeta.some((m) => m.category === undefined || m.tokenCount === undefined) || needsRepair) {
     const tx = db.transaction("characters", "readonly");
     const allChars = await tx.store.getAll();
     await tx.done;
@@ -1299,6 +1325,7 @@ export async function getCachedMeta(): Promise<CharMeta[]> {
 
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(REPAIR_CATEGORY_FLAG, 'true');
+      localStorage.setItem(REPAIR_TOKEN_FLAG, 'true');
     }
   }
 
@@ -1413,6 +1440,10 @@ export async function getCharacters(
         return a.createdAt - b.createdAt;
       case "recently_modified":
         return (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt);
+      case "tokens_desc":
+        return (b.tokenCount || 0) - (a.tokenCount || 0);
+      case "tokens_asc":
+        return (a.tokenCount || 0) - (b.tokenCount || 0);
       case "a_z":
         return a.name.localeCompare(b.name, "zh-CN");
       case "z_a":
@@ -1443,20 +1474,35 @@ export async function getCharacters(
         // Fast path for migrated
         characters.push({
           ...meta,
+          tokenCount: meta.tokenCount,
+          permanentTokens: meta.permanentTokens,
           data: {} // Empty data
         } as unknown as CharacterCard);
       } else {
         // Must fetch the old bloated character to get its avatarBlob
         const fullChar = await fetchStore.get(meta.id);
         if (fullChar) {
-          const strippedChar = { ...fullChar, data: {}, tags: meta.tags, isQR: meta.isQR, isTool: meta.isTool };
+          const strippedChar = { 
+            ...fullChar, 
+            tokenCount: meta.tokenCount ?? fullChar.tokenCount,
+            permanentTokens: meta.permanentTokens ?? fullChar.permanentTokens,
+            data: {}, 
+            tags: meta.tags, 
+            isQR: meta.isQR, 
+            isTool: meta.isTool 
+          };
           delete (strippedChar as any)._isExplicitAvatarUpdate;
           delete (strippedChar as any)._oldFolderId;
           delete (strippedChar as any)._wasDeleted;
           delete (strippedChar as any)._previousFilePath;
           characters.push(strippedChar);
         } else {
-          characters.push({ ...meta, data: {} } as unknown as CharacterCard);
+          characters.push({ 
+            ...meta, 
+            tokenCount: meta.tokenCount,
+            permanentTokens: meta.permanentTokens,
+            data: {} 
+          } as unknown as CharacterCard);
         }
       }
     }
@@ -1508,6 +1554,25 @@ export async function getCharacters(
   }
 
   return { characters, total };
+}
+
+export async function getAllCharacters(includeBlobs = true): Promise<CharacterCard[]> {
+  const db = await initDB();
+  const all = await db.getAll('characters');
+  const valid = all.filter((c) => !c.deletedAt);
+  if (includeBlobs) {
+    for (const char of valid) {
+      if (char.hasBlobsSeparated) {
+        const blobs = await db.get('blobs', char.id);
+        if (blobs) {
+          char.avatarBlob = blobs.avatarBlob;
+          char.originalFile = blobs.originalFile;
+          char.avatarHistory = blobs.avatarHistory;
+        }
+      }
+    }
+  }
+  return valid;
 }
 
 let tagsCache: string[] | null = null;
@@ -1817,6 +1882,14 @@ export async function saveCharacters(
   const charMetaStore2 = tx2.objectStore("char_meta");
 
   for (const character of characters) {
+    if ((character.tokenCount === undefined || character.permanentTokens === undefined) && character.data) {
+      try {
+        const breakdown = getCharacterTokenBreakdown(character.data);
+        character.tokenCount = breakdown.totalTokens;
+        character.permanentTokens = breakdown.permanentTokens;
+      } catch {}
+    }
+
     const finalBlobs = allFinalBlobs.get(character.id);
     await blobStore2.put(finalBlobs, character.id);
 

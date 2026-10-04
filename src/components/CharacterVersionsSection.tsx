@@ -1005,7 +1005,7 @@ export function CharacterVersionsSection({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".png,.json"
+            accept="image/*,.png,.json,*/*"
             onChange={handleImportFileAsVersion}
             className="hidden"
           />

@@ -325,7 +325,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
       setOneClickProgress({ current: 0, total: 0, message: '正在准备...' });
       const { getCachedMeta } = await import('../lib/db');
       const { uploadCharacterToCloud } = await import('../lib/cloudDrive');
-      const chars = await getCachedMeta();
+      const chars = (await getCachedMeta()).filter(c => !c.deletedAt);
       
       setOneClickProgress({ current: 0, total: chars.length, message: '正在同步...' });
       let success = 0;
