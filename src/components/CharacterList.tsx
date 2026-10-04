@@ -1635,6 +1635,35 @@ export function CharacterList({
     await executeBindQR(qrCharId, targetCharId, false);
   };
 
+  const cleanExportFolderParts = (folderName: string, charName: string, uniqueName?: string): string[] => {
+    if (!folderName || folderName === "未归类") return [];
+    const charLower = getSafeFilename(charName).toLowerCase().trim();
+    const uniqueLower = (uniqueName ? getSafeFilename(uniqueName) : charLower).toLowerCase().trim();
+    const ignored = new Set([
+      charLower,
+      uniqueLower,
+      "替换头像",
+      "替换卡面",
+      "版本历史",
+      "聊天记录",
+      "alt_avatars",
+      "avatars",
+      "chats",
+    ]);
+
+    const rawParts = folderName.split("/").map((p) => getSafeFilename(p.trim())).filter(Boolean);
+    const cleanParts: string[] = [];
+
+    for (const p of rawParts) {
+      const pLower = p.toLowerCase();
+      if (ignored.has(pLower)) continue;
+      if (cleanParts.length > 0 && cleanParts[cleanParts.length - 1].toLowerCase() === pLower) continue;
+      cleanParts.push(p);
+    }
+
+    return cleanParts;
+  };
+
   const addCharacterToZip = async (
     char: CharacterCard,
     zipFolder: JSZip | null,
@@ -2104,8 +2133,8 @@ export function CharacterList({
               const autoCategory = getCharacterCategoryPrefix(char);
               prefix = autoCategory === "未归类" ? "" : `${autoCategory}/`;
             } else {
-              prefix =
-                folderName.split("/").map(getSafeFilename).join("/") + "/";
+              const parts = cleanExportFolderParts(folderName, char.name, uniqueName);
+              prefix = parts.length > 0 ? parts.join("/") + "/" : "";
             }
 
             await addCharacterToZip(
@@ -2170,10 +2199,10 @@ export function CharacterList({
               await addCharacterToZip(char, uZip || zip, undefined, uniqueName);
             } else {
               let currentZip: JSZip = zip;
-              const parts = folderName.split("/");
+              const parts = cleanExportFolderParts(folderName, char.name, uniqueName);
               for (const p of parts) {
                 currentZip =
-                  currentZip.folder(getSafeFilename(p)) || currentZip;
+                  currentZip.folder(p) || currentZip;
               }
               await addCharacterToZip(char, currentZip, undefined, uniqueName);
             }
@@ -2275,7 +2304,8 @@ export function CharacterList({
                 autoCategory === "未归类" ? [] : [autoCategory],
               );
             } else {
-              await pushCharTask(id, folderName.split("/"));
+              const cleanParts = cleanExportFolderParts(folderName, char.name);
+              await pushCharTask(id, cleanParts);
             }
           }
         }
@@ -2298,8 +2328,9 @@ export function CharacterList({
           if (!char) continue;
 
           const uniqueName = getUniqueName(char.name);
+          const parts = cleanExportFolderParts(task.path.join("/"), char.name, uniqueName);
           let currentZip: JSZip = zip;
-          for (const part of task.path) {
+          for (const part of parts) {
             currentZip = currentZip.folder(getSafeFilename(part)) || currentZip;
           }
           await addCharacterToZip(char, currentZip, undefined, uniqueName);

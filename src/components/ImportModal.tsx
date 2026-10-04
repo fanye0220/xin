@@ -565,7 +565,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
         const inVersionFolder = folderSegments.some((p) =>
           VERSION_FOLDERS.includes(p),
         );
-        const inAltFolder = ALT_FOLDERS.includes(lastFolder);
+        const inAltFolder =
+          folderSegments.some((p) => ALT_FOLDERS.includes(p)) ||
+          /^(替换头像|替换卡面|avatar|alt)[\-_0-9]*/i.test(fileName);
         const isStudioMetaFile = fileName.toLowerCase() === "studio_meta.json";
 
         try {
@@ -671,7 +673,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                 file,
                 path: normalizedPath,
                 folder: folderName,
-                isMain: !inVersionFolder,
+                isMain: !inVersionFolder && !inAltFolder,
                 data: cardData,
                 isImage: true,
                 isVersion: inVersionFolder || undefined,
@@ -1028,16 +1030,15 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
       for (const item of mainItems) {
         const folderParts = item.folder
           .split("/")
-          .map((p) => p.trim())
+          .map((p) => p.trim().toLowerCase())
           .filter(Boolean);
-        const lastFolder = (
-          folderParts[folderParts.length - 1] || ""
-        ).toLowerCase();
-        if (ALT_FOLDERS.includes(lastFolder)) {
+        const inAlt =
+          folderParts.some((p) => ALT_FOLDERS.includes(p)) ||
+          /^(替换头像|替换卡面|avatar|alt)[\-_0-9]*/i.test(item.file.name);
+        const inVer = folderParts.some((p) => VERSION_FOLDERS.includes(p));
+        if (inAlt) {
           itemsToDemote.push(item);
-        } else if (
-          folderParts.some((p) => VERSION_FOLDERS.includes(p.toLowerCase()))
-        ) {
+        } else if (inVer) {
           versionItems.push(item);
           itemsToDemote.push(item);
         }
@@ -1055,13 +1056,23 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
       for (const alt of altImages) {
         const possibleMains = mainItems.filter((main) => {
           const mainPrefix = main.folder ? main.folder + "/" : "";
-          if (!alt.folder.startsWith(mainPrefix)) return false;
-          const relative = alt.folder.substring(mainPrefix.length);
-          const firstFolder = relative.split("/")[0];
-          return (
-            Boolean(firstFolder) &&
-            ALT_FOLDERS.includes(firstFolder.toLowerCase())
-          );
+          if (alt.folder.startsWith(mainPrefix)) {
+            const relative = alt.folder.substring(mainPrefix.length);
+            const firstFolder = (relative.split("/")[0] || "").toLowerCase();
+            if (ALT_FOLDERS.includes(firstFolder) || relative === "") {
+              return true;
+            }
+          }
+          const altFolderParts = alt.folder.split("/").map((p) => p.trim().toLowerCase()).filter(Boolean);
+          if (altFolderParts.length > 0 && ALT_FOLDERS.includes(altFolderParts[altFolderParts.length - 1])) {
+            const altParent = altFolderParts.slice(0, -1).join("/");
+            const mainFolderClean = main.folder.split("/").map((p) => p.trim().toLowerCase()).filter(Boolean).join("/");
+            if (altParent === mainFolderClean) return true;
+          }
+          if (main.folder && alt.folder && alt.folder.startsWith(main.folder)) {
+            return true;
+          }
+          return false;
         });
         possibleMains.sort((a, b) => b.folder.length - a.folder.length);
         if (possibleMains.length > 0) {
@@ -2164,7 +2175,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   </div>
                 </div>
 
-  {isAndroid() && (
+                {isAndroid() && (
                   <div className="mt-4 w-full flex justify-center">
                     <button 
                       onClick={(e) => { e.stopPropagation(); fetchTavernList(); }}

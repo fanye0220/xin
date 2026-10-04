@@ -177,7 +177,8 @@ export default function App() {
       setSummaryModalChar(null);
       return;
     }
-    if (skipSummaryModal) {
+    const showSummaryPopup = localStorage.getItem('miu_show_summary_popup') !== 'false';
+    if (skipSummaryModal || !showSummaryPopup) {
       setSelectedCharId(id);
       setSummaryModalChar(null);
       return;

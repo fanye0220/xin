@@ -11,7 +11,8 @@ import {
   Home,
   Plus,
   Edit2,
-  Trash2
+  Trash2,
+  MoreVertical
 } from 'lucide-react';
 import { getFolders, saveFolder, deleteFolder, Folder } from '../lib/db';
 import { useBackHandler } from '../lib/useBackHandler';
@@ -27,6 +28,8 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
   const [folders, setFolders] = useState<Folder[]>([]);
   const [search, setSearch] = useState('');
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null | undefined>(undefined);
+  const [activeMenuFolderId, setActiveMenuFolderId] = useState<string | null>(null);
   
   const [isLightMode, setIsLightMode] = useState(() => {
     if (typeof propIsLightMode === 'boolean') return propIsLightMode;
@@ -103,6 +106,7 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
   useEffect(() => {
     if (isOpen) {
       setSearch('');
+      setSelectedFolderId(undefined);
       setShowCreateModal(false);
       setShowRenameModal(false);
       setCreatingParentFolder(null);
@@ -112,6 +116,12 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
       loadFolders();
     }
   }, [isOpen]);
+
+  const handleConfirmMove = (targetId?: string | null) => {
+    const destId = targetId !== undefined ? targetId : selectedFolderId;
+    if (destId === undefined) return;
+    onMove(destId);
+  };
 
   const toggleExpand = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -229,16 +239,21 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
           const hasChildren = folders.some(f => f.parentId === folder.id);
           const isExpanded = expandedFolders.has(folder.id);
           const childrenCount = folders.filter(f => f.parentId === folder.id).length;
+          const isSelected = selectedFolderId === folder.id;
 
           return (
             <div key={folder.id} className="flex flex-col">
               {/* Clean Streamlined Folder Row */}
               <div 
-                onClick={() => onMove(folder.id)}
-                className={`group relative flex items-center justify-between py-2 px-2.5 rounded-xl transition cursor-pointer active:scale-[0.99] ${
-                  isLightMode 
-                    ? 'hover:bg-[#f1f5f9] text-[#0f172a]' 
-                    : 'hover:bg-white/8 text-white'
+                onClick={() => setSelectedFolderId(folder.id)}
+                className={`group relative flex items-center justify-between py-2 px-2.5 rounded-xl transition cursor-pointer active:scale-[0.99] border ${
+                  isSelected
+                    ? isLightMode
+                      ? 'bg-[#eff6ff] text-[#2563eb] border-[#bfdbfe] shadow-2xs font-semibold'
+                      : 'bg-blue-500/20 text-blue-300 border-blue-500/30 font-semibold'
+                    : isLightMode 
+                      ? 'hover:bg-[#f1f5f9] text-[#0f172a] border-transparent' 
+                      : 'hover:bg-white/8 text-white border-transparent'
                 }`}
                 style={{ paddingLeft: `${depth * 1.25 + 0.6}rem` }}
               >
@@ -253,6 +268,7 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
                           ? 'hover:bg-black/10 text-slate-500 hover:text-[#0f172a]' 
                           : 'hover:bg-white/10 text-white/50 hover:text-white'
                       }`}
+                      title={isExpanded ? "收起子分类" : "展开子分类"}
                     >
                       <ChevronRight className={`w-3.5 h-3.5 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
                     </button>
@@ -265,69 +281,120 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
                   )}
 
                   <FolderIcon className={`w-4 h-4 shrink-0 stroke-[2] ${
-                    isLightMode ? 'text-[#3b82f6]' : 'text-blue-400'
+                    isSelected
+                      ? isLightMode ? 'text-[#2563eb]' : 'text-blue-400'
+                      : isLightMode ? 'text-[#3b82f6]' : 'text-blue-400'
                   }`} />
                   
-                  <span className={`font-medium text-sm truncate leading-tight ${
-                    isLightMode ? 'text-[#0f172a]' : 'text-white'
+                  <span className={`text-sm truncate leading-tight flex-1 ${
+                    isSelected ? 'font-bold' : 'font-medium'
                   }`}>
                     {folder.name}
                   </span>
 
+                  {isSelected && (
+                    <Check className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mr-1 stroke-[2.5]" />
+                  )}
+
                   {hasChildren && (
                     <span className={`text-[10.5px] px-1.5 py-0.2 rounded-full font-medium shrink-0 border ${
-                      isLightMode 
-                        ? 'bg-[#eff6ff] text-[#2563eb] border-[#dbeafe]' 
-                        : 'bg-white/10 text-slate-300 border-white/15'
+                      isSelected
+                        ? isLightMode ? 'bg-[#dbeafe] text-[#1d4ed8] border-[#bfdbfe]' : 'bg-blue-500/30 text-blue-200 border-blue-400/40'
+                        : isLightMode ? 'bg-[#eff6ff] text-[#2563eb] border-[#dbeafe]' : 'bg-white/10 text-slate-300 border-white/15'
                     }`}>
                       {childrenCount}
                     </span>
                   )}
                 </div>
 
-                {/* Right Action Icons: Add Subfolder (+), Rename (Edit), Delete (Trash) */}
-                <div className="flex items-center gap-0.5 shrink-0">
-                  {/* 新建子分类 */}
+                {/* Right Action Menu: More options (•••) */}
+                <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
                   <button
                     type="button"
-                    onClick={(e) => handleOpenCreateModal(folder, e)}
-                    className={`p-1.5 rounded-lg transition cursor-pointer active:scale-90 ${
-                      isLightMode 
-                        ? 'text-slate-400 hover:text-[#2563eb] hover:bg-[#eff6ff]' 
-                        : 'text-slate-400 hover:text-blue-300 hover:bg-blue-500/15'
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveMenuFolderId(activeMenuFolderId === folder.id ? null : folder.id);
+                    }}
+                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                      activeMenuFolderId === folder.id
+                        ? isLightMode ? 'bg-[#e2e8f0] text-[#0f172a]' : 'bg-white/20 text-white'
+                        : isLightMode 
+                          ? 'text-slate-400 hover:text-[#0f172a] hover:bg-[#f1f5f9]' 
+                          : 'text-white/40 hover:text-white hover:bg-white/10'
                     }`}
-                    title={`在「${folder.name}」下新建子分类`}
+                    title="文件夹管理"
                   >
-                    <Plus className="w-3.5 h-3.5 stroke-[2.2]" />
+                    <MoreVertical className="w-3.5 h-3.5" />
                   </button>
 
-                  {/* 重命名 */}
-                  <button
-                    type="button"
-                    onClick={(e) => handleOpenRenameModal(folder, e)}
-                    className={`p-1.5 rounded-lg transition cursor-pointer active:scale-90 ${
-                      isLightMode 
-                        ? 'text-slate-400 hover:text-[#0f172a] hover:bg-[#f1f5f9]' 
-                        : 'text-slate-400 hover:text-white hover:bg-white/10'
-                    }`}
-                    title="重命名"
-                  >
-                    <Edit2 className="w-3.5 h-3.5 stroke-[2]" />
-                  </button>
+                  {/* Pure Text Dropdown Menu */}
+                  <AnimatePresence>
+                    {activeMenuFolderId === folder.id && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-40" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveMenuFolderId(null);
+                          }} 
+                        />
+                        
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                          transition={{ duration: 0.15 }}
+                          className={`absolute right-0 top-full mt-1 z-50 min-w-[110px] rounded-2xl shadow-xl py-1.5 border backdrop-blur-xl ${
+                            isLightMode 
+                              ? 'bg-white/95 border-[#e2e8f0] text-[#0f172a] shadow-lg' 
+                              : 'bg-[#1e222d]/95 border-white/10 text-white shadow-2xl'
+                          }`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              setActiveMenuFolderId(null);
+                              handleOpenCreateModal(folder, e);
+                            }}
+                            className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer ${
+                              isLightMode ? 'hover:bg-[#f1f5f9] text-[#334155]' : 'hover:bg-white/10 text-slate-200'
+                            }`}
+                          >
+                            新建子分类
+                          </button>
 
-                  {/* 删除 */}
-                  <button
-                    type="button"
-                    onClick={(e) => handleDeleteFolder(folder, e)}
-                    className={`p-1.5 rounded-lg transition cursor-pointer active:scale-90 ${
-                      isLightMode 
-                        ? 'text-slate-400 hover:text-[#dc2626] hover:bg-[#fef2f2]' 
-                        : 'text-slate-400 hover:text-red-400 hover:bg-red-500/15'
-                    }`}
-                    title="删除分类"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 stroke-[2]" />
-                  </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              setActiveMenuFolderId(null);
+                              handleOpenRenameModal(folder, e);
+                            }}
+                            className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer ${
+                              isLightMode ? 'hover:bg-[#f1f5f9] text-[#334155]' : 'hover:bg-white/10 text-slate-200'
+                            }`}
+                          >
+                            重命名
+                          </button>
+
+                          <div className={`my-1 border-t ${isLightMode ? 'border-[#f1f5f9]' : 'border-white/10'}`} />
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              setActiveMenuFolderId(null);
+                              handleDeleteFolder(folder, e);
+                            }}
+                            className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer text-red-500 ${
+                              isLightMode ? 'hover:bg-red-50' : 'hover:bg-red-500/15'
+                            }`}
+                          >
+                            删除分类
+                          </button>
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
                 </div>
               </div>
 
@@ -442,16 +509,23 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
 
                 <button
                   type="button"
-                  onClick={() => onMove(null)}
+                  onClick={() => setSelectedFolderId(null)}
                   className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border font-semibold text-xs transition active:scale-95 cursor-pointer shadow-xs ${
-                    isLightMode 
-                      ? 'bg-[#f8fafc] hover:bg-[#f1f5f9] text-[#334155] border-[#cbd5e1]' 
-                      : 'bg-white/5 hover:bg-white/10 text-slate-200 border-white/10'
+                    selectedFolderId === null
+                      ? isLightMode
+                        ? 'bg-[#eff6ff] text-[#2563eb] border-[#bfdbfe] ring-2 ring-blue-500/20 shadow-xs'
+                        : 'bg-blue-500/20 text-blue-300 border-blue-500/40 ring-2 ring-blue-500/30 shadow-xs'
+                      : isLightMode 
+                        ? 'bg-[#f8fafc] hover:bg-[#f1f5f9] text-[#334155] border-[#cbd5e1]' 
+                        : 'bg-white/5 hover:bg-white/10 text-slate-200 border-white/10'
                   }`}
-                  title="移出所有文件夹，放置于卡库主页"
+                  title="选择主页根目录"
                 >
-                  <Home className="w-4 h-4 shrink-0 opacity-70" />
+                  <Home className={`w-4 h-4 shrink-0 ${selectedFolderId === null ? 'text-blue-600 dark:text-blue-400' : 'opacity-70'}`} />
                   <span>主页 (根目录)</span>
+                  {selectedFolderId === null && (
+                    <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 stroke-[2.5]" />
+                  )}
                 </button>
               </div>
             )}
@@ -460,81 +534,141 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
             {filteredFolders ? (
               filteredFolders.length > 0 ? (
                 <div className="space-y-1">
-                  {filteredFolders.map(folder => (
-                    <div
-                      key={folder.id}
-                      onClick={() => onMove(folder.id)}
-                      className={`group flex items-center justify-between p-2.5 rounded-xl transition cursor-pointer active:scale-[0.99] ${
-                        isLightMode 
-                          ? 'hover:bg-[#f1f5f9] text-[#0f172a]' 
-                          : 'hover:bg-white/8 text-white'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
-                        <FolderIcon className={`w-4 h-4 shrink-0 stroke-[2] ${
-                          isLightMode ? 'text-[#3b82f6]' : 'text-blue-400'
-                        }`} />
-                        <div className="min-w-0">
-                          <div className={`font-medium text-sm truncate ${
-                            isLightMode ? 'text-[#0f172a]' : 'text-white'
-                          }`}>
-                            {folder.name}
-                          </div>
-                          {folderPathMap[folder.id] && folderPathMap[folder.id] !== folder.name && (
-                            <div className={`text-[11px] truncate flex items-center gap-1 mt-0.5 ${
-                              isLightMode ? 'text-slate-400' : 'text-white/40'
+                  {filteredFolders.map(folder => {
+                    const isSelected = selectedFolderId === folder.id;
+                    return (
+                      <div
+                        key={folder.id}
+                        onClick={() => setSelectedFolderId(folder.id)}
+                        className={`group flex items-center justify-between p-2.5 rounded-xl transition cursor-pointer active:scale-[0.99] border ${
+                          isSelected
+                            ? isLightMode
+                              ? 'bg-[#eff6ff] text-[#2563eb] border-[#bfdbfe] shadow-2xs font-semibold'
+                              : 'bg-blue-500/20 text-blue-300 border-blue-500/30 font-semibold'
+                            : isLightMode 
+                              ? 'hover:bg-[#f1f5f9] text-[#0f172a] border-transparent' 
+                              : 'hover:bg-white/8 text-white border-transparent'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
+                          <FolderIcon className={`w-4 h-4 shrink-0 stroke-[2] ${
+                            isSelected
+                              ? isLightMode ? 'text-[#2563eb]' : 'text-blue-400'
+                              : isLightMode ? 'text-[#3b82f6]' : 'text-blue-400'
+                          }`} />
+                          <div className="min-w-0 flex-1">
+                            <div className={`text-sm truncate ${
+                              isSelected ? 'font-bold' : 'font-medium'
                             }`}>
-                              <span>{folderPathMap[folder.id]}</span>
+                              {folder.name}
                             </div>
+                            {folderPathMap[folder.id] && folderPathMap[folder.id] !== folder.name && (
+                              <div className={`text-[11px] truncate flex items-center gap-1 mt-0.5 ${
+                                isSelected
+                                  ? isLightMode ? 'text-blue-500' : 'text-blue-300/70'
+                                  : isLightMode ? 'text-slate-400' : 'text-white/40'
+                              }`}>
+                                <span>{folderPathMap[folder.id]}</span>
+                              </div>
+                            )}
+                          </div>
+                          {isSelected && (
+                            <Check className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mr-1 stroke-[2.5]" />
                           )}
                         </div>
+
+                        {/* Right Action Menu: More options (•••) */}
+                        <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveMenuFolderId(activeMenuFolderId === folder.id ? null : folder.id);
+                            }}
+                            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                              activeMenuFolderId === folder.id
+                                ? isLightMode ? 'bg-[#e2e8f0] text-[#0f172a]' : 'bg-white/20 text-white'
+                                : isLightMode 
+                                  ? 'text-slate-400 hover:text-[#0f172a] hover:bg-[#f1f5f9]' 
+                                  : 'text-white/40 hover:text-white hover:bg-white/10'
+                            }`}
+                            title="文件夹管理"
+                          >
+                            <MoreVertical className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Pure Text Dropdown Menu */}
+                          <AnimatePresence>
+                            {activeMenuFolderId === folder.id && (
+                              <>
+                                <div 
+                                  className="fixed inset-0 z-40" 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveMenuFolderId(null);
+                                  }} 
+                                />
+                                
+                                <motion.div
+                                  initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                                  exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                                  transition={{ duration: 0.15 }}
+                                  className={`absolute right-0 top-full mt-1 z-50 min-w-[110px] rounded-2xl shadow-xl py-1.5 border backdrop-blur-xl ${
+                                    isLightMode 
+                                      ? 'bg-white/95 border-[#e2e8f0] text-[#0f172a] shadow-lg' 
+                                      : 'bg-[#1e222d]/95 border-white/10 text-white shadow-2xl'
+                                  }`}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      setActiveMenuFolderId(null);
+                                      handleOpenCreateModal(folder, e);
+                                    }}
+                                    className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer ${
+                                      isLightMode ? 'hover:bg-[#f1f5f9] text-[#334155]' : 'hover:bg-white/10 text-slate-200'
+                                    }`}
+                                  >
+                                    新建子分类
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      setActiveMenuFolderId(null);
+                                      handleOpenRenameModal(folder, e);
+                                    }}
+                                    className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer ${
+                                      isLightMode ? 'hover:bg-[#f1f5f9] text-[#334155]' : 'hover:bg-white/10 text-slate-200'
+                                    }`}
+                                  >
+                                    重命名
+                                  </button>
+
+                                  <div className={`my-1 border-t ${isLightMode ? 'border-[#f1f5f9]' : 'border-white/10'}`} />
+
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      setActiveMenuFolderId(null);
+                                      handleDeleteFolder(folder, e);
+                                    }}
+                                    className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer text-red-500 ${
+                                      isLightMode ? 'hover:bg-red-50' : 'hover:bg-red-500/15'
+                                    }`}
+                                  >
+                                    删除分类
+                                  </button>
+                                </motion.div>
+                              </>
+                            )}
+                          </AnimatePresence>
+                        </div>
                       </div>
-
-                      <div className="flex items-center gap-0.5 shrink-0">
-                        {/* 新建子分类 */}
-                        <button
-                          type="button"
-                          onClick={(e) => handleOpenCreateModal(folder, e)}
-                          className={`p-1.5 rounded-lg transition cursor-pointer active:scale-90 ${
-                            isLightMode 
-                              ? 'text-slate-400 hover:text-[#2563eb] hover:bg-[#eff6ff]' 
-                              : 'text-slate-400 hover:text-blue-300 hover:bg-blue-500/15'
-                          }`}
-                          title={`在「${folder.name}」下新建子分类`}
-                        >
-                          <Plus className="w-3.5 h-3.5 stroke-[2.2]" />
-                        </button>
-
-                        {/* 重命名 */}
-                        <button
-                          type="button"
-                          onClick={(e) => handleOpenRenameModal(folder, e)}
-                          className={`p-1.5 rounded-lg transition cursor-pointer active:scale-90 ${
-                            isLightMode 
-                              ? 'text-slate-400 hover:text-[#0f172a] hover:bg-[#f1f5f9]' 
-                              : 'text-slate-400 hover:text-white hover:bg-white/10'
-                          }`}
-                          title="重命名"
-                        >
-                          <Edit2 className="w-3.5 h-3.5 stroke-[2]" />
-                        </button>
-
-                        {/* 删除 */}
-                        <button
-                          type="button"
-                          onClick={(e) => handleDeleteFolder(folder, e)}
-                          className={`p-1.5 rounded-lg transition cursor-pointer active:scale-90 ${
-                            isLightMode 
-                              ? 'text-slate-400 hover:text-[#dc2626] hover:bg-[#fef2f2]' 
-                              : 'text-slate-400 hover:text-red-400 hover:bg-red-500/15'
-                          }`}
-                          title="删除分类"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 stroke-[2]" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className={`py-12 text-center text-xs ${
@@ -552,6 +686,60 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
             ) : (
               renderFolderOptions(null, 0)
             )}
+          </div>
+
+          {/* Bottom Action Footer matching file managers */}
+          <div className={`p-3.5 sm:p-4 border-t flex items-center justify-between gap-3 shrink-0 ${
+            isLightMode ? 'bg-[#f8fafc] border-[#e2e8f0]' : 'bg-[#161922] border-white/10'
+          }`}>
+            <div className="min-w-0 flex-1">
+              <div className={`text-[11px] font-medium truncate ${
+                isLightMode ? 'text-slate-400' : 'text-white/40'
+              }`}>
+                目标位置:
+              </div>
+              <div className={`text-xs sm:text-sm font-bold truncate mt-0.5 ${
+                selectedFolderId === undefined
+                  ? isLightMode ? 'text-slate-400 italic' : 'text-white/40 italic'
+                  : selectedFolderId === null
+                    ? isLightMode ? 'text-blue-600' : 'text-blue-400'
+                    : isLightMode ? 'text-[#0f172a]' : 'text-white'
+              }`}>
+                {selectedFolderId === undefined
+                  ? '请点击选择目标分类'
+                  : selectedFolderId === null
+                    ? '主页 (根目录)'
+                    : folderPathMap[selectedFolderId] || '已选分类'}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={onClose}
+                className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition cursor-pointer active:scale-95 border ${
+                  isLightMode
+                    ? 'bg-white hover:bg-[#f1f5f9] text-[#334155] border-[#cbd5e1]'
+                    : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                }`}
+              >
+                取消
+              </button>
+
+              <button
+                type="button"
+                disabled={selectedFolderId === undefined}
+                onClick={() => handleConfirmMove()}
+                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95 disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none ${
+                  isLightMode
+                    ? 'bg-[#2563eb] hover:bg-[#1d4ed8] text-white shadow-blue-500/20'
+                    : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/30'
+                }`}
+              >
+                <Check className="w-4 h-4 stroke-[2.5]" />
+                <span>确认移动</span>
+              </button>
+            </div>
           </div>
         </motion.div>
 

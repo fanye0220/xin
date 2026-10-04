@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Sparkles, ChevronRight, RefreshCw, Loader2, ArrowLeft } from 'lucide-react';
+import { X, Sparkles, ChevronRight, RefreshCw, Loader2, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { CharacterCard, saveCharacter, getCharacter } from '../lib/db';
 import { generateSummaryForCharacter } from '../lib/ai';
 import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
@@ -20,6 +20,7 @@ export function CharacterSummaryModal({
   onClose,
   onOpenDetail,
   onSummaryUpdated,
+  isLightMode,
 }: Props) {
   useBackHandler(true, () => {
     onClose();
@@ -28,6 +29,20 @@ export function CharacterSummaryModal({
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentSummary, setCurrentSummary] = useState<string>('');
+
+  const [showSummaryPopup, setShowSummaryPopup] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return localStorage.getItem('miu_show_summary_popup') !== 'false';
+  });
+
+  const isLight = isLightMode ?? (typeof document !== 'undefined' && (document.documentElement.classList.contains('light-theme') || document.body.classList.contains('light-theme')));
+
+  const handleToggleSummaryPopup = () => {
+    const next = !showSummaryPopup;
+    setShowSummaryPopup(next);
+    localStorage.setItem('miu_show_summary_popup', next ? 'true' : 'false');
+    window.dispatchEvent(new CustomEvent('summaryPopupSettingChanged', { detail: { enabled: next } }));
+  };
 
   const charData = character.data?.data || character.data || {};
   const name = character.name || charData.name || charData.char_name || '未命名角色';
@@ -176,19 +191,50 @@ export function CharacterSummaryModal({
 
         {/* Card Body - AI Summary Content matching Detail Card */}
         <div className="p-4 sm:p-6 space-y-3 sm:space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-amber-400 [.light-theme_&]:!text-amber-600">
               <span>角色简介</span>
             </div>
-            <button
-              onClick={handleRegenerateSummary}
-              disabled={isGenerating}
-              className="text-xs text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-slate-900 transition-colors cursor-pointer disabled:opacity-40 border-0 outline-none bg-transparent p-0 flex items-center gap-1 hover:underline"
-              title="重新生成总结"
-            >
-              {isGenerating && <Loader2 className="w-3 h-3 animate-spin" />}
-              <span>{isGenerating ? "正在重新总结..." : "重新总结"}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleRegenerateSummary}
+                disabled={isGenerating}
+                className="text-xs text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-slate-900 transition-colors cursor-pointer disabled:opacity-40 border-0 outline-none bg-transparent p-0 flex items-center gap-1 hover:underline"
+                title="重新生成总结"
+              >
+                {isGenerating && <Loader2 className="w-3 h-3 animate-spin" />}
+                <span>{isGenerating ? "正在重新总结..." : "重新总结"}</span>
+              </button>
+
+              <span className="text-white/20 [.light-theme_&]:!text-slate-300 text-xs select-none">·</span>
+
+              {/* 简介菜单开关：控制卡库点击卡片时是否优先弹出简介弹窗 */}
+              <button
+                type="button"
+                onClick={handleToggleSummaryPopup}
+                className={`text-[11px] sm:text-xs px-2.5 py-1 rounded-full transition-all flex items-center gap-1.5 cursor-pointer border font-medium active:scale-95 ${isLight
+                  ? showSummaryPopup
+                    ? 'bg-[#eff6ff] hover:bg-[#dbeafe] text-[#2563eb] border-[#bfdbfe]'
+                    : 'bg-[#f8fafc] hover:bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]'
+                  : showSummaryPopup
+                    ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
+                    : 'bg-white/5 hover:bg-white/10 text-white/50 border-white/10'
+                }`}
+                title={showSummaryPopup ? "简介一级菜单：已开启（卡库点击卡片优先展示简介）。点击可关闭全局简介弹窗，直接进入详情页。" : "简介一级菜单：已关闭（卡库点击卡片将直接进入详情页）。点击可重新开启全局简介弹窗。"}
+              >
+                {showSummaryPopup ? (
+                  <>
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>简介菜单</span>
+                  </>
+                ) : (
+                  <>
+                    <EyeOff className="w-3.5 h-3.5 opacity-60" />
+                    <span className="line-through opacity-70">简介菜单</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           <div className="detail-card p-4 rounded-2xl min-h-[100px] max-h-[220px] overflow-y-auto custom-scrollbar relative">
