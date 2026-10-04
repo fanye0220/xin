@@ -1735,7 +1735,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
           if (errors.length > 0) {
             setImportErrors(errors);
           } else {
-            setError("未能成功导入任何文件。");
+            setError("未能成功导入任何角色卡或关联数据。");
           }
           return;
         }
@@ -1743,10 +1743,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
         await cleanupEmptyFolders();
         setProgress(null);
 
-        if (errors.length > 0) {
-          setImportErrors(errors);
-        }
-
+        // 如果部分辅助文件有轻微错误，但在已导入成功卡片时不阻断主结算界面
         if (importedCardsTokens.length > 0) {
           const totalTokens = importedCardsTokens.reduce((sum, item) => sum + item.breakdown.totalTokens, 0);
           setImportTokenSummary({
@@ -1889,7 +1886,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                 </div>
               ) : (
                 <h2 className="text-base sm:text-lg font-bold text-slate-100 [.light-theme_&]:!text-[#0f172a]">
-                  {autoCategorizedSummary ? "导入完成" : (importTokenSummary ? "导入完成 · Token 分析" : (progress ? "正在导入" : "导入角色卡"))}
+                  {autoCategorizedSummary ? "导入完成" : (importTokenSummary ? "导入完成" : (progress ? "正在导入" : "导入角色卡"))}
                 </h2>
               )}
 
@@ -1897,7 +1894,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                 {(!progress || tavernMode) && (
                   <button
                     onClick={onClose}
-                    className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center transition cursor-pointer bg-white/10 hover:bg-white/15 text-white/60 hover:text-white border-0 [.light-theme_&]:!bg-white [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:active:!bg-[#e2e8f0] [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:!border [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!shadow-2xs"
+                    className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center transition cursor-pointer bg-white/10 hover:bg-white/20 text-white/90 hover:text-white border border-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:active:!bg-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!shadow-2xs"
                     title="关闭"
                   >
                     <X className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -1909,9 +1906,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             {/* Main Content Body */}
             {autoCategorizedSummary ? (
               <div className="py-2 flex flex-col flex-1 min-h-0">
-                <div className="flex items-center gap-3 text-emerald-500 mb-3.5 shrink-0">
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center">
-                    <CheckCircle className="w-5 h-5 text-emerald-500" />
+                <div className="flex items-center gap-3 mb-3.5 shrink-0">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[#34C759]/15 border border-[#34C759]/30 flex items-center justify-center shrink-0">
+                    <CheckCircle className="w-5 h-5 text-[#34C759]" />
                   </div>
                   <div>
                     <h3 className="font-bold text-base sm:text-lg text-slate-100 [.light-theme_&]:!text-[#0f172a]">导入完成</h3>
@@ -1919,9 +1916,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   </div>
                 </div>
 
-                <div className={`rounded-2xl p-4 mb-4 shrink-0 border ${
-                  isLightMode ? 'bg-blue-50/80 border-blue-200/80 text-blue-900' : 'bg-blue-500/10 border-blue-500/20 text-blue-300'
-                }`}>
+                <div className="rounded-2xl p-4 mb-4 shrink-0 border bg-blue-500/10 border-blue-500/20 text-blue-300 [.light-theme_&]:!bg-blue-50/80 [.light-theme_&]:!border-blue-200/80 [.light-theme_&]:!text-blue-900">
                   <div className="flex items-center gap-2 text-xs sm:text-sm font-bold mb-1.5">
                     <Folder className="w-4 h-4 text-blue-500 shrink-0" />
                     <span>检测到同名角色卡，已自动归入已有分类：</span>
@@ -1931,9 +1926,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   </p>
                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
                     {autoCategorizedSummary.map((item, idx) => (
-                      <div key={idx} className={`flex items-center justify-between text-xs sm:text-sm p-3 rounded-xl border ${
-                        isLightMode ? 'bg-[#f8fafc] border-[#f1f5f9] text-slate-800' : 'bg-black/30 border-white/10 text-white'
-                      }`}>
+                      <div key={idx} className="flex items-center justify-between text-xs sm:text-sm p-3 rounded-xl border bg-black/30 border-white/10 text-white [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]">
                         <div className="min-w-0 flex-1 mr-2">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold truncate block text-white [.light-theme_&]:!text-[#0f172a]">{item.charName}</span>
@@ -1941,18 +1934,14 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                               <button
                                 type="button"
                                 onClick={() => setSelectedTokenBreakdown({ name: item.charName, breakdown: item.breakdown! })}
-                                className={`text-[10px] font-mono px-2 py-0.5 rounded-full border transition active:scale-95 shrink-0 cursor-pointer font-medium select-none shadow-xs ${
-                                  isLightMode
-                                    ? "bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300"
-                                    : "bg-white/10 border-white/15 text-white/90 hover:bg-white/15"
-                                }`}
+                                className="text-[10px] font-mono px-2 py-0.5 rounded-md border transition active:scale-95 shrink-0 cursor-pointer bg-white/10 border-white/15 text-white/80 hover:bg-white/20 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#334155] [.light-theme_&]:hover:!bg-[#e2e8f0]"
                                 title="点击查看 Token 详情"
                               >
                                 <span>{formatTokenCount(item.breakdown.totalTokens)} T</span>
                               </button>
                             )}
                           </div>
-                          <span className={`text-xs truncate block mt-0.5 ${isLightMode ? 'text-blue-600' : 'text-blue-300'}`}>📁 {item.folderPath}</span>
+                          <span className="text-xs truncate block mt-0.5 text-blue-300 [.light-theme_&]:!text-[#007aff] font-medium">📁 {item.folderPath}</span>
                         </div>
                         {onNavigateFolder && (
                           <button
@@ -1962,7 +1951,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                               setAutoCategorizedSummary(null);
                               onClose();
                             }}
-                            className="px-3 py-1.5 text-xs bg-blue-500/15 hover:bg-blue-500/25 text-blue-600 [.light-theme_&]:text-blue-700 rounded-lg shrink-0 font-semibold transition flex items-center gap-1 active:scale-95 cursor-pointer"
+                            className="px-3 py-1.5 text-xs bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 rounded-xl shrink-0 font-semibold transition flex items-center gap-1 active:scale-95 cursor-pointer [.light-theme_&]:!bg-[#007aff]/10 [.light-theme_&]:hover:!bg-[#007aff]/20 [.light-theme_&]:!text-[#007aff]"
                           >
                             <span>前往文件夹</span>
                             <ArrowRight className="w-3.5 h-3.5" />
@@ -2021,22 +2010,18 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             ) : importTokenSummary ? (
               <div className="py-1 flex flex-col flex-1 min-h-0 overflow-hidden">
                 {/* Success Banner */}
-                <div className="flex items-center gap-3 text-emerald-500 mb-3 shrink-0">
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center shrink-0">
-                    <CheckCircle className="w-5 h-5 text-emerald-500" />
+                <div className="flex items-center gap-3 mb-3 shrink-0">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[#34C759]/15 border border-[#34C759]/30 flex items-center justify-center shrink-0">
+                    <Check className="w-5 h-5 text-[#34C759] stroke-[2.5]" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-bold text-base sm:text-lg text-slate-100 [.light-theme_&]:!text-[#0f172a]">
                         导入成功
                       </h3>
-                      <span className={`px-2.5 py-0.5 rounded-full border text-xs font-mono font-medium flex items-center gap-1.5 shadow-2xs ${
-                        isLightMode
-                          ? "bg-white border-slate-200 text-slate-700"
-                          : "bg-white/10 border-white/15 text-white/90"
-                      }`}>
-                        <FileText className={`w-3.5 h-3.5 ${isLightMode ? "text-slate-500" : "text-white/70"}`} />
-                        总计 {formatTokenCount(importTokenSummary.totalTokens)} T
+                      <span className="px-2.5 py-1 rounded-full border text-xs font-mono font-bold flex items-center gap-1.5 shadow-2xs bg-slate-800 border-slate-700 text-slate-100 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]">
+                        <FileText className="w-3.5 h-3.5 text-slate-400 [.light-theme_&]:!text-[#0f172a]" />
+                        <span>总计 {formatTokenCount(importTokenSummary.totalTokens)} T</span>
                       </span>
                     </div>
                     <p className="text-xs text-slate-100/60 [.light-theme_&]:!text-slate-500 mt-0.5">
@@ -2048,17 +2033,13 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                 {/* Search Bar if multiple cards */}
                 {importTokenSummary.items.length > 3 && (
                   <div className="mb-2.5 shrink-0 relative">
-                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-white/40 [.light-theme_&]:!text-slate-400" />
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-white/40 [.light-theme_&]:!text-[#64748b]" />
                     <input
                       type="text"
                       value={tokenSearchQuery}
                       onChange={(e) => setTokenSearchQuery(e.target.value)}
                       placeholder="搜索本次导入卡片..."
-                      className={`w-full pl-8 pr-3 py-1.5 rounded-xl text-xs outline-none border transition ${
-                        isLightMode
-                          ? "bg-slate-50 border-slate-200 text-slate-800 focus:border-blue-500"
-                          : "bg-white/5 border-white/10 text-white focus:border-blue-500/50"
-                      }`}
+                      className="w-full pl-8 pr-3 py-2 rounded-xl text-xs outline-none border transition bg-white/5 border-white/10 text-white focus:border-blue-500/50 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#94a3b8] [.light-theme_&]:focus:!border-[#007aff]"
                     />
                   </div>
                 )}
@@ -2074,14 +2055,10 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     .map((item, idx) => (
                       <div
                         key={idx}
-                        className={`flex items-center justify-between gap-3 p-3 rounded-2xl border transition ${
-                          isLightMode
-                            ? "bg-slate-50/80 border-slate-200/80 hover:bg-slate-100/80"
-                            : "bg-white/5 border-white/10 hover:bg-white/8"
-                        }`}
+                        className="flex items-center justify-between gap-3 p-3 rounded-2xl border transition bg-white/5 border-white/10 hover:bg-white/8 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!bg-[#f8fafc]"
                       >
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                          <div className="w-10 h-10 rounded-xl overflow-hidden bg-white/10 shrink-0 relative border border-white/10">
+                          <div className="w-10 h-10 rounded-xl overflow-hidden bg-white/10 shrink-0 relative border border-white/10 [.light-theme_&]:!border-[#e2e8f0]">
                             {item.avatarBlob ? (
                               <img
                                 src={URL.createObjectURL(item.avatarBlob)}
@@ -2108,19 +2085,15 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                                       breakdown: item.breakdown,
                                     })
                                   }
-                                  className={`text-[10px] font-mono px-1.5 py-0.2 rounded border shrink-0 transition active:scale-95 cursor-pointer ${
-                                    isLightMode
-                                      ? "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                                      : "bg-white/10 border-white/15 text-white/80 hover:bg-white/15"
-                                  }`}
-                                  title="点击查看 Token 分析"
+                                  className="text-[10px] font-mono px-2 py-0.5 rounded-md border shrink-0 transition active:scale-95 cursor-pointer bg-white/10 border-white/15 text-white/80 hover:bg-white/20 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#334155] [.light-theme_&]:hover:!bg-[#e2e8f0]"
+                                  title="点击查看 Token 详细拆解"
                                 >
                                   {formatTokenCount(item.breakdown.totalTokens)} T
                                 </button>
                               )}
                             </div>
-                            <div className="flex items-center gap-1.5 text-[11px] text-white/50 [.light-theme_&]:!text-slate-500 mt-0.5 truncate">
-                              <span className="font-medium text-blue-500 [.light-theme_&]:text-blue-600 truncate">📁 {item.folderPath}</span>
+                            <div className="flex items-center gap-1.5 text-[11px] text-white/50 [.light-theme_&]:!text-[#64748b] mt-0.5 truncate">
+                              <span className="font-medium text-blue-400 [.light-theme_&]:!text-[#007aff] truncate">📁 {item.folderPath}</span>
                               {item.breakdown.totalCharCount > 0 && (
                                 <span>· {item.breakdown.totalCharCount}字</span>
                               )}
@@ -2138,7 +2111,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                                 setImportTokenSummary(null);
                                 onClose();
                               }}
-                              className="px-3 py-1.5 text-xs bg-blue-500/15 hover:bg-blue-500/25 text-blue-500 [.light-theme_&]:text-blue-600 rounded-xl shrink-0 font-semibold transition flex items-center gap-1 active:scale-95 cursor-pointer"
+                              className="px-3.5 py-1.5 text-xs bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 rounded-xl shrink-0 font-semibold transition flex items-center gap-1 active:scale-95 cursor-pointer [.light-theme_&]:!bg-[#007aff]/10 [.light-theme_&]:hover:!bg-[#007aff]/20 [.light-theme_&]:!text-[#007aff]"
                               title="前往目标文件夹"
                             >
                               <span>前往文件夹</span>
@@ -2151,9 +2124,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                 </div>
 
                 {/* Footer Buttons */}
-                <div className={`flex gap-2.5 mt-3 pt-2.5 border-t shrink-0 ${
-                  isLightMode ? "border-slate-200" : "border-white/10"
-                }`}>
+                <div className="flex gap-2.5 mt-3 pt-2.5 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0] shrink-0">
                   <button
                     type="button"
                     onClick={() => {
@@ -2161,7 +2132,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                       setAutoCategorizedSummary(null);
                       onClose();
                     }}
-                    className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-xs sm:text-sm font-bold transition shadow-md shadow-blue-500/20 cursor-pointer text-center"
+                    className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-xs sm:text-sm font-bold transition shadow-md shadow-blue-500/20 cursor-pointer text-center [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:hover:!bg-[#0062cc] [.light-theme_&]:!text-white"
                   >
                     完成并进入卡库
                   </button>
@@ -2366,39 +2337,54 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                 </div>
               );
             })() : importErrors.length > 0 ? (
-              <div className="py-4 flex flex-col max-h-[60vh]">
-                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex-1 overflow-y-auto">
-                  <div className="flex items-center gap-2 text-red-400 mb-3 sticky top-0 bg-slate-900/90 backdrop-blur-sm py-1">
-                    <AlertCircle className="w-5 h-5" />
-                    <h3 className="font-bold">
-                      部分文件导入失败 ({importErrors.length})
+              <div className="py-3 flex flex-col flex-1 min-h-0">
+                <div className="bg-red-500/10 border border-red-500/20 [.light-theme_&]:!bg-red-50 [.light-theme_&]:!border-red-200 rounded-2xl p-4 flex-1 overflow-y-auto custom-scrollbar">
+                  <div className="flex items-center gap-2 text-red-400 [.light-theme_&]:!text-red-600 mb-3 sticky top-0 py-1 font-bold text-sm sm:text-base">
+                    <AlertCircle className="w-5 h-5 shrink-0" />
+                    <h3>
+                      文件解析提示 ({importErrors.length} 个文件无法作为角色卡解析)
                     </h3>
                   </div>
-                  <ul className="space-y-2 text-sm text-red-300/80">
+                  <p className="text-xs text-red-300/80 [.light-theme_&]:!text-red-700/80 mb-3 leading-relaxed">
+                    未能在以下文件中读取到标准的 Tavern / 酒馆角色卡元数据。如果是常规图片或非角色卡文件，系统已为您过滤：
+                  </p>
+                  <ul className="space-y-2 text-xs sm:text-sm">
                     {importErrors.map((err, i) => (
                       <li
                         key={i}
-                        className="flex flex-col bg-black/20 p-2 rounded"
+                        className="flex flex-col bg-black/20 border border-white/5 [.light-theme_&]:!bg-white [.light-theme_&]:!border-red-100 p-2.5 rounded-xl"
                       >
-                        <span className="font-medium text-red-300 truncate">
+                        <span className="font-semibold text-red-300 [.light-theme_&]:!text-red-800 truncate">
                           {err.file}
                         </span>
-                        <span className="text-xs opacity-80 mt-0.5">
+                        <span className="text-xs text-red-200/70 [.light-theme_&]:!text-red-600/80 mt-0.5">
                           {err.error}
                         </span>
                       </li>
                     ))}
                   </ul>
                 </div>
-                <button
-                  onClick={() => {
-                    setImportErrors([]);
-                    onClose();
-                  }}
-                  className="w-full mt-4 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition"
-                >
-                  关闭
-                </button>
+                <div className="flex gap-2.5 mt-3 pt-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportErrors([]);
+                    }}
+                    className="flex-1 py-3 px-4 bg-white/10 hover:bg-white/15 text-white/90 rounded-2xl text-xs sm:text-sm font-semibold transition cursor-pointer [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border [.light-theme_&]:!border-[#e2e8f0]"
+                  >
+                    重新选择文件
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportErrors([]);
+                      onClose();
+                    }}
+                    className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-xs sm:text-sm font-bold transition cursor-pointer"
+                  >
+                    知道了 / 关闭
+                  </button>
+                </div>
               </div>
             ) : progress ? (
               <div className="py-4 sm:py-6 flex flex-col items-center justify-center text-center">

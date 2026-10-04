@@ -300,6 +300,24 @@ export function CharacterList({
       }
     };
   }, [propIsLightMode]);
+  const [showMainTokens, setShowMainTokens] = useState<boolean>(() => {
+    return typeof localStorage !== "undefined" && localStorage.getItem("miu_show_main_page_tokens") !== "false";
+  });
+
+  useEffect(() => {
+    const handleTokenVisChanged = (e: any) => {
+      if (e.detail && typeof e.detail.show === "boolean") {
+        setShowMainTokens(e.detail.show);
+      } else if (typeof localStorage !== "undefined") {
+        setShowMainTokens(localStorage.getItem("miu_show_main_page_tokens") !== "false");
+      }
+    };
+    window.addEventListener("mainPageTokensVisibilityChanged", handleTokenVisChanged);
+    return () => {
+      window.removeEventListener("mainPageTokensVisibilityChanged", handleTokenVisChanged);
+    };
+  }, []);
+
   const [characters, setCharacters] = useState<CharacterCard[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [paginatedFolders, setPaginatedFolders] = useState<Folder[]>([]);
@@ -3142,6 +3160,7 @@ export function CharacterList({
                         selectionMode={selectionMode}
                         isSelected={selectedIds.has(char.id)}
                         viewMode={viewMode}
+                        showMainTokens={showMainTokens}
                         onClick={() => {
                           if (selectionMode) toggleSelection(char.id);
                           else onSelect(char.id);
@@ -3181,6 +3200,7 @@ export function CharacterList({
                         selectionMode={selectionMode}
                         isSelected={selectedIds.has(char.id)}
                         viewMode={viewMode}
+                        showMainTokens={showMainTokens}
                         onClick={() => {
                           if (selectionMode) toggleSelection(char.id);
                           else onSelect(char.id);
@@ -3737,6 +3757,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   selectionMode,
   isSelected,
   viewMode,
+  showMainTokens = true,
 }: {
   key?: React.Key;
   char: CharacterCard;
@@ -3747,6 +3768,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   selectionMode: boolean;
   isSelected: boolean;
   viewMode: "grid" | "list" | "masonry";
+  showMainTokens?: boolean;
 }) {
   const defaultFallback = getFallbackAvatar(char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
   const initialUrl = resolveAvatarUrl(char.avatarUrlFallback, char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
@@ -3977,7 +3999,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
                 <span>{badgeInfo.label}</span>
               </span>
             )}
-            {!badgeInfo && char.tokenCount !== undefined && char.tokenCount > 0 && (
+            {showMainTokens && !badgeInfo && char.tokenCount !== undefined && char.tokenCount > 0 && (
               <button
                 type="button"
                 onClick={(e) => {
@@ -4112,7 +4134,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
         </div>
       )}
 
-      {!badgeInfo && char.tokenCount !== undefined && char.tokenCount > 0 && (
+      {showMainTokens && !badgeInfo && char.tokenCount !== undefined && char.tokenCount > 0 && (
         <button
           type="button"
           onClick={(e) => {
@@ -4153,6 +4175,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   );
 },
 (prevProps, nextProps) => {
+  if (prevProps.showMainTokens !== nextProps.showMainTokens) return false;
   if (prevProps.viewMode !== nextProps.viewMode) return false;
   if (prevProps.selectionMode !== nextProps.selectionMode) return false;
   if (prevProps.isSelected !== nextProps.isSelected) return false;
