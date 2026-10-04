@@ -6,7 +6,7 @@ import { CloudSyncTab } from './CloudSyncTab';
 import { SidebarWallpaperTab } from './SidebarWallpaperTab';
 import { useSidebarWallpaper, saveSidebarWallpaperConfig } from '../lib/sidebarWallpaper';
 import { useBackHandler } from '../lib/useBackHandler';
-import { isAndroid } from '../lib/appBridge';
+import { isAndroid, openExternalUrl } from '../lib/appBridge';
 import { CURRENT_APP_VERSION } from '../config/version';
 
 interface Props {
@@ -538,7 +538,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
                         {updateResult.downloadUrl && (
                           <a
                             href={updateResult.downloadUrl}
-                            target="_blank"
+                            onClick={(e) => { e.preventDefault(); openExternalUrl(updateResult.downloadUrl!); }}
                             rel="noreferrer"
                             className="px-3 py-1 text-xs font-semibold rounded-full transition shrink-0 bg-white text-black hover:bg-white/90 [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-white"
                           >

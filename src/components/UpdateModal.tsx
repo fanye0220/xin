@@ -2,6 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Download, X, ArrowUpRight, ShieldCheck } from 'lucide-react';
 import { CURRENT_APP_VERSION, VersionInfo } from '../config/version';
+import { openExternalUrl } from '../lib/appBridge';
 
 interface Props {
   isOpen: boolean;
@@ -16,7 +17,7 @@ export function UpdateModal({ isOpen, versionInfo, onClose, onIgnoreVersion, isL
 
   const handleDownload = () => {
     if (versionInfo.downloadUrl) {
-      window.open(versionInfo.downloadUrl, '_blank', 'noopener,noreferrer');
+      openExternalUrl(versionInfo.downloadUrl);
     }
   };
 

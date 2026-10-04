@@ -2490,6 +2490,34 @@ export interface DuplicateGroup {
   characters: DuplicateCharacter[];
 }
 
+/**
+ * 规范化卡片基础名称：智能剥离重名后缀、版本号、副本标识等
+ * 例如："爱丽丝_1", "爱丽丝_12345", "爱丽丝 (1)", "爱丽丝_v2", "爱丽丝 - 副本", "爱丽丝_new" -> "爱丽丝"
+ */
+export function normalizeCardBaseName(rawName: string): string {
+  if (!rawName) return "";
+  let s = rawName.trim();
+
+  // 1. 去除常见文件扩展名
+  s = s.replace(/\.(zip|png|json|webp|jpg|jpeg|jsonl)$/i, "").trim();
+
+  // 2. 去除末尾 UUID / 36位唯一标识 (如 _3fa85f64-5717-4562-b3fc-2c963f66afa6)
+  s = s.replace(/_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i, "").trim();
+  s = s.replace(/_[a-f0-9-]{36}$/i, "").trim();
+
+  // 3. 循环剥离末尾的数字后缀、重名序号、版本号、副本标识
+  let prev = "";
+  while (prev !== s) {
+    prev = s;
+    s = s
+      .replace(/[_\s\-]+(?:v|ver|version)?\d+$/i, "") // _1, _12345, -1, 2, _v1, _v2
+      .replace(/[\(\（\[【]\s*(?:v|ver|version|副本|复制|copy|第)?\s*\d*\s*[\)\）\]】]$/i, "") // (1), （1）, [1], (副本), (copy)
+      .replace(/[_\s\-]+(?:copy|bak|backup|new|old|temp|draft|duplicate|副本|新|旧|备份|更新|重置|修改|修|改|第[0-9一二三四五六七八九十]+版)$/i, "") // _copy, _副本, _new, _旧
+      .trim();
+  }
+  return s.trim() || rawName.trim();
+}
+
 export async function findDuplicates(): Promise<DuplicateGroup[]> {
   const db = await initDB();
 
@@ -2501,20 +2529,36 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
   const precomputed: any[] = [];
   const charMap = new Map<string, CharacterCard>();
 
+  const GENERIC_NAMES = new Set([
+    "",
+    "未命名",
+    "未命名角色",
+    "untitled",
+    "new character",
+    "character",
+    "card",
+    "角色",
+    "新建角色",
+  ]);
+
   for (const char of allChars) {
     if (!char.deletedAt) {
       charMap.set(char.id, char);
       const data = char.data?.data || char.data || {};
       const firstMes = data.first_mes || "";
       const desc = data.description || "";
-      const name = (char.name || data.name || "").trim().toLowerCase();
+      const rawName = (char.name || data.name || "").trim();
+      const baseName = normalizeCardBaseName(rawName).toLowerCase();
+      const isGenericName = GENERIC_NAMES.has(baseName);
 
       const descClean = desc.replace(/\s+/g, "");
       const firstClean = firstMes.replace(/\s+/g, "");
 
       precomputed.push({
         id: char.id,
-        name,
+        rawName,
+        baseName,
+        isGenericName,
         descClean,
         firstClean,
         bothEmpty: !descClean && !firstClean,
@@ -2522,53 +2566,87 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
     }
   }
 
-  const groups: string[][] = [];
-  const processedIds = new Set<string>();
+  // 并查集 (Union-Find) 关联所有同名/重名/迭代/内容重复的卡片
+  const parent = new Map<string, string>();
+  const find = (id: string): string => {
+    let p = parent.get(id) || id;
+    if (p !== id) {
+      p = find(p);
+      parent.set(id, p);
+    }
+    return p;
+  };
+  const union = (id1: string, id2: string) => {
+    const root1 = find(id1);
+    const root2 = find(id2);
+    if (root1 !== root2) {
+      parent.set(root1, root2);
+    }
+  };
 
+  // 1. 同基础名称（包含 _1, _12345, (1), _v2 等重名/迭代卡）
+  const baseNameMap = new Map<string, string[]>();
+
+  // 2. 精确内容相同（设定与开场白均一致，支持改名或内容完全相同）
+  const contentMap = new Map<string, string[]>();
+
+  // 3. 基础名称 + 设定一致 / 基础名称 + 开场白一致
   const nameDescMap = new Map<string, string[]>();
   const nameFirstMap = new Map<string, string[]>();
-  const nameEmptyMap = new Map<string, string[]>();
-  const descFirstMap = new Map<string, string[]>();
 
   for (const item of precomputed) {
-    if (item.name && item.descClean) {
-      const key = `${item.name}|${item.descClean}`;
+    // 同基础名称 (非通用占位名) 自动聚合
+    if (item.baseName && !item.isGenericName) {
+      const list = baseNameMap.get(item.baseName) || [];
+      list.push(item.id);
+      baseNameMap.set(item.baseName, list);
+    }
+
+    if (item.descClean && item.firstClean && (item.descClean.length > 20 || item.firstClean.length > 20)) {
+      const key = `${item.descClean}|${item.firstClean}`;
+      const list = contentMap.get(key) || [];
+      list.push(item.id);
+      contentMap.set(key, list);
+    }
+
+    if (item.baseName && item.descClean) {
+      const key = `${item.baseName}|${item.descClean}`;
       const list = nameDescMap.get(key) || [];
       list.push(item.id);
       nameDescMap.set(key, list);
     }
-    if (item.name && item.firstClean) {
-      const key = `${item.name}|${item.firstClean}`;
+
+    if (item.baseName && item.firstClean) {
+      const key = `${item.baseName}|${item.firstClean}`;
       const list = nameFirstMap.get(key) || [];
       list.push(item.id);
       nameFirstMap.set(key, list);
     }
-    if (item.name && item.bothEmpty) {
-      const key = item.name;
-      const list = nameEmptyMap.get(key) || [];
-      list.push(item.id);
-      nameEmptyMap.set(key, list);
-    }
-    if (item.descClean && item.firstClean && item.descClean.length > 50) {
-      const key = `${item.descClean}|${item.firstClean}`;
-      const list = descFirstMap.get(key) || [];
-      list.push(item.id);
-      descFirstMap.set(key, list);
-    }
   }
 
-  const addGroup = (list: string[]) => {
-    const validIds = list.filter((id) => !processedIds.has(id));
-    if (validIds.length > 1) {
-      validIds.forEach((id) => processedIds.add(id));
-      groups.push(validIds);
+  const connectList = (list: string[]) => {
+    if (list.length > 1) {
+      for (let i = 1; i < list.length; i++) {
+        union(list[0], list[i]);
+      }
     }
   };
 
-  for (const list of nameDescMap.values()) addGroup(list);
-  for (const list of nameFirstMap.values()) addGroup(list);
-  for (const list of nameEmptyMap.values()) addGroup(list);
-  for (const list of descFirstMap.values()) addGroup(list);
+  for (const list of baseNameMap.values()) connectList(list);
+  for (const list of contentMap.values()) connectList(list);
+  for (const list of nameDescMap.values()) connectList(list);
+  for (const list of nameFirstMap.values()) connectList(list);
+
+  // 按根节点分组
+  const groupMap = new Map<string, string[]>();
+  for (const item of precomputed) {
+    const root = find(item.id);
+    const list = groupMap.get(root) || [];
+    list.push(item.id);
+    groupMap.set(root, list);
+  }
+
+  const groups = Array.from(groupMap.values()).filter((list) => list.length > 1);
 
   const finalGroups: DuplicateGroup[] = [];
 
@@ -2681,7 +2759,13 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
       }
 
       if (reasons.length === 0) {
-        reasons.push("微调细节");
+        const cName = (current.name || cData.name || "").trim();
+        const oName = (oldest.name || oData.name || "").trim();
+        if (cName !== oName) {
+          reasons.push("重名迭代");
+        } else {
+          reasons.push("微调细节");
+        }
       }
 
       analyzedChars.push({ char: current, reason: reasons.join("，") });

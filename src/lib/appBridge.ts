@@ -614,3 +614,17 @@ export async function downloadOrShareFile(
   return { success: true };
 }
 
+/**
+ * 打开外部链接。
+ * Android（Capacitor WebView）默认不支持多窗口，window.open 会被直接丢弃，
+ * 需要同窗口跳转，由原生 shouldOverrideUrlLoading → launchIntent 交给系统浏览器打开；
+ * 网页端仍用新标签页，避免离开当前页面。
+ */
+export function openExternalUrl(url: string): void {
+  if (!url) return;
+  if (isAndroid()) {
+    window.location.href = url;
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}

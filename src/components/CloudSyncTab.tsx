@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { Cloud, Download, Upload, Trash2, Github, Loader2, Search, Folder, ChevronRight, MessageSquare, FileText, FolderSync } from 'lucide-react';
+import { Cloud, Download, Upload, Trash2, Github, Loader2, Search, Folder, ChevronRight, MessageSquare, FileText, FolderSync, Copy, CheckCircle2 } from 'lucide-react';
 import { listCloudCharacters, deleteCloudCharacter, syncFolderStructureToCloud } from '../lib/cloudDrive';
 import { getCardBadgeInfo } from '../lib/cardBadge';
+import { normalizeCardBaseName } from '../lib/db';
 import { initAuth, googleSignIn, logout, getAccessToken, listBackupsFromDrive, deleteBackupFromDrive, triggerManualBackup, triggerRestore, onSyncStateChange, SyncState } from '../lib/drive';
 
 const formatCloudName = (name: string) => name.replace(/_[a-f0-9-]{36}$/i, "");
@@ -46,6 +47,45 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [searchCloudQuery, setSearchCloudQuery] = useState("");
   const [currentCloudPath, setCurrentCloudPath] = useState<string>("");
+  const [isDuplicateMode, setIsDuplicateMode] = useState(false);
+
+  const cloudDuplicateGroups = useMemo(() => {
+    const map = new Map<string, any[]>();
+    cloudChars.forEach(char => {
+      const isChat = char.appProperties?.isChat === 'true';
+      const baseCharName = char.appProperties?.charName || char.name?.replace(/\.(zip|png|json|webp|jpg)$/i, '') || '';
+      const charName = isChat ? (char.name?.replace(/\.(jsonl|json)$/i, '') || baseCharName) : baseCharName;
+      const cleanName = normalizeCardBaseName(charName);
+      if (!cleanName) return;
+      const key = cleanName.toLowerCase();
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(char);
+    });
+
+    const groups: { key: string; name: string; chars: any[] }[] = [];
+    map.forEach((chars, key) => {
+      if (chars.length > 1) {
+        const sorted = [...chars].sort((a, b) => {
+          const timeA = a.createdTime ? new Date(a.createdTime).getTime() : 0;
+          const timeB = b.createdTime ? new Date(b.createdTime).getTime() : 0;
+          return timeB - timeA;
+        });
+        const displayName = normalizeCardBaseName(sorted[0].appProperties?.charName || sorted[0].name || '') || sorted[0].name?.replace(/_[a-f0-9-]{36}$/i, '').replace(/\.(zip|png|json|webp|jpg|jsonl)$/i, '') || key;
+        groups.push({ key, name: displayName, chars: sorted });
+      }
+    });
+
+    if (searchCloudQuery.trim()) {
+      const q = searchCloudQuery.trim().toLowerCase();
+      return groups.filter(g => g.name.toLowerCase().includes(q));
+    }
+
+    return groups.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+  }, [cloudChars, searchCloudQuery]);
+
+  const totalDuplicateCards = useMemo(() => {
+    return cloudDuplicateGroups.reduce((acc, g) => acc + g.chars.length, 0);
+  }, [cloudDuplicateGroups]);
 
   const cloudFolders = useMemo(() => {
     if (searchCloudQuery) return [];
@@ -602,7 +642,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                         title="下载并恢复到本应用"
                         disabled={syncInfo.isActive || actionFileId === b.id}
                         onClick={() => handleDownloadBackup(b.id)}
-                        className="flex-1 sm:flex-none flex items-center justify-center py-1.5 px-3 rounded-lg transition disabled:opacity-50 cursor-pointer font-medium text-xs shadow-xs bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#e8f2ff] [.light-theme_&]:!text-[#007aff] [.light-theme_&]:hover:!bg-[#d8e8fe] [.light-theme_&]:!border-transparent"
+                        className="flex-1 sm:flex-none flex items-center justify-center py-1.5 px-3 rounded-lg transition disabled:opacity-50 cursor-pointer font-medium text-xs shadow-2xs bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border border-blue-500/30 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!text-[#1d4ed8] [.light-theme_&]:!border-[#bfdbfe] [.light-theme_&]:hover:!bg-[#dbeafe]"
                       >
                         {syncInfo.isActive && syncInfo.taskName === '恢复数据' && actionFileId === b.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                         <span className="text-xs ml-1">恢复</span>
@@ -628,10 +668,10 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
       {activeTab === 'cloud_drive' && (
         <div className="space-y-6">
           
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <h3 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a]">我的云端角色卡</h3>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <div className="relative flex-1 sm:w-48">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+            <h3 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a] shrink-0">我的云端角色卡</h3>
+            <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
+              <div className="relative flex-1 sm:w-44 min-w-[110px]">
                 <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
                   <Search className="h-3.5 w-3.5 text-white/40 [.light-theme_&]:!text-slate-400" />
                 </div>
@@ -643,17 +683,34 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                   className="block w-full pl-8 pr-2.5 py-1.5 border rounded-full text-xs sm:text-sm transition focus:outline-none bg-black/20 border-white/10 text-white placeholder-white/40 focus:border-white/20 focus:bg-black/40 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-slate-400 [.light-theme_&]:focus:!border-blue-500 [.light-theme_&]:!shadow-xs"
                 />
               </div>
+
+              {/* 查重切换按钮 */}
+              <button
+                type="button"
+                onClick={() => setIsDuplicateMode(!isDuplicateMode)}
+                className={`text-xs sm:text-sm px-3 py-1.5 rounded-full transition shrink-0 active:scale-[0.98] border cursor-pointer font-semibold flex items-center gap-1.5 shadow-xs whitespace-nowrap ${
+                  isDuplicateMode
+                    ? 'bg-blue-600 hover:bg-blue-500 text-white border-blue-600 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!text-white [.light-theme_&]:!border-[#007aff]'
+                    : cloudDuplicateGroups.length > 0
+                      ? 'bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border-blue-500/30 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!text-[#2563eb] [.light-theme_&]:!border-[#bfdbfe]'
+                      : 'bg-white/10 hover:bg-white/15 text-white/80 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0]'
+                }`}
+                title="扫描并展示云端所有同名重复备份"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>{isDuplicateMode ? '退出' : `查重${cloudDuplicateGroups.length > 0 ? ` (${cloudDuplicateGroups.length})` : ''}`}</span>
+              </button>
+
               <button
                 onClick={() => { if(token) loadCloudChars(token); }}
-                className="text-xs sm:text-sm px-3.5 sm:px-4 py-1.5 rounded-full transition shrink-0 active:scale-[0.98] border cursor-pointer font-semibold bg-white/10 hover:bg-white/15 text-white/80 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!shadow-xs"
+                className="text-xs sm:text-sm px-3.5 py-1.5 rounded-full transition shrink-0 active:scale-[0.98] border cursor-pointer font-semibold bg-white/10 hover:bg-white/15 text-white/80 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!shadow-xs whitespace-nowrap"
               >
                 刷新
               </button>
             </div>
           </div>
 
-          
-          <div className="rounded-2xl p-2.5 sm:p-4 border min-h-[300px] bg-black/20 border-white/5 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0]">
+          <div className="rounded-2xl p-2.5 sm:p-4 border min-h-[300px] bg-black/20 border-white/5 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0]">
             {isLoadingCloud ? (
               <div className="flex flex-col items-center justify-center py-12 text-white/50 [.light-theme_&]:!text-slate-600">
                 <Loader2 className="w-8 h-8 animate-spin mb-4" />
@@ -664,6 +721,166 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                 <Cloud className="w-12 h-12 mb-4 opacity-20" />
                 <p>云端卡库空空如也</p>
                 <p className="text-sm mt-2">在角色列表中勾选卡片即可上传至云盘</p>
+              </div>
+            ) : isDuplicateMode ? (
+              /* 云端同名查重模式 */
+              <div className="space-y-3.5">
+                {/* 顶部精简查重横幅 */}
+                <div className="px-3.5 py-2 sm:py-2.5 rounded-xl border flex items-center justify-between gap-2 bg-blue-500/10 border-blue-500/20 text-blue-200 [.light-theme_&]:!bg-[#f0f7ff] [.light-theme_&]:!border-[#bfdbfe] [.light-theme_&]:!text-[#1e3a8a]">
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap sm:flex-nowrap">
+                    <Copy className="w-4 h-4 shrink-0 text-blue-400 [.light-theme_&]:!text-[#2563eb]" />
+                    <span className="font-bold text-xs sm:text-sm shrink-0 text-white [.light-theme_&]:!text-[#0f172a]">查重模式</span>
+                    <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold shrink-0 bg-blue-500/25 text-blue-200 border border-blue-500/30 [.light-theme_&]:!bg-[#dbeafe] [.light-theme_&]:!text-[#1e40af] [.light-theme_&]:!border-[#bfdbfe]">
+                      {cloudDuplicateGroups.length} 组 · {totalDuplicateCards} 副本
+                    </span>
+                    <span className="text-[11px] hidden sm:inline text-blue-300/80 [.light-theme_&]:!text-[#475569] truncate">
+                      比对上传时间，清理历史旧卡
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setIsDuplicateMode(false)}
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition cursor-pointer bg-white/10 hover:bg-white/20 text-white border border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:hover:!bg-[#f8fafc] shadow-2xs whitespace-nowrap"
+                  >
+                    返回全部
+                  </button>
+                </div>
+
+                {/* 查重结果列表 */}
+                {cloudDuplicateGroups.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <div className="w-12 h-12 rounded-full flex items-center justify-center mb-2.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 [.light-theme_&]:!bg-emerald-50 [.light-theme_&]:!text-emerald-600 [.light-theme_&]:!border-emerald-200">
+                      <CheckCircle2 className="w-6 h-6" />
+                    </div>
+                    <h4 className="font-bold text-sm mb-0.5 text-white [.light-theme_&]:!text-[#0f172a]">
+                      云端卡库非常整洁
+                    </h4>
+                    <p className="text-xs text-white/50 [.light-theme_&]:!text-slate-500">
+                      当前云端卡库中没有检测到同名的重复备份
+                    </p>
+                    <button
+                      onClick={() => setIsDuplicateMode(false)}
+                      className="mt-3 px-3.5 py-1 rounded-full text-xs font-semibold transition cursor-pointer bg-white/10 hover:bg-white/20 text-white [.light-theme_&]:!bg-slate-100 [.light-theme_&]:hover:!bg-slate-200 [.light-theme_&]:!text-slate-700"
+                    >
+                      返回全部卡片
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3.5">
+                    {cloudDuplicateGroups.map((group) => (
+                      <div 
+                        key={group.key}
+                        className="rounded-2xl p-3 sm:p-4 border bg-slate-900/60 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!shadow-xs"
+                      >
+                        {/* Group Header */}
+                        <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-white/5 [.light-theme_&]:!border-slate-100">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-2 h-2 rounded-full shrink-0 bg-blue-400 [.light-theme_&]:!bg-blue-600" />
+                            <h4 className="font-bold text-sm sm:text-base truncate text-white [.light-theme_&]:!text-[#0f172a]">
+                              {group.name}
+                            </h4>
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium shrink-0 bg-white/10 text-slate-300 border border-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#475569] [.light-theme_&]:!border-[#e2e8f0]">
+                              {group.chars.length} 个版本
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Group Cards Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3">
+                          {group.chars.map((char, index) => {
+                            const isLatest = index === 0;
+                            const isChat = char.appProperties?.isChat === 'true';
+                            const baseCharName = char.appProperties?.charName || char.name?.replace(/\.(zip|png|json|webp|jpg)$/i, '');
+                            const charName = isChat ? (char.name?.replace(/\.(jsonl|json)$/i, '') || baseCharName) : baseCharName;
+                            const uploadDate = char.createdTime ? new Date(char.createdTime) : null;
+
+                            return (
+                              <div 
+                                key={char.id}
+                                className={`rounded-xl p-3 border flex flex-col justify-between gap-2.5 transition ${
+                                  isLatest 
+                                    ? 'bg-slate-900/80 border-blue-500/40 shadow-xs [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#93c5fd] [.light-theme_&]:!shadow-xs'
+                                    : 'bg-slate-900/40 border-white/10 hover:border-white/20 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!border-[#cbd5e1]'
+                                }`}
+                              >
+                                <div className="flex items-start gap-2.5 sm:gap-3 min-w-0">
+                                  {/* Thumbnail */}
+                                  <div className="w-13 h-17 sm:w-14 sm:h-18 rounded-lg overflow-hidden shrink-0 relative border bg-black/30 border-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0]">
+                                    {char.thumbnailLink ? (
+                                      <img 
+                                        src={char.thumbnailLink} 
+                                        alt={charName} 
+                                        className="w-full h-full object-cover" 
+                                        referrerPolicy="no-referrer" 
+                                      />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center text-slate-400">
+                                        {isChat ? <MessageSquare className="w-5 h-5" /> : <Cloud className="w-5 h-5" />}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Metadata */}
+                                  <div className="min-w-0 flex-1 space-y-1">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      {isLatest ? (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 shrink-0 [.light-theme_&]:!bg-[#ecfdf5] [.light-theme_&]:!text-[#047857] [.light-theme_&]:!border-[#a7f3d0]">
+                                          最新上传
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-500/15 text-amber-400 border border-amber-500/25 shrink-0 [.light-theme_&]:!bg-[#fffbeb] [.light-theme_&]:!text-[#b45309] [.light-theme_&]:!border-[#fde68a]">
+                                          较旧副本
+                                        </span>
+                                      )}
+                                      <span className="text-xs font-semibold truncate text-white [.light-theme_&]:!text-[#0f172a]" title={charName}>
+                                        {charName}
+                                      </span>
+                                    </div>
+
+                                    <div className="text-[11px] space-y-0.5 text-slate-300 [.light-theme_&]:!text-slate-600">
+                                      <div className="flex items-center gap-1 text-[11px] font-mono">
+                                        <span className={isLatest ? 'text-emerald-400 font-semibold [.light-theme_&]:!text-[#047857]' : 'text-slate-300 [.light-theme_&]:!text-[#475569]'}>
+                                          上传：{uploadDate ? uploadDate.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '未知时间'}
+                                        </span>
+                                      </div>
+                                      <div className="truncate text-[10.5px] text-slate-400 [.light-theme_&]:!text-[#64748b]" title={char.appProperties?.folderPath || '云端根目录'}>
+                                        路径：{char.appProperties?.folderPath ? formatCloudName(char.appProperties.folderPath) : '云端根目录'}
+                                      </div>
+                                      <div className="text-[10.5px] text-slate-400 [.light-theme_&]:!text-[#64748b]">
+                                        大小：{char.size ? formatSize(char.size) : '未知大小'}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Actions */}
+                                <div className="flex items-center gap-2 pt-2 border-t border-white/5 [.light-theme_&]:!border-slate-100">
+                                  <button 
+                                    onClick={() => handleRestoreCloudFileToApp(char.id, char.name, charName, isChat, char.appProperties?.folderPath)}
+                                    disabled={downloadingId === char.id}
+                                    className="flex-1 py-1.5 rounded-lg flex items-center justify-center gap-1 transition disabled:opacity-50 cursor-pointer font-semibold text-xs bg-blue-600/20 text-blue-300 border border-blue-500/30 hover:bg-blue-600/30 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!text-[#1d4ed8] [.light-theme_&]:!border-[#bfdbfe] [.light-theme_&]:hover:!bg-[#dbeafe] shadow-2xs"
+                                    title="下载此版本并恢复到本地角色库"
+                                  >
+                                    {downloadingId === char.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                                    <span>下载</span>
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteCloudChar(char.id, `${charName} (${uploadDate ? uploadDate.toLocaleDateString() : '旧版本'})`)}
+                                    disabled={downloadingId === char.id}
+                                    className="py-1.5 px-3 rounded-lg border flex items-center justify-center gap-1 transition disabled:opacity-50 cursor-pointer font-semibold text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 border-red-500/20 [.light-theme_&]:!bg-[#fef2f2] [.light-theme_&]:!text-[#dc2626] [.light-theme_&]:!border-[#fecaca] [.light-theme_&]:hover:!bg-[#fee2e2]"
+                                    title="从云端彻底删除此副本"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span>删除</span>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : (
               <>
@@ -791,7 +1008,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                            <button 
                              onClick={() => handleRestoreCloudFileToApp(char.id, char.name, charName, isChat, char.appProperties?.folderPath)}
                              disabled={downloadingId === char.id}
-                             className="flex-1 py-1 sm:py-1.5 rounded-lg flex items-center justify-center gap-1 transition disabled:opacity-50 cursor-pointer font-medium bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#e8f2ff] [.light-theme_&]:!text-[#007aff] [.light-theme_&]:hover:!bg-[#d8e8fe] [.light-theme_&]:!border-transparent shadow-xs"
+                             className="flex-1 py-1 sm:py-1.5 rounded-lg flex items-center justify-center gap-1 transition disabled:opacity-50 cursor-pointer font-medium text-xs bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border border-blue-500/30 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!text-[#1d4ed8] [.light-theme_&]:!border-[#bfdbfe] [.light-theme_&]:hover:!bg-[#dbeafe] shadow-2xs"
                              title="下载并解包恢复至 App 角色库"
                            >
                              {downloadingId === char.id ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> : <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
@@ -800,7 +1017,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                            <button 
                              onClick={() => handleDeleteCloudChar(char.id, charName)}
                              disabled={downloadingId === char.id}
-                             className="p-1 sm:p-1.5 rounded-lg border flex items-center justify-center transition disabled:opacity-50 shrink-0 cursor-pointer border-white/10 text-white/60 hover:text-red-400 hover:bg-red-500/10 [.light-theme_&]:!border-transparent [.light-theme_&]:!bg-[#fef2f2] [.light-theme_&]:!text-[#ff3b30] [.light-theme_&]:hover:!bg-[#fee2e2] [.light-theme_&]:hover:!text-[#d70015]"
+                             className="p-1 sm:p-1.5 rounded-lg border flex items-center justify-center transition disabled:opacity-50 shrink-0 cursor-pointer bg-red-500/10 hover:bg-red-500/20 text-red-400 border-red-500/20 [.light-theme_&]:!border-transparent [.light-theme_&]:!bg-[#fef2f2] [.light-theme_&]:!text-[#ff3b30] [.light-theme_&]:hover:!bg-[#fee2e2] [.light-theme_&]:hover:!text-[#d70015]"
                              title="删除"
                            >
                              <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.2]" />
