@@ -118,6 +118,12 @@ export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
+  // Check for stored user info immediately to avoid flickering/jumping to login UI
+  const existingUser = getStoredUserInfo();
+  if (existingUser && onAuthSuccess) {
+    onAuthSuccess(existingUser as User, cachedAccessToken || "");
+  }
+
   // Check for redirect result on initialization (for Android WebView support)
   import('firebase/auth').then(({ getAuth, getRedirectResult, GoogleAuthProvider }) => {
     const authInstance = getAuth();
@@ -154,14 +160,35 @@ export const initAuth = (
       window.dispatchEvent(new CustomEvent('google_auth_changed', { detail: { user, token: validToken || "" } }));
       if (onAuthSuccess) onAuthSuccess(user, validToken || "");
     } else {
-      cachedAccessToken = null;
-      currentAccessToken = null;
-      localStorage.removeItem('google_drive_access_token');
-      localStorage.removeItem('google_drive_token_expiration');
-      localStorage.removeItem('google_drive_user_info');
-      stopAutoSyncRunner();
-      window.dispatchEvent(new CustomEvent('google_auth_changed', { detail: { user: null, token: null } }));
-      if (onAuthFailure) onAuthFailure();
+      const storedUser = getStoredUserInfo();
+      if (storedUser) {
+        // Firebase 掉线但本地还留着用户信息：先尝试拿有效 token，拿到才算真的已登录
+        const restoredToken = await ensureValidAccessToken();
+        if (restoredToken) {
+          cachedAccessToken = restoredToken;
+          currentAccessToken = restoredToken;
+          startAutoSyncRunner();
+          const restoredUser = (auth.currentUser || storedUser) as User;
+          if (auth.currentUser) saveUserInfo(auth.currentUser);
+          window.dispatchEvent(new CustomEvent('google_auth_changed', { detail: { user: restoredUser, token: restoredToken } }));
+          if (onAuthSuccess) onAuthSuccess(restoredUser, restoredToken);
+        } else {
+          cachedAccessToken = null;
+          currentAccessToken = null;
+          localStorage.removeItem('google_drive_access_token');
+          localStorage.removeItem('google_drive_token_expiration');
+          localStorage.removeItem('google_drive_user_info');
+          stopAutoSyncRunner();
+          window.dispatchEvent(new CustomEvent('google_auth_changed', { detail: { user: null, token: null } }));
+          if (onAuthFailure) onAuthFailure();
+        }
+      } else {
+        cachedAccessToken = null;
+        currentAccessToken = null;
+        stopAutoSyncRunner();
+        window.dispatchEvent(new CustomEvent('google_auth_changed', { detail: { user: null, token: null } }));
+        if (onAuthFailure) onAuthFailure();
+      }
     }
   });
 };

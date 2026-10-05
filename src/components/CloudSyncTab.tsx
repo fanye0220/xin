@@ -300,6 +300,10 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
 
   const handleLogout = async () => {
     await logout();
+    setUser(null);
+    setNeedsAuth(true);
+    setToken(null);
+    setBackups([]);
   };
 
   const loadBackups = async (t: string) => {

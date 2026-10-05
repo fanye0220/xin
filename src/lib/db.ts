@@ -455,6 +455,12 @@ export interface CharacterCard {
   isQR?: boolean;
   category?: string;
   sourceUrl?: string;
+  updateUrl?: string;
+  lastCheckedAt?: number;
+  lastCheckResult?: 'has_update' | 'latest' | 'error';
+  lastCheckVersion?: string;
+  lastCheckChanges?: string[];
+  lastCheckError?: string;
   tokenCount?: number;
   permanentTokens?: number;
 }

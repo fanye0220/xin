@@ -6,8 +6,8 @@ import { CloudSyncTab } from './CloudSyncTab';
 import { SidebarWallpaperTab } from './SidebarWallpaperTab';
 import { useSidebarWallpaper, saveSidebarWallpaperConfig } from '../lib/sidebarWallpaper';
 import { useBackHandler } from '../lib/useBackHandler';
+import { isAndroid, openExternalUrl } from '../lib/appBridge';
 import { CURRENT_APP_VERSION } from '../config/version';
-import { openExternalUrl } from '../lib/appBridge';
 
 interface Props {
   isOpen: boolean;
@@ -490,63 +490,65 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
                   </p>
                 </div>
 
-                <div className="border rounded-2xl p-4 space-y-3 bg-white/5 border-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0]">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-sm font-medium text-white [.light-theme_&]:!text-[#0f172a]">版本自动检查</h4>
-                      <p className="text-xs text-white/50 [.light-theme_&]:!text-[#64748b]">随时检测远端发布的新版本</p>
-                    </div>
-                    <button
-                      onClick={async () => {
-                        setCheckingUpdate(true);
-                        setUpdateResult(null);
-                        try {
-                          const { checkForAppUpdates } = await import('../config/version');
-                          const res = await checkForAppUpdates();
-                          if (res.hasUpdate && res.latestVersion) {
-                            setUpdateResult({
-                              msg: `发现新版本 v${res.latestVersion.version}！`,
-                              downloadUrl: res.latestVersion.downloadUrl,
-                            });
-                          } else if (res.error) {
-                            setUpdateResult({ msg: `检查失败: ${res.error}`, isError: true });
-                          } else {
-                            setUpdateResult({ msg: `目前已是最新版本 (v${CURRENT_APP_VERSION}) 🎉` });
+  {isAndroid() && (
+                  <div className="border rounded-2xl p-4 space-y-3 bg-white/5 border-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0]">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="text-sm font-medium text-white [.light-theme_&]:!text-[#0f172a]">版本自动检查</h4>
+                        <p className="text-xs text-white/50 [.light-theme_&]:!text-[#64748b]">随时检测远端发布的新版本</p>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          setCheckingUpdate(true);
+                          setUpdateResult(null);
+                          try {
+                            const { checkForAppUpdates } = await import('../config/version');
+                            const res = await checkForAppUpdates();
+                            if (res.hasUpdate && res.latestVersion) {
+                              setUpdateResult({
+                                msg: `发现新版本 v${res.latestVersion.version}！`,
+                                downloadUrl: res.latestVersion.downloadUrl,
+                              });
+                            } else if (res.error) {
+                              setUpdateResult({ msg: `检查失败: ${res.error}`, isError: true });
+                            } else {
+                              setUpdateResult({ msg: `目前已是最新版本 (v${CURRENT_APP_VERSION}) 🎉` });
+                            }
+                          } catch (e: any) {
+                            setUpdateResult({ msg: '检查出错: ' + e.message, isError: true });
+                          } finally {
+                            setCheckingUpdate(false);
                           }
-                        } catch (e: any) {
-                          setUpdateResult({ msg: '检查出错: ' + e.message, isError: true });
-                        } finally {
-                          setCheckingUpdate(false);
-                        }
-                      }}
-                      disabled={checkingUpdate}
-                      className="px-3.5 py-1.5 active:scale-95 text-xs font-semibold transition disabled:opacity-50 flex items-center gap-1.5 shrink-0 shadow-sm cursor-pointer rounded-full bg-white text-black hover:bg-white/90 [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-[#1e293b]"
-                    >
-                      {checkingUpdate && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                      <span>检查更新</span>
-                    </button>
-                  </div>
-
-                  {updateResult && (
-                    <div className={`p-3 rounded-xl text-xs flex items-center justify-between gap-2 border ${
-                      updateResult.isError 
-                        ? 'bg-rose-500/10 text-rose-300 border-rose-500/30' 
-                        : 'bg-white/5 text-white/90 border-white/15 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0]'
-                    }`}>
-                      <span>{updateResult.msg}</span>
-                      {updateResult.downloadUrl && (
-                        <a
-                          href={updateResult.downloadUrl}
-                          onClick={(e) => { e.preventDefault(); openExternalUrl(updateResult.downloadUrl!); }}
-                          rel="noreferrer"
-                          className="px-3 py-1 text-xs font-semibold rounded-full transition shrink-0 bg-white text-black hover:bg-white/90 [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-white"
-                        >
-                          下载
-                        </a>
-                      )}
+                        }}
+                        disabled={checkingUpdate}
+                        className="px-3.5 py-1.5 active:scale-95 text-xs font-semibold transition disabled:opacity-50 flex items-center gap-1.5 shrink-0 shadow-sm cursor-pointer rounded-full bg-white text-black hover:bg-white/90 [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-[#1e293b]"
+                      >
+                        {checkingUpdate && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                        <span>检查更新</span>
+                      </button>
                     </div>
-                  )}
-                </div>
+
+                    {updateResult && (
+                      <div className={`p-3 rounded-xl text-xs flex items-center justify-between gap-2 border ${
+                        updateResult.isError 
+                          ? 'bg-rose-500/10 text-rose-300 border-rose-500/30' 
+                          : 'bg-white/5 text-white/90 border-white/15 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0]'
+                      }`}>
+                        <span>{updateResult.msg}</span>
+                        {updateResult.downloadUrl && (
+                          <a
+                            href={updateResult.downloadUrl}
+                            onClick={(e) => { e.preventDefault(); openExternalUrl(updateResult.downloadUrl!); }}
+                            rel="noreferrer"
+                            className="px-3 py-1 text-xs font-semibold rounded-full transition shrink-0 bg-white text-black hover:bg-white/90 [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-white"
+                          >
+                            下载
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+  )}
               </motion.div>
             )}
 

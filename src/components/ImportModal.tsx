@@ -2524,16 +2524,18 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   </div>
                 </div>
 
+                {isAndroid() && (
                 <div className="mt-4 w-full flex justify-center">
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); fetchTavernList(); }}
-                    disabled={isPulling}
-                    className="flex items-center gap-2 px-6 py-3.5 sm:py-4 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 rounded-2xl font-bold text-sm sm:text-base transition-all duration-300 disabled:opacity-50 w-full justify-center border border-blue-500/20 hover:border-blue-500/40 shadow-sm cursor-pointer"
-                  >
-                    {isPulling ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <Cloud className="w-5 h-5 shrink-0" />}
-                    <span className="truncate">拉取酒馆卡片</span>
-                  </button>
-                </div>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); fetchTavernList(); }}
+                      disabled={isPulling}
+                      className="flex items-center gap-2 px-6 py-3.5 sm:py-4 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 rounded-2xl font-bold text-sm sm:text-base transition-all duration-300 disabled:opacity-50 w-full justify-center border border-blue-500/20 hover:border-blue-500/40 shadow-sm cursor-pointer"
+                    >
+                      {isPulling ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <Cloud className="w-5 h-5 shrink-0" />}
+                      <span className="truncate">拉取酒馆卡片</span>
+                    </button>
+                  </div>
+                  )}
 
                 {error && (
                   <motion.div
