@@ -4,7 +4,7 @@ import { Cloud, Download, Upload, Trash2, Github, Loader2, Search, Folder, Chevr
 import { listCloudCharacters, deleteCloudCharacter, syncFolderStructureToCloud } from '../lib/cloudDrive';
 import { getCardBadgeInfo } from '../lib/cardBadge';
 import { normalizeCardBaseName } from '../lib/db';
-import { initAuth, googleSignIn, logout, getAccessToken, listBackupsFromDrive, deleteBackupFromDrive, triggerManualBackup, triggerRestore, onSyncStateChange, SyncState } from '../lib/drive';
+import { initAuth, googleSignIn, logout, getAccessToken, listBackupsFromDrive, deleteBackupFromDrive, triggerManualBackup, triggerRestore, onSyncStateChange, SyncState, getStoredUserInfo, ensureValidAccessToken } from '../lib/drive';
 
 const formatCloudName = (name: string) => name.replace(/_[a-f0-9-]{36}$/i, "");
 
@@ -30,10 +30,28 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
 
   const isLight = propIsLightMode !== undefined ? propIsLightMode : detectedLightMode;
 
-  const [needsAuth, setNeedsAuth] = useState(true);
-  const [user, setUser] = useState<any>(null);
+  const initialUser = getStoredUserInfo();
+  const [user, setUser] = useState<any>(initialUser);
+  const [needsAuth, setNeedsAuth] = useState(!initialUser);
   const [token, setToken] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  const getActiveToken = async (): Promise<string | null> => {
+    let t = token || await ensureValidAccessToken();
+    if (!t && user) {
+      try {
+        const res = await googleSignIn();
+        if (res) {
+          setToken(res.accessToken);
+          setUser(res.user);
+          return res.accessToken;
+        }
+      } catch (e) {
+        console.error("[CloudSync] Automatic token refresh info:", e);
+      }
+    }
+    return t;
+  };
   
   const [backups, setBackups] = useState<any[]>([]);
   const [isLoadingBackups, setIsLoadingBackups] = useState(false);
@@ -222,15 +240,30 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
     const unsubDrive = initAuth(
       (u, t) => {
         setUser(u);
-        setToken(t);
         setNeedsAuth(false);
-        loadBackups(t);
+        if (t) {
+          setToken(t);
+          loadBackups(t);
+        } else {
+          ensureValidAccessToken().then(vt => {
+            if (vt) {
+              setToken(vt);
+              loadBackups(vt);
+            }
+          });
+        }
       },
       () => {
-        setNeedsAuth(true);
-        setUser(null);
-        setToken(null);
-        setBackups([]);
+        const cachedUser = getStoredUserInfo();
+        if (cachedUser) {
+          setUser(cachedUser);
+          setNeedsAuth(false);
+        } else {
+          setNeedsAuth(true);
+          setUser(null);
+          setToken(null);
+          setBackups([]);
+        }
       }
     );
     const unsubSync = onSyncStateChange(setSyncInfo);
@@ -300,15 +333,16 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
   const [syncFolderProgress, setSyncFolderProgress] = useState<{ current: number; total: number; message: string } | null>(null);
 
   const handleSyncFolderStructure = async () => {
-    if (!token) return;
+    const activeToken = await getActiveToken();
+    if (!activeToken) return;
     try {
       setSyncFolderProgress({ current: 0, total: 0, message: '正在比对本地与云端分类...' });
-      const res = await syncFolderStructureToCloud(token, (msg, current, total) => {
+      const res = await syncFolderStructureToCloud(activeToken, (msg, current, total) => {
         setSyncFolderProgress({ current: current || 0, total: total || 0, message: msg });
       });
       setSyncFolderProgress(null);
       alert(`文件夹分类对齐完成！\n已同步移动更新: ${res.moved} 个卡片\n分类一致保持原样: ${res.unchanged} 个`);
-      await loadCloudChars(token);
+      await loadCloudChars(activeToken);
     } catch (err: any) {
       console.error(err);
       setSyncFolderProgress(null);
@@ -317,7 +351,8 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
   };
 
   const handleOneClickCloudSync = async () => {
-    if (!token) return;
+    const activeToken = await getActiveToken();
+    if (!activeToken) return;
     const confirm = window.confirm("确定要将所有本地卡片逐一同步至云端文件夹吗？\n\n如果云端已有相同卡片但分类不同，将自动同步移动到对应的嵌套文件夹中。");
     if (!confirm) return;
 
@@ -340,7 +375,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
         while (currentIndex < chars.length) {
           const i = currentIndex++;
           try {
-             const res = await uploadCharacterToCloud(token, chars[i].id);
+             const res = await uploadCharacterToCloud(activeToken, chars[i].id);
              if (res === 'uploaded') success++;
              else if (res === 'moved') moved++;
              else skipped++;
@@ -362,7 +397,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
       setOneClickProgress(null);
       alert(`一键同步完成！\n新上传卡片: ${success}\n更新文件夹嵌套: ${moved}\n内容与分类一致已跳过: ${skipped}`);
       if (activeTab === 'cloud_drive') {
-        loadCloudChars(token);
+        loadCloudChars(activeToken);
       }
     } catch(err: any) {
        console.error(err);
@@ -371,23 +406,25 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
     }
   };
 
-  const handleUploadBackup = () => {
-    if (!token) return;
+  const handleUploadBackup = async () => {
+    const activeToken = await getActiveToken();
+    if (!activeToken) return;
     try {
-      triggerManualBackup(token);
+      triggerManualBackup(activeToken);
     } catch (err: any) {
       alert(err.message);
     }
   };
 
-  const handleDownloadBackup = (fileId: string) => {
-    if (!token) return;
+  const handleDownloadBackup = async (fileId: string) => {
+    const activeToken = await getActiveToken();
+    if (!activeToken) return;
     const confirm = window.confirm("确定要恢复该备份吗？\n\n注意：云端备份下载后会直接合并到你当前的数据中，重名卡片会被自动覆盖更新。");
     if (!confirm) return;
 
     setActionFileId(fileId);
     try {
-      triggerRestore(token, fileId);
+      triggerRestore(activeToken, fileId);
     } catch (err: any) {
       alert("恢复失败: " + err.message);
       setActionFileId(null);
@@ -395,13 +432,14 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
   };
 
   const handleDeleteBackup = async (fileId: string) => {
-    if (!token) return;
+    const activeToken = await getActiveToken();
+    if (!activeToken) return;
     if (!window.confirm("确定要永久删除该备份吗？此操作无法恢复！")) return;
 
     setActionFileId(fileId);
     try {
-      await deleteBackupFromDrive(token, fileId);
-      await loadBackups(token);
+      await deleteBackupFromDrive(activeToken, fileId);
+      await loadBackups(activeToken);
     } catch (err: any) {
       alert("删除失败: " + err.message);
     } finally {

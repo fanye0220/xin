@@ -60,6 +60,59 @@ let currentAccessToken: string | null = null;
 
 export const getAuthCurrentUser = (): User | null => auth.currentUser;
 
+export async function ensureValidAccessToken(): Promise<string | null> {
+  const expirationStr = localStorage.getItem('google_drive_token_expiration');
+  const tokenExpiration = expirationStr ? Number(expirationStr) : 0;
+  
+  if (cachedAccessToken && tokenExpiration > Date.now() + 60000) {
+    return cachedAccessToken;
+  }
+
+  // Token is expired or missing. Try silent native refresh if on Android
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const result = await FirebaseAuthentication.signInWithGoogle({ scopes: ['https://www.googleapis.com/auth/drive.file'] });
+      if (result.credential?.accessToken) {
+        cachedAccessToken = result.credential.accessToken;
+        const expiresAt = Date.now() + 3500 * 1000;
+        localStorage.setItem('google_drive_access_token', cachedAccessToken);
+        localStorage.setItem('google_drive_token_expiration', expiresAt.toString());
+        currentAccessToken = cachedAccessToken;
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          window.dispatchEvent(new CustomEvent('google_auth_changed', { detail: { user: currentUser, token: cachedAccessToken } }));
+        }
+        return cachedAccessToken;
+      }
+    } catch (e) {
+      console.log('[NativeAuth] Silent Google token refresh info:', e);
+    }
+  }
+
+  return cachedAccessToken;
+}
+
+function saveUserInfo(user: User) {
+  try {
+    const info = {
+      uid: user.uid,
+      email: user.email,
+      displayName: user.displayName,
+      photoURL: user.photoURL,
+    };
+    localStorage.setItem('google_drive_user_info', JSON.stringify(info));
+  } catch (e) {}
+}
+
+export function getStoredUserInfo(): any | null {
+  try {
+    const data = localStorage.getItem('google_drive_user_info');
+    return data ? JSON.parse(data) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // Initialize auth state listener. Call this on app load.
 export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
@@ -78,6 +131,7 @@ export const initAuth = (
           localStorage.setItem('google_drive_token_expiration', expiresAt.toString());
           currentAccessToken = cachedAccessToken;
           startAutoSyncRunner();
+          saveUserInfo(result.user);
           window.dispatchEvent(new CustomEvent('google_auth_changed', { detail: { user: result.user, token: cachedAccessToken } }));
           if (onAuthSuccess) onAuthSuccess(result.user, cachedAccessToken);
         }
@@ -89,25 +143,22 @@ export const initAuth = (
 
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
-      if (cachedAccessToken) {
-        currentAccessToken = cachedAccessToken;
+      saveUserInfo(user);
+      let validToken = await ensureValidAccessToken();
+
+      if (validToken) {
+        currentAccessToken = validToken;
         startAutoSyncRunner();
-        window.dispatchEvent(new CustomEvent('google_auth_changed', { detail: { user, token: cachedAccessToken } }));
-        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
-      } else if (!isSigningIn) {
-        cachedAccessToken = null;
-        currentAccessToken = null;
-        localStorage.removeItem('google_drive_access_token');
-        localStorage.removeItem('google_drive_token_expiration');
-        stopAutoSyncRunner();
-        window.dispatchEvent(new CustomEvent('google_auth_changed', { detail: { user: null, token: null } }));
-        if (onAuthFailure) onAuthFailure();
       }
+
+      window.dispatchEvent(new CustomEvent('google_auth_changed', { detail: { user, token: validToken || "" } }));
+      if (onAuthSuccess) onAuthSuccess(user, validToken || "");
     } else {
       cachedAccessToken = null;
       currentAccessToken = null;
       localStorage.removeItem('google_drive_access_token');
       localStorage.removeItem('google_drive_token_expiration');
+      localStorage.removeItem('google_drive_user_info');
       stopAutoSyncRunner();
       window.dispatchEvent(new CustomEvent('google_auth_changed', { detail: { user: null, token: null } }));
       if (onAuthFailure) onAuthFailure();
@@ -171,6 +222,9 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     }
 
     cachedAccessToken = resultAccessToken;
+    if (resultUser) {
+      saveUserInfo(resultUser as User);
+    }
     const expiresAt = Date.now() + 3500 * 1000;
     if (cachedAccessToken) {
       localStorage.setItem('google_drive_access_token', cachedAccessToken);
@@ -189,7 +243,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
-  return cachedAccessToken;
+  return await ensureValidAccessToken();
 };
 
 export const logout = async () => {
@@ -200,6 +254,7 @@ export const logout = async () => {
   cachedAccessToken = null;
   localStorage.removeItem('google_drive_access_token');
   localStorage.removeItem('google_drive_token_expiration');
+  localStorage.removeItem('google_drive_user_info');
   window.dispatchEvent(new CustomEvent('google_auth_changed', { detail: { user: null, token: null } }));
 };
 

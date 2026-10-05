@@ -176,7 +176,7 @@ function SortableItemWrapper({
           <div className="w-10 h-10 rounded-2xl bg-blue-500/90 backdrop-blur-md flex items-center justify-center text-white shadow-lg mb-1.5 border border-white/20">
             <Link2 className="w-5 h-5 stroke-[2.2]" />
           </div>
-          <span className="text-[11px] font-bold !text-white !bg-[#0f172a] px-3 py-1 rounded-full shadow-lg border border-blue-400/40 tracking-tight">
+          <span className="text-[11px] font-bold text-white bg-slate-900 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!text-white px-3 py-1 rounded-full shadow-lg border border-blue-400/40 tracking-tight">
             松手立即绑定
           </span>
         </div>
@@ -186,7 +186,7 @@ function SortableItemWrapper({
           <div className="w-10 h-10 rounded-2xl bg-blue-500/90 backdrop-blur-md flex items-center justify-center text-white shadow-lg mb-1.5 border border-white/20">
             <FolderInput className="w-5 h-5 stroke-[2.2]" />
           </div>
-          <span className="text-[11px] font-bold !text-white !bg-[#0f172a] px-3 py-1 rounded-full shadow-lg border border-blue-400/40 tracking-tight">
+          <span className="text-[11px] font-bold text-white bg-slate-900 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!text-white px-3 py-1 rounded-full shadow-lg border border-blue-400/40 tracking-tight">
             松手移入文件夹
           </span>
         </div>
@@ -3348,7 +3348,7 @@ export function CharacterList({
                   whileHover={{ scale: 1.08 }}
                   whileTap={{ scale: 0.92 }}
                   onClick={scrollToTop}
-                  className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/65 hover:bg-slate-800/80 border border-white/15 text-white [.light-theme_&]:!bg-slate-800 [.light-theme_&]:hover:!bg-slate-700/10 [.light-theme_&]:!border-none [.light-theme_&]:!text-slate-100 [.light-theme_&]:!shadow-sm active:scale-95"
+                  className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/80 hover:bg-slate-800 border border-white/20 text-white [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:!shadow-md active:scale-95"
                   title="回到顶部"
                 >
                   <ChevronLeft className="w-5 h-5 rotate-90 stroke-[2.2]" />
@@ -3375,7 +3375,7 @@ export function CharacterList({
                       setIsAddMenuOpen(false);
                       setIsCreatingFolder(true);
                     }}
-                    className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/65 hover:bg-slate-800/80 border border-white/15 text-white [.light-theme_&]:!bg-slate-800 [.light-theme_&]:hover:!bg-slate-700/10 [.light-theme_&]:!border-none [.light-theme_&]:!text-slate-100 [.light-theme_&]:!shadow-sm active:scale-95"
+                    className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/80 hover:bg-slate-800 border border-white/20 text-white [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:!shadow-md active:scale-95"
                     title="新建文件夹"
                   >
                     <FolderPlus className="w-4.5 h-4.5 stroke-[2]" />
@@ -3389,7 +3389,7 @@ export function CharacterList({
                       setIsAddMenuOpen(false);
                       onImport();
                     }}
-                    className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/65 hover:bg-slate-800/80 border border-white/15 text-white [.light-theme_&]:!bg-slate-800 [.light-theme_&]:hover:!bg-slate-700/10 [.light-theme_&]:!border-none [.light-theme_&]:!text-slate-100 [.light-theme_&]:!shadow-sm active:scale-95"
+                    className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/80 hover:bg-slate-800 border border-white/20 text-white [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:!shadow-md active:scale-95"
                     title="导入角色/数据"
                   >
                     <UploadCloud className="w-4.5 h-4.5 stroke-[2]" />
@@ -3404,7 +3404,7 @@ export function CharacterList({
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.92 }}
               onClick={() => setIsAddMenuOpen(!isAddMenuOpen)}
-              className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/75 hover:bg-slate-800/90 border border-white/15 text-white [.light-theme_&]:!bg-slate-800 [.light-theme_&]:hover:!bg-slate-700/10 [.light-theme_&]:!border-none [.light-theme_&]:!text-slate-100 [.light-theme_&]:!shadow-sm active:scale-95"
+              className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/80 hover:bg-slate-800 border border-white/20 text-white [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:!shadow-md active:scale-95"
               title="展开选项"
             >
               <Plus className={`w-5 h-5 stroke-[2.2] transition-transform duration-200 ${isAddMenuOpen ? 'rotate-45' : ''}`} />

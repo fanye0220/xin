@@ -485,10 +485,10 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
               {/* Circular Avatar */}
               <div 
                 onClick={() => onOpenSettings('cloud')}
-                className={`relative w-14 h-14 rounded-full overflow-hidden bg-slate-700/30 shrink-0 cursor-pointer transition shadow-sm [.light-theme_&]:bg-transparent [.light-theme_&]:ring-0 [.light-theme_&]:border-0 [.light-theme_&]:shadow-none ${
+                className={`relative w-14 h-14 rounded-full overflow-hidden bg-slate-700/30 shrink-0 cursor-pointer transition shadow-sm ${
                   isFullWallpaper 
-                    ? (isDarkTheme ? 'ring-2 ring-white/40 hover:ring-white/80' : 'ring-2 ring-black/10 hover:ring-black/25') 
-                    : 'ring-2 ring-slate-700/60 hover:ring-slate-500/80'
+                    ? (isDarkTheme ? 'ring-2 ring-white/40 hover:ring-white/80' : 'ring-2 ring-slate-300/80 hover:ring-slate-400') 
+                    : 'ring-2 ring-white/20 hover:ring-white/40 [.light-theme_&]:!ring-slate-300/80 [.light-theme_&]:hover:!ring-slate-400'
                 }`}
                 title="Google 账号资料（点击管理）"
               >

@@ -665,9 +665,14 @@ export async function resolveAppFolderFromCloudPath(
   if (folderPathStr) {
     let parts = folderPathStr.split('/').filter(Boolean);
 
-    // 1. 剥离云端顶层系统大类 ("角色卡", "工具区", "聊天记录")
-    const systemBuckets = ['角色卡', 'characters', '工具区', 'tools', '聊天记录', 'chats'];
-    if (parts.length > 0 && systemBuckets.includes(parts[0].toLowerCase())) {
+    // 1. 剥离云端顶层系统大类 ("角色卡", "角色卡片", "角色卡包", "characters", "工具区", "tools", "聊天记录" 等)
+    const systemBuckets = [
+      '角色卡', '角色卡片', '角色卡包', '角色卡片包', '角色包', '角色', '卡包', '卡片',
+      'characters', 'cards', 'character', 'card',
+      '工具区', '工具包', '工具', 'tools', 'presets', '预设', '世界书', 'world_info',
+      '聊天记录', '聊天', 'chats', 'chat'
+    ];
+    while (parts.length > 0 && systemBuckets.includes(parts[0].toLowerCase().trim())) {
       parts.shift();
     }
 

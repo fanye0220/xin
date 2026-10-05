@@ -631,7 +631,7 @@ export function GreetingFullScreenModal({
                     onClose();
                   }}
                   style={{ color: currentTheme.text }}
-                  className="px-3 py-1.5 -ml-1 rounded-full bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 transition flex items-center gap-1.5 active:scale-95 text-xs sm:text-sm font-semibold cursor-pointer shadow-xs"
+                  className="px-3 py-1.5 -ml-1 rounded-full bg-white/10 [.light-theme_&]:!bg-black/5 hover:bg-white/15 [.light-theme_&]:hover:!bg-black/10 transition flex items-center gap-1.5 active:scale-95 text-xs sm:text-sm font-semibold cursor-pointer shadow-xs"
                   title="退出全屏阅读"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -641,7 +641,7 @@ export function GreetingFullScreenModal({
                 {/* 章节序号展示 (2 / 20 ☰) */}
                 <div
                   onClick={() => setShowCatalogDrawer(true)}
-                  className="flex items-center gap-1.5 cursor-pointer px-2.5 py-1 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition"
+                  className="flex items-center gap-1.5 cursor-pointer px-2.5 py-1 rounded-full hover:bg-white/5 [.light-theme_&]:hover:!bg-black/5 transition"
                 >
                   <span style={{ color: currentTheme.muted }} className="text-xs font-medium tabular-nums">
                     {currentIndex + 1} / {greetingItems.length}
@@ -654,7 +654,7 @@ export function GreetingFullScreenModal({
                   <button
                     onClick={() => setShowAaMenu(!showAaMenu)}
                     style={{ color: showAaMenu ? currentTheme.accent : currentTheme.muted }}
-                    className="p-1.5 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition active:scale-95"
+                    className="p-1.5 rounded-full hover:bg-white/5 [.light-theme_&]:hover:!bg-black/5 transition active:scale-95"
                     title="字号排版与主题"
                   >
                     <Type className="w-4 h-4" />
@@ -663,7 +663,7 @@ export function GreetingFullScreenModal({
                   <button
                     onClick={() => setIsEditing(!isEditing)}
                     style={{ color: isEditing ? currentTheme.accent : currentTheme.muted }}
-                    className="p-1.5 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition active:scale-95"
+                    className="p-1.5 rounded-full hover:bg-white/5 [.light-theme_&]:hover:!bg-black/5 transition active:scale-95"
                     title="编辑正文"
                   >
                     <Edit3 className="w-4 h-4" />
@@ -689,7 +689,7 @@ export function GreetingFullScreenModal({
                   <img
                     src={effectiveAvatar}
                     alt={character.name}
-                    className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover shadow-xl border-2 ring-4 ring-black/5 dark:ring-white/5"
+                    className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover shadow-xl border-2 ring-4 ring-white/5 [.light-theme_&]:!ring-black/5"
                     style={{ borderColor: currentTheme.border }}
                   />
                 </div>
@@ -749,7 +749,7 @@ export function GreetingFullScreenModal({
                           setIsEditing(false);
                         }}
                         style={{ color: currentTheme.muted }}
-                        className="px-3 py-1.5 rounded-xl hover:bg-black/5 dark:hover:bg-white/5 transition"
+                        className="px-3 py-1.5 rounded-xl hover:bg-white/5 [.light-theme_&]:hover:!bg-black/5 transition"
                       >
                         取消
                       </button>
@@ -907,7 +907,7 @@ export function GreetingFullScreenModal({
                 </div>
 
                 {/* 首行缩进 */}
-                <div className="flex items-center justify-between pt-1 border-t border-black/5 dark:border-white/5">
+                <div className="flex items-center justify-between pt-1 border-t border-white/5 [.light-theme_&]:!border-black/5">
                   <span style={{ color: currentTheme.muted }} className="text-xs font-medium">
                     首行缩进 (空两格)
                   </span>
@@ -963,7 +963,7 @@ export function GreetingFullScreenModal({
                     <button
                       onClick={() => setShowCatalogDrawer(false)}
                       style={{ color: currentTheme.muted }}
-                      className="p-1.5 rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition"
+                      className="p-1.5 rounded-full hover:bg-white/10 [.light-theme_&]:hover:!bg-black/10 transition"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -992,7 +992,7 @@ export function GreetingFullScreenModal({
                               : 'transparent',
                           }}
                           className={`p-3 rounded-2xl border transition cursor-pointer group flex flex-col gap-1 ${
-                            isSelected ? 'shadow-xs' : 'hover:bg-black/5 dark:hover:bg-white/5'
+                            isSelected ? 'shadow-xs' : 'hover:bg-white/5 [.light-theme_&]:hover:!bg-black/5'
                           }`}
                         >
                           <div className="flex items-center justify-between">

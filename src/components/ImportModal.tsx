@@ -53,6 +53,32 @@ const tavernAvatarCache = new Map<string, string>();
 const ALT_FOLDERS = ["替换卡面", "替换头像", "avatars", "alt", "alternate"];
 const VERSION_FOLDERS = ["版本历史", "versions", "version_history", "history"];
 
+const SYSTEM_CONTAINER_BUCKETS = [
+  "角色卡", "角色卡片", "角色卡包", "角色卡片包", "角色包", "角色", "卡包", "卡片", "角包",
+  "characters", "cards", "character", "card",
+  "工具区", "工具包", "工具", "tools", "presets", "预设", "世界书", "world_info",
+  "聊天记录", "聊天", "chats", "chat",
+  "回收站", "trash",
+  "tavern_export", "miu_backup", "miu_autobackup", "chats_export", "backup", "backups", "export", "exports",
+  "sillytavern", "aitavern", "aitavern_backups"
+];
+
+function isSystemContainerName(name: string): boolean {
+  if (!name) return true;
+  const clean = name.trim().toLowerCase().replace(/[\-_0-9\s\(\)（）\.]/g, "");
+  if (!clean) return true;
+  if (SYSTEM_CONTAINER_BUCKETS.includes(clean)) return true;
+  return /^(角色卡|角色卡片|角色卡包|角色包|卡包|卡片|工具区|工具包|聊天记录|Tavern_Export|MIU_Backup|MIU_AutoBackup|chats_export|backup|export|cards|characters|sillytavern|aitavern)[\-_0-9A-Za-z_卷\s\(\)（）]*/i.test(name.trim());
+}
+
+function stripSystemContainerBucketParts(parts: string[]): string[] {
+  let res = [...parts];
+  while (res.length > 0 && isSystemContainerName(res[0])) {
+    res.shift();
+  }
+  return res;
+}
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
@@ -614,9 +640,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
         try {
           if (ext === "zip") {
             setProgress({
-              current: i + 1,
-              total: items.length,
-              message: `正在解压 ZIP 压缩包 ${fileName}...`,
+              current: Math.min(progressTracker.current, progressTracker.total),
+              total: progressTracker.total,
+              message: `正在读取 ZIP 数据包...`,
             });
             const zipContent = await JSZip.loadAsync(file, {
               decodeFileName: function (bytes: any) {
@@ -630,72 +656,80 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               },
             });
             const rawRootName = fileName.replace(/\.zip$/i, "").trim();
-            const isExportArchiveName = /^(Tavern_Export|MIU_Backup|MIU_AutoBackup|chats_export|backup|export|cards|characters)[\-_0-9A-Za-z_卷]*/i.test(rawRootName);
+            const isExportArchiveName = isSystemContainerName(rawRootName);
 
-            const zipFiles: File[] = [];
             const fileEntries = Object.entries(zipContent.files).filter(
-              ([_, entry]) => !entry.dir
+              ([relPath, entry]) => {
+                if (entry.dir) return false;
+                const clean = relPath.replace(/\\/g, "/");
+                if (clean.includes("__MACOSX")) return false;
+                if (clean.split("/").some((p) => p.startsWith(".") || p === "Thumbs.db" || p === "desktop.ini")) return false;
+                return true;
+              }
             );
 
             // 检查压缩包内本身是否已经带有分类目录层级
             const hasInternalFolders = fileEntries.some(([relPath]) => {
               const clean = relPath.replace(/\\/g, "/");
-              return clean.includes("/") && !clean.startsWith("__MACOSX");
+              return clean.includes("/");
             });
 
-            // 避免产生无意义的空嵌套层级：
-            // 如果是酒馆/MIU自动导出的归档包名、或者压缩包内本身已有分类层级、或者用户当前正处于某一指定分类中导入，
-            // 则绝不在最外层额外包裹一层以压缩包命名的顶层文件夹，直接还原其内部真实分类。
             const shouldCreateRootFolder = !isExportArchiveName && !hasInternalFolders && !(folderId || targetFolderId);
             const rootFolderName = shouldCreateRootFolder ? rawRootName : "";
 
-            for (let eIdx = 0; eIdx < fileEntries.length; eIdx++) {
-              const [relativePath, zipEntry] = fileEntries[eIdx];
-              const cleanPath = relativePath.replace(/\\/g, "/");
-              if (
-                cleanPath.includes("__MACOSX") ||
-                cleanPath.split("/").some((p) => p.startsWith("."))
-              ) {
-                continue;
-              }
+            const zipFiles: File[] = [];
+            const BATCH_SIZE = 15;
+            for (let b = 0; b < fileEntries.length; b += BATCH_SIZE) {
+              const chunk = fileEntries.slice(b, b + BATCH_SIZE);
+              await Promise.all(
+                chunk.map(async ([relativePath, zipEntry]) => {
+                  let cleanPath = relativePath.replace(/\\/g, "/");
 
-              if (eIdx % 25 === 0) {
-                setProgress({
-                  current: progressTracker.current,
-                  total: progressTracker.total,
-                  message: `正在解压压缩包内容 (${eIdx + 1}/${fileEntries.length})...`,
-                });
-                await new Promise((resolve) => setTimeout(resolve, 0));
-              }
+                  // 自动剥离压缩包内部嵌套的顶层大类/容器包名 (如 "角色卡/日常/猫娘.png" -> "日常/猫娘.png")
+                  const cleanSegments = cleanPath.split("/").filter(Boolean);
+                  const strippedSegments = stripSystemContainerBucketParts(cleanSegments);
+                  if (strippedSegments.length < cleanSegments.length && strippedSegments.length > 0) {
+                    cleanPath = strippedSegments.join("/");
+                  }
 
-              const blob = await zipEntry.async("blob");
-              const zipFileName = cleanPath.split("/").pop() || "file";
-              const lowerZipName = zipFileName.toLowerCase();
-              let zipFileType = blob.type || "application/octet-stream";
-              if (lowerZipName.endsWith(".png")) zipFileType = "image/png";
-              else if (/\.jpe?g$/.test(lowerZipName)) zipFileType = "image/jpeg";
-              else if (lowerZipName.endsWith(".webp")) zipFileType = "image/webp";
-              else if (lowerZipName.endsWith(".gif")) zipFileType = "image/gif";
-              else if (lowerZipName.endsWith(".json")) zipFileType = "application/json";
-              else if (lowerZipName.endsWith(".jsonl")) zipFileType = "application/json";
-              else if (lowerZipName.endsWith(".txt")) zipFileType = "text/plain";
-              else if (lowerZipName.endsWith(".js")) zipFileType = "text/javascript";
+                  const blob = await zipEntry.async("blob");
+                  const zipFileName = cleanPath.split("/").pop() || "file";
+                  const lowerZipName = zipFileName.toLowerCase();
+                  let zipFileType = blob.type || "application/octet-stream";
+                  if (lowerZipName.endsWith(".png")) zipFileType = "image/png";
+                  else if (/\.jpe?g$/.test(lowerZipName)) zipFileType = "image/jpeg";
+                  else if (lowerZipName.endsWith(".webp")) zipFileType = "image/webp";
+                  else if (lowerZipName.endsWith(".gif")) zipFileType = "image/gif";
+                  else if (lowerZipName.endsWith(".json")) zipFileType = "application/json";
+                  else if (lowerZipName.endsWith(".jsonl")) zipFileType = "application/json";
+                  else if (lowerZipName.endsWith(".txt")) zipFileType = "text/plain";
+                  else if (lowerZipName.endsWith(".js")) zipFileType = "text/javascript";
 
-              const entryDate = zipEntry.date
-                ? zipEntry.date.getTime()
-                : file.lastModified || Date.now();
-              const extractedFile = new File([blob], zipFileName, {
-                type: zipFileType,
-                lastModified: entryDate,
+                  const entryDate = zipEntry.date
+                    ? zipEntry.date.getTime()
+                    : file.lastModified || Date.now();
+                  const extractedFile = new File([blob], zipFileName, {
+                    type: zipFileType,
+                    lastModified: entryDate,
+                  });
+
+                  const simulatedPath = rootFolderName ? `${rootFolderName}/${cleanPath}` : cleanPath;
+                  Object.defineProperty(extractedFile, "webkitRelativePath", {
+                    value: simulatedPath,
+                    writable: false,
+                  });
+
+                  zipFiles.push(extractedFile);
+                })
+              );
+
+              const doneCount = Math.min(b + BATCH_SIZE, fileEntries.length);
+              setProgress({
+                current: doneCount,
+                total: fileEntries.length,
+                message: `正在解压归档卡片文件 (${doneCount}/${fileEntries.length})...`,
               });
-
-              const simulatedPath = rootFolderName ? `${rootFolderName}/${cleanPath}` : cleanPath;
-              Object.defineProperty(extractedFile, "webkitRelativePath", {
-                value: simulatedPath,
-                writable: false,
-              });
-
-              zipFiles.push(extractedFile);
+              await new Promise((resolve) => setTimeout(resolve, 0));
             }
 
             if (zipFiles.length > 0) {
@@ -715,10 +749,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                 }
               }
 
-              // Update progress total to include all extracted files from the zip
-              progressTracker.total += (zipFiles.length - 1);
+              progressTracker.total = zipFiles.length;
+              progressTracker.current = 0;
 
-              // Fully await recursive parse of ALL files inside the zip
               await parseFiles(
                 zipFiles,
                 accumulatedParsed,
@@ -758,7 +791,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               isImage: true,
               isVersion: inVersionFolder || undefined,
               errorMsg:
-                inAltFolder || inVersionFolder
+                inAltFolder || inVersionFolder || items.length > 1
                   ? undefined
                   : "未找到内嵌的酒馆角色数据",
             });
@@ -1238,9 +1271,10 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
           if (item.folder) {
             let parts = item.folder.split("/").filter(Boolean);
 
-            // 智能防嵌套剥离：
-            // 当角色卡带有替换头像或聊天记录导出时，导出器会将它们包裹在「以角色名命名的子文件夹」中。
-            // 导入时如果发现末尾目录等于该角色卡文件名或角色名称，说明该层仅为导出打包容器，绝非分类文件夹，予以剔除。
+            // 1. 自动剥离顶层系统容器/大类包名 ("角色卡", "角色卡包", "characters", "工具区" 等)
+            parts = stripSystemContainerBucketParts(parts);
+
+            // 2. 智能防嵌套剥离：角色同名导出文件夹剥离
             if (parts.length > 0) {
               const lastPart = parts[parts.length - 1].toLowerCase().trim();
               const charBaseName = item.file.name.replace(/\.[^/.]+$/, "").toLowerCase().trim();
@@ -1261,6 +1295,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               }
             }
 
+            // 再次剥离顶层系统容器
+            parts = stripSystemContainerBucketParts(parts);
+
             if (parts.length > 0) {
               const topFolder = parts[0];
               if (extractedRootsMap.has(topFolder)) {
@@ -1278,10 +1315,13 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               }
             }
           } else if (prefix && prefix.length > 0) {
-            assignFolderId = await getOrCreateNestedFolder(
-              prefix,
-              folderId || targetFolderId,
-            );
+            const cleanPrefix = stripSystemContainerBucketParts(prefix);
+            if (cleanPrefix.length > 0) {
+              assignFolderId = await getOrCreateNestedFolder(
+                cleanPrefix,
+                folderId || targetFolderId,
+              );
+            }
           }
           return assignFolderId;
         };
