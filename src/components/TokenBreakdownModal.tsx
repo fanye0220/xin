@@ -252,11 +252,11 @@ export function TokenBreakdownModal({
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs font-medium detail-card-text-muted">
                 <span>字段空间占用比率</span>
-                <span className="font-mono text-[11px] font-bold text-slate-200 [.light-theme_&]:!text-slate-700">
+                <span className="font-mono text-[11px] font-bold text-slate-700 dark:text-slate-200">
                   {breakdown.totalTokens.toLocaleString()} Tokens
                 </span>
               </div>
-              <div className="w-full h-3 rounded-full overflow-hidden flex p-0.5 gap-1 bg-slate-800/80 border border-white/10 [.light-theme_&]:!bg-slate-100/90 [.light-theme_&]:!border-slate-200/80 shadow-inner">
+              <div className="w-full h-3 rounded-full overflow-hidden flex p-0.5 gap-1 bg-slate-100/90 border border-slate-200/80 dark:bg-slate-800/80 dark:border-white/10 shadow-inner">
                 {sections.map((s, idx) => {
                   const pct = getPercent(s.tokens);
                   if (pct <= 0) return null;

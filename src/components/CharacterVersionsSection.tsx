@@ -1268,7 +1268,7 @@ export function CharacterVersionsSection({
                       className={`soft-card rounded-2xl py-2.5 px-3.5 sm:py-3 sm:px-4 pl-4.5 sm:pl-5 relative overflow-hidden transition-all duration-300 space-y-1.5 sm:space-y-2 cursor-pointer ${
                         isActive 
                           ? 'border border-white/20 shadow-md [.light-theme_&]:!border-blue-400/80 [.light-theme_&]:!bg-[#f8faff] [.light-theme_&]:!shadow-xs' 
-                          : 'hover:shadow-md hover:border-slate-600 [.light-theme_&]:hover:!border-slate-300 active:scale-[0.99]'
+                          : 'hover:shadow-md hover:border-slate-300 dark:hover:border-slate-600 active:scale-[0.99]'
                       }`}
                     >
                       {/* Sliding Left Vertical Accent Bar (Smoothly glides between cards when selected) */}
@@ -1467,7 +1467,7 @@ export function CharacterVersionsSection({
                                 变动要点速查：
                               </span>
                               {isActive && (
-                                <span className="text-xs font-bold text-emerald-400 [.light-theme_&]:!text-emerald-600">
+                                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
                                   ● 当前活跃生效基准
                                 </span>
                               )}
