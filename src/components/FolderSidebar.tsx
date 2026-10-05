@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Folder as FolderIcon, Plus, Edit2, Trash2, X, ChevronRight, Tag, Settings, Sparkles, MessageSquare, Copy, Trash, Loader2, Moon, Sun, Smartphone, Heart } from 'lucide-react';
+import { Folder as FolderIcon, Plus, Edit2, Trash2, X, ChevronRight, Tag, Settings, Sparkles, MessageSquare, Copy, Trash, Loader2, Moon, Sun, Smartphone, Heart, MoreVertical } from 'lucide-react';
 import { Folder, getFolders, saveFolder, deleteFolder, getFavoriteCharacterCount } from '../lib/db';
 import { initAuth, googleSignIn, logout } from '../lib/drive';
 import { useSidebarWallpaper } from '../lib/sidebarWallpaper';
@@ -46,6 +47,29 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
   const [creatingParentId, setCreatingParentId] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [foldersSectionExpanded, setFoldersSectionExpanded] = useState(() => localStorage.getItem('tavern_sidebarFoldersExpanded') !== 'false');
+  const [menuState, setMenuState] = useState<{
+    folder: Folder;
+    x: number;
+    y: number;
+    placement: 'top' | 'bottom';
+  } | null>(null);
+
+  const handleToggleMenu = (folder: Folder, e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (menuState?.folder.id === folder.id) {
+      setMenuState(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const isUpward = spaceBelow < 165;
+    setMenuState({
+      folder,
+      x: Math.min(window.innerWidth - 140, Math.max(12, rect.right - 125)),
+      y: isUpward ? rect.top - 6 : rect.bottom + 6,
+      placement: isUpward ? 'top' : 'bottom',
+    });
+  };
 
   // Wallpaper state
   const [wallpaperConfig] = useSidebarWallpaper();
@@ -271,11 +295,14 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
                   </button>
                   
                   <button
-                    onClick={() => {
+                    onClick={(e) => {
                       onSelectFolder(folder.id);
+                      if (hasChildren) {
+                        toggleExpand(folder.id, e);
+                      }
                       onClose();
                     }}
-                    className="flex-1 flex items-center gap-2 text-left truncate"
+                    className="flex-1 flex items-center gap-2 text-left truncate min-w-0"
                   >
                     <FolderIcon className={`w-4 h-4 shrink-0 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.85)]' : '!text-[#1c1c1e]') : (isSelected ? 'text-slate-100 [.light-theme_&]:!text-[#1c1c1e]' : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]')}`} />
                     {editingFolderId === folder.id ? (
@@ -293,7 +320,7 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
                         autoFocus
                       />
                     ) : (
-                      <div className="flex items-center gap-1.5 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
                         <span className="font-medium truncate text-sm">{folder.name}</span>
                         {itemCounts[folder.id] !== undefined && itemCounts[folder.id] > 0 && (
                           <span className={`text-[10px] px-1.5 py-0.5 rounded-full shrink-0 border ${
@@ -309,40 +336,23 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
                   </button>
                 </div>
 
-                <div className="flex items-center gap-1">
+                {/* Right Action Menu: Single Three Dots Button (•••) */}
+                <div className="relative shrink-0 ml-1" onClick={(e) => e.stopPropagation()}>
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCreatingParentId(folder.id);
-                      setIsCreating(true);
-                      setEditName('');
-                      setExpandedFolders(prev => new Set(prev).add(folder.id));
-                    }}
-                    className={`p-1.5 rounded-lg transition ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.7)] hover:!text-[#ffffff] hover:bg-white/15' : '!text-[#1c1c1e] hover:bg-black/10') : 'text-slate-400 hover:text-slate-100 hover:bg-slate-700/40 [.light-theme_&]:!text-[#1c1c1e]'}`}
-                    title="新建子文件夹"
+                    type="button"
+                    onClick={(e) => handleToggleMenu(folder, e)}
+                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                      menuState?.folder.id === folder.id
+                        ? isFullWallpaper
+                          ? (isDarkTheme ? 'bg-white/20 text-white' : 'bg-black/15 text-[#1c1c1e]')
+                          : 'bg-slate-700 text-white [.light-theme_&]:!bg-[#e4e7eb] [.light-theme_&]:!text-[#1c1c1e]'
+                        : isFullWallpaper
+                          ? (isDarkTheme ? 'text-white/70 hover:text-white hover:bg-white/15' : 'text-slate-600 hover:text-[#1c1c1e] hover:bg-black/10')
+                          : 'text-slate-400 hover:text-slate-100 hover:bg-slate-700/40 [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#1c1c1e] [.light-theme_&]:hover:!bg-black/5'
+                    }`}
+                    title="分类管理"
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingFolderId(folder.id);
-                      setEditName(folder.name);
-                    }}
-                    className={`p-1.5 rounded-lg transition ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.7)] hover:!text-[#ffffff] hover:bg-white/15' : '!text-[#1c1c1e] hover:bg-black/10') : 'text-slate-400 hover:text-slate-100 hover:bg-slate-700/40 [.light-theme_&]:!text-[#1c1c1e]'}`}
-                    title="重命名"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteFolder(folder.id, folder.name);
-                    }}
-                    className={`p-1.5 rounded-lg transition ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.7)] hover:!text-red-300 hover:bg-white/15' : '!text-[#1c1c1e] hover:!text-red-600 hover:bg-black/10') : 'text-slate-400 hover:text-red-400 hover:bg-slate-700/40 [.light-theme_&]:!text-[#1c1c1e]'}`}
-                    title="删除"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <MoreVertical className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
@@ -843,6 +853,93 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
           </span>
         </button>
       </div>
+
+      {/* Floating Portal Dropdown Menu for Sidebar Folders */}
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {menuState && (
+            <div 
+              className="fixed inset-0 z-[120] select-none" 
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuState(null);
+              }} 
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: menuState.placement === 'top' ? 6 : -6 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: menuState.placement === 'top' ? 6 : -6 }}
+                transition={{ duration: 0.15 }}
+                style={{
+                  position: 'fixed',
+                  left: `${menuState.x}px`,
+                  top: menuState.placement === 'top' ? undefined : `${menuState.y}px`,
+                  bottom: menuState.placement === 'top' ? `${window.innerHeight - menuState.y}px` : undefined,
+                }}
+                className={`z-[121] min-w-[130px] rounded-2xl shadow-2xl py-1.5 border backdrop-blur-xl ${
+                  !isDarkTheme 
+                    ? 'bg-white/95 border-[#e2e8f0] text-[#0f172a] shadow-xl' 
+                    : 'bg-[#1e222d]/95 border-white/10 text-white shadow-2xl'
+                }`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    const f = menuState.folder;
+                    setMenuState(null);
+                    setCreatingParentId(f.id);
+                    setIsCreating(true);
+                    setEditName('');
+                    setExpandedFolders(prev => new Set(prev).add(f.id));
+                  }}
+                  className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer flex items-center gap-2 ${
+                    !isDarkTheme ? 'hover:bg-[#f1f5f9] text-[#0f172a]' : 'hover:bg-white/10 text-slate-100'
+                  }`}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>新建子分类</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    const f = menuState.folder;
+                    setMenuState(null);
+                    setEditingFolderId(f.id);
+                    setEditName(f.name);
+                  }}
+                  className={`w-full px-3.5 py-2 text-xs font-medium transition text-left cursor-pointer flex items-center gap-2 ${
+                    !isDarkTheme ? 'hover:bg-[#f1f5f9] text-[#0f172a]' : 'hover:bg-white/10 text-slate-100'
+                  }`}
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  <span>重命名</span>
+                </button>
+
+                <div className={`my-1 border-t ${!isDarkTheme ? 'border-[#f1f5f9]' : 'border-white/10'}`} />
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    const f = menuState.folder;
+                    setMenuState(null);
+                    handleDeleteFolder(f.id, f.name);
+                  }}
+                  className={`w-full px-3.5 py-2 text-xs font-semibold transition text-left cursor-pointer text-[#ff3b30] flex items-center gap-2 ${
+                    !isDarkTheme ? 'hover:bg-[#ff3b30]/10 active:bg-[#ff3b30]/15' : 'hover:bg-[#ff3b30]/15 active:bg-[#ff3b30]/25'
+                  }`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>删除分类</span>
+                </button>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </motion.div>
   );
 }

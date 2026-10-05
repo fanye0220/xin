@@ -232,6 +232,18 @@ body {
   color: var(--color-white);
 }
 
+html, body {
+  -webkit-overflow-scrolling: touch;
+  touch-action: manipulation;
+}
+
+.custom-scrollbar,
+.overflow-y-auto,
+.overflow-x-auto,
+.overflow-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
 }

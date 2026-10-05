@@ -1,5 +1,5 @@
 import { getFallbackAvatar, resolveAvatarUrl } from "../lib/avatar";
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, memo, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
@@ -101,6 +101,40 @@ interface ParsedItem {
   toolPrefix?: string[];
   errorMsg?: string;
 }
+
+const ImportCardAvatar = memo(function ImportCardAvatar({
+  blob,
+  fallback,
+  name,
+}: {
+  blob?: Blob;
+  fallback?: string;
+  name: string;
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!blob) {
+      setBlobUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    setBlobUrl(url);
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [blob]);
+
+  return (
+    <img
+      src={blobUrl || fallback || getFallbackAvatar(name)}
+      alt={name}
+      className="w-full h-full object-cover"
+      loading="lazy"
+      decoding="async"
+    />
+  );
+});
 
 export function TavernAvatar({ char, aiSettings, className = "w-12 h-12 sm:w-14 sm:h-14 rounded-2xl object-cover shrink-0 shadow-xs" }: { char: any, aiSettings: any, className?: string }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(() =>
@@ -253,10 +287,30 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
     }>;
   } | null>(null);
   const [tokenSearchQuery, setTokenSearchQuery] = useState("");
+  const [displayLimit, setDisplayLimit] = useState(30);
   const [selectedTokenBreakdown, setSelectedTokenBreakdown] = useState<{
     name: string;
     breakdown: CharacterTokenBreakdown;
   } | null>(null);
+
+  useEffect(() => {
+    setDisplayLimit(30);
+  }, [importTokenSummary, tokenSearchQuery]);
+
+  const filteredTokenItems = useMemo(() => {
+    if (!importTokenSummary) return [];
+    const q = tokenSearchQuery.trim().toLowerCase();
+    if (!q) return importTokenSummary.items;
+    return importTokenSummary.items.filter(
+      (c) =>
+        c.charName.toLowerCase().includes(q) ||
+        c.folderPath.toLowerCase().includes(q)
+    );
+  }, [importTokenSummary, tokenSearchQuery]);
+
+  const visibleTokenItems = useMemo(() => {
+    return filteredTokenItems.slice(0, displayLimit);
+  }, [filteredTokenItems, displayLimit]);
 
   const [importedSuccessCount, setImportedSuccessCount] = useState(0);
   const [isReverting, setIsReverting] = useState(false);
@@ -2097,82 +2151,88 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                 )}
 
                 {/* Cards List */}
-                <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar min-h-0">
-                  {importTokenSummary.items
-                    .filter((c) =>
-                      !tokenSearchQuery.trim() ||
-                      c.charName.toLowerCase().includes(tokenSearchQuery.toLowerCase()) ||
-                      c.folderPath.toLowerCase().includes(tokenSearchQuery.toLowerCase())
-                    )
-                    .map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center justify-between gap-3 p-3 rounded-2xl border transition bg-white/5 border-white/10 hover:bg-white/8 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!bg-[#f8fafc]"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                          <div className="w-10 h-10 rounded-xl overflow-hidden bg-white/10 shrink-0 relative border border-white/10 [.light-theme_&]:!border-[#e2e8f0]">
-                            {item.avatarBlob ? (
-                              <img
-                                src={URL.createObjectURL(item.avatarBlob)}
-                                alt={item.charName}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <img
-                                src={item.avatarUrlFallback || getFallbackAvatar(item.charName)}
-                                alt={item.charName}
-                                className="w-full h-full object-cover"
-                              />
+                <div 
+                  onScroll={(e) => {
+                    const target = e.currentTarget;
+                    if (target.scrollHeight - target.scrollTop - target.clientHeight < 120) {
+                      if (displayLimit < filteredTokenItems.length) {
+                        setDisplayLimit((prev) => prev + 30);
+                      }
+                    }
+                  }}
+                  className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar min-h-0 touch-pan-y"
+                >
+                  {visibleTokenItems.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between gap-3 p-3 rounded-2xl border transition bg-white/5 border-white/10 hover:bg-white/8 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!bg-[#f8fafc]"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <div className="w-10 h-10 rounded-xl overflow-hidden bg-white/10 shrink-0 relative border border-white/10 [.light-theme_&]:!border-[#e2e8f0]">
+                          <ImportCardAvatar
+                            blob={item.avatarBlob}
+                            fallback={item.avatarUrlFallback}
+                            name={item.charName}
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-xs sm:text-sm truncate text-white [.light-theme_&]:!text-[#0f172a] flex items-center gap-2">
+                            <span className="truncate">{item.charName}</span>
+                            {!item.isTool && item.breakdown && item.breakdown.totalTokens > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedTokenBreakdown({
+                                    name: item.charName,
+                                    breakdown: item.breakdown,
+                                  })
+                                }
+                                className="text-[10px] font-mono px-2 py-0.5 rounded-md border shrink-0 transition active:scale-95 cursor-pointer bg-white/10 border-white/15 text-white/80 hover:bg-white/20 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#334155] [.light-theme_&]:hover:!bg-[#e2e8f0]"
+                                title="点击查看 Token 详细拆解"
+                              >
+                                {formatTokenCount(item.breakdown.totalTokens)} T
+                              </button>
                             )}
                           </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="font-semibold text-xs sm:text-sm truncate text-white [.light-theme_&]:!text-[#0f172a] flex items-center gap-2">
-                              <span className="truncate">{item.charName}</span>
-                              {!item.isTool && item.breakdown && item.breakdown.totalTokens > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setSelectedTokenBreakdown({
-                                      name: item.charName,
-                                      breakdown: item.breakdown,
-                                    })
-                                  }
-                                  className="text-[10px] font-mono px-2 py-0.5 rounded-md border shrink-0 transition active:scale-95 cursor-pointer bg-white/10 border-white/15 text-white/80 hover:bg-white/20 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#334155] [.light-theme_&]:hover:!bg-[#e2e8f0]"
-                                  title="点击查看 Token 详细拆解"
-                                >
-                                  {formatTokenCount(item.breakdown.totalTokens)} T
-                                </button>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1.5 text-[11px] text-white/50 [.light-theme_&]:!text-[#64748b] mt-0.5 truncate">
-                              <span className="font-medium text-blue-400 [.light-theme_&]:!text-[#007aff] truncate">📁 {item.folderPath}</span>
-                              {item.breakdown.totalCharCount > 0 && (
-                                <span>· {item.breakdown.totalCharCount}字</span>
-                              )}
-                            </div>
+                          <div className="flex items-center gap-1.5 text-[11px] text-white/50 [.light-theme_&]:!text-[#64748b] mt-0.5 truncate">
+                            <span className="font-medium text-blue-400 [.light-theme_&]:!text-[#007aff] truncate">📁 {item.folderPath}</span>
+                            {item.breakdown.totalCharCount > 0 && (
+                              <span>· {item.breakdown.totalCharCount}字</span>
+                            )}
                           </div>
                         </div>
-
-                        {/* Actions: Navigate Folder if any */}
-                        <div className="flex items-center gap-2 shrink-0">
-                          {onNavigateFolder && item.folderId && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onNavigateFolder(item.folderId!);
-                                setImportTokenSummary(null);
-                                onClose();
-                              }}
-                              className="px-3.5 py-1.5 text-xs bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 rounded-xl shrink-0 font-semibold transition flex items-center gap-1 active:scale-95 cursor-pointer [.light-theme_&]:!bg-[#007aff]/10 [.light-theme_&]:hover:!bg-[#007aff]/20 [.light-theme_&]:!text-[#007aff]"
-                              title="前往目标文件夹"
-                            >
-                              <span>前往文件夹</span>
-                              <ArrowRight className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
                       </div>
-                    ))}
+
+                      {/* Actions: Navigate Folder if any */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {onNavigateFolder && item.folderId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onNavigateFolder(item.folderId!);
+                              setImportTokenSummary(null);
+                              onClose();
+                            }}
+                            className="px-3.5 py-1.5 text-xs bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 rounded-xl shrink-0 font-semibold transition flex items-center gap-1 active:scale-95 cursor-pointer [.light-theme_&]:!bg-[#007aff]/10 [.light-theme_&]:hover:!bg-[#007aff]/20 [.light-theme_&]:!text-[#007aff]"
+                            title="前往目标文件夹"
+                          >
+                            <span>前往文件夹</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {displayLimit < filteredTokenItems.length && (
+                    <button
+                      type="button"
+                      onClick={() => setDisplayLimit((prev) => prev + 50)}
+                      className="w-full py-2.5 text-center text-xs font-medium rounded-xl border transition bg-white/5 border-white/10 hover:bg-white/10 text-white/70 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#334155] [.light-theme_&]:hover:!bg-[#e2e8f0] cursor-pointer"
+                    >
+                      加载更多... (已显示 {visibleTokenItems.length} / {filteredTokenItems.length} 项)
+                    </button>
+                  )}
                 </div>
 
                 {/* Footer Buttons */}
