@@ -674,8 +674,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               return clean.includes("/");
             });
 
-            const shouldCreateRootFolder = !isExportArchiveName && !hasInternalFolders && !(folderId || targetFolderId);
-            const rootFolderName = shouldCreateRootFolder ? rawRootName : "";
+            // 永远不把 ZIP 压缩包的包名强制作为最外层新建文件夹，直接将其内容直接还原/解压到当前分类或对应子文件夹中
+            const shouldCreateRootFolder = false;
+            const rootFolderName = "";
 
             const zipFiles: File[] = [];
             const BATCH_SIZE = 15;
@@ -685,10 +686,15 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                 chunk.map(async ([relativePath, zipEntry]) => {
                   let cleanPath = relativePath.replace(/\\/g, "/");
 
+                  let cleanSegments = cleanPath.split("/").filter(Boolean);
+                  // 自动剥离与压缩包同名的最外层包裹文件夹 (如 "试验品/card1.png" -> "card1.png")
+                  if (cleanSegments.length > 1 && cleanSegments[0].toLowerCase().trim() === rawRootName.toLowerCase().trim()) {
+                    cleanSegments = cleanSegments.slice(1);
+                  }
+
                   // 自动剥离压缩包内部嵌套的顶层大类/容器包名 (如 "角色卡/日常/猫娘.png" -> "日常/猫娘.png")
-                  const cleanSegments = cleanPath.split("/").filter(Boolean);
                   const strippedSegments = stripSystemContainerBucketParts(cleanSegments);
-                  if (strippedSegments.length < cleanSegments.length && strippedSegments.length > 0) {
+                  if (strippedSegments.length > 0) {
                     cleanPath = strippedSegments.join("/");
                   }
 
@@ -712,6 +718,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     type: zipFileType,
                     lastModified: entryDate,
                   });
+                  (extractedFile as any).__miuFromZip = true;
 
                   const simulatedPath = rootFolderName ? `${rootFolderName}/${cleanPath}` : cleanPath;
                   Object.defineProperty(extractedFile, "webkitRelativePath", {
@@ -733,22 +740,6 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             }
 
             if (zipFiles.length > 0) {
-              if (shouldCreateRootFolder && rootFolderName) {
-                const rootParts = rootFolderName.split("/").filter(Boolean);
-                const zipRootFolderId = await getOrCreateNestedFolder(
-                  rootParts,
-                  folderId || targetFolderId,
-                );
-
-                if (zipRootFolderId) {
-                  extractedRootsMap.set(rootFolderName, {
-                    folderId: zipRootFolderId,
-                    chars: [],
-                    others: [],
-                  });
-                }
-              }
-
               progressTracker.total = zipFiles.length;
               progressTracker.current = 0;
 
@@ -1262,6 +1253,18 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
           return names.join(" / ") || "未知文件夹";
         };
 
+        // 判定本次导入文件是否全归属于同一个最外层包裹文件夹（例如拖入文件夹 "试验品"）
+        let commonTopFolder: string | null = null;
+        // 仅对"拖入文件夹"生效：ZIP 不做共同顶层剥离，否则会把真实文件夹当成外壳剥掉
+        const dragMainItems = mainItems.filter((m) => !(m.file as any).__miuFromZip);
+        const allMainFolders = dragMainItems.map((m) => m.folder).filter(Boolean);
+        if (allMainFolders.length > 0 && allMainFolders.length === dragMainItems.length) {
+          const firstTop = allMainFolders[0].split("/")[0]?.toLowerCase().trim();
+          if (firstTop && allMainFolders.every((f) => f.split("/")[0]?.toLowerCase().trim() === firstTop)) {
+            commonTopFolder = firstTop;
+          }
+        }
+
         const resolveFolderForItem = async (
           item: ParsedItem,
           prefix?: string[],
@@ -1274,7 +1277,12 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             // 1. 自动剥离顶层系统容器/大类包名 ("角色卡", "角色卡包", "characters", "工具区" 等)
             parts = stripSystemContainerBucketParts(parts);
 
-            // 2. 智能防嵌套剥离：角色同名导出文件夹剥离
+            // 2. 自动剥离拖入文件夹的最外层容器包裹 (如拖入 "试验品" 文件夹，直接把内部文件平铺导入)
+            if (!(item.file as any).__miuFromZip && commonTopFolder && parts.length > 0 && parts[0].toLowerCase().trim() === commonTopFolder) {
+              parts = parts.slice(1);
+            }
+
+            // 3. 智能防嵌套剥离：角色同名导出文件夹剥离
             if (parts.length > 0) {
               const lastPart = parts[parts.length - 1].toLowerCase().trim();
               const charBaseName = item.file.name.replace(/\.[^/.]+$/, "").toLowerCase().trim();
@@ -1313,15 +1321,19 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   folderId || targetFolderId,
                 );
               }
-            }
-          } else if (prefix && prefix.length > 0) {
-            const cleanPrefix = stripSystemContainerBucketParts(prefix);
-            if (cleanPrefix.length > 0) {
+            } else if (prefix && prefix.length > 0) {
+              // 剥壳把工具分类名（世界书/预设/工具区）也剥掉了，这里回落到识别出的分类
               assignFolderId = await getOrCreateNestedFolder(
-                cleanPrefix,
+                prefix,
                 folderId || targetFolderId,
               );
             }
+          } else if (prefix && prefix.length > 0) {
+            // 工具分类名本身就是目标文件夹，不再走系统大类剥离
+            assignFolderId = await getOrCreateNestedFolder(
+              prefix,
+              folderId || targetFolderId,
+            );
           }
           return assignFolderId;
         };
@@ -2512,18 +2524,16 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   </div>
                 </div>
 
-                {isAndroid() && (
                 <div className="mt-4 w-full flex justify-center">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); fetchTavernList(); }}
-                      disabled={isPulling}
-                      className="flex items-center gap-2 px-6 py-3.5 sm:py-4 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 rounded-2xl font-bold text-sm sm:text-base transition-all duration-300 disabled:opacity-50 w-full justify-center border border-blue-500/20 hover:border-blue-500/40 shadow-sm cursor-pointer"
-                    >
-                      {isPulling ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <Cloud className="w-5 h-5 shrink-0" />}
-                      <span className="truncate">拉取酒馆卡片</span>
-                    </button>
-                  </div>
-                  )}
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); fetchTavernList(); }}
+                    disabled={isPulling}
+                    className="flex items-center gap-2 px-6 py-3.5 sm:py-4 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 rounded-2xl font-bold text-sm sm:text-base transition-all duration-300 disabled:opacity-50 w-full justify-center border border-blue-500/20 hover:border-blue-500/40 shadow-sm cursor-pointer"
+                  >
+                    {isPulling ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <Cloud className="w-5 h-5 shrink-0" />}
+                    <span className="truncate">拉取酒馆卡片</span>
+                  </button>
+                </div>
 
                 {error && (
                   <motion.div
