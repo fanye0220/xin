@@ -1319,6 +1319,24 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
           }
         }
 
+        // 同一物理文件夹内的文件数：>1 说明这是「卡 + 配套 QR/世界书」的真实文件夹，不能剥离同名层
+        const folderKey = (raw: string): string =>
+          raw
+            .split("/")
+            .map((seg) => seg.trim().toLowerCase())
+            .filter(Boolean)
+            .join("/");
+        const folderItemCounts = new Map<string, number>();
+        for (const parsed of items) {
+          if (!parsed.folder) continue;
+          const key = folderKey(parsed.folder);
+          folderItemCounts.set(key, (folderItemCounts.get(key) || 0) + 1);
+        }
+        const folderHasSiblings = (folder: string): boolean => {
+          if (!folder) return false;
+          return (folderItemCounts.get(folderKey(folder)) || 0) > 1;
+        };
+
         const resolveFolderForItem = async (
           item: ParsedItem,
           prefix?: string[],
@@ -1336,8 +1354,8 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               parts = parts.slice(1);
             }
 
-            // 3. 智能防嵌套剥离：角色同名导出文件夹剥离
-            if (parts.length > 0) {
+            // 3. 智能防嵌套剥离：角色同名导出文件夹剥离（文件夹里还有配套 QR/世界书 等文件时保留文件夹）
+            if (parts.length > 0 && !folderHasSiblings(item.folder)) {
               const lastPart = parts[parts.length - 1].toLowerCase().trim();
               const charBaseName = item.file.name.replace(/\.[^/.]+$/, "").toLowerCase().trim();
               const rawCharName = String(
