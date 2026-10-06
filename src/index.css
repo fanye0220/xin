@@ -1614,28 +1614,28 @@ button:focus-visible,
 }
 
 .auto-tagger-btn-primary {
-  background-color: #ffffff;
-  color: #000000;
+  background-color: #2563eb;
+  color: #ffffff;
   border: 1px solid transparent;
 }
 .auto-tagger-btn-primary:hover:not(:disabled) {
-  background-color: #f4f4f5;
+  background-color: #1d4ed8;
 }
 .auto-tagger-btn-primary:disabled {
-  background-color: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.3);
+  background-color: rgba(37, 99, 235, 0.3);
+  color: rgba(255, 255, 255, 0.4);
 }
 
 .light-theme .auto-tagger-btn-primary {
-  background-color: #0f1419 !important;
+  background-color: #007aff !important;
   color: #ffffff !important;
-  border: 1px solid #0f1419 !important;
+  border: 1px solid #007aff !important;
 }
 .light-theme .auto-tagger-btn-primary:hover:not(:disabled) {
-  background-color: #272c30 !important;
+  background-color: #0062cc !important;
 }
 .light-theme .auto-tagger-btn-primary:disabled {
-  background-color: rgba(15, 20, 25, 0.5) !important;
+  background-color: rgba(0, 122, 255, 0.3) !important;
   color: rgba(255, 255, 255, 0.8) !important;
   border-color: transparent !important;
 }

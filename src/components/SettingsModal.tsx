@@ -53,7 +53,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
   const [activeTab, setActiveTab] = useState<'api' | 'st' | 'cloud' | 'wallpaper' | 'about'>(initialTab);
   const [wallpaperConfig, setWallpaperConfig] = useSidebarWallpaper();
   const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const [updateResult, setUpdateResult] = useState<{ msg: string; isError?: boolean; downloadUrl?: string } | null>(null);
+  const [updateResult, setUpdateResult] = useState<{ msg: string; isError?: boolean; downloadUrl?: string; versionInfo?: any } | null>(null);
   const [isStSetupOpen, setIsStSetupOpen] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
@@ -508,7 +508,9 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
                               setUpdateResult({
                                 msg: `发现新版本 v${res.latestVersion.version}！`,
                                 downloadUrl: res.latestVersion.downloadUrl,
+                                versionInfo: res.latestVersion,
                               });
+                              window.dispatchEvent(new CustomEvent('openUpdateModal', { detail: res.latestVersion }));
                             } else if (res.error) {
                               setUpdateResult({ msg: `检查失败: ${res.error}`, isError: true });
                             } else {
@@ -534,17 +536,28 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
                           ? 'bg-rose-500/10 text-rose-300 border-rose-500/30' 
                           : 'bg-white/5 text-white/90 border-white/15 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0]'
                       }`}>
-                        <span>{updateResult.msg}</span>
-                        {updateResult.downloadUrl && (
-                          <a
-                            href={updateResult.downloadUrl}
-                            onClick={(e) => { e.preventDefault(); openExternalUrl(updateResult.downloadUrl!); }}
-                            rel="noreferrer"
-                            className="px-3 py-1 text-xs font-semibold rounded-full transition shrink-0 bg-white text-black hover:bg-white/90 [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-white"
-                          >
-                            下载
-                          </a>
-                        )}
+                        <span className="truncate">{updateResult.msg}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {updateResult.versionInfo && (
+                            <button
+                              type="button"
+                              onClick={() => window.dispatchEvent(new CustomEvent('openUpdateModal', { detail: updateResult.versionInfo }))}
+                              className="px-2.5 py-1 text-xs font-semibold rounded-full transition shrink-0 bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 [.light-theme_&]:hover:!bg-blue-100 cursor-pointer"
+                            >
+                              查看详情
+                            </button>
+                          )}
+                          {updateResult.downloadUrl && (
+                            <a
+                              href={updateResult.downloadUrl}
+                              onClick={(e) => { e.preventDefault(); openExternalUrl(updateResult.downloadUrl!); }}
+                              rel="noreferrer"
+                              className="px-3 py-1 text-xs font-semibold rounded-full transition shrink-0 bg-white text-black hover:bg-white/90 [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-white"
+                            >
+                              下载
+                            </a>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>

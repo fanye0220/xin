@@ -106,14 +106,6 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
             >
               <X className="w-3.5 h-3.5" />
             </button>
-
-            {/* 微型内置进度条 */}
-            <div className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-transparent overflow-hidden pointer-events-none">
-              <div 
-                className={`h-full transition-all duration-300 ${isPaused ? 'bg-amber-500' : hasError ? 'bg-red-500' : 'bg-gradient-to-r from-[#a855f7] via-[#ec4899] to-[#a855f7] [.light-theme_&]:!from-blue-500 [.light-theme_&]:!to-indigo-500'}`}
-                style={{ width: `${(progress.current / Math.max(1, progress.total)) * 100}%` }}
-              />
-            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -252,6 +244,17 @@ export default function App() {
   const [globalChatViewerId, setGlobalChatViewerId] = useState<string | null>(null);
   const [updateInfo, setUpdateInfo] = useState<VersionInfo | null>(null);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+
+  useEffect(() => {
+    const handleOpenUpdate = (e: any) => {
+      if (e.detail) {
+        setUpdateInfo(e.detail);
+        setIsUpdateModalOpen(true);
+      }
+    };
+    window.addEventListener('openUpdateModal', handleOpenUpdate);
+    return () => window.removeEventListener('openUpdateModal', handleOpenUpdate);
+  }, []);
 
   useEffect(() => {
     // 启动 3 秒后静默检测远端版本更新（网页版没有本地应用，跳过；仅本地应用才需要）
