@@ -93,9 +93,12 @@ export function parsePayload(payload: string): any | null {
   let trimmed = payload.trim();
   if (!trimmed) return null;
 
-  // Strip Unicode BOM if present
-  if (trimmed.charCodeAt(0) === 0xfeff) {
-    trimmed = trimmed.slice(1).trim();
+  // Strip Unicode BOM and null bytes if present
+  trimmed = trimmed.replace(/^[\uFEFF\0]+/, '').replace(/[\0]+$/, '').trim();
+
+  // Strip surrounding quotes
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    trimmed = trimmed.slice(1, -1).trim();
   }
 
   // Remove common prefix if embedded as data-url
@@ -148,6 +151,20 @@ export function parsePayload(payload: string): any | null {
     const jsonString = new TextDecoder('utf-8').decode(bytes);
     const res = tryJsonParse(jsonString);
     if (res) return res;
+  } catch (e) {}
+
+  // 2b. Embedded Base64 search (e.g. inside header or wrapper)
+  try {
+    const eyjMatch = trimmed.match(/eyJ[A-Za-z0-9+/=_\r\n-]{30,}/);
+    if (eyjMatch) {
+      let cleanB64 = eyjMatch[0].replace(/[\r\n\s]/g, '').replace(/-/g, '+').replace(/_/g, '/');
+      while (cleanB64.length % 4 !== 0) cleanB64 += '=';
+      const binString = atob(cleanB64);
+      const bytes = Uint8Array.from(binString, (m) => m.codePointAt(0)!);
+      const jsonString = new TextDecoder('utf-8').decode(bytes);
+      const res = tryJsonParse(jsonString);
+      if (res) return res;
+    }
   } catch (e) {}
 
   // 3. Fallback URL encoded or escaped Base64
@@ -395,12 +412,33 @@ export async function extractTavernData(buffer: ArrayBuffer): Promise<any | null
       }
     }
 
-    // 3. Search for Base64 starting with 'eyJ' (which encodes '{"')
-    const b64Regex = /eyJ[A-Za-z0-9+/=_-]{40,}/g;
+    // 3. Search for "character_book" or "alternate_greetings"
+    const charBookIdx = fullText.indexOf('"character_book"');
+    if (charBookIdx !== -1) {
+      const start = fullText.lastIndexOf('{', charBookIdx);
+      if (start !== -1) {
+        const parsed = parsePayload(fullText.slice(start));
+        // 校验：必须是"像卡"的对象（避免从中间某个 { 切进去只拿到半截对象）
+        if (
+          parsed &&
+          (parsed.spec ||
+            parsed.name ||
+            parsed.char_name ||
+            parsed.data?.name ||
+            parsed.data?.first_mes ||
+            parsed.first_mes)
+        ) {
+          return parsed;
+        }
+      }
+    }
+
+    // 4. Search for Base64 starting with 'eyJ' (which encodes '{"')
+    const b64Regex = /eyJ[A-Za-z0-9+/=_\r\n-]{30,}/g;
     let match;
     while ((match = b64Regex.exec(fullText)) !== null) {
       const parsed = parsePayload(match[0]);
-      if (parsed && (parsed.name || parsed.data?.name || parsed.spec || parsed.char_name)) {
+      if (parsed && (parsed.name || parsed.data?.name || parsed.spec || parsed.char_name || parsed.data?.first_mes || parsed.first_mes)) {
         return parsed;
       }
     }
