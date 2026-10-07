@@ -126,11 +126,11 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
         ) : (
           <div className="relative w-10 h-11 flex items-center justify-center">
             <div
-              className="absolute w-8 h-10 rounded-lg border border-dashed border-white/15 [.light-theme_&]:!border-slate-300 bg-white/5"
+              className="absolute w-8 h-10 rounded-lg border border-dashed border-white/15 [.light-theme_&]:!border-[#cbd5e1] bg-white/5"
               style={{ transform: "rotate(-5deg) translateX(-3px)" }}
             />
             <div
-              className="absolute w-8 h-10 rounded-lg border border-dashed border-white/20 [.light-theme_&]:!border-slate-300 bg-white/10 flex items-center justify-center text-white/40 shadow-xs"
+              className="absolute w-8 h-10 rounded-lg border border-dashed border-white/20 [.light-theme_&]:!border-[#cbd5e1] bg-white/10 flex items-center justify-center text-white/40 shadow-xs"
               style={{ transform: "rotate(3deg) translateX(3px)" }}
             >
               <FolderIcon className="w-3.5 h-3.5 text-blue-400 [.light-theme_&]:!text-[#007aff]" />

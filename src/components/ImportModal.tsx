@@ -2310,7 +2310,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
 
                       {/* Progress bar */}
                       {progress && progress.total > 0 && (
-                        <div className="w-full bg-black/20 [.light-theme_&]:!bg-slate-200 h-2.5 rounded-full overflow-hidden mb-3">
+                        <div className="w-full bg-black/20 [.light-theme_&]:!bg-[#e2e8f0] h-2.5 rounded-full overflow-hidden mb-3">
                           <motion.div 
                             className="bg-blue-500 h-full rounded-full transition-all duration-300" 
                             style={{ width: `${Math.min(100, Math.round(((progress.current || 0) / progress.total) * 100))}%` }}
@@ -2346,7 +2346,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                       {tavernSearchQuery && (
                         <button
                           onClick={() => setTavernSearchQuery("")}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-slate-700 text-xs p-1 rounded-full"
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-[#334155] text-xs p-1 rounded-full"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -2428,7 +2428,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                             <div className={`w-5 h-5 rounded-lg flex items-center justify-center border transition-all duration-200 shrink-0 ${
                               isSelected
                                 ? 'border-blue-500 bg-blue-500 text-white [.light-theme_&]:!border-blue-600 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:!text-white shadow-xs'
-                                : 'border-white/20 bg-black/20 [.light-theme_&]:!border-slate-300 [.light-theme_&]:!bg-white'
+                                : 'border-white/20 bg-black/20 [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!bg-white'
                             }`}>
                               {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                             </div>

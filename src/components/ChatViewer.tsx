@@ -1715,13 +1715,13 @@ export function ChatViewer({
                             </span>
                           </div>
                         )}
-                        <div className="pt-2 mt-2 border-t border-white/10 [.light-theme_&]:!border-slate-200">
+                        <div className="pt-2 mt-2 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0]">
                           <button
                             onClick={() => {
                               setIsHeaderExpanded(false);
                               setShowSettings(true);
                             }}
-                            className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-white/5 [.light-theme_&]:hover:!bg-slate-100 rounded-lg text-sm text-blue-300 [.light-theme_&]:!text-blue-600 transition cursor-pointer"
+                            className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-white/5 [.light-theme_&]:hover:!bg-[#f1f5f9] rounded-lg text-sm text-blue-300 [.light-theme_&]:!text-blue-600 transition cursor-pointer"
                           >
                             <span>界面设置 (头像/折叠)</span>
                             <Settings2 className="w-4 h-4" />
@@ -2674,7 +2674,7 @@ export function ChatViewer({
                 step={0.05}
                 aria-labelledby="Zoom"
                 onChange={(e) => setZoom(Number(e.target.value))}
-                className="flex-1 h-2 bg-white/10 [.light-theme_&]:!bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                className="flex-1 h-2 bg-white/10 [.light-theme_&]:!bg-[#e2e8f0] rounded-lg appearance-none cursor-pointer accent-blue-600"
               />
               <button
                 onClick={handleSaveCrop}
@@ -2772,17 +2772,17 @@ export function ChatViewer({
           onClick={() => setEditingMsgIndex(null)}
         >
           <div
-            className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-lg flex flex-col shadow-2xl overflow-hidden [.light-theme_&]:!bg-slate-800 [.light-theme_&]:!border-slate-200"
+            className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-lg flex flex-col shadow-2xl overflow-hidden [.light-theme_&]:!bg-slate-800 [.light-theme_&]:!border-[#e2e8f0]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-4 border-b border-white/10 flex items-center justify-between [.light-theme_&]:!border-slate-100">
-              <h3 className="font-bold text-base text-white [.light-theme_&]:!text-slate-900 flex items-center gap-2">
+            <div className="p-4 border-b border-white/10 flex items-center justify-between [.light-theme_&]:!border-[#f1f5f9]">
+              <h3 className="font-bold text-base text-white [.light-theme_&]:!text-[#0f172a] flex items-center gap-2">
                 <Edit2 className="w-4 h-4 text-blue-400" />
                 <span>编辑消息 #{editingMsgIndex + 1}</span>
               </h3>
               <button
                 onClick={() => setEditingMsgIndex(null)}
-                className="p-1.5 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!bg-slate-100 cursor-pointer"
+                className="p-1.5 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!bg-[#f1f5f9] cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2792,14 +2792,14 @@ export function ChatViewer({
                 value={editingMsgContent}
                 onChange={(e) => setEditingMsgContent(e.target.value)}
                 rows={8}
-                className="w-full rounded-xl bg-black/30 border border-white/10 p-3 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors resize-none [.light-theme_&]:!bg-slate-50 [.light-theme_&]:!border-slate-200 [.light-theme_&]:!text-slate-800"
+                className="w-full rounded-xl bg-black/30 border border-white/10 p-3 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors resize-none [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]"
                 placeholder="输入消息内容..."
               />
             </div>
-            <div className="p-4 border-t border-white/10 flex items-center justify-end gap-2.5 [.light-theme_&]:!border-slate-100">
+            <div className="p-4 border-t border-white/10 flex items-center justify-end gap-2.5 [.light-theme_&]:!border-[#f1f5f9]">
               <button
                 onClick={() => setEditingMsgIndex(null)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-white/70 hover:bg-white/10 transition [.light-theme_&]:!text-slate-600 [.light-theme_&]:hover:!bg-slate-100 cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-white/70 hover:bg-white/10 transition [.light-theme_&]:!text-slate-600 [.light-theme_&]:hover:!bg-[#f1f5f9] cursor-pointer"
               >
                 取消
               </button>

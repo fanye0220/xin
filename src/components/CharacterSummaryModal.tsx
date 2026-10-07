@@ -199,7 +199,7 @@ export function CharacterSummaryModal({
               <button
                 onClick={handleRegenerateSummary}
                 disabled={isGenerating}
-                className="text-xs text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-slate-900 transition-colors cursor-pointer disabled:opacity-40 border-0 outline-none bg-transparent p-0 flex items-center gap-1 hover:underline"
+                className="text-xs text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a] transition-colors cursor-pointer disabled:opacity-40 border-0 outline-none bg-transparent p-0 flex items-center gap-1 hover:underline"
                 title="重新生成总结"
               >
                 {isGenerating && <Loader2 className="w-3 h-3 animate-spin" />}

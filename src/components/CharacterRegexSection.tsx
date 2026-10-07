@@ -208,7 +208,7 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                         setEditForm({ ...script });
                         setEditingIndex(index);
                       }}
-                      className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-slate-800 cursor-pointer"
+                      className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] cursor-pointer"
                       title="编辑"
                     >
                       <Edit2 className="w-3.5 h-3.5" />

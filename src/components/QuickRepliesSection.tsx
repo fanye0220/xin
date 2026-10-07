@@ -327,7 +327,7 @@ export function QuickRepliesSection({ character, onUpdate, isLightMode: propIsLi
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-2 text-green-400 [.light-theme_&]:!text-emerald-600">
                 <div className="w-2 h-2 rounded-full bg-green-400 [.light-theme_&]:!bg-emerald-500"></div>
-                <span className="font-medium text-sm text-white/90 [.light-theme_&]:!text-slate-800">已绑定 {qrSets.length} 个快捷回复集</span>
+                <span className="font-medium text-sm text-white/90 [.light-theme_&]:!text-[#0f172a]">已绑定 {qrSets.length} 个快捷回复集</span>
               </div>
               <button 
                 onClick={async () => {

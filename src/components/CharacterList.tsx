@@ -3691,7 +3691,7 @@ export function CharacterList({
                   step={0.05}
                   aria-labelledby="Zoom"
                   onChange={(e) => setZoom(Number(e.target.value))}
-                  className="flex-1 h-2 bg-white/10 [.light-theme_&]:!bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  className="flex-1 h-2 bg-white/10 [.light-theme_&]:!bg-[#e2e8f0] rounded-lg appearance-none cursor-pointer accent-blue-600"
                 />
               </div>
 

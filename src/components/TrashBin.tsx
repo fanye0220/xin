@@ -142,8 +142,8 @@ const TrashedCharacterCard = ({
         selectionMode ? 'cursor-pointer' : 'cursor-default'
       } ${
         isSelected
-          ? 'bg-slate-950/90 [.light-theme_&]:!bg-[#e2e8f0]'
-          : 'bg-white/[0.06] hover:bg-white/[0.09] [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc]'
+          ? 'bg-[#141822] [.light-theme_&]:!bg-[#e2e8f0]'
+          : 'bg-[#1c202b] hover:bg-[#222735] [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc]'
       } [.light-theme_&]:!shadow-[0_1px_4px_rgba(0,0,0,0.03)]`}
     >
       {/* Full-card dark dimming overlay on selection */}
@@ -321,7 +321,7 @@ export function TrashBin({ onClose }: Props) {
       <div className={`flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar max-w-5xl w-full mx-auto ${selectionMode ? 'pb-28 sm:pb-32' : 'pb-8 sm:pb-12'}`}>
         {loading ? (
           <div className="flex flex-col items-center justify-center h-64 text-white/40 [.light-theme_&]:!text-[#64748b]">
-            <div className="w-8 h-8 border-2 border-white/40 border-t-white [.light-theme_&]:!border-slate-300 [.light-theme_&]:!border-t-slate-800 rounded-full animate-spin mb-4" />
+            <div className="w-8 h-8 border-2 border-white/40 border-t-white [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!border-t-[#0f172a] rounded-full animate-spin mb-4" />
             <p className="text-sm font-medium">加载中...</p>
           </div>
         ) : trashedCharacters.length === 0 ? (

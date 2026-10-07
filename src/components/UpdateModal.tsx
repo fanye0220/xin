@@ -125,7 +125,7 @@ export function UpdateModal({ isOpen, versionInfo, onClose, onIgnoreVersion, isL
                   <button
                     type="button"
                     onClick={handleIgnore}
-                    className="text-xs text-slate-400 hover:text-slate-200 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-slate-600 transition cursor-pointer py-1 px-1.5 rounded-lg hover:bg-white/5 [.light-theme_&]:hover:!bg-slate-100"
+                    className="text-xs text-slate-400 hover:text-slate-200 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-slate-600 transition cursor-pointer py-1 px-1.5 rounded-lg hover:bg-white/5 [.light-theme_&]:hover:!bg-[#f1f5f9]"
                   >
                     忽略此版本
                   </button>

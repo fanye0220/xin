@@ -879,7 +879,7 @@ export function CharacterChatsSection({
               {/* Regex Switcher Bar (Lovespace Style) */}
               {regexScripts && regexScripts.length > 0 && (
                 <div className="regex-bar">
-                  <span className="text-[11px] font-semibold text-white/60 [.light-theme_&]:!text-slate-700 uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1.5 select-none">
+                  <span className="text-[11px] font-semibold text-white/60 [.light-theme_&]:!text-[#334155] uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1.5 select-none">
                     <Sparkles className="w-3.5 h-3.5 text-blue-400 [.light-theme_&]:!text-blue-600" />
                     正则
                   </span>

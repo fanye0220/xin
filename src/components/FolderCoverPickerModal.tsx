@@ -71,7 +71,7 @@ const CoverPickerItem = React.memo(function CoverPickerItem({
       onClick={() => onSelect(char)}
       className="group flex flex-col items-center cursor-pointer select-none"
     >
-      <div className="w-full aspect-[2/3] rounded-2xl overflow-hidden bg-slate-800 [.light-theme_&]:!bg-slate-100 shadow-sm group-hover:shadow-md transition-all relative border-0 border-none">
+      <div className="w-full aspect-[2/3] rounded-2xl overflow-hidden bg-slate-800 [.light-theme_&]:!bg-[#f1f5f9] shadow-sm group-hover:shadow-md transition-all relative border-0 border-none">
         <img
           src={url}
           alt={char.name}

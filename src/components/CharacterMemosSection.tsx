@@ -781,11 +781,11 @@ function FileContentModal({ memo, onClose }: { memo: CharacterMemo, onClose: () 
                   <X className="w-5 h-5" />
                </button>
             </div>
-            <div className="flex-1 overflow-auto p-4 sm:p-6 custom-scrollbar bg-black/20 [.light-theme_&]:bg-slate-50">
+            <div className="flex-1 overflow-auto p-4 sm:p-6 custom-scrollbar bg-black/20 [.light-theme_&]:bg-[#f8fafc]">
                {loading ? (
                   <div className="flex items-center justify-center h-full text-white/50 [.light-theme_&]:text-slate-400">正在解析数据...</div>
                ) : (
-                  <pre className="text-[13px] text-slate-300 [.light-theme_&]:text-slate-800 font-mono whitespace-pre-wrap break-all">
+                  <pre className="text-[13px] text-slate-300 [.light-theme_&]:text-[#0f172a] font-mono whitespace-pre-wrap break-all">
                      {content.length > 50000 ? content.substring(0, 50000) + "\n\n... 内容过大，为防止卡顿已截断显示" : content}
                   </pre>
                )}

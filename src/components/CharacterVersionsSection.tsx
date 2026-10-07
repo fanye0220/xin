@@ -1168,7 +1168,7 @@ export function CharacterVersionsSection({
 
             {/* Single Current Active Card */}
             <div className="relative">
-              <div className="soft-card rounded-2xl py-2.5 px-3.5 sm:py-3 sm:px-4 pl-4.5 sm:pl-5 relative overflow-hidden shadow-sm space-y-1.5 sm:space-y-2 border border-white/10 [.light-theme_&]:!border-slate-200 [.light-theme_&]:!shadow-xs">
+              <div className="soft-card rounded-2xl py-2.5 px-3.5 sm:py-3 sm:px-4 pl-4.5 sm:pl-5 relative overflow-hidden shadow-sm space-y-1.5 sm:space-y-2 border border-white/10 [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!shadow-xs">
                 <div className="absolute left-0 top-2 bottom-2 w-1.5 rounded-r-full bg-gradient-to-b from-blue-400 to-blue-600 opacity-90 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:opacity-100 shadow-[0_0_8px_rgba(59,130,246,0.4)]" />
 
                 <div className="flex items-center justify-between gap-2 relative z-10">
@@ -1268,7 +1268,7 @@ export function CharacterVersionsSection({
                       className={`soft-card rounded-2xl py-2.5 px-3.5 sm:py-3 sm:px-4 pl-4.5 sm:pl-5 relative overflow-hidden transition-all duration-300 space-y-1.5 sm:space-y-2 cursor-pointer ${
                         isActive 
                           ? 'border border-white/20 shadow-md [.light-theme_&]:!border-blue-400/80 [.light-theme_&]:!bg-[#f8faff] [.light-theme_&]:!shadow-xs' 
-                          : 'hover:shadow-md hover:border-slate-600 [.light-theme_&]:hover:!border-slate-300 active:scale-[0.99]'
+                          : 'hover:shadow-md hover:border-slate-600 [.light-theme_&]:hover:!border-[#cbd5e1] active:scale-[0.99]'
                       }`}
                     >
                       {/* Sliding Left Vertical Accent Bar (Smoothly glides between cards when selected) */}
@@ -1289,7 +1289,7 @@ export function CharacterVersionsSection({
                               最新主卡
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 rounded-full text-xs font-normal text-slate-400 bg-white/5 border border-white/10 [.light-theme_&]:bg-slate-100 [.light-theme_&]:text-slate-600 [.light-theme_&]:border-slate-200 shrink-0">
+                            <span className="px-2 py-0.5 rounded-full text-xs font-normal text-slate-400 bg-white/5 border border-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#475569] [.light-theme_&]:!border-[#e2e8f0] shrink-0">
                               {snapshot.sourceCharId ? '关联旧卡' : '历史快照'}
                             </span>
                           )}
@@ -1412,7 +1412,7 @@ export function CharacterVersionsSection({
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); handleStartEditNote(snapshot); }}
-                          className="p-1 rounded-md text-slate-300 hover:text-white transition shrink-0 cursor-pointer opacity-75 hover:opacity-100 hover:bg-white/10 [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-slate-900 [.light-theme_&]:hover:bg-slate-100"
+                          className="p-1 rounded-md text-slate-300 hover:text-white transition shrink-0 cursor-pointer opacity-75 hover:opacity-100 hover:bg-white/10 [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#0f172a] [.light-theme_&]:hover:bg-[#f1f5f9]"
                           title="修改版本名称与备注"
                         >
                           <Edit3 className="w-3.5 h-3.5" />

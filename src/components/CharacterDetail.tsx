@@ -1100,7 +1100,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
           <div className="w-full max-w-lg mt-2 px-2 sm:px-4 flex flex-col items-center">
             <button
               onClick={() => setIsMetadataOpen(!isMetadataOpen)}
-              className="w-full flex items-center justify-center py-2 text-white/50 hover:text-white [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-slate-700 transition-colors cursor-pointer group active:scale-95"
+              className="w-full flex items-center justify-center py-2 text-white/50 hover:text-white [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-[#334155] transition-colors cursor-pointer group active:scale-95"
               title={isMetadataOpen ? "点击收起详情" : "点击展开元数据"}
             >
               <div className="h-1.5 w-12 bg-white/30 group-hover:bg-white/60 [.light-theme_&]:!bg-stone-300 [.light-theme_&]:group-hover:!bg-stone-400 rounded-full transition-colors" />
@@ -1131,7 +1131,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                           <input 
                             value={tempCreator} 
                             onChange={e => setTempCreator(e.target.value)} 
-                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-white [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-[#0f172a]"
+                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a]"
                             placeholder="作者名称"
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateCreator(tempCreator)}
@@ -1139,7 +1139,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                           <button onClick={() => handleUpdateCreator(tempCreator)} className="p-1 text-green-400 hover:bg-green-500/20 rounded-lg shrink-0 [.light-theme_&]:text-[#1DB954] [.light-theme_&]:hover:bg-[#1DB954]/10 cursor-pointer">
                             <Check className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => setIsEditingCreator(false)} className="p-1 text-white/50 hover:bg-white/10 rounded-lg shrink-0 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!bg-slate-200 cursor-pointer">
+                          <button onClick={() => setIsEditingCreator(false)} className="p-1 text-white/50 hover:bg-white/10 rounded-lg shrink-0 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!bg-[#e2e8f0] cursor-pointer">
                             <XIcon className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -1177,7 +1177,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             <input 
                               value={tempVersion} 
                               onChange={e => setTempVersion(e.target.value)} 
-                              className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-white [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-[#0f172a]"
+                              className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a]"
                               placeholder="例如: 1.0"
                               autoFocus
                               onKeyDown={e => e.key === 'Enter' && handleUpdateVersion(tempVersion)}
@@ -1185,7 +1185,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             <button onClick={() => handleUpdateVersion(tempVersion)} className="p-1 text-green-400 hover:bg-green-500/20 rounded-lg shrink-0 [.light-theme_&]:text-[#1DB954] [.light-theme_&]:hover:bg-[#1DB954]/10 cursor-pointer">
                               <Check className="w-3.5 h-3.5" />
                             </button>
-                            <button onClick={() => setIsEditingVersion(false)} className="p-1 text-white/50 hover:bg-white/10 rounded-lg shrink-0 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!bg-slate-200 cursor-pointer">
+                            <button onClick={() => setIsEditingVersion(false)} className="p-1 text-white/50 hover:bg-white/10 rounded-lg shrink-0 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!bg-[#e2e8f0] cursor-pointer">
                               <XIcon className="w-3.5 h-3.5" />
                             </button>
                           </div>
@@ -1221,7 +1221,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                                 setTempTags(val);
                               }
                             }} 
-                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-white [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-[#0f172a]"
+                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a]"
                             placeholder="标签逗号分隔"
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateTags(tempTags)}
@@ -1229,7 +1229,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                           <button onClick={() => handleUpdateTags(tempTags)} className="p-1 text-green-400 hover:bg-green-500/20 rounded-lg shrink-0 [.light-theme_&]:text-[#1DB954] [.light-theme_&]:hover:bg-[#1DB954]/10 cursor-pointer">
                             <Check className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => setIsEditingTags(false)} className="p-1 text-white/50 hover:bg-white/10 rounded-lg shrink-0 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!bg-slate-200 cursor-pointer">
+                          <button onClick={() => setIsEditingTags(false)} className="p-1 text-white/50 hover:bg-white/10 rounded-lg shrink-0 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!bg-[#e2e8f0] cursor-pointer">
                             <XIcon className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -1257,7 +1257,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                           <input 
                             value={tempSource} 
                             onChange={e => setTempSource(e.target.value)} 
-                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-white [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-[#0f172a]"
+                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a]"
                             placeholder="https://..."
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateSource(tempSource)}
@@ -1265,7 +1265,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                           <button onClick={() => handleUpdateSource(tempSource)} className="p-1 text-green-400 hover:bg-green-500/20 rounded-lg shrink-0 [.light-theme_&]:text-[#1DB954] [.light-theme_&]:hover:bg-[#1DB954]/10 cursor-pointer">
                             <Check className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => setIsEditingSource(false)} className="p-1 text-white/50 hover:bg-white/10 rounded-lg shrink-0 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!bg-slate-200 cursor-pointer">
+                          <button onClick={() => setIsEditingSource(false)} className="p-1 text-white/50 hover:bg-white/10 rounded-lg shrink-0 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!bg-[#e2e8f0] cursor-pointer">
                             <XIcon className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -1396,7 +1396,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                     <div className="space-y-6">
                       {rawData.prompts && rawData.prompts.length > 0 && (
                         <div className="space-y-4">
-                          <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-slate-800 border-b border-white/10 [.light-theme_&]:!border-slate-200 pb-2">提示词条目 (Prompts)</h3>
+                          <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a] border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] pb-2">提示词条目 (Prompts)</h3>
                           {rawData.prompts.map((prompt: any, i: number) => (
                             <div key={i} className="mb-4">
                               <TextPreview title={prompt.name || prompt.identifier || `Prompt ${i+1}`} content={prompt.content || ''} />
@@ -1409,8 +1409,8 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                       {rawData.post_history_instructions && <Section title="历史后提示词 (Post History Instructions)" content={rawData.post_history_instructions} />}
                       
                       <div className="space-y-4">
-                        <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-slate-800 border-b border-white/10 [.light-theme_&]:!border-slate-200 pb-2">生成参数 (Generation Settings)</h3>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm [.light-theme_&]:text-slate-700">
+                        <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a] border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] pb-2">生成参数 (Generation Settings)</h3>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm [.light-theme_&]:text-[#334155]">
                           {rawData.temperature !== undefined && <div><span className="text-white/50 [.light-theme_&]:!text-slate-500">Temperature:</span> {rawData.temperature}</div>}
                           {rawData.top_p !== undefined && <div><span className="text-white/50 [.light-theme_&]:!text-slate-500">Top P:</span> {rawData.top_p}</div>}
                           {rawData.top_k !== undefined && <div><span className="text-white/50 [.light-theme_&]:!text-slate-500">Top K:</span> {rawData.top_k}</div>}
@@ -1888,7 +1888,7 @@ function FullScreenTextModal({
               ) : (
                 <FormattedCardContent
                   content={content}
-                  className="text-white/90 [.light-theme_&]:!text-slate-800 text-sm sm:text-base leading-relaxed break-words"
+                  className="text-white/90 [.light-theme_&]:!text-[#0f172a] text-sm sm:text-base leading-relaxed break-words"
                 />
               )}
             </div>
@@ -1978,7 +1978,7 @@ function TextPreview({
         <div className="flex justify-end items-center gap-1.5 mb-1.5">
           <button 
             onClick={handleEdit}
-            className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-slate-800 cursor-pointer"
+            className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] cursor-pointer"
             title="编辑"
           >
             <Edit2 className="w-3.5 h-3.5" />
@@ -2107,7 +2107,7 @@ function AlternateGreetingCard({
           {!isEditing && (
             <button 
               onClick={handleEdit} 
-              className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-slate-800 cursor-pointer"
+              className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] cursor-pointer"
               title="编辑"
             >
               <Edit2 className="w-3.5 h-3.5" />
@@ -2587,7 +2587,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                       <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-white/70 border border-white/10 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#3A3A3C] [.light-theme_&]:!border-transparent whitespace-nowrap font-bold shadow-sm">
                         顺序: {order}
                       </span>
-                      <button onClick={() => handleEdit(i)} className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-slate-800">
+                      <button onClick={() => handleEdit(i)} className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a]">
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
                       <button onClick={() => handleDelete(i)} className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-red-500">

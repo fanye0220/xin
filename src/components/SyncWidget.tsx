@@ -73,7 +73,7 @@ export function SyncWidget({ isLightMode, onOpenSync }: { isLightMode: boolean; 
             e.stopPropagation();
             clearSyncState();
           }}
-          className="p-1 hover:bg-white/20 rounded-full transition text-white/50 hover:text-white shrink-0 ml-0.5 tagger-floating-close [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-slate-800 [.light-theme_&]:hover:!bg-black/5 cursor-pointer"
+          className="p-1 hover:bg-white/20 rounded-full transition text-white/50 hover:text-white shrink-0 ml-0.5 tagger-floating-close [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/5 cursor-pointer"
           title="关闭提示"
         >
           <X className="w-3.5 h-3.5" />

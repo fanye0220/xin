@@ -242,9 +242,9 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
             </div>
           </div>
           
-          <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden [.light-theme_&]:bg-slate-200">
+          <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden [.light-theme_&]:!bg-[#e2e8f0]">
             <div 
-              className={`h-full transition-all duration-500 ${isPaused ? 'bg-white/40 [.light-theme_&]:bg-slate-400' : 'bg-white [.light-theme_&]:bg-slate-900'}`}
+              className={`h-full transition-all duration-500 ${isPaused ? 'bg-white/40 [.light-theme_&]:!bg-[#94a3b8]' : 'bg-white [.light-theme_&]:!bg-[#0f172a]'}`}
               style={{ width: `${(progress.current / Math.max(1, progress.total)) * 100}%` }}
             />
           </div>
@@ -260,7 +260,7 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                 <h3 className="font-semibold text-sm sm:text-base text-white/90 [.light-theme_&]:!text-[#0f172a]">处理日志</h3>
                 {logsExpanded ? <ChevronDown className="w-4 h-4 text-white/50 [.light-theme_&]:!text-slate-500" /> : <ChevronRight className="w-4 h-4 text-white/50 [.light-theme_&]:!text-slate-500" />}
               </div>
-              {isPaused && <span className="text-[11px] sm:text-xs font-medium text-white/80 bg-white/10 px-2 py-0.5 sm:py-1 rounded [.light-theme_&]:!text-slate-800 [.light-theme_&]:!bg-slate-200">已暂停</span>}
+              {isPaused && <span className="text-[11px] sm:text-xs font-medium text-white/80 bg-white/10 px-2 py-0.5 sm:py-1 rounded [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!bg-[#e2e8f0]">已暂停</span>}
             </button>
             
             <AnimatePresence>

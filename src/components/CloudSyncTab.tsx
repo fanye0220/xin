@@ -854,7 +854,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                     </p>
                     <button
                       onClick={() => setIsDuplicateMode(false)}
-                      className="mt-3 px-3.5 py-1 rounded-full text-xs font-semibold transition cursor-pointer bg-white/10 hover:bg-white/20 text-white [.light-theme_&]:!bg-slate-100 [.light-theme_&]:hover:!bg-slate-200 [.light-theme_&]:!text-slate-700"
+                      className="mt-3 px-3.5 py-1 rounded-full text-xs font-semibold transition cursor-pointer bg-white/10 hover:bg-white/20 text-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]"
                     >
                       返回全部卡片
                     </button>
