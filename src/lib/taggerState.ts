@@ -27,6 +27,7 @@ class TaggerState {
   isTagging = false;
   taggingMode: 'untagged' | 'tagged' | 'summary' | null = null;
   isPaused = false;
+  isCompleted = false;
   stopRequested = false;
   apiKeyMissing = false;
   progress: TaggingProgress = { current: 0, total: 0, success: 0, failed: 0 };
@@ -125,6 +126,12 @@ class TaggerState {
   stopTagging() {
     this.stopRequested = true;
     this.isPaused = false;
+    this.isCompleted = false;
+    this.notify();
+  }
+
+  clearCompleted() {
+    this.isCompleted = false;
     this.notify();
   }
 
@@ -132,6 +139,7 @@ class TaggerState {
     this.stopRequested = true;
     this.isTagging = false;
     this.isPaused = false;
+    this.isCompleted = false;
     this.logs = [];
     this.progress = { current: 0, total: 0, success: 0, failed: 0 };
     this.retagReviewQueue = [];
@@ -149,6 +157,7 @@ class TaggerState {
     this.isTagging = true;
     this.taggingMode = 'tagged';
     this.isPaused = false;
+    this.isCompleted = false;
     this.stopRequested = false;
     this.apiKeyMissing = false;
     
@@ -231,6 +240,9 @@ class TaggerState {
     
     this.isTagging = false;
     this.isPaused = false;
+    if (!this.stopRequested && this.progress.total > 0) {
+      this.isCompleted = true;
+    }
     this.notify();
   }
 
@@ -309,6 +321,7 @@ class TaggerState {
     this.isTagging = true;
     this.taggingMode = 'untagged';
     this.isPaused = false;
+    this.isCompleted = false;
     this.stopRequested = false;
     this.apiKeyMissing = false;
     
@@ -394,6 +407,9 @@ class TaggerState {
     
     this.isTagging = false;
     this.isPaused = false;
+    if (!this.stopRequested && this.progress.total > 0) {
+      this.isCompleted = true;
+    }
     await this.loadCharacters();
   }
 
@@ -403,6 +419,7 @@ class TaggerState {
     this.isTagging = true;
     this.taggingMode = 'summary';
     this.isPaused = false;
+    this.isCompleted = false;
     this.stopRequested = false;
     this.apiKeyMissing = false;
 
@@ -480,6 +497,9 @@ class TaggerState {
 
     this.isTagging = false;
     this.isPaused = false;
+    if (!this.stopRequested && this.progress.total > 0) {
+      this.isCompleted = true;
+    }
     await this.loadCharacters();
   }
 }
@@ -491,6 +511,7 @@ export function useTaggerState() {
     isTagging: taggerState.isTagging,
     taggingMode: taggerState.taggingMode,
     isPaused: taggerState.isPaused,
+    isCompleted: taggerState.isCompleted,
     progress: taggerState.progress,
     logs: taggerState.logs,
     untaggedCharacters: taggerState.untaggedCharacters,
@@ -509,6 +530,7 @@ export function useTaggerState() {
         isTagging: taggerState.isTagging,
         taggingMode: taggerState.taggingMode,
         isPaused: taggerState.isPaused,
+        isCompleted: taggerState.isCompleted,
         progress: { ...taggerState.progress },
         logs: [...taggerState.logs],
         untaggedCharacters: [...taggerState.untaggedCharacters],

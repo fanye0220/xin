@@ -42,16 +42,32 @@ export function onSyncStateChange(listener: (state: SyncState) => void) {
   return () => syncListeners.delete(listener);
 }
 
-function updateSyncState(update: Partial<SyncState>) {
+export function clearSyncState() {
+  if (syncClearTimer) {
+    clearTimeout(syncClearTimer);
+    syncClearTimer = null;
+  }
+  syncState = { isActive: false, taskName: '', message: '', isError: false, completed: false };
+  syncListeners.forEach(fn => fn(syncState));
+}
+
+let syncClearTimer: any = null;
+
+export function updateSyncState(update: Partial<SyncState>) {
+  if (syncClearTimer) {
+    clearTimeout(syncClearTimer);
+    syncClearTimer = null;
+  }
   syncState = { ...syncState, ...update };
   syncListeners.forEach(fn => fn(syncState));
   
+  // 保留完成或错误状态至少 60 秒常驻，让用户切到卡里也能清楚知道已完成；用户随时可点击 X 提前关闭
   if (!syncState.isActive && (syncState.completed || syncState.isError)) {
-    setTimeout(() => {
+    syncClearTimer = setTimeout(() => {
       if (!syncState.isActive) {
-        updateSyncState({ completed: false, isError: false, message: '', taskName: '' });
+        clearSyncState();
       }
-    }, 5000);
+    }, 60000);
   }
 }
 

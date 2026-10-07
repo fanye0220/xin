@@ -4,7 +4,7 @@ import { Cloud, Download, Upload, Trash2, Github, Loader2, Search, Folder, Chevr
 import { listCloudCharacters, deleteCloudCharacter, syncFolderStructureToCloud } from '../lib/cloudDrive';
 import { getCardBadgeInfo } from '../lib/cardBadge';
 import { normalizeCardBaseName } from '../lib/db';
-import { initAuth, googleSignIn, logout, getAccessToken, listBackupsFromDrive, deleteBackupFromDrive, triggerManualBackup, triggerRestore, onSyncStateChange, SyncState, getStoredUserInfo, ensureValidAccessToken } from '../lib/drive';
+import { initAuth, googleSignIn, logout, getAccessToken, listBackupsFromDrive, deleteBackupFromDrive, triggerManualBackup, triggerRestore, onSyncStateChange, SyncState, getStoredUserInfo, ensureValidAccessToken, updateSyncState } from '../lib/drive';
 
 const formatCloudName = (name: string) => name.replace(/_[a-f0-9-]{36}$/i, "");
 
@@ -341,15 +341,39 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
     if (!activeToken) return;
     try {
       setSyncFolderProgress({ current: 0, total: 0, message: '正在比对本地与云端分类...' });
+      updateSyncState({
+        isActive: true,
+        taskName: '分类整理',
+        message: '正在比对本地与云端分类...',
+        isError: false,
+        completed: false,
+      });
       const res = await syncFolderStructureToCloud(activeToken, (msg, current, total) => {
         setSyncFolderProgress({ current: current || 0, total: total || 0, message: msg });
+        updateSyncState({
+          isActive: true,
+          taskName: '分类整理',
+          message: msg,
+        });
       });
       setSyncFolderProgress(null);
+      updateSyncState({
+        isActive: false,
+        completed: true,
+        taskName: '分类整理',
+        message: `分类对齐完成！已同步移动 ${res.moved} 个卡片`,
+      });
       alert(`文件夹分类对齐完成！\n已同步移动更新: ${res.moved} 个卡片\n分类一致保持原样: ${res.unchanged} 个`);
       await loadCloudChars(activeToken);
     } catch (err: any) {
       console.error(err);
       setSyncFolderProgress(null);
+      updateSyncState({
+        isActive: false,
+        isError: true,
+        taskName: '分类整理',
+        message: `分类同步失败: ${err.message}`,
+      });
       alert("同步分类发生错误: " + err.message);
     }
   };
@@ -362,11 +386,23 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
 
     try {
       setOneClickProgress({ current: 0, total: 0, message: '正在准备...' });
+      updateSyncState({
+        isActive: true,
+        taskName: '全量同步',
+        message: '正在准备同步...',
+        isError: false,
+        completed: false,
+      });
       const { getCachedMeta } = await import('../lib/db');
       const { uploadCharacterToCloud } = await import('../lib/cloudDrive');
       const chars = (await getCachedMeta()).filter(c => !c.deletedAt);
       
       setOneClickProgress({ current: 0, total: chars.length, message: '正在同步...' });
+      updateSyncState({
+        isActive: true,
+        taskName: '全量同步',
+        message: `正在同步 (0/${chars.length})...`,
+      });
       let success = 0;
       let moved = 0;
       let skipped = 0;
@@ -387,6 +423,11 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
              console.error("Failed", e);
           } finally {
              setOneClickProgress(prev => prev ? { ...prev, current: prev.current + 1, message: '正在同步卡片与目录分类...' } : null);
+             updateSyncState({
+               isActive: true,
+               taskName: '全量同步',
+               message: `正在同步卡片与分类 (${Math.min(chars.length, currentIndex)}/${chars.length})...`,
+             });
              await new Promise(r => setTimeout(r, isAndroid ? 200 : 50));
           }
         }
@@ -399,6 +440,12 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
       await Promise.all(workers);
       
       setOneClickProgress(null);
+      updateSyncState({
+        isActive: false,
+        completed: true,
+        taskName: '全量同步',
+        message: `全量同步完成！新增 ${success}，移动 ${moved}`,
+      });
       alert(`一键同步完成！\n新上传卡片: ${success}\n更新文件夹嵌套: ${moved}\n内容与分类一致已跳过: ${skipped}`);
       if (activeTab === 'cloud_drive') {
         loadCloudChars(activeToken);
@@ -406,6 +453,12 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
     } catch(err: any) {
        console.error(err);
        setOneClickProgress(null);
+       updateSyncState({
+         isActive: false,
+         isError: true,
+         taskName: '全量同步',
+         message: `同步出错: ${err.message}`,
+       });
        alert("同步发生错误: " + err.message);
     }
   };

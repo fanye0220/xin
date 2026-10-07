@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, MessageSquare, BookOpen, Layers, Sparkles, FileText, Eye, EyeOff, BarChart3, LayoutGrid } from "lucide-react";
+import { X, Eye, EyeOff } from "lucide-react";
 import { CharacterTokenBreakdown, formatTokenCount } from "../lib/tokens";
 
 interface TokenBreakdownModalProps {
@@ -32,20 +32,6 @@ export function TokenBreakdownModal({
   const [showMainTokens, setShowMainTokens] = useState<boolean>(() => {
     return typeof localStorage !== "undefined" && localStorage.getItem("miu_show_main_page_tokens") !== "false";
   });
-
-  const [distributionView, setDistributionView] = useState<'bar' | 'pills'>(() => {
-    if (typeof localStorage !== "undefined") {
-      return (localStorage.getItem("miu_token_dist_view") as 'bar' | 'pills') || 'bar';
-    }
-    return 'bar';
-  });
-
-  const handleToggleView = (view: 'bar' | 'pills') => {
-    setDistributionView(view);
-    if (typeof localStorage !== "undefined") {
-      localStorage.setItem("miu_token_dist_view", view);
-    }
-  };
 
   const toggleShowMainTokens = () => {
     const next = !showMainTokens;
@@ -93,16 +79,22 @@ export function TokenBreakdownModal({
   const total = Math.max(1, breakdown.totalTokens);
   const getPercent = (val: number) => Math.round((val / total) * 100);
 
+  // WPS 经典三原色及套件标准配色体系：
+  // 1. WPS 文字 (Word) 经典蓝: #2065D9
+  // 2. WPS 表格 (Excel) 经典绿: #0FB36C
+  // 3. WPS 演示 (PPT) 经典暖橙: #FF7700
+  // 4. WPS 脑图/思维导图 智汇紫: #722ED1
+  // 5. WPS 协作/流程图 协作青: #00B4D8
+  // 6. WPS PDF/核心指令 经典朱红: #F53F3F
   const sections = [
     {
       title: "人设与基础设定",
       shortTitle: "人设设定",
       tokens: breakdown.description + breakdown.personality,
       chars: breakdown.descriptionChars + breakdown.personalityChars,
-      color: "bg-[#007aff]",
-      dotColor: "bg-[#007aff]",
+      color: "bg-[#2065D9]",
+      dotColor: "bg-[#2065D9]",
       desc: "包含角色的外貌背景、性格语气、行为机制等常驻人设信息",
-      icon: Sparkles,
     },
     {
       title: breakdown.alternateGreetingsCount > 0
@@ -111,12 +103,11 @@ export function TokenBreakdownModal({
       shortTitle: "开场白",
       tokens: breakdown.firstMessage + breakdown.alternateGreetings,
       chars: breakdown.firstMessageChars + (breakdown.alternateGreetingsChars || 0),
-      color: "bg-[#f59e0b]",
-      dotColor: "bg-[#f59e0b]",
+      color: "bg-[#0FB36C]",
+      dotColor: "bg-[#0FB36C]",
       desc: breakdown.alternateGreetingsCount > 0
         ? `首条开场白 (${breakdown.firstMessage} T) + ${breakdown.alternateGreetingsCount} 条备用问候语 (${breakdown.alternateGreetings} T)`
         : "开启对话时角色的初始开场问候消息",
-      icon: MessageSquare,
     },
     {
       title: breakdown.worldbookEntriesCount > 0
@@ -125,40 +116,36 @@ export function TokenBreakdownModal({
       shortTitle: "世界书",
       tokens: breakdown.worldbook,
       chars: breakdown.worldbookChars || 0,
-      color: "bg-[#6366f1]",
-      dotColor: "bg-[#6366f1]",
+      color: "bg-[#FF7700]",
+      dotColor: "bg-[#FF7700]",
       desc: "卡片内置词条集，命中关键词时按需动态激活插入",
-      icon: BookOpen,
     },
     {
       title: "对话场景 (Scenario)",
       shortTitle: "场景设定",
       tokens: breakdown.scenario,
       chars: breakdown.scenarioChars,
-      color: "bg-[#10b981]",
-      dotColor: "bg-[#10b981]",
+      color: "bg-[#722ED1]",
+      dotColor: "bg-[#722ED1]",
       desc: "初始环境背景或开局特定场景设定",
-      icon: Layers,
     },
     {
       title: "示例对话 (Examples)",
       shortTitle: "示例对话",
       tokens: breakdown.mesExample,
       chars: breakdown.mesExampleChars,
-      color: "bg-[#06b6d4]",
-      dotColor: "bg-[#06b6d4]",
+      color: "bg-[#00B4D8]",
+      dotColor: "bg-[#00B4D8]",
       desc: "示范语气及交互规范的对话样例",
-      icon: FileText,
     },
     {
       title: "系统指令 (System Prompt)",
       shortTitle: "系统指令",
       tokens: breakdown.systemPrompt + breakdown.postHistoryInstructions,
       chars: breakdown.systemPromptChars,
-      color: "bg-[#f43f5e]",
-      dotColor: "bg-[#f43f5e]",
+      color: "bg-[#F53F3F]",
+      dotColor: "bg-[#F53F3F]",
       desc: "卡片内置的系统提示词或深度指导指令",
-      icon: Layers,
     },
   ].filter((sec) => sec.tokens > 0 || sec.chars > 0);
 
@@ -274,7 +261,7 @@ export function TokenBreakdownModal({
               </div>
             </div>
 
-            {/* Visual Token Distribution Section - 支持比例条与占比卡片切换 */}
+            {/* Visual Token Distribution Section - WPS 风格比例条 */}
             <div className="space-y-2.5">
               <div className="flex items-center justify-between text-xs font-medium">
                 <div className="flex items-center gap-1.5">
@@ -285,119 +272,28 @@ export function TokenBreakdownModal({
                     · {breakdown.totalTokens.toLocaleString()} Tokens
                   </span>
                 </div>
-
-                {/* 视图切换按钮 */}
-                <div className={`flex items-center p-0.5 rounded-xl border ${
-                  isLightMode ? "bg-[#f1f5f9] border-[#e2ecf9]" : "bg-white/5 border-white/10"
-                }`}>
-                  <button
-                    type="button"
-                    onClick={() => handleToggleView("bar")}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] transition cursor-pointer flex items-center gap-1 ${
-                      distributionView === "bar"
-                        ? isLightMode
-                          ? "bg-white text-[#007aff] shadow-2xs font-bold"
-                          : "bg-white/15 text-white shadow-2xs font-bold"
-                        : isLightMode
-                          ? "text-[#64748b] hover:text-[#0f172a] font-medium"
-                          : "text-white/60 hover:text-white font-medium"
-                    }`}
-                    title="切换为无缝比例条视图"
-                  >
-                    <BarChart3 className="w-3 h-3 shrink-0" />
-                    <span>比例条</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleToggleView("pills")}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] transition cursor-pointer flex items-center gap-1 ${
-                      distributionView === "pills"
-                        ? isLightMode
-                          ? "bg-white text-[#007aff] shadow-2xs font-bold"
-                          : "bg-white/15 text-white shadow-2xs font-bold"
-                        : isLightMode
-                          ? "text-[#64748b] hover:text-[#0f172a] font-medium"
-                          : "text-white/60 hover:text-white font-medium"
-                    }`}
-                    title="切换为卡片占比视图"
-                  >
-                    <LayoutGrid className="w-3 h-3 shrink-0" />
-                    <span>占比卡片</span>
-                  </button>
-                </div>
               </div>
 
-              {distributionView === "bar" ? (
-                <div className="space-y-2">
-                  {/* 全新无缝比例条：去除黑色缝隙和黑底色，浅色模式为清新浅灰底色 */}
-                  <div className={`w-full h-3 rounded-full overflow-hidden flex transition-colors ${
-                    isLightMode
-                      ? "bg-[#e2e8f0] border border-[#cbd5e1]/80"
-                      : "bg-white/10 border border-white/10"
-                  }`}>
-                    {sections.map((s, idx) => {
-                      const pct = getPercent(s.tokens);
-                      if (pct <= 0) return null;
-                      return (
-                        <div
-                          key={idx}
-                          style={{ width: `${pct}%` }}
-                          className={`h-full ${s.color} transition-all duration-300 relative group cursor-pointer hover:brightness-110`}
-                          title={`${s.title}: ${s.tokens.toLocaleString()} T (${pct}%)`}
-                        />
-                      );
-                    })}
-                  </div>
-
-                  {/* 比例图例 - 高清晰度文字与数据 */}
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-0.5">
-                    {sections.map((s, idx) => {
-                      const pct = getPercent(s.tokens);
-                      if (pct <= 0) return null;
-                      return (
-                        <div key={idx} className="flex items-center gap-1.5 text-xs">
-                          <span className={`w-2.5 h-2.5 rounded-full ${s.dotColor} shrink-0`} />
-                          <span className="font-semibold detail-card-text">
-                            {s.shortTitle}
-                          </span>
-                          <span className="font-mono font-bold detail-card-text-muted">
-                            {pct}%
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                /* 占比卡片模式：高对比度纯正文字，杜绝发灰看不清 */
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                  {sections.map((s, idx) => {
-                    const pct = getPercent(s.tokens);
-                    return (
-                      <div
-                        key={idx}
-                        className={`p-3 rounded-2xl border flex items-center justify-between gap-2.5 transition ${
-                          isLightMode
-                            ? "bg-[#f8fafc] border-[#e2ecf9] shadow-2xs hover:bg-white"
-                            : "bg-white/[0.04] border-white/10 hover:bg-white/[0.07]"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className={`w-2.5 h-2.5 rounded-full ${s.dotColor} shrink-0`} />
-                          <span className="text-xs font-bold truncate detail-card-text">
-                            {s.shortTitle}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0 font-mono">
-                          <span className="text-xs font-extrabold detail-card-text">
-                            {pct}%
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              {/* WPS 风格无缝比例条 */}
+              <div className={`w-full h-3 sm:h-3.5 rounded-full overflow-hidden flex transition-colors shadow-2xs ${
+                isLightMode
+                  ? "bg-[#edf2f7] border border-[#d8e2ee]"
+                  : "bg-white/10 border border-white/10"
+              }`}>
+                {sections.map((s, idx) => {
+                  const widthPct = (s.tokens / total) * 100;
+                  if (widthPct <= 0) return null;
+                  const displayPct = getPercent(s.tokens);
+                  return (
+                    <div
+                      key={idx}
+                      style={{ width: `${widthPct}%` }}
+                      className={`h-full ${s.color} transition-all duration-300 relative group cursor-pointer hover:brightness-110 border-r border-white/40 last:border-r-0 [.light-theme_&]:border-white/50`}
+                      title={`${s.title}: ${s.tokens.toLocaleString()} T (${displayPct}%)`}
+                    />
+                  );
+                })}
+              </div>
             </div>
 
             {/* Field Breakdown Cards */}
@@ -407,7 +303,6 @@ export function TokenBreakdownModal({
               </h4>
               <div className="space-y-2">
                 {sections.map((sec, idx) => {
-                  const IconComp = sec.icon;
                   return (
                     <div
                       key={idx}
@@ -416,7 +311,6 @@ export function TokenBreakdownModal({
                       <div className="flex items-center justify-between gap-2 mb-1">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className={`w-2.5 h-2.5 rounded-full ${sec.dotColor} shrink-0`} />
-                          <IconComp className="w-3.5 h-3.5 shrink-0 detail-card-text-muted" />
                           <span className="font-semibold text-xs sm:text-sm truncate detail-card-text">
                             {sec.title}
                           </span>
@@ -434,7 +328,7 @@ export function TokenBreakdownModal({
                           </span>
                         </div>
                       </div>
-                      <p className="text-[11px] leading-relaxed detail-card-text-muted pl-4">
+                      <p className="text-[11px] leading-relaxed detail-card-text-muted pl-4.5">
                         {sec.desc}
                         {sec.chars > 0 && ` · 约 ${sec.chars.toLocaleString()} 字符`}
                       </p>

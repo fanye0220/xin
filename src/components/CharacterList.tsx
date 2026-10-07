@@ -1943,7 +1943,7 @@ export function CharacterList({
   const handleBatchCloudBackup = async () => {
     if (selectedIds.size === 0) return;
 
-    const { getAccessToken } = await import("../lib/drive");
+    const { getAccessToken, updateSyncState } = await import("../lib/drive");
     const token = await getAccessToken();
     if (!token) {
       alert("请先前往「云端同步」页面登录 Google 账号。");
@@ -1988,10 +1988,12 @@ export function CharacterList({
       const CONCURRENCY = Capacitor.isNativePlatform() ? 3 : 5;
       let currentIndex = 0;
 
-      setProgress({
-        current: 0,
-        total: charsArray.length,
-        message: `正在准备批量同步至云端...`,
+      updateSyncState({
+        isActive: true,
+        taskName: '批量同步',
+        message: `准备上传 ${charsArray.length} 个角色...`,
+        isError: false,
+        completed: false,
       });
 
       const uploadWorker = async () => {
@@ -2006,10 +2008,10 @@ export function CharacterList({
             console.error("Upload failed for char:", charsArray[i], e);
           } finally {
             completed++;
-            setProgress({
-              current: completed,
-              total: charsArray.length,
-              message: `正在批量同步至云端...`,
+            updateSyncState({
+              isActive: true,
+              taskName: '批量同步',
+              message: `正在同步至云端 (${completed}/${charsArray.length})...`,
             });
             await new Promise(r => setTimeout(r, Capacitor.isNativePlatform() ? 200 : 50));
           }
@@ -2022,11 +2024,21 @@ export function CharacterList({
       }
       await Promise.all(workers);
 
-      setProgress(null);
+      updateSyncState({
+        isActive: false,
+        completed: true,
+        taskName: '批量同步',
+        message: `同步完成！新增 ${success}，移动 ${moved}${skipped > 0 ? `，跳过 ${skipped}` : ''}`,
+      });
       alert(`云端同步完成！\n新上传: ${success} 个\n同步文件夹嵌套: ${moved} 个${skipped > 0 ? `\n分类未变已跳过: ${skipped} 个` : ''}`);
     } catch (err: any) {
       console.error(err);
-      setProgress(null);
+      updateSyncState({
+        isActive: false,
+        isError: true,
+        taskName: '批量同步',
+        message: `同步失败: ${err.message}`,
+      });
       alert("备份失败: " + err.message);
     }
   };
@@ -3529,7 +3541,8 @@ export function CharacterList({
             animate={{ opacity: 1, y: 0, x: '-50%', scale: 1 }}
             exit={{ opacity: 0, y: -20, x: '-50%', scale: 0.95 }}
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
-            className={`fixed top-5 left-1/2 z-[200] backdrop-blur-xl border rounded-full px-4 py-2 sm:px-5 sm:py-2.5 flex items-center gap-3 max-w-[92vw] w-auto pointer-events-auto overflow-hidden select-none ${
+            style={{ top: 'max(1.25rem, calc(env(safe-area-inset-top, 0px) + 0.5rem))' }}
+            className={`fixed left-1/2 z-[600] backdrop-blur-xl border rounded-full px-4 py-2 sm:px-5 sm:py-2.5 flex items-center gap-3 max-w-[92vw] w-auto pointer-events-auto overflow-hidden select-none ${
               isLightMode
                 ? 'bg-white/95 border-blue-100 shadow-[0_12px_36px_rgba(0,0,0,0.08)]'
                 : 'bg-slate-900/90 border-white/15 shadow-[0_12px_36px_rgba(0,0,0,0.3)]'

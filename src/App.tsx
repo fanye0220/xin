@@ -24,10 +24,10 @@ import { useTaggerState } from './lib/taggerState';
 import { isAndroid } from './lib/appBridge';
 import { handleBackRequest } from './lib/useBackHandler';
 import { syncWithAndroidLocalDirectory } from './lib/androidSync';
-import { Tag, Loader2, AlertCircle, Pause, X } from 'lucide-react';
+import { Tag, Loader2, AlertCircle, Pause, X, CheckCircle2 } from 'lucide-react';
 
 function TaggerWidget({ onClick }: { onClick: () => void }) {
-  const { isTagging, isPaused, progress, logs } = useTaggerState();
+  const { isTagging, isPaused, isCompleted, progress, logs } = useTaggerState();
   const [errorToast, setErrorToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -38,10 +38,22 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
       });
     });
   }, []);
+
+  useEffect(() => {
+    if (isCompleted) {
+      // 保持完成状态至少 60 秒常驻，让用户切到卡里也能清楚知道打标已完成；用户也可随时点击 X 提前关闭
+      const timer = setTimeout(() => {
+        import('./lib/taggerState').then(({ taggerState }) => {
+          taggerState.clearCompleted();
+        });
+      }, 60000);
+      return () => clearTimeout(timer);
+    }
+  }, [isCompleted]);
   
-  // Only show if tagging is active, paused, or there's a recent error
+  // Only show if tagging is active, paused, recently completed, or there's a recent error
   const hasError = logs.some(l => l.status === 'failed');
-  const shouldShow = isTagging || isPaused || (hasError && progress.current > 0 && progress.current < progress.total);
+  const shouldShow = isTagging || isPaused || isCompleted || (hasError && progress.current > 0 && progress.current < progress.total);
 
   return (
     <>
@@ -51,7 +63,8 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
             initial={{ opacity: 0, y: -20, x: '-50%' }}
             animate={{ opacity: 1, y: 0, x: '-50%' }}
             exit={{ opacity: 0, y: -20, x: '-50%' }}
-            className="fixed top-5 left-1/2 z-[100] ios-toast ios-toast-error px-4 py-2.5 rounded-full flex items-center gap-2.5 max-w-[92vw] sm:max-w-md w-auto pointer-events-auto miu-skin"
+            style={{ top: 'max(1.25rem, calc(env(safe-area-inset-top, 0px) + 0.5rem))' }}
+            className="fixed left-1/2 z-[610] ios-toast ios-toast-error px-4 py-2.5 rounded-full flex items-center gap-2.5 max-w-[92vw] sm:max-w-md w-auto pointer-events-auto miu-skin shadow-2xl"
             role="alert"
             aria-live="assertive"
           >
@@ -77,10 +90,17 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
             animate={{ opacity: 1, y: 0, x: '-50%' }}
             exit={{ opacity: 0, y: -20, x: '-50%' }}
             onClick={onClick}
-            className={`tagger-floating-pill fixed ${errorToast ? 'top-16' : 'top-5'} left-1/2 z-50 rounded-full px-4 py-2 sm:px-4.5 sm:py-2 flex items-center gap-2.5 max-w-[92vw] w-auto cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all overflow-hidden group select-none`}
+            style={{
+              top: errorToast 
+                ? 'max(4.5rem, calc(env(safe-area-inset-top, 0px) + 3.5rem))' 
+                : 'max(1.25rem, calc(env(safe-area-inset-top, 0px) + 0.5rem))'
+            }}
+            className="tagger-floating-pill fixed left-1/2 z-[600] rounded-full px-4 py-2 sm:px-4.5 sm:py-2.5 flex items-center gap-2.5 max-w-[92vw] w-auto cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all overflow-hidden group select-none shadow-2xl"
             title="点击打开打标面板"
           >
-            {isPaused ? (
+            {isCompleted ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 [.light-theme_&]:!text-emerald-600" />
+            ) : isPaused ? (
               <Pause className="w-4 h-4 text-yellow-400 shrink-0 [.light-theme_&]:!text-amber-500" />
             ) : hasError ? (
               <AlertCircle className="w-4 h-4 text-red-400 shrink-0 [.light-theme_&]:!text-red-500" />
@@ -89,20 +109,32 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
             )}
             
             <span className="text-xs sm:text-sm font-medium text-slate-100 whitespace-nowrap tagger-floating-text [.light-theme_&]:!text-[#0f172a]">
-              {isPaused ? '打标已暂停' : hasError ? '打标遇到错误' : '自动打标中'}
+              {isCompleted ? '打标已完成' : isPaused ? '打标已暂停' : hasError ? '打标遇到错误' : '自动打标中'}
             </span>
 
-            <span className="text-[11px] font-semibold text-blue-300 bg-blue-500/20 px-2.5 py-0.5 rounded-full shrink-0 [.light-theme_&]:!text-blue-600 [.light-theme_&]:!bg-blue-50 border-0 border-none outline-none">
-              {progress.current}/{progress.total}
+            <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full shrink-0 border-0 border-none outline-none ${
+              isCompleted
+                ? 'text-emerald-300 bg-emerald-500/20 [.light-theme_&]:!text-emerald-700 [.light-theme_&]:!bg-emerald-100'
+                : 'text-blue-300 bg-blue-500/20 [.light-theme_&]:!text-blue-600 [.light-theme_&]:!bg-blue-50'
+            }`}>
+              {isCompleted ? `${progress.success || progress.total}/${progress.total}` : `${progress.current}/${progress.total}`}
             </span>
 
             <button 
               onClick={(e) => {
                 e.stopPropagation();
-                import('./lib/taggerState').then(({ taggerState }) => taggerState.dismiss());
+                import('./lib/taggerState').then(({ taggerState }) => {
+                  if (isCompleted) {
+                    taggerState.clearCompleted();
+                  } else {
+                    if (window.confirm("确定要停止当前的自动打标任务吗？")) {
+                      taggerState.stopTagging();
+                    }
+                  }
+                });
               }}
               className="p-1 hover:bg-white/20 rounded-full transition text-white/50 hover:text-white shrink-0 ml-0.5 tagger-floating-close [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-slate-800 [.light-theme_&]:hover:!bg-black/5 cursor-pointer"
-              title="隐藏悬浮窗"
+              title={isCompleted ? "关闭提示" : "停止打标任务"}
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -629,7 +661,14 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <SyncWidget isLightMode={isLightMode} />
+      <SyncWidget 
+        isLightMode={isLightMode} 
+        onOpenSync={() => {
+          setSelectedCharId(null);
+          setSettingsInitialTab('cloud');
+          setIsSettingsOpen(true);
+        }}
+      />
     </div>
   );
 }
