@@ -3524,10 +3524,12 @@ export function CharacterList({
               <button
                 onClick={handleBatchDelete}
                 disabled={selectedIds.size === 0}
-                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-rose-500 disabled:opacity-30 disabled:pointer-events-none"
+                className="floating-pill-item is-danger flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
               >
                 <Trash2 className="w-5 h-5 stroke-[1.8]" />
-                <span className="font-medium text-[10px] leading-none tracking-tight">删除</span>
+                <span className="font-medium text-[10px] leading-none tracking-tight whitespace-nowrap">
+                  删除{selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
+                </span>
               </button>
             </div>
           </motion.div>
@@ -3559,12 +3561,6 @@ export function CharacterList({
             }`}>
               {progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0}%
             </span>
-            <div className={`absolute bottom-0 left-0 right-0 h-[2.5px] overflow-hidden ${isLightMode ? 'bg-slate-200' : 'bg-black/30'}`}>
-              <div 
-                className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-500 [.light-theme_&]:!from-blue-600 [.light-theme_&]:!to-blue-600 transition-all duration-300"
-                style={{ width: `${progress.total > 0 ? (progress.current / progress.total) * 100 : 0}%` }}
-              />
-            </div>
           </motion.div>
         )}
       </AnimatePresence>

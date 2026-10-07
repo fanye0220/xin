@@ -1369,12 +1369,32 @@ button:focus-visible,
   background-color: rgba(255, 255, 255, 0.12) !important;
 }
 
+.floating-pill-item.is-danger,
+.floating-pill-item-danger {
+  color: #f43f5e !important;
+}
+.floating-pill-item.is-danger:hover,
+.floating-pill-item-danger:hover {
+  color: #fb7185 !important;
+  background-color: rgba(244, 63, 94, 0.15) !important;
+}
+
 .light-theme .floating-pill-item {
   color: #334155 !important;
 }
 .light-theme .floating-pill-item:hover {
   color: #0f172a !important;
   background-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+.light-theme .floating-pill-item.is-danger,
+.light-theme .floating-pill-item-danger {
+  color: #e11d48 !important;
+}
+.light-theme .floating-pill-item.is-danger:hover,
+.light-theme .floating-pill-item-danger:hover {
+  color: #be123c !important;
+  background-color: rgba(225, 29, 72, 0.1) !important;
 }
 
 /* Floating FAB Action Balls */

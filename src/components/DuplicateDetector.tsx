@@ -993,7 +993,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                 type="button"
                 onClick={handleBatchDelete}
                 disabled={selectedIds.size === 0}
-                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-2 sm:px-2.5 py-1 rounded-full transition active:scale-90 shrink-0 hover:!text-rose-500 disabled:opacity-30 disabled:pointer-events-none"
+                className="floating-pill-item is-danger flex flex-col items-center justify-center gap-0.5 px-2 sm:px-2.5 py-1 rounded-full transition active:scale-90 shrink-0 cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
               >
                 <Trash2 className="w-4.5 h-4.5 sm:w-5 sm:h-5 stroke-[1.8]" />
                 <span className="font-medium text-[10px] leading-none tracking-tight whitespace-nowrap">

@@ -1,6 +1,6 @@
 import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Tag, Play, CheckCircle2, Loader2, AlertCircle, Pause, Square, PlayCircle, RefreshCw, X, ArrowRightLeft, History, ChevronDown, ChevronRight, Sparkles, Minimize2 } from 'lucide-react';
+import { ArrowLeft, Tag, Play, CheckCircle2, Loader2, AlertCircle, Pause, Square, PlayCircle, RefreshCw, X, ArrowRightLeft, History, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { taggerState, useTaggerState, RetagReviewItem } from '../lib/taggerState';
 
@@ -336,17 +336,6 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
               <p className="text-xs sm:text-sm text-white/50 mt-0.5 sm:mt-1 truncate [.light-theme_&]:!text-[#64748b]">使用 AI 自动识别角色设定并生成标签 (支持后台运行)</p>
             </div>
           </div>
-
-          <button
-            onClick={onClose}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/15 text-white/90 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/10 transition cursor-pointer shrink-0 active:scale-95 border border-white/10 [.light-theme_&]:!border-black/10"
-            title="缩小为顶部悬浮窗 (任务后台常驻运行)"
-          >
-            <Minimize2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">缩小悬浮窗</span>
-            <span className="sm:inline hidden text-xs text-white/60 [.light-theme_&]:!text-slate-500 font-normal">后台运行</span>
-            <span className="sm:hidden">缩小</span>
-          </button>
         </div>
         
         <div className="flex items-center gap-3 sm:gap-6 overflow-x-auto no-scrollbar w-full mt-1 shrink-0">

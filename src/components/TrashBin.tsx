@@ -410,7 +410,7 @@ export function TrashBin({ onClose }: Props) {
                 type="button"
                 onClick={handleBatchHardDelete}
                 disabled={selectedIds.size === 0}
-                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-rose-500 disabled:opacity-35 disabled:pointer-events-none cursor-pointer"
+                className="floating-pill-item is-danger flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 disabled:opacity-35 disabled:pointer-events-none cursor-pointer"
               >
                 <Trash2 className="w-5 h-5 stroke-[1.8]" />
                 <span className="font-medium text-[10px] leading-none tracking-tight whitespace-nowrap">
