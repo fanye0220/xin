@@ -1485,8 +1485,7 @@ export function ChatViewer({
                     initial={{ opacity: 0, y: -20, x: '-50%' }}
                     animate={{ opacity: 1, y: 0, x: '-50%' }}
                     exit={{ opacity: 0, y: -20, x: '-50%' }}
-                    style={{ top: 'max(1.25rem, calc(env(safe-area-inset-top, 0px) + 0.5rem))' }}
-                    className={`fixed left-1/2 z-[100] backdrop-blur-xl border rounded-full px-4 py-2 sm:px-4.5 sm:py-2 flex items-center gap-2.5 max-w-[92vw] w-auto pointer-events-auto overflow-hidden select-none ${
+                    className={`fixed top-5 left-1/2 z-[100] backdrop-blur-xl border rounded-full px-4 py-2 sm:px-4.5 sm:py-2 flex items-center gap-2.5 max-w-[92vw] w-auto pointer-events-auto overflow-hidden select-none ${
                       isLightMode
                         ? 'bg-slate-800/95 border-blue-100 shadow-[0_8px_30px_rgba(0,0,0,0.08)]'
                         : 'bg-slate-900/90 border-white/15 shadow-[0_8px_30px_rgba(0,0,0,0.25)]'
@@ -1501,6 +1500,12 @@ export function ChatViewer({
                     }`}>
                       {importProgress.total > 0 ? Math.round((importProgress.current / importProgress.total) * 100) : 0}%
                     </span>
+                    <div className={`absolute bottom-0 left-0 right-0 h-[2.5px] overflow-hidden ${isLightMode ? 'bg-slate-200' : 'bg-black/30'}`}>
+                      <div 
+                        className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 [.light-theme_&]:!from-blue-600 [.light-theme_&]:!to-indigo-600 transition-all duration-300"
+                        style={{ width: `${importProgress.total > 0 ? (importProgress.current / importProgress.total) * 100 : 0}%` }}
+                      />
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>

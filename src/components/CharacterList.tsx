@@ -3544,22 +3544,14 @@ export function CharacterList({
             exit={{ opacity: 0, y: -20, x: '-50%', scale: 0.95 }}
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
             style={{ top: 'max(1.25rem, calc(env(safe-area-inset-top, 0px) + 0.5rem))' }}
-            className={`fixed left-1/2 z-[600] backdrop-blur-xl border rounded-full px-4 py-2 sm:px-5 sm:py-2.5 flex items-center gap-3 max-w-[92vw] w-auto pointer-events-auto overflow-hidden select-none ${
-              isLightMode
-                ? 'bg-white/95 border-blue-100 shadow-[0_12px_36px_rgba(0,0,0,0.08)]'
-                : 'bg-slate-900/90 border-white/15 shadow-[0_12px_36px_rgba(0,0,0,0.3)]'
-            }`}
+            className="tagger-floating-pill fixed left-1/2 z-[600] rounded-full px-4 py-2 sm:px-4.5 sm:py-2.5 flex items-center gap-2.5 max-w-[92vw] w-auto pointer-events-auto transition-all overflow-hidden select-none shadow-2xl"
           >
-            <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${isLightMode ? 'bg-blue-50' : 'bg-blue-500/20'}`}>
-              <Loader2 className={`w-3.5 h-3.5 animate-spin shrink-0 ${isLightMode ? 'text-blue-600' : 'text-blue-400'}`} />
-            </div>
-            <span className={`text-xs sm:text-sm font-medium whitespace-nowrap ${isLightMode ? 'text-[#0f172a]' : 'text-slate-100'}`}>
+            <Loader2 className="w-4 h-4 animate-spin shrink-0 text-blue-400 [.light-theme_&]:!text-blue-600" />
+            <span className="text-xs sm:text-sm font-medium text-slate-100 whitespace-nowrap tagger-floating-text [.light-theme_&]:!text-[#0f172a] truncate">
               {progress.message || '正在处理'}
             </span>
-            <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full shrink-0 tabular-nums ${
-              isLightMode ? 'text-blue-700 bg-blue-100' : 'text-blue-300 bg-blue-500/20'
-            }`}>
-              {progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0}%
+            <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full shrink-0 border-0 border-none outline-none text-blue-300 bg-blue-500/20 [.light-theme_&]:!text-blue-600 [.light-theme_&]:!bg-blue-50 tabular-nums">
+              {progress.total > 0 ? (progress.total > 1 ? `${progress.current}/${progress.total}` : `${Math.round((progress.current / progress.total) * 100)}%`) : `${progress.current || 0}`}
             </span>
           </motion.div>
         )}
