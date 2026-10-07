@@ -334,7 +334,7 @@ ${candidateInfo}
             </div>
           )}
 
-          <div className="recommender-card rounded-2xl p-4 sm:p-6 shadow-sm">
+          <div className="recommender-card rounded-2xl p-4 sm:p-6 shadow-sm border-none">
             <label className="block text-sm font-semibold text-white/80 [.light-theme_&]:!text-[#1c1c1e] mb-2 sm:mb-3">
               你想玩怎样的剧情或角色？
             </label>
@@ -342,7 +342,7 @@ ${candidateInfo}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="例如：我是主播，给我找个榜一大哥的卡..."
-              className="recommender-input w-full rounded-xl p-3 sm:p-4 focus:outline-none focus:border-blue-500 transition-colors resize-none h-28 sm:h-32 text-sm sm:text-base"
+              className="recommender-input w-full rounded-xl p-3 sm:p-4 border-none outline-none focus:outline-none focus:ring-0 resize-none h-28 sm:h-32 text-sm sm:text-base"
             />
             <div className="mt-4 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 sm:gap-4">
               <div className="text-xs sm:text-sm text-white/50 [.light-theme_&]:!text-[#8e8e93] flex items-center gap-1.5 sm:gap-2">
@@ -354,7 +354,7 @@ ${candidateInfo}
                   type="button"
                   onClick={handleRandomGacha}
                   disabled={isSearching}
-                  className="recommender-btn-secondary flex-1 sm:flex-none min-h-[48px] flex items-center justify-center gap-2 px-5 sm:px-6 py-3 rounded-xl font-semibold text-sm sm:text-base transition-all select-none cursor-pointer touch-manipulation active:scale-95 disabled:opacity-50 disabled:pointer-events-none shadow-xs"
+                  className="recommender-btn-secondary flex-1 sm:flex-none min-h-[48px] flex items-center justify-center gap-2 px-5 sm:px-6 py-3 rounded-xl font-semibold text-sm sm:text-base transition-all select-none cursor-pointer touch-manipulation active:scale-95 disabled:opacity-50 disabled:pointer-events-none border-none outline-none shadow-none"
                 >
                   <Dices className="recommender-dice-icon w-5 h-5 shrink-0" />
                   <span>随机抽卡</span>
@@ -363,9 +363,9 @@ ${candidateInfo}
                   type="button"
                   onClick={handleRecommend}
                   disabled={isSearching || !prompt.trim()}
-                  className={`flex-1 sm:flex-none min-h-[48px] flex items-center justify-center gap-2 px-5 sm:px-6 py-3 rounded-xl font-semibold text-sm sm:text-base transition-all select-none cursor-pointer touch-manipulation active:scale-95 disabled:pointer-events-none ${
+                  className={`flex-1 sm:flex-none min-h-[48px] flex items-center justify-center gap-2 px-5 sm:px-6 py-3 rounded-xl font-semibold text-sm sm:text-base transition-all select-none cursor-pointer touch-manipulation active:scale-95 disabled:pointer-events-none border-none outline-none ${
                     isSearching || !prompt.trim()
-                      ? 'bg-white/10 text-white/40 border border-white/5 [.light-theme_&]:!bg-[#e5e5ea] [.light-theme_&]:!text-[#8e8e93] [.light-theme_&]:!border-transparent cursor-not-allowed'
+                      ? 'bg-white/10 text-white/40 border-none outline-none [.light-theme_&]:!bg-[#e5e5ea] [.light-theme_&]:!text-[#8e8e93] cursor-not-allowed'
                       : 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white shadow-md shadow-blue-500/20 [.light-theme_&]:!bg-none [.light-theme_&]:!bg-[#70a9ff] [.light-theme_&]:hover:!bg-[#5b9cf6] [.light-theme_&]:!text-white [.light-theme_&]:!shadow-sm'
                   }`}
                 >

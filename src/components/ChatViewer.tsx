@@ -1769,12 +1769,12 @@ export function ChatViewer({
                   placeholder="搜索..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full sm:w-44 pl-9 pr-4 py-1.5 sm:py-2 bg-white/10 hover:bg-white/15 focus:bg-white/15 border border-transparent rounded-full text-sm text-white focus:outline-none focus:border-blue-500/40 transition-colors placeholder:text-white/40 [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1]/70 [.light-theme_&]:focus:!bg-[#cbd5e1]/70 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#8e8e93] shadow-xs"
+                  className="w-full sm:w-44 pl-9 pr-4 py-1.5 sm:py-2 bg-white/10 hover:bg-white/15 focus:bg-white/15 border-0 border-none outline-none rounded-full text-sm text-white focus:outline-none transition-colors placeholder:text-white/40 [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1]/70 [.light-theme_&]:focus:!bg-[#cbd5e1]/70 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#8e8e93]"
                 />
               </div>
               <button
                 onClick={() => setIsCleanerOpen(true)}
-                className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-full transition shrink-0 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white/80 hover:text-white border border-transparent [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a] cursor-pointer active:scale-95 shadow-xs"
+                className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-full transition shrink-0 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white/80 hover:text-white border-0 border-none outline-none [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a] cursor-pointer active:scale-95"
                 title="清理记录和分支"
               >
                 <Trash2 className="w-4 h-4 stroke-[1.75]" />
@@ -1787,7 +1787,7 @@ export function ChatViewer({
                     fileInputRef.current?.click();
                   }
                 }}
-                className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-full transition shrink-0 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white/80 hover:text-white border border-transparent [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a] cursor-pointer active:scale-95 shadow-xs"
+                className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-full transition shrink-0 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white/80 hover:text-white border-0 border-none outline-none [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a] cursor-pointer active:scale-95"
                 title="导入聊天记录"
               >
                 <UploadCloud className="w-4 h-4 stroke-[1.75]" />
@@ -1868,10 +1868,10 @@ export function ChatViewer({
                               toggleGroup(groupName);
                             }
                           }}
-                          className={`rounded-2xl p-4 cursor-pointer transition flex items-center justify-between shadow-xs relative overflow-hidden border ${
+                          className={`rounded-2xl p-4 cursor-pointer transition flex items-center justify-between shadow-xs relative overflow-hidden border-0 border-none outline-none ${
                             isBatchMode && allSelected
-                              ? "bg-slate-950/90 border border-white/10 [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-[#e2e8f0]"
-                              : "bg-white/[0.06] hover:bg-white/[0.09] border border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0]"
+                              ? "bg-slate-950/90 [.light-theme_&]:!bg-[#e2e8f0]"
+                              : "bg-white/[0.06] hover:bg-white/[0.09] [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc]"
                           } [.light-theme_&]:!shadow-xs`}
                         >
                           {/* Full-card dark dimming overlay on selection (matching DuplicateDetector and TrashBin) */}
@@ -1886,7 +1886,7 @@ export function ChatViewer({
                               const hasPhoto = !!(gUrl && !imgErrorMap[charId]);
                               if (hasPhoto) {
                                 return (
-                                  <div className="w-10 h-10 rounded-full avatar-frame flex items-center justify-center shrink-0 shadow-inner overflow-hidden">
+                                  <div className="w-10 h-10 rounded-full avatar-frame flex items-center justify-center shrink-0 overflow-hidden border-none shadow-none">
                                     <img
                                       src={gUrl}
                                       alt="avatar"
@@ -1901,7 +1901,7 @@ export function ChatViewer({
                                 );
                               }
                               return (
-                                <div className="w-10 h-10 rounded-full avatar-fallback font-bold flex items-center justify-center shadow-inner shrink-0 select-none">
+                                <div className="w-10 h-10 rounded-full avatar-fallback font-bold flex items-center justify-center shrink-0 select-none border-none shadow-none text-sm">
                                   {(groupChar?.name || groupName || "AI").charAt(0)}
                                 </div>
                               );
@@ -1952,7 +1952,7 @@ export function ChatViewer({
                   const isSelected = selectedChatIds.has(chat.id);
                   return (
                     <div
-                      className="pb-4 pl-4 sm:pl-8"
+                      className="pb-2.5 pl-3 sm:pl-6"
                       onTouchStart={(e) => handleTouchStart(e, chat.id, false)}
                       onTouchMove={handleTouchMove}
                       onTouchEnd={handleTouchEnd}
@@ -1973,113 +1973,123 @@ export function ChatViewer({
                             setActiveChatId(chat.id);
                           }
                         }}
-                        className={`rounded-2xl p-5 cursor-pointer transition flex flex-col gap-3 relative overflow-hidden border ${
+                        className={`rounded-2xl p-3.5 sm:p-4 cursor-pointer transition flex flex-col gap-2 relative overflow-hidden border-none outline-none select-none ${
                           isSelected && isBatchMode
-                            ? "bg-slate-950/90 border border-white/10 [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-[#e2e8f0]"
-                            : "bg-white/[0.06] hover:bg-white/[0.09] border border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0]"
-                        } [.light-theme_&]:!shadow-xs`}
+                            ? "bg-slate-950/90 [.light-theme_&]:!bg-[#e2e8f0]"
+                            : "bg-white/[0.05] hover:bg-white/[0.08] active:scale-[0.99] [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc]"
+                        } [.light-theme_&]:!shadow-[0_1px_4px_rgba(0,0,0,0.03)]`}
                       >
                         {/* Full-card dark dimming overlay on selection (matching DuplicateDetector and TrashBin) */}
                         {isSelected && isBatchMode && (
                           <div className="absolute inset-0 rounded-2xl z-20 pointer-events-none transition-all bg-black/65 [.light-theme_&]:!bg-slate-900/35" />
                         )}
-                        <div className="flex justify-between items-start mb-2 gap-3">
-                          <div className="flex-1 min-w-0 flex items-start gap-3">
-                            <div className="flex-1 min-w-0">
-                              {editingNoteFor === chat.id ? (
-                                <div
-                                  className="w-full mb-1"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <input
-                                    autoFocus
-                                    className="w-full bg-black/40 border border-blue-500/50 rounded flex px-2 py-1 text-sm text-blue-300 focus:outline-none placeholder-blue-300/30 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#93c5fd] [.light-theme_&]:!text-blue-600 [.light-theme_&]:placeholder:!text-blue-400/50"
-                                    value={editNoteContent}
-                                    onChange={(e) =>
-                                      setEditNoteContent(e.target.value)
-                                    }
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter")
-                                        handleSaveNote(chat);
-                                    }}
-                                    onBlur={() => handleSaveNote(chat)}
-                                    placeholder="添加内容备注..."
-                                  />
-                                </div>
-                              ) : (
-                                <div
-                                  className="text-sm font-semibold text-blue-400 [.light-theme_&]:!text-[#007aff] cursor-pointer hover:text-blue-300 [.light-theme_&]:hover:!text-blue-700 transition flex items-center gap-2 mb-1"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setEditingNoteFor(chat.id);
-                                    setEditNoteContent(chat.note || "");
-                                  }}
-                                  title="点击编辑备注"
-                                >
-                                  {chat.note ? (
-                                    <>
-                                      <span className="truncate">
-                                        {chat.note}
-                                      </span>
-                                      <span className="text-xs text-blue-400/70 [.light-theme_&]:!text-[#007aff]/70 shrink-0 flex items-center gap-1 leading-none pt-0.5">
-                                        <Edit2 className="w-3 h-3 stroke-[2]" />
-                                      </span>
-                                    </>
-                                  ) : (
-                                    <span className="text-blue-400/80 [.light-theme_&]:!text-[#007aff] flex items-center gap-1 font-medium">
-                                      <Plus className="w-3.5 h-3.5 stroke-[2.5]" />{" "}
-                                      添加内容备注...
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                              <h4
-                                className="font-medium text-white/90 truncate w-full text-sm [.light-theme_&]:!text-[#0f172a]"
-                                title={chat.name}
+
+                        {/* Row 1: Title + Note + Date + Actions */}
+                        <div className="flex items-center justify-between gap-2.5 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            {editingNoteFor === chat.id ? (
+                              <div
+                                className="flex-1 min-w-0"
+                                onClick={(e) => e.stopPropagation()}
                               >
-                                {chat.name}
-                              </h4>
-                            </div>
+                                <input
+                                  autoFocus
+                                  className="w-full bg-black/40 border-none outline-none rounded-lg px-2.5 py-1 text-xs text-[#0A84FF] focus:ring-1 focus:ring-[#0A84FF] placeholder-[#0A84FF]/40 [.light-theme_&]:!bg-[#f0f7ff] [.light-theme_&]:!text-[#007aff] [.light-theme_&]:placeholder:!text-[#007aff]/50"
+                                  value={editNoteContent}
+                                  onChange={(e) =>
+                                    setEditNoteContent(e.target.value)
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter")
+                                      handleSaveNote(chat);
+                                  }}
+                                  onBlur={() => handleSaveNote(chat)}
+                                  placeholder="输入备注内容..."
+                                />
+                              </div>
+                            ) : (
+                              <>
+                                <h4
+                                  className="font-semibold text-white/90 text-sm truncate leading-snug [.light-theme_&]:!text-[#0f172a]"
+                                  title={chat.name}
+                                >
+                                  {chat.name}
+                                </h4>
+
+                                {chat.note ? (
+                                  <span
+                                    className="text-[11px] px-2 py-0.5 rounded-full font-medium shrink-0 max-w-[120px] truncate flex items-center gap-1 cursor-pointer bg-[#0A84FF]/15 text-[#0A84FF] [.light-theme_&]:!bg-[#e8f2ff] [.light-theme_&]:!text-[#007aff] hover:opacity-85 transition border-none"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingNoteFor(chat.id);
+                                      setEditNoteContent(chat.note || "");
+                                    }}
+                                    title={`备注：${chat.note}（点击编辑）`}
+                                  >
+                                    <span className="truncate">{chat.note}</span>
+                                    <Edit2 className="w-2.5 h-2.5 shrink-0 opacity-80" />
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingNoteFor(chat.id);
+                                      setEditNoteContent("");
+                                    }}
+                                    className="text-[11px] px-1.5 py-0.5 rounded text-[#0A84FF]/90 hover:text-[#0A84FF] hover:bg-[#0A84FF]/10 [.light-theme_&]:!text-[#007aff] [.light-theme_&]:hover:!bg-[#e8f2ff] flex items-center gap-0.5 transition shrink-0 cursor-pointer border-none"
+                                    title="添加备注"
+                                  >
+                                    <Plus className="w-3 h-3 stroke-[2.5]" />
+                                    <span>备注</span>
+                                  </button>
+                                )}
+                              </>
+                            )}
                           </div>
 
-                          {isBatchMode ? (
-                            <div className="shrink-0 z-30 mt-1">
-                              {isSelected ? (
-                                <div className="w-6 h-6 rounded-full bg-white text-slate-950 flex items-center justify-center shadow-md [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-[#ffffff]">
-                                  <Check className="w-3.5 h-3.5 stroke-[3]" />
-                                </div>
-                              ) : (
-                                <div className="w-6 h-6 rounded-full border-2 border-white/30 group-hover:border-white/60 [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:group-hover:!border-[#94a3b8]" />
-                              )}
-                            </div>
-                          ) : (
-                            <button
-                              onClick={(e) => handleRemoveChat(e, chat.id)}
-                              className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition z-10 shrink-0 mt-1 cursor-pointer"
-                              title="删除记录"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
+                          {/* Right Side: Timestamp + Actions */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[11px] text-white/40 [.light-theme_&]:!text-[#8e8e93] font-mono whitespace-nowrap">
+                              {new Date(chat.createdAt).toLocaleDateString()}
+                            </span>
+
+                            {isBatchMode ? (
+                              <div className="shrink-0 z-30">
+                                {isSelected ? (
+                                  <div className="w-5 h-5 rounded-full bg-white text-slate-950 flex items-center justify-center shadow-md [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-[#ffffff]">
+                                    <Check className="w-3 h-3 stroke-[3]" />
+                                  </div>
+                                ) : (
+                                  <div className="w-5 h-5 rounded-full border-2 border-white/30 group-hover:border-white/60 [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:group-hover:!border-[#94a3b8]" />
+                                )}
+                              </div>
+                            ) : (
+                              <button
+                                onClick={(e) => handleRemoveChat(e, chat.id)}
+                                className="p-1 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/15 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-red-600 [.light-theme_&]:hover:!bg-red-50 transition z-10 shrink-0 cursor-pointer border-none"
+                                title="删除记录"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </div>
 
-                        <div className="flex justify-between items-center text-xs text-white/40 pb-2 border-b border-white/5 [.light-theme_&]:!text-[#64748b] [.light-theme_&]:!border-[#e2e8f0]">
-                          <span className="flex items-center gap-1">
-                            <Book className="w-4 h-4 text-blue-400 [.light-theme_&]:!text-blue-600" />
+                        {/* Row 2: Message preview snippet (2 lines) + Message Count Pill */}
+                        <div className="flex items-end justify-between gap-3 text-xs min-w-0">
+                          <p className="text-white/50 text-xs line-clamp-2 flex-1 min-w-0 leading-relaxed [.light-theme_&]:!text-[#64748b] break-words">
+                            {formatCustomTags(
+                              applyRegexes(
+                                chat.lastMessagePreview || "空记录",
+                                matchedChar,
+                              ),
+                            ).replace(/<\/?[^>]+(>|$)/g, "")}
+                          </p>
+                          <span className="text-[11px] text-white/45 [.light-theme_&]:!text-[#64748b] font-medium shrink-0 whitespace-nowrap flex items-center gap-1 bg-white/5 [.light-theme_&]:!bg-[#f1f5f9] px-2 py-0.5 rounded-full border-none mb-0.5">
+                            <Book className="w-3 h-3 text-[#0A84FF] [.light-theme_&]:!text-[#007aff] shrink-0" />
                             {chat.messageCount} 条消息
                           </span>
-                          <span className="flex items-center gap-1">
-                            {new Date(chat.createdAt).toLocaleString()}
-                          </span>
-                        </div>
-
-                        <div className="text-white/60 text-xs leading-relaxed max-w-none line-clamp-3 overflow-hidden break-words [.light-theme_&]:!text-[#475569]">
-                          {formatCustomTags(
-                            applyRegexes(
-                              chat.lastMessagePreview || "空记录",
-                              matchedChar,
-                            ),
-                          ).replace(/<\/?[^>]+(>|$)/g, "")}
                         </div>
                       </div>
                     </div>
@@ -2238,7 +2248,7 @@ export function ChatViewer({
                                 ) : (
                                   <div 
                                     onClick={() => setShowUserAvatarSheet(true)}
-                                    className="w-10 h-10 rounded-full avatar-fallback flex items-center justify-center shadow-lg font-bold cursor-pointer hover:opacity-85 transition active:scale-95"
+                                    className="w-10 h-10 rounded-full avatar-fallback flex items-center justify-center font-bold cursor-pointer hover:opacity-85 transition active:scale-95 border-none shadow-none text-sm"
                                     title="点击更换你的头像"
                                   >
                                     {msg.name?.charAt(0) || "U"}
@@ -2250,7 +2260,7 @@ export function ChatViewer({
                                 const hasPhoto = !!(charUrl && !imgErrorMap[charId]);
                                 if (hasPhoto) {
                                   return (
-                                    <div className="w-10 h-10 rounded-full avatar-frame flex items-center justify-center shrink-0 shadow-lg overflow-hidden">
+                                    <div className="w-10 h-10 rounded-full avatar-frame flex items-center justify-center shrink-0 overflow-hidden border-none shadow-none">
                                       <img
                                         src={charUrl}
                                         alt="avatar"
@@ -2265,7 +2275,7 @@ export function ChatViewer({
                                   );
                                 }
                                 return (
-                                  <div className="w-10 h-10 rounded-full avatar-fallback flex items-center justify-center shadow-lg font-bold shrink-0 select-none">
+                                  <div className="w-10 h-10 rounded-full avatar-fallback flex items-center justify-center font-bold shrink-0 select-none border-none shadow-none text-sm">
                                     {(msg.name || activeCharacter?.name || "AI").charAt(0)}
                                   </div>
                                 );

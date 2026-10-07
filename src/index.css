@@ -67,9 +67,9 @@
   /* Avatar Theme Variables (Dark Mode Defaults) */
   --avatar-fallback-bg: rgba(255, 255, 255, 0.1);
   --avatar-fallback-text: #f4f4f5;
-  --avatar-fallback-border: rgba(255, 255, 255, 0.2);
-  --avatar-frame-bg: rgba(0, 0, 0, 0.3);
-  --avatar-frame-border: rgba(255, 255, 255, 0.2);
+  --avatar-fallback-border: transparent;
+  --avatar-frame-bg: rgba(255, 255, 255, 0.08);
+  --avatar-frame-border: transparent;
 
   /* Recommender Header Theme Variables */
   --recommender-header-bg: rgba(10, 10, 12, 0.95);
@@ -80,11 +80,11 @@
 .light-theme {
   color-scheme: light;
   /* Avatar Theme Variables (Light Mode White Theme) */
-  --avatar-fallback-bg: #ffffff;
-  --avatar-fallback-text: #1c1c1e;
-  --avatar-fallback-border: #cbd5e1;
-  --avatar-frame-bg: #ffffff;
-  --avatar-frame-border: #cbd5e1;
+  --avatar-fallback-bg: #f1f5f9;
+  --avatar-fallback-text: #0f172a;
+  --avatar-fallback-border: transparent;
+  --avatar-frame-bg: #f1f5f9;
+  --avatar-frame-border: transparent;
 
   /* Recommender Header Theme Variables */
   --recommender-header-bg: rgba(255, 255, 255, 0.95);
@@ -181,29 +181,31 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02) !important;
 }
 
-/* Avatar Component CSS Utility Rules */
+/* Avatar Component CSS Utility Rules - Borderless Color Blocks */
 .avatar-fallback {
   background-color: var(--avatar-fallback-bg) !important;
   color: var(--avatar-fallback-text) !important;
-  border: 1px solid var(--avatar-fallback-border) !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 .avatar-frame {
   background-color: var(--avatar-frame-bg) !important;
-  border: 1px solid var(--avatar-frame-border) !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 .light-theme .avatar-fallback {
-  background-color: #ffffff !important;
-  color: #1c1c1e !important;
-  border-color: #cbd5e1 !important;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 .light-theme .avatar-frame {
-  background-color: #ffffff !important;
-  border-color: #cbd5e1 !important;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+  background-color: #f1f5f9 !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 html:not(.light-theme) {
@@ -1611,32 +1613,32 @@ button:focus-visible,
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04) !important;
 }
 
-/* AutoTagger Theme Styles */
+/* AutoTagger Theme Styles - Pure Color Blocks */
 .auto-tagger-card {
   background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: none !important;
 }
 .light-theme .auto-tagger-card {
   background-color: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03), 0 1px 3px rgba(0, 0, 0, 0.02) !important;
+  border: none !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03), 0 1px 3px rgba(0, 0, 0, 0.02) !important;
 }
 
 .auto-tagger-select {
   background-color: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: none !important;
   color: #ffffff;
 }
 .light-theme .auto-tagger-select {
-  background-color: #f8fafc !important;
-  border: 1px solid #cbd5e1 !important;
+  background-color: #f1f5f9 !important;
+  border: none !important;
   color: #0f172a !important;
 }
 
 .auto-tagger-btn-primary {
   background-color: #2563eb;
   color: #ffffff;
-  border: 1px solid transparent;
+  border: none !important;
 }
 .auto-tagger-btn-primary:hover:not(:disabled) {
   background-color: #1d4ed8;
@@ -1649,7 +1651,7 @@ button:focus-visible,
 .light-theme .auto-tagger-btn-primary {
   background-color: #007aff !important;
   color: #ffffff !important;
-  border: 1px solid #007aff !important;
+  border: none !important;
 }
 .light-theme .auto-tagger-btn-primary:hover:not(:disabled) {
   background-color: #0062cc !important;
@@ -1665,15 +1667,15 @@ button:focus-visible,
   background-color: rgba(10, 10, 12, 0.95) !important;
   backdrop-filter: blur(24px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border: none !important;
   color: #ffffff !important;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6) !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5) !important;
 }
 .light-theme .tagger-floating-pill {
   background-color: #ffffff !important;
-  border: 1px solid rgba(226, 232, 240, 0.9) !important;
+  border: none !important;
   color: #0f172a !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05) !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08) !important;
 }
 .light-theme .tagger-floating-text {
   color: #0f172a !important;
@@ -1689,34 +1691,34 @@ button:focus-visible,
 /* AutoTagger Log Box */
 .tagger-log-container {
   background-color: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: none !important;
 }
 .light-theme .tagger-log-container {
   background-color: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
+  border: none !important;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03) !important;
 }
 
 .tagger-log-header {
   background-color: rgba(255, 255, 255, 0.05);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: none !important;
   color: rgba(255, 255, 255, 0.9);
 }
 .light-theme .tagger-log-header {
   background-color: #f8fafc !important;
-  border-bottom: 1px solid #e2e8f0 !important;
+  border-bottom: none !important;
   color: #0f172a !important;
 }
 
 .tagger-log-item {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: none !important;
   background-color: transparent;
 }
 .tagger-log-item:last-child {
-  border-bottom: none;
+  border-bottom: none !important;
 }
 .light-theme .tagger-log-item {
-  border-bottom: 1px solid #e2e8f0 !important;
+  border-bottom: none !important;
   background-color: #ffffff !important;
 }
 .light-theme .tagger-log-item:last-child {
@@ -1929,25 +1931,25 @@ button:focus-visible,
 }
 
 .recommender-card {
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.06);
+  border: none !important;
   color: #ffffff;
 }
 .light-theme .recommender-card {
   background-color: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
+  border: none !important;
   color: #0f172a !important;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04) !important;
 }
 
 .recommender-input {
-  background-color: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgba(0, 0, 0, 0.35);
+  border: none !important;
   color: #ffffff;
 }
 .light-theme .recommender-input {
-  background-color: #f8fafc !important;
-  border: 1px solid #cbd5e1 !important;
+  background-color: #f1f5f9 !important;
+  border: none !important;
   color: #0f172a !important;
 }
 .light-theme .recommender-input::placeholder {
@@ -1955,19 +1957,22 @@ button:focus-visible,
 }
 
 .recommender-btn-secondary {
-  background-color: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  border: none !important;
+  color: #ffffff !important;
+}
+.recommender-btn-secondary:hover {
+  background-color: rgba(255, 255, 255, 0.15) !important;
 }
 .light-theme .recommender-btn-secondary {
-  background-color: #ffffff !important;
-  border: 1px solid #cbd5e1 !important;
+  background-color: #f1f5f9 !important;
+  border: none !important;
   color: #0f172a !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+  box-shadow: none !important;
 }
 .light-theme .recommender-btn-secondary:hover {
-  background-color: #f8fafc !important;
-  border-color: #94a3b8 !important;
+  background-color: #e2e8f0 !important;
+  border: none !important;
 }
 
 .recommender-dice-icon {
@@ -1979,22 +1984,22 @@ button:focus-visible,
 
 .recommender-reason-box {
   background-color: rgba(59, 130, 246, 0.1);
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  border: none !important;
   color: rgba(219, 234, 254, 0.9);
 }
 .light-theme .recommender-reason-box {
   background-color: #eff6ff !important;
-  border: 1px solid #bfdbfe !important;
+  border: none !important;
   color: #1e3a8a !important;
 }
 
 .recommender-logs-box {
   background-color: rgba(0, 0, 0, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: none !important;
 }
 .light-theme .recommender-logs-box {
   background-color: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
+  border: none !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
 }
 

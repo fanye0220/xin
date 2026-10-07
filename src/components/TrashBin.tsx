@@ -138,20 +138,20 @@ const TrashedCharacterCard = ({
         if (Date.now() - (longPressRef.current.lastTriggerTime || 0) < 800) return;
         onToggleSelect(char.id);
       }}
-      className={`relative flex items-center gap-3 sm:gap-4 p-3.5 sm:p-4 rounded-2xl transition-all duration-200 group active:scale-[0.98] select-none ${
+      className={`relative flex items-center gap-3 sm:gap-4 p-3.5 sm:p-4 rounded-2xl transition-all duration-200 group active:scale-[0.98] select-none border-none outline-none ${
         selectionMode ? 'cursor-pointer' : 'cursor-default'
       } ${
         isSelected
-          ? 'bg-slate-950/90 border border-white/10 [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-[#e2e8f0]'
-          : 'bg-white/[0.06] hover:bg-white/[0.09] shadow-xs border border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0]'
-      } [.light-theme_&]:!shadow-xs`}
+          ? 'bg-slate-950/90 [.light-theme_&]:!bg-[#e2e8f0]'
+          : 'bg-white/[0.06] hover:bg-white/[0.09] [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc]'
+      } [.light-theme_&]:!shadow-[0_1px_4px_rgba(0,0,0,0.03)]`}
     >
       {/* Full-card dark dimming overlay on selection */}
       {isSelected && (
         <div className="absolute inset-0 rounded-2xl z-20 pointer-events-none transition-all bg-black/65 [.light-theme_&]:!bg-slate-900/35" />
       )}
 
-      <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden shrink-0 bg-black/50 [.light-theme_&]:!bg-[#f1f5f9] shadow-md relative">
+      <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden shrink-0 bg-black/30 [.light-theme_&]:!bg-[#f1f5f9] border-none shadow-none relative">
         <img 
           src={avatarUrl || undefined} 
           alt={char.name} 
@@ -345,11 +345,11 @@ export function TrashBin({ onClose }: Props) {
             </div>
             
             {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-3 pt-6 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0]">
+              <div className="flex items-center justify-center gap-3 pt-6 border-none">
                 <button 
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="px-3.5 py-1.5 bg-white/5 hover:bg-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f1f5f9] border border-white/10 [.light-theme_&]:!border-[#cbd5e1] disabled:opacity-40 rounded-full text-xs font-semibold text-white [.light-theme_&]:!text-[#0f172a] transition cursor-pointer shadow-xs"
+                  className="px-3.5 py-1.5 bg-white/10 hover:bg-white/15 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f1f5f9] disabled:opacity-40 rounded-full text-xs font-semibold text-white [.light-theme_&]:!text-[#0f172a] transition cursor-pointer border-none shadow-xs"
                 >
                   上一页
                 </button>
@@ -359,7 +359,7 @@ export function TrashBin({ onClose }: Props) {
                 <button 
                   onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
-                  className="px-3.5 py-1.5 bg-white/5 hover:bg-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f1f5f9] border border-white/10 [.light-theme_&]:!border-[#cbd5e1] disabled:opacity-40 rounded-full text-xs font-semibold text-white [.light-theme_&]:!text-[#0f172a] transition cursor-pointer shadow-xs"
+                  className="px-3.5 py-1.5 bg-white/10 hover:bg-white/15 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f1f5f9] disabled:opacity-40 rounded-full text-xs font-semibold text-white [.light-theme_&]:!text-[#0f172a] transition cursor-pointer border-none shadow-xs"
                 >
                   下一页
                 </button>

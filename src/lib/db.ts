@@ -2624,7 +2624,17 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
       const baseName = normalizeCardBaseName(rawName).toLowerCase();
       const isGenericName = GENERIC_NAMES.has(baseName);
 
-      const descClean = desc.replace(/\s+/g, "");
+      // Support presets, worldbooks, and other tool types content matching
+      let extraContent = "";
+      if (data.prompts && Array.isArray(data.prompts)) {
+        extraContent = data.prompts.map((p: any) => p.content || p.text || "").join("");
+      } else if (data.entries && Array.isArray(data.entries)) {
+        extraContent = data.entries.map((e: any) => e.content || e.text || e.comment || "").join("");
+      } else if (data.content && typeof data.content === "string") {
+        extraContent = data.content;
+      }
+
+      const descClean = (desc + extraContent).replace(/\s+/g, "");
       const firstClean = firstMes.replace(/\s+/g, "");
 
       precomputed.push({

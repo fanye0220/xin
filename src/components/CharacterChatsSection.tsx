@@ -582,77 +582,92 @@ export function CharacterChatsSection({
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {chats.slice(0, visibleCount).map((chat) => (
                 <div
                   key={chat.id}
                   onClick={() => handleChatClick(chat)}
-                  className="group cursor-pointer bg-white/[0.06] hover:bg-white/[0.09] rounded-2xl p-4 transition-all shadow-md hover:shadow-xl relative h-full flex flex-col [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#ffffff] [.light-theme_&]:!shadow-sm"
+                  className="group cursor-pointer bg-white/[0.05] hover:bg-white/[0.08] active:scale-[0.99] rounded-2xl p-3.5 transition-all shadow-xs relative flex flex-col justify-between gap-2.5 border-none outline-none select-none [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!shadow-xs"
                 >
-                  <div className="flex justify-between items-start mb-2 gap-3">
-                    <div className="flex-1 min-w-0 pt-0.5">
+                  {/* Row 1: Title + Note + Delete */}
+                  <div className="flex items-center justify-between gap-2 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
                       {editingNoteFor === chat.id ? (
                         <div
-                          className="w-full"
+                          className="w-full min-w-0"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <input
                             autoFocus
-                            className="w-full bg-black/40 border border-blue-500/50 rounded flex px-2 py-1 text-sm text-blue-400 [.light-theme_&]:!text-[#007aff] [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-blue-400 focus:outline-none placeholder-blue-300/30 [.light-theme_&]:placeholder-[#007aff]/40"
+                            className="w-full bg-black/40 border-none outline-none rounded-lg px-2.5 py-1 text-xs text-blue-300 focus:ring-1 focus:ring-blue-500 placeholder-blue-300/30 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-blue-600 [.light-theme_&]:placeholder:!text-blue-400/50"
                             value={editNoteContent}
                             onChange={(e) => setEditNoteContent(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") handleSaveNote(chat);
                             }}
                             onBlur={() => handleSaveNote(chat)}
-                            placeholder="添加内容备注..."
+                            placeholder="输入备注内容..."
                           />
                         </div>
                       ) : (
-                        <div
-                          className="text-sm font-semibold text-blue-400 [.light-theme_&]:!text-[#007aff] cursor-pointer hover:text-blue-300 [.light-theme_&]:hover:!text-blue-700 transition flex items-center gap-2"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingNoteFor(chat.id);
-                            setEditNoteContent(chat.note || "");
-                          }}
-                          title="点击编辑备注"
-                        >
+                        <>
+                          <h4
+                            className="font-semibold text-white/90 text-sm truncate leading-snug [.light-theme_&]:!text-[#0f172a]"
+                            title={chat.name}
+                          >
+                            {chat.name}
+                          </h4>
+
                           {chat.note ? (
-                            <>
+                            <span
+                              className="text-[11px] px-2 py-0.5 rounded-full font-medium shrink-0 max-w-[100px] truncate flex items-center gap-1 cursor-pointer bg-blue-500/15 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 hover:opacity-80 transition border-none"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingNoteFor(chat.id);
+                                setEditNoteContent(chat.note || "");
+                              }}
+                              title={`备注：${chat.note}（点击编辑）`}
+                            >
                               <span className="truncate">{chat.note}</span>
-                              <span className="text-xs text-blue-400/70 [.light-theme_&]:!text-[#007aff]/70 shrink-0 flex items-center gap-1 leading-none pt-0.5">
-                                <Edit2 className="w-3 h-3 stroke-[2]" />
-                              </span>
-                            </>
-                          ) : (
-                            <span className="text-blue-400/80 [.light-theme_&]:!text-[#007aff] flex items-center gap-1 font-medium">
-                              <Plus className="w-3.5 h-3.5 stroke-[2.5]" /> 添加内容备注...
+                              <Edit2 className="w-2.5 h-2.5 shrink-0 opacity-70" />
                             </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingNoteFor(chat.id);
+                                setEditNoteContent("");
+                              }}
+                              className="text-[11px] px-1.5 py-0.5 rounded text-blue-400/80 hover:text-blue-300 hover:bg-blue-500/10 [.light-theme_&]:!text-blue-600 [.light-theme_&]:hover:!bg-blue-50 flex items-center gap-0.5 transition shrink-0 cursor-pointer border-none"
+                              title="添加备注"
+                            >
+                              <Plus className="w-3 h-3 stroke-[2.5]" />
+                              <span>备注</span>
+                            </button>
                           )}
-                        </div>
+                        </>
                       )}
                     </div>
                     <button
                       onClick={(e) => handleDelete(chat.id, e)}
-                      className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition shrink-0"
+                      className="p-1 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/15 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-red-600 [.light-theme_&]:hover:!bg-red-50 transition shrink-0 border-none cursor-pointer"
+                      title="删除记录"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
 
-                  <h4
-                    className="font-medium text-white [.light-theme_&]:!text-[#0f172a] mb-2 truncate text-sm flex-1"
-                    title={chat.name}
-                  >
-                    {chat.name}
-                  </h4>
-                  <div className="flex justify-between items-center text-xs text-white/40 [.light-theme_&]:!text-slate-500 mt-auto">
-                    <span className="flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
+                  {/* Row 2: Date + Message Count */}
+                  <div className="flex items-center justify-between text-xs min-w-0">
+                    <span className="text-[11px] text-white/40 [.light-theme_&]:!text-[#8e8e93] font-mono flex items-center gap-1">
+                      <Calendar className="w-3 h-3 opacity-60" />
                       {new Date(chat.createdAt).toLocaleDateString()}
                     </span>
-                    <span>{chat.messageCount} 条消息</span>
+                    <span className="text-[11px] text-white/45 [.light-theme_&]:!text-[#64748b] font-medium shrink-0 whitespace-nowrap flex items-center gap-1 bg-white/5 [.light-theme_&]:!bg-[#f1f5f9] px-2 py-0.5 rounded-full border-none">
+                      <MessageSquare className="w-3 h-3 text-blue-400 [.light-theme_&]:!text-blue-600" />
+                      {chat.messageCount} 条消息
+                    </span>
                   </div>
                 </div>
               ))}
@@ -963,7 +978,7 @@ export function CharacterChatsSection({
                           <div className="shrink-0 pt-1">
                             {msg.is_user ? (
                               userAvatar ? (
-                                <div className="w-10 h-10 rounded-full border border-white/20 bg-black/30 flex items-center justify-center shrink-0 shadow-lg overflow-hidden">
+                                <div className="w-10 h-10 rounded-full bg-black/30 flex items-center justify-center shrink-0 overflow-hidden border-none shadow-none">
                                   <img
                                     src={userAvatar}
                                     alt="user avatar"
@@ -971,7 +986,7 @@ export function CharacterChatsSection({
                                   />
                                 </div>
                               ) : (
-                                <div className="w-10 h-10 rounded-full bg-white/10 text-slate-300 border border-white/20 flex items-center justify-center shadow-lg font-bold [.light-theme_&]:bg-blue-600 [.light-theme_&]:text-white [.light-theme_&]:border-transparent [.light-theme_&]:shadow-blue-500/20">
+                                <div className="w-10 h-10 rounded-full bg-white/10 text-slate-200 flex items-center justify-center font-bold [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] border-none shadow-none text-sm">
                                   {msg.name?.charAt(0) || "U"}
                                 </div>
                               )
@@ -979,7 +994,7 @@ export function CharacterChatsSection({
                               <img
                                 src={avatar}
                                 alt="avatar"
-                                className="w-10 h-10 rounded-full object-cover shadow-lg border border-white/10"
+                                className="w-10 h-10 rounded-full object-cover border-none shadow-none"
                                 onError={(e) => {
                                   getCharacterBlob(characterId).then((b) => {
                                     if (b && b.avatarBlob)
@@ -988,7 +1003,7 @@ export function CharacterChatsSection({
                                 }}
                               />
                             ) : (
-                              <div className="w-10 h-10 rounded-full bg-white/[0.05] flex items-center justify-center shadow-sm border border-white/10 text-slate-200 font-bold [.light-theme_&]:bg-indigo-900 [.light-theme_&]:text-indigo-200 [.light-theme_&]:border-indigo-500/30 [.light-theme_&]:shadow-lg">
+                              <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-slate-200 font-bold [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] border-none shadow-none text-sm">
                                 {msg.name?.charAt(0) || "AI"}
                               </div>
                             )}

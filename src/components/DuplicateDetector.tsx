@@ -2,10 +2,10 @@ import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Trash2, X, Merge, MessageSquarePlus, 
+  Trash2, X, Merge, MessageSquarePlus, ArrowLeft,
   Link as LinkIcon, FileText, Folder, Lock, Unlock, ChevronLeft, ChevronRight,
   Sparkles, Filter, ShieldCheck, Info, RotateCcw, History, Check, CheckCircle2,
-  Database
+  Database, Archive, ArchiveRestore, BookmarkCheck, ArrowRightLeft, Layers
 } from 'lucide-react';
 import { CharacterCard, DuplicateGroup, findDuplicates, deleteCharacter, saveCharacter } from '../lib/db';
 import { getLocalImageUrl } from '../lib/appBridge';
@@ -26,12 +26,18 @@ export function computeCompletenessScore(char: CharacterCard): {
   const mesExample = (data.mes_example || '').trim();
   const systemPrompt = (data.system_prompt || '').trim();
 
-  // 1. 核心人设设定字数
-  const coreText = desc + personality + scenario + firstMes + mesExample + systemPrompt;
+  // 1. 核心人设设定或预设/工具提示词字数
+  let extraContent = '';
+  if (data.prompts && Array.isArray(data.prompts)) {
+    extraContent = data.prompts.map((p: any) => p.content || p.text || '').join('');
+  } else if (data.content && typeof data.content === 'string') {
+    extraContent = data.content;
+  }
+  const coreText = desc + personality + scenario + firstMes + mesExample + systemPrompt + extraContent;
   const wordCount = coreText.length;
 
   // 2. 世界书条目数与世界书内容总字数
-  const entries = data.character_book?.entries || data.extensions?.character_book?.entries || [];
+  const entries = data.character_book?.entries || data.extensions?.character_book?.entries || (Array.isArray(data.entries) ? data.entries : []);
   const worldbookCount = Array.isArray(entries) ? entries.length : 0;
   let worldbookTextLength = 0;
   if (Array.isArray(entries)) {
@@ -166,12 +172,55 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
     }
   });
 
+  const [activeTab, setActiveTab] = useState<'pending' | 'stashed'>('pending');
+  const [stashedGroupSignatures, setStashedGroupSignatures] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem('miu_stashed_duplicate_groups');
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
   const pageSize = 10;
   const longPressRef = useRef<{ timer: NodeJS.Timeout | null, triggered: boolean, startX?: number, startY?: number, lastTriggerTime?: number }>({ 
     timer: null, 
     triggered: false,
     lastTriggerTime: 0
   });
+
+  const getGroupSignature = (group: DuplicateGroup) => {
+    return group.characters.map(c => c.char.id).sort().join('::');
+  };
+
+  const toggleStashGroup = (group: DuplicateGroup, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const sig = getGroupSignature(group);
+    setStashedGroupSignatures(prev => {
+      const next = new Set(prev);
+      if (next.has(sig)) {
+        next.delete(sig);
+        // 移出收纳共存时，自动解除这组卡片的锁定状态
+        setLockedIds(prevLocked => {
+          const nextLocked = new Set(prevLocked);
+          group.characters.forEach(c => nextLocked.delete(c.char.id));
+          localStorage.setItem('miu_locked_duplicate_char_ids', JSON.stringify(Array.from(nextLocked)));
+          return nextLocked;
+        });
+      } else {
+        next.add(sig);
+        // 移入收纳共存时，自动将该组所有卡片设为免删锁定，防止被批量误删
+        setLockedIds(prevLocked => {
+          const nextLocked = new Set(prevLocked);
+          group.characters.forEach(c => nextLocked.add(c.char.id));
+          localStorage.setItem('miu_locked_duplicate_char_ids', JSON.stringify(Array.from(nextLocked)));
+          return nextLocked;
+        });
+      }
+      localStorage.setItem('miu_stashed_duplicate_groups', JSON.stringify(Array.from(next)));
+      return next;
+    });
+  };
 
   const toggleLock = (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -198,22 +247,8 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
     setLoading(true);
     const groups = await findDuplicates();
     
-    // 过滤掉预设、美化卡和独立世界书
-    const filteredGroups = groups.filter(group => {
-      if (group.characters.length === 0) return false;
-      const c = group.characters[0].char;
-      const rawData = c.data;
-      const isPreset = !!(rawData.prompts || rawData.temperature !== undefined || rawData.top_p !== undefined);
-      const isStandaloneWorldbook = rawData.entries !== undefined;
-      const isTheme = rawData.blur_strength !== undefined || rawData.main_text_color !== undefined || rawData.chat_display !== undefined;
-      const tags = c.data?.tags || c.data?.data?.tags || [];
-      const isBeautify = tags.some((t: string) => t.includes('美化') || t.includes('预设') || t.includes('UI') || t.includes('主题') || t.includes('工具') || t.includes('插件') || t.includes('正则') || t.includes('组件') || t.includes('工作流'));
-      const isQR = Array.isArray(rawData) 
-        ? (rawData.length > 0 && rawData[0].label !== undefined && rawData[0].message !== undefined) 
-        : ((rawData.quick_replies !== undefined || rawData.qrList !== undefined) && rawData.spec !== "chara_card_v2" && rawData.spec !== "chara_card_v3" && rawData.description === undefined && rawData.first_mes === undefined && rawData.personality === undefined && rawData.mes_example === undefined && rawData.char_name === undefined && rawData.character_name === undefined && rawData.name === undefined && rawData.data?.name === undefined);
-      const isScript = rawData.type === 'script' && rawData.content !== undefined && rawData.name !== undefined;
-      return !isPreset && !isBeautify && !isStandaloneWorldbook && !isTheme && !isQR && !isScript;
-    });
+    // 包含普通角色卡以及工具区预设、世界书、脚本等所有资源
+    const filteredGroups = groups.filter(group => group.characters.length > 0);
 
     try {
       const { resolveFolderPath } = await import('../lib/db');
@@ -508,12 +543,27 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
     }
   };
 
-  const totalPages = Math.ceil(duplicateGroups.length / pageSize);
-  const paginatedGroups = duplicateGroups.slice((page - 1) * pageSize, page * pageSize);
+  const { pendingGroups, stashedGroups } = React.useMemo(() => {
+    const pending: DuplicateGroup[] = [];
+    const stashed: DuplicateGroup[] = [];
+    duplicateGroups.forEach(g => {
+      const sig = getGroupSignature(g);
+      if (stashedGroupSignatures.has(sig)) {
+        stashed.push(g);
+      } else {
+        pending.push(g);
+      }
+    });
+    return { pendingGroups: pending, stashedGroups: stashed };
+  }, [duplicateGroups, stashedGroupSignatures]);
+
+  const currentGroups = activeTab === 'pending' ? pendingGroups : stashedGroups;
+  const totalPages = Math.ceil(currentGroups.length / pageSize) || 1;
+  const paginatedGroups = currentGroups.slice((page - 1) * pageSize, page * pageSize);
 
   const allSelectableIds = React.useMemo(() => {
     const ids: string[] = [];
-    duplicateGroups.forEach(g => {
+    currentGroups.forEach(g => {
       g.characters.forEach(dupChar => {
         const charId = dupChar.char.id;
         if (!lockedIds.has(charId)) {
@@ -522,7 +572,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
       });
     });
     return ids;
-  }, [duplicateGroups, lockedIds]);
+  }, [currentGroups, lockedIds]);
 
   const isAllSelected = allSelectableIds.length > 0 && allSelectableIds.every(id => selectedIds.has(id));
 
@@ -534,38 +584,72 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
       transition={{ duration: 0.2 }}
       className={`fixed inset-0 z-50 flex flex-col select-none overflow-hidden font-sans bg-slate-950 text-slate-100 miu-skin [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!text-[#0f172a]`}
     >
-      {/* Dynamic Header */}
-      <header className={`sticky top-0 px-4 py-3 sm:px-6 sm:py-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] flex items-center justify-between border-b backdrop-blur-2xl z-20 shrink-0 border-white/10 bg-slate-900/90 [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!bg-[#ffffff]/95`}>
-        <div className="flex items-center gap-3 min-w-0">
-          <button 
-            onClick={() => {
-              if (selectionMode) {
-                setSelectionMode(false);
-                setSelectedIds(new Set());
-              } else {
-                onClose();
-              }
-            }} 
-            className={`p-2 rounded-xl transition shrink-0 cursor-pointer active:scale-95 bg-white/5 hover:bg-white/10 text-slate-300 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]`} 
-            title={selectionMode ? "退出选择" : "返回"}
-          >
-            <X className="w-5 h-5" />
-          </button>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className={`text-base sm:text-lg font-bold truncate leading-tight tracking-tight text-white [.light-theme_&]:!text-[#0f172a]`}>
+      {/* Dynamic Header matching AutoTagger */}
+      <header className="sticky top-0 px-3.5 pb-0 pt-[max(1.75rem,env(safe-area-inset-top))] sm:px-6 sm:pt-[max(1.75rem,env(safe-area-inset-top))] flex flex-col gap-3 sm:gap-4 bg-slate-900/90 backdrop-blur-xl border-b border-white/10 z-20 [.light-theme_&]:!bg-[#ffffff]/95 [.light-theme_&]:!border-[#e2e8f0] shadow-2xs">
+        <div className="flex items-center justify-between gap-3 sm:gap-4">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+            <button 
+              onClick={() => {
+                if (selectionMode) {
+                  setSelectionMode(false);
+                  setSelectedIds(new Set());
+                } else {
+                  onClose();
+                }
+              }} 
+              className="p-2 -ml-2 rounded-full transition text-white/80 hover:text-white hover:bg-white/10 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!bg-transparent [.light-theme_&]:hover:!bg-black/5 [.light-theme_&]:active:!bg-black/10 cursor-pointer" 
+              title={selectionMode ? "退出选择" : "返回"}
+            >
+              <ArrowLeft className="w-5 sm:w-6 h-5 sm:h-6" />
+            </button>
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-2xl font-bold text-white [.light-theme_&]:!text-[#0f172a] truncate">
                 {selectionMode ? `已选中 ${selectedIds.size} 项` : '重复卡片检测'}
-              </h2>
-              {!loading && duplicateGroups.length > 0 && !selectionMode && (
-                <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium bg-white/10 text-slate-200 border border-white/15 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#334155] [.light-theme_&]:!border-[#cbd5e1]`}>
-                  {duplicateGroups.length} 组重复
-                </span>
-              )}
+              </h1>
+              <p className="text-xs sm:text-sm text-white/50 mt-0.5 sm:mt-1 truncate [.light-theme_&]:!text-[#64748b]">
+                {selectionMode ? '选择要清理的旧卡片，删除时将自动合并聊天与配置' : '基于开场白、角色设定与世界书多维智能对比'}
+              </p>
             </div>
-            <p className={`text-xs truncate mt-0.5 text-slate-400 [.light-theme_&]:!text-[#64748b]`}>
-              {selectionMode ? '选择要清理的旧卡片，删除时将自动合并聊天与配置' : '基于开场白、角色设定与世界书多维智能对比'}
-            </p>
           </div>
+        </div>
+
+        {/* Sliding Tabs matching AutoTagger exactly */}
+        <div className="flex items-center gap-3 sm:gap-6 overflow-x-auto no-scrollbar w-full mt-1 shrink-0">
+          <button
+            onClick={() => { setActiveTab('pending'); setPage(1); }}
+            className={`pb-2.5 sm:pb-3 pt-1 px-1 sm:px-2 text-xs sm:text-sm font-bold transition-all relative flex items-center justify-center gap-1.5 cursor-pointer border-0 border-none shrink-0 ${
+              activeTab === 'pending'
+                ? 'text-white [.light-theme_&]:!text-[#0f172a]'
+                : 'text-white/60 hover:text-white [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a]'
+            }`}
+          >
+            <span className="whitespace-nowrap">待处理 ({pendingGroups.length})</span>
+            {activeTab === 'pending' && (
+              <motion.div
+                layoutId="activeDuplicateTabUnderline"
+                className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-white [.light-theme_&]:!bg-black rounded-full"
+                transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+              />
+            )}
+          </button>
+
+          <button
+            onClick={() => { setActiveTab('stashed'); setPage(1); }}
+            className={`pb-2.5 sm:pb-3 pt-1 px-1 sm:px-2 text-xs sm:text-sm font-bold transition-all relative flex items-center justify-center gap-1.5 cursor-pointer border-0 border-none shrink-0 ${
+              activeTab === 'stashed'
+                ? 'text-white [.light-theme_&]:!text-[#0f172a]'
+                : 'text-white/60 hover:text-white [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a]'
+            }`}
+          >
+            <span className="whitespace-nowrap">已收纳共存 ({stashedGroups.length})</span>
+            {activeTab === 'stashed' && (
+              <motion.div
+                layoutId="activeDuplicateTabUnderline"
+                className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-white [.light-theme_&]:!bg-black rounded-full"
+                transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+              />
+            )}
+          </button>
         </div>
       </header>
 
@@ -576,33 +660,88 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
             <div className="w-8 h-8 border-2 border-white/30 border-t-white [.light-theme_&]:!border-slate-300 [.light-theme_&]:!border-t-slate-800 rounded-full animate-spin mb-4" />
             <p className="text-xs font-medium">正在对比扫描重复卡片...</p>
           </div>
-        ) : duplicateGroups.length === 0 ? (
-          <div className={`flex flex-col items-center justify-center h-80 text-slate-400 [.light-theme_&]:!text-[#64748b]`}>
-            <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-4 [.light-theme_&]:!bg-emerald-50 [.light-theme_&]:!border-emerald-200">
-              <ShieldCheck className="w-8 h-8 text-emerald-400 [.light-theme_&]:!text-emerald-600" />
+        ) : currentGroups.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-slate-400 [.light-theme_&]:!text-[#64748b]">
+            <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center mb-3.5 [.light-theme_&]:!bg-[#f1f5f9] border-none">
+              {activeTab === 'stashed' ? (
+                <Archive className="w-7 h-7 text-white/50 [.light-theme_&]:!text-[#64748b] stroke-[1.6]" />
+              ) : (
+                <ShieldCheck className="w-7 h-7 text-white/50 [.light-theme_&]:!text-[#64748b] stroke-[1.6]" />
+              )}
             </div>
-            <p className={`text-base font-bold mb-1 text-white [.light-theme_&]:!text-[#0f172a]`}>未发现重复角色卡</p>
-            <p className="text-xs">您的角色卡库非常整洁，没有需要合并或删除的副本</p>
+            <p className="text-base font-bold mb-1 text-white [.light-theme_&]:!text-[#0f172a]">
+              {activeTab === 'stashed' ? '暂无收纳的共存卡' : '没有待处理的重复角色卡'}
+            </p>
+            <p className="text-xs text-white/40 [.light-theme_&]:!text-[#64748b] text-center max-w-sm leading-relaxed">
+              {activeTab === 'stashed'
+                ? '在待处理列表中点击「收纳并存」，可将想同时保留的多版本卡片归纳到此处，避免重复打扰'
+                : stashedGroups.length > 0 
+                  ? `已将 ${stashedGroups.length} 组多版本卡收纳到「已收纳共存」中，有需要时可切换查看`
+                  : '您的角色卡库非常整洁，没有需要合并或删除的副本'}
+            </p>
           </div>
         ) : (
           <div className="space-y-6">
             <AnimatePresence mode="wait">
               <motion.div
-                key={page}
+                key={`${activeTab}-${page}`}
                 initial={{ opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -10 }}
                 transition={{ duration: 0.15 }}
-                className="flex flex-col"
+                className="flex flex-col space-y-6"
               >
                 {paginatedGroups.map((group, groupIdx) => {
+                  const sig = getGroupSignature(group);
+                  const isStashed = stashedGroupSignatures.has(sig);
+
                   return (
                     <div key={group.id} className="w-full">
                       {groupIdx > 0 && (
-                        <div className="py-4">
-                          <div className="w-full border-t border-white/20 [.light-theme_&]:border-slate-200" />
+                        <div className="py-2.5">
+                          <div className="w-full h-px bg-white/5 [.light-theme_&]:bg-slate-200/50" />
                         </div>
                       )}
+
+                      {/* Group Header Bar */}
+                      <div className="flex items-center justify-between gap-3 mb-2.5 px-0.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${isStashed ? 'bg-slate-400 [.light-theme_&]:!bg-slate-400' : 'bg-blue-500 [.light-theme_&]:!bg-blue-600'}`} />
+                          <h3 className="font-semibold text-sm sm:text-base text-slate-100 [.light-theme_&]:!text-[#0f172a] truncate">
+                            {group.characters[0]?.char.name || '同名卡片组'}
+                          </h3>
+                          <span className="text-xs text-slate-400 [.light-theme_&]:!text-[#64748b] shrink-0 font-normal">
+                            ({group.characters.length} 个版本)
+                          </span>
+                          {isStashed && (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-slate-300 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#475569] border-none shrink-0 font-medium flex items-center gap-1">
+                              <BookmarkCheck className="w-3 h-3 text-emerald-400 [.light-theme_&]:!text-emerald-600" />
+                              已收纳共存
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            disabled={selectionMode}
+                            onClick={(e) => toggleStashGroup(group, e)}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all duration-150 active:scale-95 cursor-pointer select-none border-none outline-none ${
+                              isStashed
+                                ? 'bg-slate-200/80 hover:bg-slate-200 text-slate-700 dark:bg-white/15 dark:hover:bg-white/20 dark:text-slate-200'
+                                : 'bg-slate-100 hover:bg-slate-200/90 text-slate-600 hover:text-slate-900 dark:bg-white/[0.08] dark:hover:bg-white/[0.14] dark:text-slate-300 dark:hover:text-white'
+                            }`}
+                            title={isStashed ? "取消收纳，移回待处理列表" : "标记这组卡为多版本共存并收纳（自动免删锁定），不影响待处理视图"}
+                          >
+                            {isStashed ? (
+                              <ArchiveRestore className="w-3.5 h-3.5 opacity-75 shrink-0" />
+                            ) : (
+                              <Archive className="w-3.5 h-3.5 opacity-75 shrink-0" />
+                            )}
+                            <span>{isStashed ? "移回待处理" : "收纳并存"}</span>
+                          </button>
+                        </div>
+                      </div>
 
                       {/* Cards Grid */}
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -627,12 +766,12 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                           return (
                             <div 
                               key={char.id} 
-                              className={`group relative flex flex-col p-4 rounded-2xl border transition-all duration-200 ${
+                              className={`group relative flex flex-col p-4 rounded-2xl transition-all duration-200 border-none ${
                                 isLocked 
-                                  ? 'bg-slate-900/80 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!shadow-xs' 
+                                  ? 'bg-slate-900/80 [.light-theme_&]:!bg-white [.light-theme_&]:!shadow-[0_2px_12px_rgba(0,0,0,0.04)]' 
                                   : isSelected
-                                    ? 'bg-slate-950/90 border-white/10 [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-[#e2e8f0]'
-                                    : 'bg-slate-900/80 border-white/10 hover:border-white/20 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!border-[#cbd5e1] [.light-theme_&]:!shadow-xs'
+                                    ? 'bg-slate-950/90 [.light-theme_&]:!bg-slate-200'
+                                    : 'bg-slate-900/80 [.light-theme_&]:!bg-white [.light-theme_&]:!shadow-[0_2px_12px_rgba(0,0,0,0.04)]'
                               }`}
                               onTouchStart={(e) => {
                                 longPressRef.current.triggered = false;
@@ -743,7 +882,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                               <div className="flex items-start gap-3 mb-3">
                                 {/* Avatar */}
                                 <div 
-                                  className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 border shadow-xs cursor-pointer z-10 bg-slate-800 border-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0]"
+                                  className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 shadow-xs cursor-pointer z-10 bg-slate-800 border-none [.light-theme_&]:!bg-[#f1f5f9]"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     if (selectionMode) {
@@ -785,21 +924,21 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                                     <button
                                       type="button"
                                       onClick={(e) => toggleLock(char.id, e)}
-                                      className={`p-1.5 rounded-lg border text-xs transition cursor-pointer active:scale-95 ${
+                                      className={`p-1.5 rounded-full transition-all duration-150 cursor-pointer active:scale-90 border-none ${
                                         isLocked
-                                          ? 'bg-white/15 text-white border-white/25 hover:bg-white/20 [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-[#ffffff] [.light-theme_&]:!border-[#0f172a]'
-                                          : 'bg-white/5 text-slate-400 hover:text-white border-white/10 hover:bg-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!bg-[#e2e8f0]'
+                                          ? 'bg-amber-400/20 text-amber-300 hover:bg-amber-400/30 [.light-theme_&]:!bg-amber-100/90 [.light-theme_&]:!text-amber-800'
+                                          : 'bg-transparent text-slate-400 hover:text-white hover:bg-white/10 [.light-theme_&]:!bg-transparent [.light-theme_&]:hover:!bg-slate-100 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-slate-700'
                                       }`}
                                       title={isLocked ? "已锁定免删，点击解锁" : "锁定此卡片，防止误删或被快捷批量选中"}
                                     >
-                                      {isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                                      {isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5 opacity-60 hover:opacity-100" />}
                                     </button>
                                   </div>
                                 )}
                               </div>
 
                               {/* Specs & Metadata Area */}
-                              <div className="rounded-xl p-2.5 border mb-3 space-y-1.5 text-xs bg-black/30 border-white/5 text-slate-300 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#334155]">
+                              <div className="rounded-xl p-2.5 mb-3 space-y-1.5 text-xs bg-black/25 text-slate-300 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!text-[#334155] border-none">
                                 <div className="flex items-center justify-between text-[11px]">
                                   <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">修改时间</span>
                                   <span className="font-mono font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">{modifiedDate.toLocaleDateString()}</span>
@@ -818,42 +957,42 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                                 </div>
                               </div>
 
-                              {/* Unboxed Metadata & Indicator Badges */}
-                              <div className="flex flex-wrap items-center gap-1.5 mb-4 text-[11px]">
+                              {/* Unboxed Metadata & Indicator Badges (iOS borderless color blocks) */}
+                              <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[11px]">
                                 {isMostComplete && (
-                                  <span className="px-2 py-0.5 rounded-md border font-semibold flex items-center gap-1 bg-emerald-500/15 text-emerald-300 border-emerald-500/25 [.light-theme_&]:!bg-emerald-50 [.light-theme_&]:!text-emerald-700 [.light-theme_&]:!border-emerald-200 shrink-0">
-                                    <Database className="w-3 h-3 text-emerald-400 [.light-theme_&]:!text-emerald-600" />
+                                  <span className="px-2.5 py-0.5 rounded-full font-semibold flex items-center gap-1 bg-blue-500/15 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 border-none shrink-0">
+                                    <Database className="w-3 h-3 text-blue-400 [.light-theme_&]:!text-blue-600" />
                                     数据最全
                                   </span>
                                 )}
                                 {isLocked && (
-                                  <span className="px-2 py-0.5 rounded-md border font-medium flex items-center gap-1 bg-white/10 text-white border-white/15 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1] shrink-0">
-                                    <ShieldCheck className="w-3 h-3 text-emerald-400 [.light-theme_&]:!text-emerald-600" />
+                                  <span className="px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1 bg-amber-500/15 text-amber-300 [.light-theme_&]:!bg-amber-100/90 [.light-theme_&]:!text-amber-800 border-none shrink-0">
+                                    <ShieldCheck className="w-3 h-3 text-amber-400 [.light-theme_&]:!text-amber-600" />
                                     免删保护
                                   </span>
                                 )}
-                                <span className="px-2 py-0.5 rounded-md border font-medium bg-white/5 text-slate-300 border-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!text-[#334155] [.light-theme_&]:!border-[#e2e8f0] shrink-0">
+                                <span className="px-2.5 py-0.5 rounded-full font-medium bg-white/5 text-slate-300 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#475569] border-none shrink-0">
                                   {reason}
                                 </span>
                                 {hasQR && (
-                                  <span className="px-2 py-0.5 rounded-md border flex items-center gap-1 bg-white/5 text-slate-300 border-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!text-[#334155] [.light-theme_&]:!border-[#e2e8f0] shrink-0">
+                                  <span className="px-2.5 py-0.5 rounded-full flex items-center gap-1 bg-white/5 text-slate-300 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#475569] border-none shrink-0">
                                     <MessageSquarePlus className="w-3 h-3 text-blue-400 [.light-theme_&]:!text-blue-600" /> QR
                                   </span>
                                 )}
                                 {hasSource && (
-                                  <span className="px-2 py-0.5 rounded-md border flex items-center gap-1 bg-white/5 text-slate-300 border-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!text-[#334155] [.light-theme_&]:!border-[#e2e8f0] shrink-0">
+                                  <span className="px-2.5 py-0.5 rounded-full flex items-center gap-1 bg-white/5 text-slate-300 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#475569] border-none shrink-0">
                                     <LinkIcon className="w-3 h-3 text-blue-400 [.light-theme_&]:!text-blue-600" /> 来源
                                   </span>
                                 )}
                                 {hasNotes && (
-                                  <span className="px-2 py-0.5 rounded-md border flex items-center gap-1 bg-white/5 text-slate-300 border-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!text-[#334155] [.light-theme_&]:!border-[#e2e8f0] shrink-0">
-                                    <FileText className="w-3 h-3 text-emerald-400 [.light-theme_&]:!text-emerald-600" /> 备注
+                                  <span className="px-2.5 py-0.5 rounded-full flex items-center gap-1 bg-white/5 text-slate-300 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#475569] border-none shrink-0">
+                                    <FileText className="w-3 h-3 text-slate-400 [.light-theme_&]:!text-slate-600" /> 备注
                                   </span>
                                 )}
                               </div>
 
-                              {/* Action Toolbar */}
-                              <div className="mt-auto grid grid-cols-2 gap-2 pt-2 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0]">
+                              {/* Action Toolbar - Pure borderless color blocks */}
+                              <div className="mt-auto grid grid-cols-2 gap-2 pt-1 border-none">
                                 <button
                                   type="button"
                                   disabled={selectionMode || isLocked}
@@ -861,7 +1000,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                                     e.stopPropagation();
                                     handleMergeAndKeep(char, group);
                                   }}
-                                  className={`px-3 py-2 rounded-xl transition text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer border-0 border-none outline-none ${
+                                  className={`px-3 py-2 rounded-xl transition text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer border-none outline-none ${
                                     isLocked
                                       ? 'bg-white/5 text-slate-500 cursor-not-allowed [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#94a3b8] [.light-theme_&]:!border-none'
                                       : 'bg-white/10 hover:bg-white/15 text-slate-200 hover:text-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-none'
@@ -878,10 +1017,10 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                                     e.stopPropagation();
                                     handleDelete(char.id);
                                   }}
-                                  className={`px-3 py-2 rounded-xl transition text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer border-0 border-none outline-none ${
+                                  className={`px-3 py-2 rounded-xl transition text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer border-none outline-none ${
                                     isLocked
                                       ? 'bg-white/5 text-slate-500 cursor-not-allowed [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#94a3b8] [.light-theme_&]:!border-none'
-                                      : 'bg-white/[0.06] hover:bg-rose-500/15 text-[#ff453a] hover:text-[#ff6961] [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#fee2e2] [.light-theme_&]:!text-[#ff3b30] [.light-theme_&]:hover:!text-[#e02e24] [.light-theme_&]:!border-none'
+                                      : 'bg-rose-500/15 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 [.light-theme_&]:!bg-rose-50 [.light-theme_&]:hover:!bg-rose-100 [.light-theme_&]:!text-rose-600 [.light-theme_&]:hover:!text-rose-700 [.light-theme_&]:!border-none'
                                   }`}
                                 >
                                   <Trash2 className="w-3.5 h-3.5 shrink-0" />
@@ -900,11 +1039,11 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
 
             {/* Pagination Controls */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-3 pt-4 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0]">
+              <div className="flex items-center justify-center gap-3 pt-4 border-none">
                 <button 
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="p-2 rounded-xl border text-xs font-medium transition cursor-pointer shadow-xs flex items-center gap-1 bg-white/5 hover:bg-white/10 text-slate-200 border-white/10 disabled:opacity-40 disabled:cursor-not-allowed [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1]"
+                  className="p-2 rounded-xl text-xs font-medium transition cursor-pointer flex items-center gap-1 bg-white/10 hover:bg-white/15 text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] border-none"
                 >
                   <ChevronLeft className="w-4 h-4" />
                   <span>上一页</span>
@@ -917,7 +1056,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                 <button 
                   onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
-                  className="p-2 rounded-xl border text-xs font-medium transition cursor-pointer shadow-xs flex items-center gap-1 bg-white/5 hover:bg-white/10 text-slate-200 border-white/10 disabled:opacity-40 disabled:cursor-not-allowed [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1]"
+                  className="p-2 rounded-xl text-xs font-medium transition cursor-pointer flex items-center gap-1 bg-white/10 hover:bg-white/15 text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] border-none"
                 >
                   <span>下一页</span>
                   <ChevronRight className="w-4 h-4" />

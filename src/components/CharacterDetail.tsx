@@ -285,18 +285,22 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   const handleUpdateTags = async (tagsStr: string) => {
     setIsEditingTags(false);
     if (!character) return;
-    const newTags = tagsStr.split(',').map(t => t.trim()).filter(t => t);
+    const newTags = tagsStr.split(/[,，]/).map(t => t.trim()).filter(Boolean);
     
-    let updatedData = { ...character.data };
-    if (updatedData.data) {
-      updatedData.data = { ...updatedData.data, tags: newTags };
-    } else {
-      updatedData.tags = newTags;
+    let updatedData = typeof character.data === 'object' && character.data !== null ? { ...character.data } : character.data;
+    if (updatedData && typeof updatedData === 'object') {
+      if (updatedData.data) {
+        updatedData.data = { ...updatedData.data, tags: newTags };
+      } else if (!Array.isArray(updatedData)) {
+        updatedData.tags = newTags;
+      }
     }
 
     const updatedChar = { 
       ...character, 
-      data: updatedData 
+      tags: newTags,
+      data: updatedData,
+      updatedAt: Date.now(),
     };
     const promise = saveCharacter(updatedChar);
     savePromiseRef.current = promise;
@@ -308,21 +312,24 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     setIsEditingSource(false);
     if (!character) return;
     
-    let updatedData = { ...character.data };
-    if (updatedData.data) {
-      updatedData.data = {
-        ...updatedData.data,
-        extensions: { ...(updatedData.data.extensions || {}), source: sourceStr }
-      };
-    } else {
-      updatedData.extensions = { ...(updatedData.extensions || {}), source: sourceStr };
-      updatedData.source = sourceStr; // Fallback for V1
+    let updatedData = typeof character.data === 'object' && character.data !== null ? { ...character.data } : character.data;
+    if (updatedData && typeof updatedData === 'object') {
+      if (updatedData.data) {
+        updatedData.data = {
+          ...updatedData.data,
+          extensions: { ...(updatedData.data.extensions || {}), source: sourceStr }
+        };
+      } else if (!Array.isArray(updatedData)) {
+        updatedData.extensions = { ...(updatedData.extensions || {}), source: sourceStr };
+        updatedData.source = sourceStr; // Fallback for V1
+      }
     }
 
     const updatedChar = { 
       ...character, 
       sourceUrl: sourceStr,
-      data: updatedData 
+      data: updatedData,
+      updatedAt: Date.now(),
     };
     const promise = saveCharacter(updatedChar);
     savePromiseRef.current = promise;
@@ -333,14 +340,17 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   const updateField = async (field: string, value: any) => {
     if (!character) return;
     const updatedChar = { ...character };
-    let targetData = updatedChar.data.data ? updatedChar.data.data : updatedChar.data;
-    targetData[field] = value;
-    
-    // For alternate greetings, also save to extensions for broader compatibility with some Tavern forks
-    if (field === 'alternate_greetings') {
-      targetData.extensions = targetData.extensions || {};
-      targetData.extensions.alternate_greetings = value;
+    let targetData = updatedChar.data && typeof updatedChar.data === 'object' && updatedChar.data.data ? updatedChar.data.data : updatedChar.data;
+    if (targetData && typeof targetData === 'object' && !Array.isArray(targetData)) {
+      targetData[field] = value;
+      
+      // For alternate greetings, also save to extensions for broader compatibility with some Tavern forks
+      if (field === 'alternate_greetings') {
+        targetData.extensions = targetData.extensions || {};
+        targetData.extensions.alternate_greetings = value;
+      }
     }
+    updatedChar.updatedAt = Date.now();
     
     const promise = saveCharacter(updatedChar);
     savePromiseRef.current = promise;
@@ -1002,20 +1012,34 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
           )}
           {/* Version, Creator & Historical Version Badge (Vertically arranged to avoid horizontal crowding) */}
           <div className="mt-1 flex flex-col items-center justify-center gap-1.5">
-            <div className="text-white/70 text-sm flex items-center justify-center gap-2 flex-wrap [.light-theme_&]:text-slate-600">
-              <button
-                onClick={() => setActiveTab('versions')}
-                className="font-medium text-white/90 hover:text-white transition underline underline-offset-4 decoration-white/25 hover:decoration-white/70 flex items-center gap-1 group cursor-pointer active:scale-95 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:decoration-black/20 [.light-theme_&]:hover:text-black [.light-theme_&]:hover:decoration-black/50"
-                title="点击查看此角色的版本迭代与溯源历史"
-              >
-                <span>v{data.character_version || '1.0'}</span>
-              </button>
-              <span>•</span>
-              <span>{data.creator || 'Unknown Creator'}</span>
-            </div>
+            {isToolCard ? (
+              <div className="text-white/70 text-sm flex items-center justify-center gap-2 flex-wrap [.light-theme_&]:text-slate-600">
+                <span className="font-semibold text-blue-400 [.light-theme_&]:!text-blue-600 px-2 py-0.5 rounded-md bg-blue-500/10 [.light-theme_&]:bg-blue-50">
+                  {category !== '未归类' ? category : (character.isQR ? '快速回复' : (character.isTool ? '工具' : '特殊数据'))}
+                </span>
+                {(data.creator || character?.data?.creator || character?.data?.author) && (
+                  <>
+                    <span>•</span>
+                    <span>{data.creator || character?.data?.creator || character?.data?.author}</span>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="text-white/70 text-sm flex items-center justify-center gap-2 flex-wrap [.light-theme_&]:text-slate-600">
+                <button
+                  onClick={() => setActiveTab('versions')}
+                  className="font-medium text-white/90 hover:text-white transition underline underline-offset-4 decoration-white/25 hover:decoration-white/70 flex items-center gap-1 group cursor-pointer active:scale-95 [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:decoration-black/20 [.light-theme_&]:hover:text-black [.light-theme_&]:hover:decoration-black/50"
+                  title="点击查看此角色的版本迭代与溯源历史"
+                >
+                  <span>v{data.character_version || '1.0'}</span>
+                </button>
+                <span>•</span>
+                <span>{data.creator || 'Unknown Creator'}</span>
+              </div>
+            )}
 
-            {/* Historical version hint arranged vertically to prevent horizontal crowding */}
-            {character?.versionHistory && character.versionHistory.length > 0 && (
+            {/* Historical version hint arranged vertically to prevent horizontal crowding (only for actual character cards) */}
+            {!isToolCard && character?.versionHistory && character.versionHistory.length > 0 && (
               <button
                 onClick={() => setActiveTab('versions')}
                 className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 text-[11px] text-white/80 hover:text-white transition cursor-pointer active:scale-95 shadow-sm [.light-theme_&]:bg-stone-100 [.light-theme_&]:border-stone-200 [.light-theme_&]:text-stone-700 [.light-theme_&]:hover:bg-stone-200"
@@ -1076,10 +1100,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
           <div className="w-full max-w-lg mt-2 px-2 sm:px-4 flex flex-col items-center">
             <button
               onClick={() => setIsMetadataOpen(!isMetadataOpen)}
-              className="w-full flex items-center justify-center py-2 text-white/50 hover:text-white transition-colors cursor-pointer group active:scale-95"
+              className="w-full flex items-center justify-center py-2 text-white/50 hover:text-white [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-slate-700 transition-colors cursor-pointer group active:scale-95"
               title={isMetadataOpen ? "点击收起详情" : "点击展开元数据"}
             >
-              <div className="h-1 w-12 bg-white/30 group-hover:bg-white/60 rounded-full transition-colors" />
+              <div className="h-1.5 w-12 bg-white/30 group-hover:bg-white/60 [.light-theme_&]:!bg-stone-300 [.light-theme_&]:group-hover:!bg-stone-400 rounded-full transition-colors" />
             </button>
             <AnimatePresence>
               {isMetadataOpen && (
@@ -1091,13 +1115,13 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                   className="overflow-hidden w-full space-y-2.5 pt-1"
                 >
                   {/* Timestamps */}
-                  <div className="flex items-center justify-center gap-4 text-xs sm:text-sm text-white/90 [.light-theme_&]:!text-[#0f172a] font-mono flex-wrap">
-                    <span>导入: {new Date(character?.createdAt || Date.now()).toLocaleDateString()}</span>
+                  <div className="flex items-center justify-center gap-2 sm:gap-4 text-xs text-white/90 [.light-theme_&]:!text-[#0f172a] font-mono flex-wrap text-center">
+                    <span>导入: {character?.createdAt ? new Date(character.createdAt).toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '未知'}</span>
                     <span>•</span>
-                    <span>修改: {resolvedModifiedDate ? resolvedModifiedDate.toLocaleDateString() : (character?.originalFile?.lastModified ? new Date(character.originalFile.lastModified).toLocaleDateString() : '未知')}</span>
+                    <span>修改: {resolvedModifiedDate ? resolvedModifiedDate.toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : (character?.updatedAt ? new Date(character.updatedAt).toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : (character?.originalFile?.lastModified ? new Date(character.originalFile.lastModified).toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '未知'))}</span>
                   </div>
 
-                  {/* Editable Fields: Creator, Version, Tags, Source */}
+                  {/* Editable Fields: Creator, Version / Type, Tags, Source */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-xs sm:text-sm">
                     {/* Creator */}
                     <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent backdrop-blur-sm">
@@ -1122,54 +1146,65 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                       ) : (
                         <div className="flex items-center gap-1.5 min-w-0 justify-end">
                           <span className={`truncate text-xs sm:text-sm ${
-                            data.creator && data.creator.trim() && data.creator !== '未知' && data.creator !== 'Unknown Creator'
+                            (data.creator || character?.data?.creator || character?.data?.author) && (data.creator || character?.data?.creator || character?.data?.author).trim() && (data.creator || character?.data?.creator || character?.data?.author) !== '未知'
                               ? 'text-white [.light-theme_&]:!text-[#0f172a] font-semibold'
                               : 'text-white/60 [.light-theme_&]:!text-[#0f172a] font-normal'
                           }`}>
-                            {data.creator || '未知'}
+                            {data.creator || character?.data?.creator || character?.data?.author || '未知'}
                           </span>
-                          <button onClick={() => { setTempCreator(data.creator || ''); setIsEditingCreator(true); }} className="p-1 text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a] transition cursor-pointer">
+                          <button onClick={() => { setTempCreator(data.creator || character?.data?.creator || character?.data?.author || ''); setIsEditingCreator(true); }} className="p-1 text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a] transition cursor-pointer">
                             <Edit2 className="w-3 h-3" />
                           </button>
                         </div>
                       )}
                     </div>
 
-                    {/* Version */}
-                    <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent backdrop-blur-sm">
-                      <span className="text-white/80 font-medium shrink-0 [.light-theme_&]:!text-[#0f172a] text-xs sm:text-sm">版本</span>
-                      {isEditingVersion ? (
-                        <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                          <input 
-                            value={tempVersion} 
-                            onChange={e => setTempVersion(e.target.value)} 
-                            className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-white [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-[#0f172a]"
-                            placeholder="例如: 1.0"
-                            autoFocus
-                            onKeyDown={e => e.key === 'Enter' && handleUpdateVersion(tempVersion)}
-                          />
-                          <button onClick={() => handleUpdateVersion(tempVersion)} className="p-1 text-green-400 hover:bg-green-500/20 rounded-lg shrink-0 [.light-theme_&]:text-[#1DB954] [.light-theme_&]:hover:bg-[#1DB954]/10 cursor-pointer">
-                            <Check className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => setIsEditingVersion(false)} className="p-1 text-white/50 hover:bg-white/10 rounded-lg shrink-0 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!bg-slate-200 cursor-pointer">
-                            <XIcon className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
+                    {/* Version or Type */}
+                    {isToolCard ? (
+                      <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent backdrop-blur-sm">
+                        <span className="text-white/80 font-medium shrink-0 [.light-theme_&]:!text-[#0f172a] text-xs sm:text-sm">类型</span>
                         <div className="flex items-center gap-1.5 min-w-0 justify-end">
-                          <span className={`truncate text-xs sm:text-sm ${
-                            data.character_version && data.character_version.trim() && data.character_version !== '无版本'
-                              ? 'text-white [.light-theme_&]:!text-[#0f172a] font-semibold'
-                              : 'text-white/60 [.light-theme_&]:!text-[#0f172a] font-normal'
-                          }`}>
-                            {data.character_version || '1.0'}
+                          <span className="text-blue-400 [.light-theme_&]:!text-[#007aff] font-semibold text-xs sm:text-sm truncate">
+                            {category !== '未归类' ? category : (character.isQR ? '快速回复' : (character.isTool ? '工具' : '特殊数据'))}
                           </span>
-                          <button onClick={() => { setTempVersion(data.character_version || ''); setIsEditingVersion(true); }} className="p-1 text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a] transition cursor-pointer">
-                            <Edit2 className="w-3 h-3" />
-                          </button>
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent backdrop-blur-sm">
+                        <span className="text-white/80 font-medium shrink-0 [.light-theme_&]:!text-[#0f172a] text-xs sm:text-sm">版本</span>
+                        {isEditingVersion ? (
+                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                            <input 
+                              value={tempVersion} 
+                              onChange={e => setTempVersion(e.target.value)} 
+                              className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-white [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-[#0f172a]"
+                              placeholder="例如: 1.0"
+                              autoFocus
+                              onKeyDown={e => e.key === 'Enter' && handleUpdateVersion(tempVersion)}
+                            />
+                            <button onClick={() => handleUpdateVersion(tempVersion)} className="p-1 text-green-400 hover:bg-green-500/20 rounded-lg shrink-0 [.light-theme_&]:text-[#1DB954] [.light-theme_&]:hover:bg-[#1DB954]/10 cursor-pointer">
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => setIsEditingVersion(false)} className="p-1 text-white/50 hover:bg-white/10 rounded-lg shrink-0 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!bg-slate-200 cursor-pointer">
+                              <XIcon className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 min-w-0 justify-end">
+                            <span className={`truncate text-xs sm:text-sm ${
+                              data.character_version && data.character_version.trim() && data.character_version !== '无版本'
+                                ? 'text-white [.light-theme_&]:!text-[#0f172a] font-semibold'
+                                : 'text-white/60 [.light-theme_&]:!text-[#0f172a] font-normal'
+                            }`}>
+                              {data.character_version || '1.0'}
+                            </span>
+                            <button onClick={() => { setTempVersion(data.character_version || ''); setIsEditingVersion(true); }} className="p-1 text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a] transition cursor-pointer">
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Tags */}
                     <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent backdrop-blur-sm">
@@ -1201,13 +1236,13 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                       ) : (
                         <div className="flex items-center gap-1.5 min-w-0 justify-end">
                           <span className={`truncate text-xs sm:text-sm ${
-                            data.tags && data.tags.length > 0
+                            (character.tags && character.tags.length > 0) || (data.tags && data.tags.length > 0)
                               ? 'text-white [.light-theme_&]:!text-[#0f172a] font-semibold'
                               : 'text-white/60 [.light-theme_&]:!text-[#0f172a] font-normal'
                           }`}>
-                            {data.tags && data.tags.length > 0 ? data.tags.join(', ') : '无标签'}
+                            {(character.tags && character.tags.length > 0) ? character.tags.join(', ') : (data.tags && data.tags.length > 0 ? data.tags.join(', ') : '无标签')}
                           </span>
-                          <button onClick={() => { setTempTags((data.tags || []).join(', ')); setIsEditingTags(true); }} className="p-1 text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a] transition cursor-pointer">
+                          <button onClick={() => { setTempTags((character.tags || data.tags || []).join(', ')); setIsEditingTags(true); }} className="p-1 text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a] transition cursor-pointer">
                             <Edit2 className="w-3 h-3" />
                           </button>
                         </div>
@@ -1271,7 +1306,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         <div className="sticky top-[72px] z-20 -mx-4 px-4 py-2 mb-4 bg-transparent [.light-theme_&]:!bg-transparent [.light-theme_&]:!backdrop-blur-none backdrop-blur-md">
           <div className="flex gap-2 overflow-x-auto hide-scrollbar scroll-smooth px-1 py-1 pr-8">
           {(isSpecialData ? [
-             { id: 'data_viewer', icon: User, label: '数据详情' },
+             { id: 'data_viewer', icon: User, label: isTheme ? '美化配置' : '数据详情' },
+             ...(isTheme ? [
+               { id: 'memos', icon: StickyNote, label: '备忘录' }
+             ] : []),
           ] : [
             ...(!isStandaloneWorldbook ? [
               { id: 'profile', icon: User, label: isPreset ? '预设条目' : '档案' },
