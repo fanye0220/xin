@@ -7,18 +7,72 @@ import {
   Sparkles, Filter, ShieldCheck, Info, RotateCcw, History, Check, CheckCircle2,
   Database, Archive, ArchiveRestore, BookmarkCheck, ArrowRightLeft, Layers
 } from 'lucide-react';
-import { CharacterCard, DuplicateGroup, findDuplicates, deleteCharacter, saveCharacter } from '../lib/db';
+import { CharacterCard, DuplicateGroup, ResourceType, findDuplicates, deleteCharacter, saveCharacter, getResourceType } from '../lib/db';
 import { getLocalImageUrl } from '../lib/appBridge';
 
-// 综合字数、世界书、开场白、拓展条目的完整度评分算法
-export function computeCompletenessScore(char: CharacterCard): {
+// 综合字数、世界书、开场白、拓展条目的完整度评分算法（支持角色卡、世界书、QR等独立类型评分）
+export function computeCompletenessScore(char: CharacterCard, resType: ResourceType = 'character'): {
   score: number;
   wordCount: number;
   worldbookCount: number;
   greetingsCount: number;
 } {
   const data = char.data?.data || char.data || {};
-  
+  const tagsCount = Array.isArray(data.tags) ? data.tags.length : (Array.isArray(char.tags) ? char.tags.length : 0);
+
+  // 1. 快速回复 (QR): 根据动作按钮数量与提示词字数打分
+  if (resType === 'qr') {
+    const qrList = Array.isArray(data.qrList) ? data.qrList : (Array.isArray(data) ? data : (data.buttons || data.quick_replies || []));
+    const count = Array.isArray(qrList) ? qrList.length : 0;
+    let textLen = 0;
+    if (Array.isArray(qrList)) {
+      qrList.forEach((q: any) => {
+        textLen += String(q.message || q.label || q.text || q.content || '').length;
+      });
+    }
+    const score = count * 1000 + textLen + tagsCount * 20;
+    return {
+      score,
+      wordCount: textLen,
+      worldbookCount: 0,
+      greetingsCount: count
+    };
+  }
+
+  // 2. 世界书 (Worldbook): 根据条目数与条目详细字数打分
+  if (resType === 'worldbook') {
+    const entries = data.entries || data.character_book?.entries || (Array.isArray(data) ? data : []);
+    const entList = Array.isArray(entries) ? entries : Object.values(entries || {});
+    let textLen = 0;
+    entList.forEach((e: any) => {
+      textLen += String(e.content || e.text || e.comment || '').length;
+    });
+    const score = entList.length * 1000 + textLen + tagsCount * 20;
+    return {
+      score,
+      wordCount: textLen,
+      worldbookCount: entList.length,
+      greetingsCount: 0
+    };
+  }
+
+  // 3. 预设 (Preset): 根据提示词条目数打分
+  if (resType === 'preset') {
+    const prompts = Array.isArray(data.prompts) ? data.prompts : [];
+    let pLen = 0;
+    prompts.forEach((p: any) => {
+      pLen += String(p.content || p.text || '').length;
+    });
+    const score = prompts.length * 1000 + pLen;
+    return {
+      score,
+      wordCount: pLen,
+      worldbookCount: 0,
+      greetingsCount: prompts.length
+    };
+  }
+
+  // 4. 普通角色卡 (Character)
   const desc = (data.description || data.char_persona || '').trim();
   const personality = (data.personality || '').trim();
   const scenario = (data.scenario || '').trim();
@@ -26,7 +80,7 @@ export function computeCompletenessScore(char: CharacterCard): {
   const mesExample = (data.mes_example || '').trim();
   const systemPrompt = (data.system_prompt || '').trim();
 
-  // 1. 核心人设设定或预设/工具提示词字数
+  // 核心人设设定或预设/工具提示词字数
   let extraContent = '';
   if (data.prompts && Array.isArray(data.prompts)) {
     extraContent = data.prompts.map((p: any) => p.content || p.text || '').join('');
@@ -36,7 +90,7 @@ export function computeCompletenessScore(char: CharacterCard): {
   const coreText = desc + personality + scenario + firstMes + mesExample + systemPrompt + extraContent;
   const wordCount = coreText.length;
 
-  // 2. 世界书条目数与世界书内容总字数
+  // 世界书条目数与世界书内容总字数
   const entries = data.character_book?.entries || data.extensions?.character_book?.entries || (Array.isArray(data.entries) ? data.entries : []);
   const worldbookCount = Array.isArray(entries) ? entries.length : 0;
   let worldbookTextLength = 0;
@@ -46,7 +100,7 @@ export function computeCompletenessScore(char: CharacterCard): {
     });
   }
 
-  // 3. 备选开场白数量与总字数
+  // 备选开场白数量与总字数
   const altGreetings = data.alternate_greetings || [];
   const greetingsCount = (firstMes ? 1 : 0) + (Array.isArray(altGreetings) ? altGreetings.length : 0);
   let altGreetingsLength = 0;
@@ -56,9 +110,7 @@ export function computeCompletenessScore(char: CharacterCard): {
     });
   }
 
-  const tagsCount = Array.isArray(data.tags) ? data.tags.length : (Array.isArray(char.tags) ? char.tags.length : 0);
-
-  // 4. AI 简介
+  // AI 简介
   const summary = (char.aiSummary || data.aiSummary || (char as any).data?.aiSummary || '').trim();
   const summaryBonus = summary ? 200 + Math.min(summary.length, 300) : 0;
 
@@ -75,6 +127,62 @@ export function computeCompletenessScore(char: CharacterCard): {
     worldbookCount,
     greetingsCount
   };
+}
+
+/**
+ * 提取卡片的核心内容指纹（用于判断是否为实质完全相同的同一版本）
+ * 角色卡对比：设定、开场白、人格、场景、示例、世界书条目等核心字段
+ * 世界书对比：全部条目内容
+ * QR/快速回复对比：全部动作按钮与消息内容
+ */
+export function getCardContentSignature(char: CharacterCard, resType?: ResourceType): string {
+  const data = char.data?.data || char.data || {};
+  const effectiveType = resType || getResourceType(char);
+  const cleanStr = (s: any) => String(s || '').replace(/\r\n/g, '\n').trim();
+
+  if (effectiveType === 'qr' || char.isQR) {
+    const list = Array.isArray(data.qrList) ? data.qrList : (Array.isArray(data) ? data : (data.buttons || data.quick_replies || []));
+    const items = (Array.isArray(list) ? list : []).map((q: any) => 
+      `${cleanStr(q.message || q.label || q.text)}::${cleanStr(q.execute)}`
+    ).sort().join(';;');
+    return `qr:${items || JSON.stringify(list)}`;
+  }
+
+  if (effectiveType === 'worldbook') {
+    const entries = data.entries || data.character_book?.entries || (Array.isArray(data) ? data : {});
+    const entList = Array.isArray(entries) ? entries : Object.values(entries || {});
+    const items = entList.map((e: any) => 
+      `${Array.isArray(e.keys) ? e.keys.map(cleanStr).join(',') : cleanStr(e.keys || e.key)}::${cleanStr(e.content || e.text || e.comment)}`
+    ).sort().join(';;');
+    return `wb:${items || JSON.stringify(entries)}`;
+  }
+
+  if (effectiveType === 'preset') {
+    const prompts = data.prompts || [];
+    const pStr = Array.isArray(prompts) ? prompts.map((p: any) => cleanStr(p.content || p.text)).join(';;') : '';
+    return `preset:${pStr}|${data.temperature || ''}|${data.top_p || ''}`;
+  }
+
+  // 角色卡 (Character card)
+  const desc = cleanStr(data.description);
+  const first = cleanStr(data.first_mes);
+  const personality = cleanStr(data.personality);
+  const scenario = cleanStr(data.scenario);
+  const mesExample = cleanStr(data.mes_example);
+  const systemPrompt = cleanStr(data.system_prompt);
+  const creatorNotes = cleanStr(data.creator_notes);
+
+  const altGreetings = Array.isArray(data.alternate_greetings) 
+    ? data.alternate_greetings.map(cleanStr).sort().join(';;') 
+    : '';
+
+  const entries = data.character_book?.entries || data.extensions?.character_book?.entries || [];
+  const entList = Array.isArray(entries) ? entries : Object.values(entries || {});
+  const wbStr = entList.map((e: any) => 
+    `${Array.isArray(e.keys) ? e.keys.map(cleanStr).join(',') : cleanStr(e.keys || e.key)}::${cleanStr(e.content || e.text)}`
+  ).sort().join(';;');
+
+  return `char:${desc}###${first}###${personality}###${scenario}###${mesExample}###${systemPrompt}###${creatorNotes}###${altGreetings}###${wbStr}`;
 }
 
 // Helper for simple avatar image retrieval with robust fallback
@@ -405,6 +513,16 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
       return;
     }
 
+    // 跨类型安全防护：严禁将世界书/QR等工具与角色卡相互合并覆盖
+    const targetType = group.resourceType || getResourceType(keptChar);
+    for (const other of otherChars) {
+      const otherType = getResourceType(other);
+      if (otherType !== targetType) {
+        alert("安全保护：检测到跨类别数据！角色卡、世界书、快捷回复(QR)互不相同，严禁相互合并或删除工具。操作已中止。");
+        return;
+      }
+    }
+
     const lockedCount = allOtherChars.length - otherChars.length;
     const lockNotice = lockedCount > 0 ? `\n\n🔒 已自动跳过 ${lockedCount} 张被锁定的卡片` : '';
 
@@ -441,62 +559,62 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
     setSelectedIds(newSet);
   };
 
-  const handleSelectDuplicates = (keep: 'earliest' | 'newest' | 'most_complete' = 'most_complete') => {
+  const handleSelectDuplicates = (mode: 'most_complete' | 'newest' | 'earliest' = 'most_complete') => {
     const newSet = new Set<string>();
+
     duplicateGroups.forEach(group => {
       const chars = group.characters.map(c => c.char);
       if (chars.length <= 1) return;
 
-      let charToKeep: CharacterCard;
-      if (keep === 'most_complete') {
-        const sorted = [...chars].sort((a, b) => {
-          const scoreA = computeCompletenessScore(a).score;
-          const scoreB = computeCompletenessScore(b).score;
-          if (scoreB !== scoreA) return scoreB - scoreA;
-          return b.createdAt - a.createdAt;
-        });
-        charToKeep = sorted[0];
+      // 按卡片实际内容指纹聚类（区分 1 和 2 等互不相同的内容版本）
+      const versionBuckets = new Map<string, CharacterCard[]>();
+      chars.forEach(c => {
+        const sig = getCardContentSignature(c, group.resourceType);
+        const list = versionBuckets.get(sig) || [];
+        list.push(c);
+        versionBuckets.set(sig, list);
+      });
 
-        for (let i = 1; i < sorted.length; i++) {
-          const c = sorted[i];
-          if (!lockedIds.has(c.id)) {
-            newSet.add(c.id);
+      // 规则：
+      // 1. 如果组内各个版本都只有 1 张（例如只有 1 和 2，没有 11 或 22），则不触发自动勾选，保留供用户自己筛选！
+      // 2. 如果存在相同内容的副本（例如 112、122、1122），则对该版本内部按最全/最新/最旧保留 1 张，其余多余副本标记删除！
+      versionBuckets.forEach(bucketChars => {
+        if (bucketChars.length > 1) {
+          const sortedBucket = [...bucketChars].sort((a, b) => {
+            if (lockedIds.has(a.id) && !lockedIds.has(b.id)) return -1;
+            if (!lockedIds.has(a.id) && lockedIds.has(b.id)) return 1;
+            if (a.folderId && !b.folderId) return -1;
+            if (!a.folderId && b.folderId) return 1;
+
+            if (mode === 'most_complete') {
+              const scoreA = computeCompletenessScore(a, group.resourceType).score;
+              const scoreB = computeCompletenessScore(b, group.resourceType).score;
+              if (scoreB !== scoreA) return scoreB - scoreA;
+              return b.createdAt - a.createdAt;
+            } else if (mode === 'newest') {
+              return b.createdAt - a.createdAt;
+            } else {
+              return a.createdAt - b.createdAt;
+            }
+          });
+
+          // sortedBucket[0] 保留为主版本，其余副版本选入待删除
+          for (let i = 1; i < sortedBucket.length; i++) {
+            const toDel = sortedBucket[i];
+            if (!lockedIds.has(toDel.id)) {
+              newSet.add(toDel.id);
+            }
           }
         }
-      } else {
-        const sorted = [...chars].sort((a, b) => b.createdAt - a.createdAt);
-        charToKeep = keep === 'newest' ? sorted[0] : sorted[sorted.length - 1];
-        
-        for (let i = 0; i < sorted.length; i++) {
-          const c = sorted[i];
-          if (c.id === charToKeep.id) continue;
-          if (lockedIds.has(c.id)) continue;
-          
-          const cData = c.data?.data || c.data || {};
-          const kData = charToKeep.data?.data || charToKeep.data || {};
-          
-          const sameName = (c.name || cData.name || '').trim() === (charToKeep.name || kData.name || '').trim();
-          const sameDesc = (cData.description || '').trim() === (kData.description || '').trim();
-          const sameFirst = (cData.first_mes || '').trim() === (kData.first_mes || '').trim();
-          const samePersonality = (cData.personality || '').trim() === (kData.personality || '').trim();
-          const sameScenario = (cData.scenario || '').trim() === (kData.scenario || '').trim();
-          const sameMesExample = (cData.mes_example || '').trim() === (kData.mes_example || '').trim();
-          
-          const cWorldbook = JSON.stringify(cData.character_book?.entries || cData.extensions?.character_book?.entries || []);
-          const kWorldbook = JSON.stringify(kData.character_book?.entries || kData.extensions?.character_book?.entries || []);
-          const sameWorldbook = cWorldbook === kWorldbook;
-          
-          const isExactlySameData = sameName && sameDesc && sameFirst && samePersonality && sameScenario && sameMesExample;
-          
-          if (isExactlySameData && sameWorldbook) {
-             newSet.add(c.id);
-          } else {
-             // 如果同名且处于同一重复分组，也属于可快捷选中的较旧/较新项
-             newSet.add(c.id);
-          }
-        }
-      }
+        // 如果 bucketChars.length === 1（该版本只有 1 张，如 12 中的 1 或 2），不触发删除，安全保留！
+      });
     });
+
+    if (newSet.size === 0) {
+      alert("智能对比提示：当前卡片均为互不相同的版本（如 1 与 2），未发现完全相同的多余副本。\n\n各不同版本均已完整保留，供您自行查看与筛选。");
+      return;
+    }
+
     setSelectedIds(newSet);
     setSelectionMode(true);
   };
@@ -509,7 +627,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
     }
     const validSelectedSet = new Set(validIds);
 
-    if (confirm(`确定要删除选中的 ${validIds.length} 张重复卡片吗？\n（已自动跳过并保护锁定的卡片；删除过程中会自动合并快捷回复(QR)、替换头像、AI简介、来源和标签，并自动保留卡片已归类的嵌套文件夹路径）`)) {
+    if (confirm(`确定要删除选中的 ${validIds.length} 张重复副本吗？\n（已自动跳过并保护锁定的卡片；相同副本的聊天与拓展配置将自动合并至其对应的保留卡片）`)) {
       setLoading(true);
 
       for (const group of duplicateGroups) {
@@ -517,22 +635,40 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
         const charsToKeep = group.characters.map(c => c.char).filter(c => !validSelectedSet.has(c.id));
 
         if (charsToDelete.length > 0) {
-          let winnerId = charsToKeep.length > 0 ? charsToKeep[0].id : undefined;
+          const { deleteCharactersBulk, getChatsForCharacter, saveChat } = await import('../lib/db');
+
           if (charsToKeep.length > 0) {
-            const winner = charsToKeep[0];
-            await mergeAndSave(winner, charsToDelete);
+            // 对待删除卡片进行智能归属匹配：
+            // 如果有多张卡片被保留（例如新版本 1A 和旧版本 2A 同时被保留）：
+            // 待删副本 1B 归并至 1A；待删副本 2B 归并至 2A！
+            // 聊天记录和元数据对应迁移，互不混淆！
+            const deleteBuckets = new Map<string, CharacterCard[]>();
+            for (const delChar of charsToDelete) {
+              const delSig = getCardContentSignature(delChar, group.resourceType);
+              let matchedKept = charsToKeep.find(k => getCardContentSignature(k, group.resourceType) === delSig);
+              if (!matchedKept) {
+                matchedKept = charsToKeep[0];
+              }
+              const list = deleteBuckets.get(matchedKept.id) || [];
+              list.push(delChar);
+              deleteBuckets.set(matchedKept.id, list);
+            }
+
+            for (const [keptId, bucketDelChars] of deleteBuckets.entries()) {
+              const keptChar = charsToKeep.find(k => k.id === keptId);
+              if (keptChar) {
+                await mergeAndSave(keptChar, bucketDelChars);
+              }
+              for (const delChar of bucketDelChars) {
+                const chats = await getChatsForCharacter(delChar.id);
+                for (const chat of chats) {
+                  chat.characterId = keptId;
+                  await saveChat(chat);
+                }
+              }
+            }
           }
 
-          const { deleteCharactersBulk, getChatsForCharacter, saveChat } = await import('../lib/db');
-          if (winnerId) {
-             for (const charToDel of charsToDelete) {
-                const chats = await getChatsForCharacter(charToDel.id);
-                for (const chat of chats) {
-                   chat.characterId = winnerId;
-                   await saveChat(chat);
-                }
-             }
-          }
           await deleteCharactersBulk(charsToDelete.map(c => c.id));
         }
       }
@@ -557,7 +693,30 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
     return { pendingGroups: pending, stashedGroups: stashed };
   }, [duplicateGroups, stashedGroupSignatures]);
 
-  const currentGroups = activeTab === 'pending' ? pendingGroups : stashedGroups;
+  const [typeFilter, setTypeFilter] = useState<'all' | 'character' | 'qr' | 'worldbook' | 'tools'>('all');
+
+  const currentTabGroups = activeTab === 'pending' ? pendingGroups : stashedGroups;
+
+  const typeCounts = React.useMemo(() => {
+    let char = 0, qr = 0, wb = 0, tool = 0;
+    currentTabGroups.forEach(g => {
+      if (g.resourceType === 'character') char++;
+      else if (g.resourceType === 'qr') qr++;
+      else if (g.resourceType === 'worldbook') wb++;
+      else tool++;
+    });
+    return { char, qr, wb, tool, all: currentTabGroups.length };
+  }, [currentTabGroups]);
+
+  const currentGroups = React.useMemo(() => {
+    if (typeFilter === 'all') return currentTabGroups;
+    if (typeFilter === 'character') return currentTabGroups.filter(g => g.resourceType === 'character');
+    if (typeFilter === 'qr') return currentTabGroups.filter(g => g.resourceType === 'qr');
+    if (typeFilter === 'worldbook') return currentTabGroups.filter(g => g.resourceType === 'worldbook');
+    if (typeFilter === 'tools') return currentTabGroups.filter(g => g.resourceType !== 'character' && g.resourceType !== 'qr' && g.resourceType !== 'worldbook');
+    return currentTabGroups;
+  }, [currentTabGroups, typeFilter]);
+
   const totalPages = Math.ceil(currentGroups.length / pageSize) || 1;
   const paginatedGroups = currentGroups.slice((page - 1) * pageSize, page * pageSize);
 
@@ -607,10 +766,25 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                 {selectionMode ? `已选中 ${selectedIds.size} 项` : '重复卡片检测'}
               </h1>
               <p className="text-xs sm:text-sm text-white/50 mt-0.5 sm:mt-1 truncate [.light-theme_&]:!text-[#64748b]">
-                {selectionMode ? '选择要清理的旧卡片，删除时将自动合并聊天与配置' : '基于开场白、角色设定与世界书多维智能对比'}
+                {selectionMode ? '仅标记完全相同的多余副本，新旧等各独立版本均已安全保留' : '基于开场白、角色设定与世界书多维智能对比'}
               </p>
             </div>
           </div>
+
+          {selectionMode && (
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectionMode(false);
+                  setSelectedIds(new Set());
+                }}
+                className="px-3 py-1.5 rounded-full text-xs font-semibold text-slate-300 hover:text-white bg-white/10 hover:bg-white/15 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#334155] border-none transition cursor-pointer"
+              >
+                取消选择
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Sliding Tabs matching AutoTagger exactly */}
@@ -650,6 +824,71 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
               />
             )}
           </button>
+        </div>
+
+        {/* 资源类别快捷筛选栏（快速回复、世界书、角色卡严格区分，统一雅致不花哨） */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-2 -mx-1 px-1 shrink-0 border-t border-white/5 [.light-theme_&]:!border-black/5">
+          <button
+            type="button"
+            onClick={() => { setTypeFilter('all'); setPage(1); }}
+            className={`px-3 py-1 rounded-full text-xs font-semibold transition active:scale-95 cursor-pointer border-none shrink-0 flex items-center gap-1.5 ${
+              typeFilter === 'all'
+                ? 'bg-white text-slate-950 [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-white shadow-xs'
+                : 'bg-white/10 text-slate-300 hover:text-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#64748b]'
+            }`}
+          >
+            <span>全部 ({typeCounts.all})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setTypeFilter('character'); setPage(1); }}
+            className={`px-3 py-1 rounded-full text-xs font-semibold transition active:scale-95 cursor-pointer border-none shrink-0 flex items-center gap-1.5 ${
+              typeFilter === 'character'
+                ? 'bg-white text-slate-950 [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-white shadow-xs'
+                : 'bg-white/10 text-slate-300 hover:text-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#64748b]'
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
+            <span>角色卡 ({typeCounts.char})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setTypeFilter('qr'); setPage(1); }}
+            className={`px-3 py-1 rounded-full text-xs font-semibold transition active:scale-95 cursor-pointer border-none shrink-0 flex items-center gap-1.5 ${
+              typeFilter === 'qr'
+                ? 'bg-white text-slate-950 [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-white shadow-xs'
+                : 'bg-white/10 text-slate-300 hover:text-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#64748b]'
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+            <span>快速回复 ({typeCounts.qr})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setTypeFilter('worldbook'); setPage(1); }}
+            className={`px-3 py-1 rounded-full text-xs font-semibold transition active:scale-95 cursor-pointer border-none shrink-0 flex items-center gap-1.5 ${
+              typeFilter === 'worldbook'
+                ? 'bg-white text-slate-950 [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-white shadow-xs'
+                : 'bg-white/10 text-slate-300 hover:text-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#64748b]'
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0" />
+            <span>世界书 ({typeCounts.wb})</span>
+          </button>
+          {typeCounts.tool > 0 && (
+            <button
+              type="button"
+              onClick={() => { setTypeFilter('tools'); setPage(1); }}
+              className={`px-3 py-1 rounded-full text-xs font-semibold transition active:scale-95 cursor-pointer border-none shrink-0 flex items-center gap-1.5 ${
+                typeFilter === 'tools'
+                  ? 'bg-white text-slate-950 [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-white shadow-xs'
+                  : 'bg-white/10 text-slate-300 hover:text-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#64748b]'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+              <span>预设/工具 ({typeCounts.tool})</span>
+            </button>
+          )}
         </div>
       </header>
 
@@ -695,6 +934,18 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                   const sig = getGroupSignature(group);
                   const isStashed = stashedGroupSignatures.has(sig);
 
+                  const sigBuckets = new Map<string, CharacterCard[]>();
+                  group.characters.forEach(c => {
+                    const cSig = getCardContentSignature(c.char, group.resourceType);
+                    const list = sigBuckets.get(cSig) || [];
+                    list.push(c.char);
+                    sigBuckets.set(cSig, list);
+                  });
+                  let groupRedundantCount = 0;
+                  sigBuckets.forEach(b => {
+                    if (b.length > 1) groupRedundantCount += (b.length - 1);
+                  });
+
                   return (
                     <div key={group.id} className="w-full">
                       {groupIdx > 0 && (
@@ -706,9 +957,31 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                       {/* Group Header Bar */}
                       <div className="flex items-center justify-between gap-3 mb-2.5 px-0.5">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className={`w-2 h-2 rounded-full shrink-0 ${isStashed ? 'bg-slate-400 [.light-theme_&]:!bg-slate-400' : 'bg-blue-500 [.light-theme_&]:!bg-blue-600'}`} />
+                          {(() => {
+                            const badgeInfo = (() => {
+                              switch (group.resourceType) {
+                                case 'qr':
+                                  return { label: '快速回复 (QR)', bgCls: 'bg-cyan-500/20 text-cyan-300 [.light-theme_&]:!bg-cyan-50 [.light-theme_&]:!text-cyan-700' };
+                                case 'worldbook':
+                                  return { label: '世界书', bgCls: 'bg-emerald-500/20 text-emerald-300 [.light-theme_&]:!bg-emerald-50 [.light-theme_&]:!text-emerald-700' };
+                                case 'preset':
+                                  return { label: '预设', bgCls: 'bg-amber-500/20 text-amber-300 [.light-theme_&]:!bg-amber-50 [.light-theme_&]:!text-amber-700' };
+                                case 'script':
+                                  return { label: '脚本', bgCls: 'bg-violet-500/20 text-violet-300 [.light-theme_&]:!bg-violet-50 [.light-theme_&]:!text-violet-700' };
+                                case 'theme':
+                                  return { label: '美化', bgCls: 'bg-pink-500/20 text-pink-300 [.light-theme_&]:!bg-pink-50 [.light-theme_&]:!text-pink-700' };
+                                default:
+                                  return { label: '角色卡', bgCls: 'bg-indigo-500/20 text-indigo-300 [.light-theme_&]:!bg-indigo-50 [.light-theme_&]:!text-indigo-700' };
+                              }
+                            })();
+                            return (
+                              <span className={`text-[11px] px-2 py-0.5 rounded-full font-bold shrink-0 ${badgeInfo.bgCls}`}>
+                                {badgeInfo.label}
+                              </span>
+                            );
+                          })()}
                           <h3 className="font-semibold text-sm sm:text-base text-slate-100 [.light-theme_&]:!text-[#0f172a] truncate">
-                            {group.characters[0]?.char.name || '同名卡片组'}
+                            {group.characters[0]?.char.name || '同名资源组'}
                           </h3>
                           <span className="text-xs text-slate-400 [.light-theme_&]:!text-[#64748b] shrink-0 font-normal">
                             ({group.characters.length} 个版本)
@@ -748,6 +1021,9 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                         {group.characters.map(dupChar => {
                           const char = dupChar.char;
                           const reason = dupChar.reason;
+                          const cardSig = getCardContentSignature(char, group.resourceType);
+                          const sameSigCards = sigBuckets.get(cardSig) || [];
+                          const isDeputyVersion = sameSigCards.length > 1 && sameSigCards[0].id !== char.id;
                           const targetData = char.data.data ? char.data.data : char.data;
                           const hasQR = targetData.extensions?.quick_replies?.length > 0;
                           const hasSource = !!(targetData.extensions?.source || targetData.source);
@@ -759,8 +1035,8 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                           const isLocked = lockedIds.has(char.id);
                           const folderPath = folderPathMap[char.id] || (char.folderId ? "分类文件夹" : "主页 (未分类)");
 
-                          const completeness = computeCompletenessScore(char);
-                          const maxScoreInGroup = Math.max(...group.characters.map(c => computeCompletenessScore(c.char).score));
+                          const completeness = computeCompletenessScore(char, group.resourceType);
+                          const maxScoreInGroup = Math.max(...group.characters.map(c => computeCompletenessScore(c.char, group.resourceType).score));
                           const isMostComplete = group.characters.length > 1 && completeness.score === maxScoreInGroup;
 
                           return (
@@ -868,12 +1144,12 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                                 }
                               }}
                             >
-                              {/* Simple Dark/Light Dimming Mask & Checkmark Overlay on Selection */}
+                              {/* Clear Non-Occluding Dimming Mask & Checkmark Overlay on Selection */}
                               {isSelected && (
                                 <>
-                                  <div className="absolute inset-0 rounded-2xl z-20 pointer-events-none transition-all bg-black/65 [.light-theme_&]:!bg-slate-900/35" />
-                                  <div className="absolute top-3 right-3 z-30 w-6 h-6 rounded-full bg-white text-slate-950 flex items-center justify-center shadow-md [.light-theme_&]:!hidden">
-                                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                  <div className="absolute inset-0 rounded-2xl z-20 pointer-events-none transition-all bg-black/40 [.light-theme_&]:!bg-slate-900/25 ring-2 ring-indigo-500/80 ring-inset" />
+                                  <div className="absolute top-2.5 right-2.5 z-30 w-5.5 h-5.5 rounded-full bg-white text-slate-950 flex items-center justify-center shadow-md [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-[#ffffff] [.light-theme_&]:!hidden">
+                                    <Check className="w-3 h-3 stroke-[3]" />
                                   </div>
                                 </>
                               )}
@@ -909,7 +1185,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                                     }}
                                   >
                                     <h4 className="font-bold text-sm sm:text-base truncate leading-snug text-white [.light-theme_&]:!text-[#0f172a]">
-                                      {char.name || '未命名角色'}
+                                      {char.name || '未命名'}
                                     </h4>
                                   </div>
                                   <div className="flex items-center gap-1 text-[11px] mt-1 truncate text-slate-400 [.light-theme_&]:!text-[#64748b]">
@@ -937,36 +1213,85 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                                 )}
                               </div>
 
-                              {/* Specs & Metadata Area */}
+                              {/* Specs & Metadata Area (类型定制化信息显示) */}
                               <div className="rounded-xl p-2.5 mb-3 space-y-1.5 text-xs bg-black/40 text-slate-200 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!text-[#334155] border-none">
                                 <div className="flex items-center justify-between text-[11px]">
                                   <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">修改时间</span>
                                   <span className="font-mono font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">{modifiedDate.toLocaleDateString()}</span>
                                 </div>
-                                <div className="flex items-center justify-between text-[11px]">
-                                  <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">设定 / 总字数</span>
-                                  <span className="font-mono font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">
-                                    {(targetData.description || '').length} 字 (总计 {completeness.wordCount} 字)
-                                  </span>
-                                </div>
-                                <div className="flex items-center justify-between text-[11px]">
-                                  <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">备用开场 / 世界书</span>
-                                  <span className="font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">
-                                    {completeness.greetingsCount} 条 / {completeness.worldbookCount} 项
-                                  </span>
-                                </div>
+                                {group.resourceType === 'qr' ? (
+                                  <>
+                                    <div className="flex items-center justify-between text-[11px]">
+                                      <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">动作按钮数</span>
+                                      <span className="font-mono font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">
+                                        {completeness.greetingsCount} 项动作
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between text-[11px]">
+                                      <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">快捷回复字数</span>
+                                      <span className="font-mono font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">
+                                        {completeness.wordCount} 字
+                                      </span>
+                                    </div>
+                                  </>
+                                ) : group.resourceType === 'worldbook' ? (
+                                  <>
+                                    <div className="flex items-center justify-between text-[11px]">
+                                      <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">世界书词条</span>
+                                      <span className="font-mono font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">
+                                        {completeness.worldbookCount} 个条目
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between text-[11px]">
+                                      <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">词条总字数</span>
+                                      <span className="font-mono font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">
+                                        {completeness.wordCount} 字
+                                      </span>
+                                    </div>
+                                  </>
+                                ) : group.resourceType === 'preset' ? (
+                                  <>
+                                    <div className="flex items-center justify-between text-[11px]">
+                                      <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">提示词条目</span>
+                                      <span className="font-mono font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">
+                                        {completeness.greetingsCount} 条提示词
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between text-[11px]">
+                                      <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">预设总字数</span>
+                                      <span className="font-mono font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">
+                                        {completeness.wordCount} 字
+                                      </span>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="flex items-center justify-between text-[11px]">
+                                      <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">设定 / 总字数</span>
+                                      <span className="font-mono font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">
+                                        {(targetData.description || '').length} 字 (总计 {completeness.wordCount} 字)
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between text-[11px]">
+                                      <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">备用开场 / 世界书</span>
+                                      <span className="font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">
+                                        {completeness.greetingsCount} 条 / {completeness.worldbookCount} 项
+                                      </span>
+                                    </div>
+                                  </>
+                                )}
                               </div>
 
                               {/* Unboxed Metadata & Indicator Badges (iOS borderless color blocks) */}
                               <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[11px]">
                                 {isMostComplete && (
-                                  <span className="px-2.5 py-0.5 rounded-full font-semibold flex items-center gap-1 bg-blue-500/20 text-blue-300 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 border-none shrink-0">
+                                  <span className="px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 bg-blue-500/20 text-blue-300 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 border-none shrink-0">
                                     <Database className="w-3 h-3 text-blue-300 [.light-theme_&]:!text-blue-600" />
                                     数据最全
                                   </span>
                                 )}
                                 {isLocked && (
-                                  <span className="px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1 bg-amber-500/20 text-amber-300 [.light-theme_&]:!bg-amber-100/90 [.light-theme_&]:!text-amber-800 border-none shrink-0">
+                                  <span className="px-2 py-0.5 rounded-full font-medium flex items-center gap-1 bg-amber-500/20 text-amber-300 [.light-theme_&]:!bg-amber-100/90 [.light-theme_&]:!text-amber-800 border-none shrink-0">
                                     <ShieldCheck className="w-3 h-3 text-amber-300 [.light-theme_&]:!text-amber-600" />
                                     免删保护
                                   </span>
@@ -974,7 +1299,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                                 <span className="px-2.5 py-0.5 rounded-full font-medium bg-white/10 text-slate-200 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#475569] border-none shrink-0">
                                   {reason}
                                 </span>
-                                {hasQR && (
+                                {hasQR && group.resourceType !== 'qr' && (
                                   <span className="px-2.5 py-0.5 rounded-full flex items-center gap-1 bg-white/10 text-slate-200 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#475569] border-none shrink-0">
                                     <MessageSquarePlus className="w-3 h-3 text-blue-300 [.light-theme_&]:!text-blue-600" /> QR
                                   </span>
@@ -1085,7 +1410,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                 type="button"
                 onClick={() => handleSelectDuplicates('most_complete')}
                 className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-2 sm:px-2.5 py-1 rounded-full transition active:scale-90 shrink-0 hover:!text-emerald-400"
-                title="保留最全（综合对比：字数、世界书、开场白最多的一张）"
+                title="保留最全（自动去重相同副本，保留各独立版本）"
               >
                 <Database className="w-4.5 h-4.5 sm:w-5 sm:h-5 stroke-[1.8]" />
                 <span className="font-medium text-[10px] leading-none tracking-tight whitespace-nowrap">选最全</span>
@@ -1095,7 +1420,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                 type="button"
                 onClick={() => handleSelectDuplicates('newest')}
                 className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-2 sm:px-2.5 py-1 rounded-full transition active:scale-90 shrink-0 hover:!text-amber-400"
-                title="保留最新"
+                title="保留最新（自动去重相同副本，保留各独立版本）"
               >
                 <Sparkles className="w-4.5 h-4.5 sm:w-5 sm:h-5 stroke-[1.8]" />
                 <span className="font-medium text-[10px] leading-none tracking-tight whitespace-nowrap">选最新</span>
@@ -1105,7 +1430,7 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                 type="button"
                 onClick={() => handleSelectDuplicates('earliest')}
                 className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-2 sm:px-2.5 py-1 rounded-full transition active:scale-90 shrink-0 hover:!text-indigo-400"
-                title="保留最旧"
+                title="保留最旧（自动去重相同副本，保留各独立版本）"
               >
                 <History className="w-4.5 h-4.5 sm:w-5 sm:h-5 stroke-[1.8]" />
                 <span className="font-medium text-[10px] leading-none tracking-tight whitespace-nowrap">选最旧</span>

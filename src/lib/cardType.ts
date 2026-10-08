@@ -1,4 +1,4 @@
-import { isActualCharacterCard, getCharacterCategoryPrefix } from './db';
+import { getResourceType } from './db';
 
 export type CardCategoryType = 'character' | 'qr' | 'worldbook' | 'preset' | 'theme' | 'script';
 
@@ -18,38 +18,23 @@ export interface CardTypeBadgeInfo {
 export function getCardTypeBadgeInfo(char: any): CardTypeBadgeInfo | null {
   if (!char) return null;
 
-  const rawData = char?.data?.data || char?.data || char || {};
-  const outer = char?.data || char || {};
-  const target = (outer.data && typeof outer.data === "object" && !Array.isArray(outer.data)) ? outer.data : outer;
-
-  // 1. Check if it's an actual character card -> NEVER display tool badges on character cards!
-  if (isActualCharacterCard(rawData) || isActualCharacterCard(outer) || isActualCharacterCard(target)) {
+  const resType = getResourceType(char);
+  if (resType === 'character') {
     return null;
   }
 
-  // 2. Direct category or detected category
-  const cat = char.category || getCharacterCategoryPrefix(char);
-  if (!cat || cat === '未归类' || cat === 'character') {
-    return null;
+  switch (resType) {
+    case 'qr':
+      return { type: 'qr', label: '快速回复' };
+    case 'worldbook':
+      return { type: 'worldbook', label: '世界书' };
+    case 'preset':
+      return { type: 'preset', label: '预设' };
+    case 'script':
+      return { type: 'script', label: '脚本' };
+    case 'theme':
+      return { type: 'theme', label: '美化' };
+    default:
+      return null;
   }
-
-  if (cat === '快速回复' || cat === 'qr') {
-    return { type: 'qr', label: '快速回复' };
-  }
-  if (cat === '世界书' || cat === 'worldbook') {
-    return { type: 'worldbook', label: '世界书' };
-  }
-  if (cat === '预设' || cat === 'preset') {
-    return { type: 'preset', label: '预设' };
-  }
-  if (cat === '脚本' || cat === 'script') {
-    return { type: 'script', label: '脚本' };
-  }
-  if (cat === '美化' || cat === 'theme') {
-    return { type: 'theme', label: '美化' };
-  }
-  if (cat === '聊天记录' || cat === 'chat') {
-    return { type: 'script', label: '聊天记录' };
-  }
-  return { type: 'script', label: cat };
 }

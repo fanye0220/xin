@@ -29,166 +29,258 @@ export function enqueueAndroidSync<T>(task: () => Promise<T>): Promise<T> {
   });
 }
 
+export type ResourceType = 'character' | 'worldbook' | 'qr' | 'preset' | 'script' | 'theme';
+
 export function getSafeFilename(name: string): string {
   if (!name) return "Unknown";
   return name.replace(/[\\/:\*\?"<>\|]/g, "_").trim();
 }
 
-export function isActualCharacterCard(rawData: any): boolean {
+/**
+ * 严格判定是否为真正的酒馆角色卡 (Character Card)
+ * SillyTavern 角色卡核心特征：
+ * 1. 显式规范：chara_card_v1 / v2 / v3
+ * 2. 独有核心交互字段：首条开场白 (first_mes)、性格 (personality)、对话示例 (mes_example)、备用开场白 (alternate_greetings)、人设 (char_persona)
+ * 3. 包含角色名称且具有人设设定 (description) / 场景 (scenario)
+ * 4. 注意：酒馆角色卡经常内置 character_book（内嵌世界书），这属于角色卡自身的背景知识库，绝非独立世界书工具！
+ */
+export function isActualCharacterCard(rawData: any, foldersMap?: Map<string, string>): boolean {
   if (!rawData) return false;
   if (Array.isArray(rawData)) return false;
 
-  const outer = rawData;
-  const target =
-    outer.data && typeof outer.data === 'object' && !Array.isArray(outer.data)
-      ? outer.data
-      : outer;
+  const outer = rawData?.data || rawData;
+  const target = (outer?.data && typeof outer.data === 'object' && !Array.isArray(outer.data)) ? outer.data : outer;
 
-  // 1. Explicit V2/V3 spec character card -> DEFINITELY a character card!
-  if (
-    outer.spec === "chara_card_v2" ||
-    outer.spec === "chara_card_v3" ||
-    outer.spec === "chara_card_v1" ||
-    target.spec === "chara_card_v2" ||
-    target.spec === "chara_card_v3" ||
-    target.spec === "chara_card_v1"
-  ) {
+  // 1. 显式规范 (chara_card_v1 / chara_card_v2 / chara_card_v3)
+  const isExplicitCharSpec = 
+    rawData.spec === "chara_card_v2" || rawData.spec === "chara_card_v3" || rawData.spec === "chara_card_v1" ||
+    outer.spec === "chara_card_v2" || outer.spec === "chara_card_v3" || outer.spec === "chara_card_v1" ||
+    target.spec === "chara_card_v2" || target.spec === "chara_card_v3" || target.spec === "chara_card_v1";
+
+  if (isExplicitCharSpec) {
     return true;
   }
 
-  // 2. Character-specific core fields
-  if (
-    (typeof target.first_mes === 'string' && target.first_mes.trim().length > 0) ||
-    (typeof target.personality === 'string' && target.personality.trim().length > 0) ||
-    (typeof target.mes_example === 'string' && target.mes_example.trim().length > 0) ||
-    (Array.isArray(target.alternate_greetings) && target.alternate_greetings.length > 0) ||
-    (typeof outer.first_mes === 'string' && outer.first_mes.trim().length > 0) ||
-    (typeof outer.personality === 'string' && outer.personality.trim().length > 0) ||
-    (typeof outer.mes_example === 'string' && outer.mes_example.trim().length > 0) ||
-    (Array.isArray(outer.alternate_greetings) && outer.alternate_greetings.length > 0)
-  ) {
+  // 2. 角色独有的对话与人设交互核心字段 (只要具备开场白、性格、对话示例、备用开场白之一，即为角色卡)
+  const hasCharDialogue = 
+    Boolean(target.first_mes && String(target.first_mes).trim().length > 0) ||
+    Boolean(target.personality && String(target.personality).trim().length > 0) ||
+    Boolean(target.char_persona && String(target.char_persona).trim().length > 0) ||
+    Boolean(target.mes_example && String(target.mes_example).trim().length > 0) ||
+    Boolean(Array.isArray(target.alternate_greetings) && target.alternate_greetings.length > 0) ||
+    Boolean(outer.first_mes && String(outer.first_mes).trim().length > 0) ||
+    Boolean(outer.personality && String(outer.personality).trim().length > 0) ||
+    Boolean(outer.char_persona && String(outer.char_persona).trim().length > 0) ||
+    Boolean(outer.mes_example && String(outer.mes_example).trim().length > 0) ||
+    Boolean(Array.isArray(outer.alternate_greetings) && outer.alternate_greetings.length > 0);
+
+  if (hasCharDialogue) {
     return true;
   }
 
-  // 3. Character with character_name / char_name / name + any character content
-  const charName =
-    target.name ||
-    target.char_name ||
-    target.character_name ||
-    target.data?.name ||
-    target.data?.char_name ||
-    (typeof outer.name === 'string' ? outer.name : undefined) ||
-    (typeof outer.char_name === 'string' ? outer.char_name : undefined);
+  // 3. 检查是否为纯粹独立工具（如顶层即为 entries 词条字典且无角色描述和姓名）
+  const hasRootEntries = 
+    (rawData.entries !== undefined && typeof rawData.entries === 'object') ||
+    (outer.entries !== undefined && typeof outer.entries === 'object');
+  const hasStandaloneQr = 
+    (Array.isArray(rawData.qrList) && rawData.qrList.length > 0) ||
+    (Array.isArray(outer.qrList) && outer.qrList.length > 0);
+  const hasStandalonePrompts = 
+    (Array.isArray(rawData.prompts) && rawData.prompts.length > 0) ||
+    (Array.isArray(outer.prompts) && outer.prompts.length > 0);
+
+  if (hasRootEntries || hasStandaloneQr || hasStandalonePrompts) {
+    return false;
+  }
+
+  // 4. 普通角色卡 (包含名字 + 人设描述 / 场景设定)
+  const charName = 
+    rawData.name || rawData.char_name || rawData.character_name ||
+    outer.name || outer.char_name || outer.character_name ||
+    target.name || target.char_name || target.character_name;
 
   const hasCharacterContent =
-    (typeof target.description === 'string' && target.description.trim().length > 0) ||
-    (typeof target.scenario === 'string' && target.scenario.trim().length > 0) ||
-    (typeof target.creator_notes === 'string' && target.creator_notes.trim().length > 0) ||
-    (typeof target.system_prompt === 'string' && target.system_prompt.trim().length > 0) ||
-    (typeof target.char_persona === 'string' && target.char_persona.trim().length > 0) ||
-    (typeof target.char_greeting === 'string' && target.char_greeting.trim().length > 0) ||
-    (typeof outer.description === 'string' && outer.description.trim().length > 0) ||
-    (typeof outer.scenario === 'string' && outer.scenario.trim().length > 0) ||
-    (typeof outer.char_persona === 'string' && outer.char_persona.trim().length > 0) ||
-    (typeof outer.creator_notes === 'string' && outer.creator_notes.trim().length > 0) ||
-    (typeof outer.system_prompt === 'string' && outer.system_prompt.trim().length > 0);
+    Boolean(target.description && String(target.description).trim().length > 0) ||
+    Boolean(target.scenario && String(target.scenario).trim().length > 0) ||
+    Boolean(target.creator_notes && String(target.creator_notes).trim().length > 0) ||
+    Boolean(target.system_prompt && String(target.system_prompt).trim().length > 0) ||
+    Boolean(outer.description && String(outer.description).trim().length > 0) ||
+    Boolean(outer.scenario && String(outer.scenario).trim().length > 0);
 
-  if (charName && (hasCharacterContent || target.first_mes !== undefined || outer.first_mes !== undefined || target.alternate_greetings !== undefined || outer.alternate_greetings !== undefined)) {
+  if (charName && hasCharacterContent) {
     return true;
-  }
-
-  // 4. Standalone tool signatures (when no character fields are present)
-  // Check for Quick Reply (QR) signatures -> NOT a character card
-  if (
-    Array.isArray(outer.qrList) ||
-    Array.isArray(target.qrList) ||
-    Array.isArray(outer.quick_replies) ||
-    Array.isArray(target.quick_replies) ||
-    Array.isArray(outer.tavern_qr_sets) ||
-    Array.isArray(target.tavern_qr_sets) ||
-    outer.qrList !== undefined ||
-    target.qrList !== undefined ||
-    outer.quick_replies !== undefined ||
-    target.quick_replies !== undefined ||
-    outer.disableSend !== undefined ||
-    target.disableSend !== undefined ||
-    outer.showPanel !== undefined ||
-    target.showPanel !== undefined ||
-    outer.placeholders !== undefined ||
-    target.placeholders !== undefined
-  ) {
-    return false;
-  }
-
-  // Check for Standalone Worldbook signatures -> NOT a character card
-  if (
-    (outer.entries !== undefined && typeof outer.entries === 'object') ||
-    (target.entries !== undefined && typeof target.entries === 'object') ||
-    outer.world_book !== undefined ||
-    target.world_book !== undefined ||
-    outer.lorebook !== undefined ||
-    target.lorebook !== undefined
-  ) {
-    return false;
-  }
-
-  // Check for Standalone Preset signatures -> NOT a character card
-  if (
-    Array.isArray(outer.prompts) ||
-    Array.isArray(target.prompts) ||
-    Array.isArray(outer.prompt_order) ||
-    Array.isArray(target.prompt_order) ||
-    outer.preset_type !== undefined ||
-    target.preset_type !== undefined
-  ) {
-    return false;
-  }
-
-  // Check for Standalone Theme signatures -> NOT a character card
-  if (
-    outer.blur_strength !== undefined ||
-    target.blur_strength !== undefined ||
-    outer.main_text_color !== undefined ||
-    target.main_text_color !== undefined ||
-    outer.chat_display !== undefined ||
-    target.chat_display !== undefined ||
-    outer.theme_name !== undefined ||
-    target.theme_name !== undefined ||
-    outer.chat_width !== undefined ||
-    target.chat_width !== undefined
-  ) {
-    return false;
-  }
-
-  // Check for Standalone Script signatures -> NOT a character card
-  if (
-    outer.run !== undefined ||
-    target.run !== undefined ||
-    outer.type === "script" ||
-    target.type === "script" ||
-    outer.type === "tool" ||
-    target.type === "tool" ||
-    outer.script !== undefined ||
-    target.script !== undefined
-  ) {
-    return false;
   }
 
   return false;
 }
 
-export function getCharacterCategoryPrefix(char: any, foldersMap?: Map<string, string>): string {
-  if (!char) return "未归类";
+/**
+ * 严格、精准地识别卡片或数据的资源类型：
+ * 角色卡 (character) | 世界书 (worldbook) | 快速回复 (qr) | 预设 (preset) | 脚本 (script) | 美化 (theme)
+ * 优先检测各工具的特征结构，杜绝工具因为带有 name/description 被误判为角色卡！
+ */
+export function getResourceType(char: any, foldersMap?: Map<string, string>): ResourceType {
+  if (!char) return 'character';
+
+  // 1. 优先检查是否为真正角色卡：如果是角色卡，绝不误判为世界书或其它工具
+  // （即使卡片名称带“世界书”、文件名带“worldbook”或内嵌有 character_book）
+  if (isActualCharacterCard(char, foldersMap)) {
+    return 'character';
+  }
+
+  // 2. 检查显式指定类型或扩展标记
+  if (char.cardType === 'character') return 'character';
+  if (char.cardType === 'worldbook') return 'worldbook';
+  if (char.cardType === 'qr') return 'qr';
+  if (char.cardType === 'preset') return 'preset';
+  if (char.cardType === 'script') return 'script';
+  if (char.cardType === 'theme') return 'theme';
+
+  // 3. 检查所属文件夹名称特征
+  let folderName = "";
+  if (char.folderId && foldersMap) {
+    folderName = foldersMap.get(char.folderId) || "";
+  } else if (char.folder) {
+    folderName = String(char.folder);
+  }
+  const lowerFolder = folderName.toLowerCase();
+  if (lowerFolder.includes("世界书") || lowerFolder.includes("worldbook") || lowerFolder.includes("lorebook")) return 'worldbook';
+  if (lowerFolder.includes("快速回复") || lowerFolder.includes("quick_replies") || lowerFolder.includes("qr")) return 'qr';
+  if (lowerFolder.includes("预设") || lowerFolder.includes("preset")) return 'preset';
+  if (lowerFolder.includes("脚本") || lowerFolder.includes("script") || lowerFolder.includes("正则") || lowerFolder.includes("regex")) return 'script';
+  if (lowerFolder.includes("美化") || lowerFolder.includes("theme")) return 'theme';
 
   const rawData = char?.data?.data || char?.data || char || {};
   const outer = char?.data || char || {};
-  const target = (outer.data && typeof outer.data === "object" && !Array.isArray(outer.data)) ? outer.data : outer;
+  const target = (outer.data && typeof outer.data === 'object' && !Array.isArray(outer.data)) ? outer.data : outer;
   const original = rawData.original_data || outer.original_data || target.original_data || {};
 
-  // CRITICAL RULE: If it is an actual character card, it is ALWAYS "未归类", NEVER a tool!
-  if (isActualCharacterCard(rawData) || isActualCharacterCard(outer) || isActualCharacterCard(target)) {
-    return "未归类";
+  // 4. 独立世界书 (Worldbook / Lorebook) 特征签名
+  // 酒馆独立世界书格式：顶层包含 entries（词条字典或列表），且不具备角色对话交互特征
+  const hasRootEntries =
+    (rawData.entries !== undefined && typeof rawData.entries === 'object') ||
+    (outer.entries !== undefined && typeof outer.entries === 'object') ||
+    (target.entries !== undefined && typeof target.entries === 'object') ||
+    (original.entries !== undefined && typeof original.entries === 'object');
+
+  const hasWorldbookProps =
+    rawData.world_book !== undefined || outer.world_book !== undefined || target.world_book !== undefined || original.world_book !== undefined ||
+    rawData.lorebook !== undefined || outer.lorebook !== undefined || target.lorebook !== undefined || original.lorebook !== undefined ||
+    rawData.lorebookVersion !== undefined || outer.lorebookVersion !== undefined ||
+    rawData.world_info !== undefined || outer.world_info !== undefined || target.world_info !== undefined ||
+    (rawData.scan_depth !== undefined && rawData.token_budget !== undefined) ||
+    (outer.scan_depth !== undefined && outer.token_budget !== undefined) ||
+    (target.scan_depth !== undefined && target.token_budget !== undefined);
+
+  const rawName = String(char.name || rawData.name || outer.name || target.name || '').trim();
+  const filename = String(char.autoImportFilename || '').toLowerCase();
+
+  const isWorldbookFileOrName =
+    filename.endsWith('.lorebook') || filename.endsWith('_lorebook') || filename.endsWith('-lorebook') ||
+    filename.endsWith('.worldbook') || filename.endsWith('_worldbook') || filename.endsWith('-worldbook') ||
+    filename.includes('.lorebook.json') || filename.includes('_lorebook.json') || filename.includes('.worldbook.json') ||
+    /(?:^|[_\-\s\[\(（【])(?:世界书|worldbook|lorebook|world_info)(?:[\]\)）】]|$|[_\-\s\.])/i.test(rawName);
+
+  if (hasRootEntries || hasWorldbookProps || isWorldbookFileOrName) {
+    return 'worldbook';
   }
+
+  // 5. 独立快速回复 (QR / Quick Reply) 特征签名
+  const isQrArray = Array.isArray(rawData) && rawData.length > 0 && 
+    (rawData[0]?.label !== undefined || rawData[0]?.message !== undefined || rawData[0]?.set !== undefined || rawData[0]?.button !== undefined || rawData[0]?.execute !== undefined);
+
+  const hasQrList = 
+    (Array.isArray(rawData.qrList) && rawData.qrList.length >= 0) ||
+    (Array.isArray(outer.qrList) && outer.qrList.length >= 0) ||
+    (Array.isArray(target.qrList) && target.qrList.length >= 0) ||
+    rawData.qrList !== undefined || outer.qrList !== undefined || target.qrList !== undefined;
+
+  const hasQrSettings = 
+    rawData.disableSend !== undefined || outer.disableSend !== undefined || target.disableSend !== undefined ||
+    rawData.showPanel !== undefined || outer.showPanel !== undefined || target.showPanel !== undefined ||
+    rawData.placeholders !== undefined || outer.placeholders !== undefined || target.placeholders !== undefined ||
+    rawData.preventSend !== undefined || outer.preventSend !== undefined;
+
+  const hasStandaloneQuickReplies = 
+    Array.isArray(rawData.quick_replies) ||
+    Array.isArray(outer.quick_replies) ||
+    Array.isArray(target.quick_replies) ||
+    Array.isArray(rawData.quickReplies) ||
+    Array.isArray(rawData.tavern_qr_sets) ||
+    Array.isArray(outer.tavern_qr_sets) ||
+    Array.isArray(target.extensions?.quick_replies);
+
+  const hasButtonsList = 
+    (Array.isArray(rawData.buttons) && rawData.buttons.length > 0 &&
+      (rawData.buttons[0]?.message !== undefined || rawData.buttons[0]?.label !== undefined || rawData.buttons[0]?.execute !== undefined));
+
+  const isQrFileOrName =
+    filename.includes('.qr.') || filename.includes('_qr.') || filename.includes('-qr.') ||
+    filename.endsWith('.qr.json') || filename.endsWith('_qr.json') || filename.endsWith('-qr.json') ||
+    filename.includes('quick_replies') || filename.includes('quickreply') ||
+    /(?:^|[_\-\s\[\(（【])(?:qr|快速回复|快捷回复)(?:[\]\)）】]|$|[_\-\s\.])/i.test(rawName);
+
+  if (char.isQR === true || isQrArray || hasQrList || hasQrSettings || hasStandaloneQuickReplies || hasButtonsList || isQrFileOrName) {
+    return 'qr';
+  }
+
+  // 6. 独立生成预设 (Preset) 特征签名
+  const hasPromptsArray = 
+    (Array.isArray(rawData.prompts) && rawData.prompts.length > 0) ||
+    (Array.isArray(outer.prompts) && outer.prompts.length > 0) ||
+    (Array.isArray(target.prompts) && target.prompts.length > 0) ||
+    (Array.isArray(original.prompts) && original.prompts.length > 0);
+  const hasPresetProps = 
+    Array.isArray(rawData.prompt_order) || Array.isArray(outer.prompt_order) || Array.isArray(target.prompt_order) ||
+    rawData.preset_type !== undefined || outer.preset_type !== undefined || target.preset_type !== undefined ||
+    (rawData.temperature !== undefined && rawData.top_p !== undefined && rawData.openai_max_tokens !== undefined) ||
+    (outer.temperature !== undefined && outer.top_p !== undefined && outer.openai_max_tokens !== undefined) ||
+    (target.temperature !== undefined && target.top_p !== undefined && target.openai_max_tokens !== undefined);
+  const isPresetFileOrName =
+    filename.includes('.preset') || filename.includes('_preset') || filename.includes('-preset') ||
+    /(?:^|[_\-\s\[\(（【])(?:预设|preset)(?:[\]\)）】]|$|[_\-\s\.])/i.test(rawName);
+
+  if (hasPromptsArray || hasPresetProps || isPresetFileOrName) {
+    return 'preset';
+  }
+
+  // 7. 独立脚本 / 正则 (Script) 特征签名
+  const isScriptArray = Array.isArray(rawData) && rawData.length > 0 && (rawData[0]?.findRegex !== undefined || rawData[0]?.replaceString !== undefined || rawData[0]?.find_regex !== undefined);
+  const hasScriptProps = 
+    rawData.findRegex !== undefined || outer.findRegex !== undefined || target.findRegex !== undefined ||
+    rawData.replaceString !== undefined || outer.replaceString !== undefined || target.replaceString !== undefined ||
+    rawData.find_regex !== undefined || outer.find_regex !== undefined || target.find_regex !== undefined ||
+    rawData.replace_with !== undefined || outer.replace_with !== undefined || target.replace_with !== undefined ||
+    rawData.run !== undefined || outer.run !== undefined || target.run !== undefined ||
+    rawData.type === "script" || outer.type === "script" || target.type === "script" ||
+    rawData.type === "tool" || outer.type === "tool" || target.type === "tool" ||
+    rawData.script !== undefined || outer.script !== undefined || target.script !== undefined;
+  const isScriptFileOrName =
+    filename.includes('.script') || filename.includes('_script') || filename.includes('.regex') ||
+    /(?:^|[_\-\s\[\(（【])(?:脚本|正则|script|regex)(?:[\]\)）】]|$|[_\-\s\.])/i.test(rawName);
+
+  if (isScriptArray || hasScriptProps || isScriptFileOrName || char?.isTool) {
+    return 'script';
+  }
+
+  // 8. 独立美化主题 (Theme) 特征签名
+  const hasThemeProps = 
+    rawData.blur_strength !== undefined || outer.blur_strength !== undefined || target.blur_strength !== undefined ||
+    rawData.main_text_color !== undefined || outer.main_text_color !== undefined || target.main_text_color !== undefined ||
+    rawData.chat_display !== undefined || outer.chat_display !== undefined || target.chat_display !== undefined ||
+    rawData.theme_name !== undefined || outer.theme_name !== undefined || target.theme_name !== undefined ||
+    rawData.chat_width !== undefined || outer.chat_width !== undefined || target.chat_width !== undefined;
+
+  if (hasThemeProps) {
+    return 'theme';
+  }
+
+  // 9. 默认皆归类为普通角色卡 (character)
+  return 'character';
+}
+
+export function getCharacterCategoryPrefix(char: any, foldersMap?: Map<string, string>): string {
+  if (!char) return "未归类";
 
   // If this object is a lightweight meta (no data field attached)
   // and has a valid category property, use it directly!
@@ -197,208 +289,15 @@ export function getCharacterCategoryPrefix(char: any, foldersMap?: Map<string, s
     return char.category;
   }
 
-  // Folder heuristics if folderId is provided
-  const folderName = (char.folderName || (foldersMap && char.folderId ? foldersMap.get(char.folderId) : "")) || "";
-  const lowerFolder = folderName.toLowerCase();
-
-  // 1. Quick Reply (QR / 动作集)
-  if (
-    char.isQR === true ||
-    (Array.isArray(rawData) && rawData.length > 0 && (rawData[0]?.label !== undefined || rawData[0]?.message !== undefined || rawData[0]?.set !== undefined)) ||
-    (Array.isArray(outer) && outer.length > 0 && (outer[0]?.label !== undefined || outer[0]?.message !== undefined || outer[0]?.set !== undefined)) ||
-    Array.isArray(rawData.qrList) ||
-    Array.isArray(outer.qrList) ||
-    Array.isArray(target.qrList) ||
-    Array.isArray(original.qrList) ||
-    Array.isArray(rawData.quick_replies) ||
-    Array.isArray(outer.quick_replies) ||
-    Array.isArray(target.quick_replies) ||
-    Array.isArray(original.quick_replies) ||
-    Array.isArray(rawData.tavern_qr_sets) ||
-    Array.isArray(outer.tavern_qr_sets) ||
-    Array.isArray(target.tavern_qr_sets) ||
-    Array.isArray(original.tavern_qr_sets) ||
-    rawData.qrList !== undefined ||
-    outer.qrList !== undefined ||
-    target.qrList !== undefined ||
-    original.qrList !== undefined ||
-    rawData.quick_replies !== undefined ||
-    outer.quick_replies !== undefined ||
-    target.quick_replies !== undefined ||
-    original.quick_replies !== undefined ||
-    rawData.tavern_qr_sets !== undefined ||
-    outer.tavern_qr_sets !== undefined ||
-    target.tavern_qr_sets !== undefined ||
-    original.tavern_qr_sets !== undefined ||
-    rawData.disableSend !== undefined ||
-    outer.disableSend !== undefined ||
-    target.disableSend !== undefined ||
-    rawData.showPanel !== undefined ||
-    outer.showPanel !== undefined ||
-    target.showPanel !== undefined ||
-    rawData.placeholders !== undefined ||
-    outer.placeholders !== undefined ||
-    target.placeholders !== undefined ||
-    lowerFolder.includes("快速回复") ||
-    lowerFolder === "qr"
-  ) {
-    return "快速回复";
+  const type = getResourceType(char, foldersMap);
+  switch (type) {
+    case 'qr': return '快速回复';
+    case 'worldbook': return '世界书';
+    case 'preset': return '预设';
+    case 'theme': return '美化';
+    case 'script': return '脚本';
+    default: return '未归类';
   }
-
-  // 2. Worldbook / Lorebook (世界书) - standalone only
-  if (
-    (rawData.entries !== undefined && typeof rawData.entries === 'object') ||
-    (outer.entries !== undefined && typeof outer.entries === 'object') ||
-    (target.entries !== undefined && typeof target.entries === 'object') ||
-    (original.entries !== undefined && typeof original.entries === 'object') ||
-    (rawData.data?.entries !== undefined && typeof rawData.data.entries === 'object') ||
-    (outer.data?.entries !== undefined && typeof outer.data.entries === 'object') ||
-    (target.data?.entries !== undefined && typeof target.data.entries === 'object') ||
-    rawData.world_book !== undefined ||
-    outer.world_book !== undefined ||
-    target.world_book !== undefined ||
-    original.world_book !== undefined ||
-    rawData.lorebook !== undefined ||
-    outer.lorebook !== undefined ||
-    target.lorebook !== undefined ||
-    original.lorebook !== undefined ||
-    (rawData.scan_depth !== undefined && rawData.token_budget !== undefined) ||
-    (outer.scan_depth !== undefined && outer.token_budget !== undefined) ||
-    lowerFolder.includes("世界书") ||
-    lowerFolder.includes("lorebook") ||
-    lowerFolder.includes("worldbook")
-  ) {
-    return "世界书";
-  }
-
-  // 3. Theme / Beautify (美化)
-  if (
-    rawData.blur_strength !== undefined ||
-    outer.blur_strength !== undefined ||
-    target.blur_strength !== undefined ||
-    original.blur_strength !== undefined ||
-    rawData.main_text_color !== undefined ||
-    outer.main_text_color !== undefined ||
-    target.main_text_color !== undefined ||
-    original.main_text_color !== undefined ||
-    rawData.chat_display !== undefined ||
-    outer.chat_display !== undefined ||
-    target.chat_display !== undefined ||
-    original.chat_display !== undefined ||
-    rawData.theme_name !== undefined ||
-    outer.theme_name !== undefined ||
-    target.theme_name !== undefined ||
-    original.theme_name !== undefined ||
-    rawData.chat_width !== undefined ||
-    outer.chat_width !== undefined ||
-    target.chat_width !== undefined ||
-    rawData.bg_custom !== undefined ||
-    outer.bg_custom !== undefined ||
-    target.bg_custom !== undefined ||
-    rawData.waifu_width !== undefined ||
-    outer.waifu_width !== undefined ||
-    target.waifu_width !== undefined ||
-    rawData.custom_css !== undefined ||
-    outer.custom_css !== undefined ||
-    target.custom_css !== undefined ||
-    lowerFolder.includes("美化") ||
-    lowerFolder.includes("theme")
-  ) {
-    return "美化";
-  }
-
-  // 4. Preset (预设) - standalone only
-  if (
-    Array.isArray(rawData.prompts) ||
-    Array.isArray(outer.prompts) ||
-    Array.isArray(target.prompts) ||
-    Array.isArray(original.prompts) ||
-    Array.isArray(rawData.prompt_order) ||
-    Array.isArray(outer.prompt_order) ||
-    Array.isArray(target.prompt_order) ||
-    Array.isArray(original.prompt_order) ||
-    rawData.preset_type !== undefined ||
-    outer.preset_type !== undefined ||
-    target.preset_type !== undefined ||
-    rawData.sampler_order !== undefined ||
-    outer.sampler_order !== undefined ||
-    target.sampler_order !== undefined ||
-    rawData.temperature !== undefined ||
-    outer.temperature !== undefined ||
-    target.temperature !== undefined ||
-    rawData.temp !== undefined ||
-    outer.temp !== undefined ||
-    rawData.top_p !== undefined ||
-    outer.top_p !== undefined ||
-    rawData.top_k !== undefined ||
-    outer.top_k !== undefined ||
-    rawData.min_p !== undefined ||
-    outer.min_p !== undefined ||
-    rawData.repetition_penalty !== undefined ||
-    outer.repetition_penalty !== undefined ||
-    rawData.rep_pen !== undefined ||
-    outer.rep_pen !== undefined ||
-    rawData.openai_max_context !== undefined ||
-    outer.openai_max_context !== undefined ||
-    rawData.openai_max_tokens !== undefined ||
-    outer.openai_max_tokens !== undefined ||
-    rawData.max_context_length !== undefined ||
-    outer.max_context_length !== undefined ||
-    lowerFolder.includes("预设") ||
-    lowerFolder.includes("preset")
-  ) {
-    return "预设";
-  }
-
-  // 5. Script / Tool / Regex (脚本)
-  if (
-    (Array.isArray(rawData) && rawData.length > 0 && (rawData[0]?.findRegex !== undefined || rawData[0]?.replaceString !== undefined || rawData[0]?.find_regex !== undefined)) ||
-    rawData.findRegex !== undefined ||
-    outer.findRegex !== undefined ||
-    target.findRegex !== undefined ||
-    rawData.replaceString !== undefined ||
-    outer.replaceString !== undefined ||
-    target.replaceString !== undefined ||
-    rawData.find_regex !== undefined ||
-    outer.find_regex !== undefined ||
-    target.find_regex !== undefined ||
-    rawData.replace_with !== undefined ||
-    outer.replace_with !== undefined ||
-    target.replace_with !== undefined ||
-    rawData.regex_script !== undefined ||
-    outer.regex_script !== undefined ||
-    target.regex_script !== undefined ||
-    rawData.regexes !== undefined ||
-    outer.regexes !== undefined ||
-    target.regexes !== undefined ||
-    (rawData.extensions && Array.isArray(rawData.extensions.regex_scripts)) ||
-    (outer.extensions && Array.isArray(outer.extensions.regex_scripts)) ||
-    (target.extensions && Array.isArray(target.extensions.regex_scripts)) ||
-    rawData.run !== undefined ||
-    outer.run !== undefined ||
-    target.run !== undefined ||
-    rawData.type === "tool" ||
-    outer.type === "tool" ||
-    target.type === "tool" ||
-    rawData.type === "script" ||
-    outer.type === "script" ||
-    target.type === "script" ||
-    rawData.script !== undefined ||
-    outer.script !== undefined ||
-    target.script !== undefined ||
-    lowerFolder.includes("脚本") ||
-    lowerFolder.includes("script") ||
-    lowerFolder.includes("正则") ||
-    lowerFolder.includes("regex")
-  ) {
-    return "脚本";
-  }
-
-  if (char?.isTool) {
-    return "脚本";
-  }
-
-  return "未归类";
 }
 
 export interface Folder {
@@ -455,6 +354,12 @@ export interface CharacterCard {
   isQR?: boolean;
   category?: string;
   sourceUrl?: string;
+  updateUrl?: string;
+  lastCheckedAt?: number;
+  lastCheckResult?: 'up-to-date' | 'has-update' | 'error' | string;
+  lastCheckVersion?: string;
+  lastCheckChanges?: string[];
+  lastCheckError?: string;
   tokenCount?: number;
   permanentTokens?: number;
 }
@@ -1187,7 +1092,7 @@ function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
 
 let cachedMeta: CharMeta[] | null = null;
 let isBuildingCache = false;
-const REPAIR_CATEGORY_FLAG = "tavern_category_repair_v6_revert_stitcher";
+const REPAIR_CATEGORY_FLAG = "tavern_category_repair_v10_strict_worldbook_card_distinction";
 const REPAIR_TOKEN_FLAG = "tavern_meta_tokens_v4";
 
 export async function cleanupGhostCards(): Promise<{ cleanedCount: number }> {
@@ -1276,27 +1181,36 @@ export async function getCachedMeta(): Promise<CharMeta[]> {
         continue;
       }
 
-      const isActualChar = isActualCharacterCard(char.data || char);
+      const resType = getResourceType(char, folderMap);
+      const isTool = resType !== 'character';
+      const cat = getCharacterCategoryPrefix(char, folderMap);
       let changed = false;
 
-      if (isActualChar) {
+      if (isTool) {
+        const expectedCat = cat !== "未归类" ? cat : (
+          resType === 'worldbook' ? '世界书' :
+          resType === 'qr' ? '快速回复' :
+          resType === 'preset' ? '预设' :
+          resType === 'script' ? '脚本' :
+          resType === 'theme' ? '美化' : '工具'
+        );
+        if (char.category !== expectedCat || !char.isTool || (expectedCat === '快速回复' && !char.isQR)) {
+          char.category = expectedCat;
+          char.isTool = true;
+          char.isQR = expectedCat === '快速回复';
+          changed = true;
+        }
+      } else {
+        // 真正普通角色卡
         if (char.category !== "未归类" || char.isTool || char.isQR) {
           char.category = "未归类";
           char.isTool = false;
           char.isQR = false;
           changed = true;
         }
-        // If a real character card was mistakenly auto-moved to a tool folder by bad migration, restore it to unfiled
+        // 若普通角色卡误入工具文件夹，恢复为未归类
         if (char.folderId && toolFolderIds.has(char.folderId)) {
           char.folderId = undefined;
-          changed = true;
-        }
-      } else {
-        const cat = getCharacterCategoryPrefix(char, folderMap);
-        if (char.category !== cat || char.isTool !== (cat !== "未归类")) {
-          char.category = cat;
-          char.isTool = cat !== "未归类";
-          char.isQR = cat === "快速回复";
           changed = true;
         }
       }
@@ -2560,6 +2474,7 @@ export interface DuplicateCharacter {
 
 export interface DuplicateGroup {
   id: string;
+  resourceType: ResourceType;
   characters: DuplicateCharacter[];
 }
 
@@ -2599,6 +2514,15 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
   const allChars = await store.getAll();
   await tx.done;
 
+  // 加载文件夹映射，确保能准确识别位于特定工具文件夹中的卡片类型
+  const foldersTx = db.transaction("folders", "readonly");
+  const allFolders = await foldersTx.store.getAll();
+  await foldersTx.done;
+  const foldersMap = new Map<string, string>();
+  for (const f of allFolders) {
+    foldersMap.set(f.id, f.name);
+  }
+
   const precomputed: any[] = [];
   const charMap = new Map<string, CharacterCard>();
 
@@ -2606,6 +2530,7 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
     "",
     "未命名",
     "未命名角色",
+    "未命名工具",
     "untitled",
     "new character",
     "character",
@@ -2617,6 +2542,7 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
   for (const char of allChars) {
     if (!char.deletedAt) {
       charMap.set(char.id, char);
+      const resType = getResourceType(char, foldersMap);
       const data = char.data?.data || char.data || {};
       const firstMes = data.first_mes || "";
       const desc = data.description || "";
@@ -2628,8 +2554,11 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
       let extraContent = "";
       if (data.prompts && Array.isArray(data.prompts)) {
         extraContent = data.prompts.map((p: any) => p.content || p.text || "").join("");
-      } else if (data.entries && Array.isArray(data.entries)) {
-        extraContent = data.entries.map((e: any) => e.content || e.text || e.comment || "").join("");
+      } else if (data.entries && (Array.isArray(data.entries) || typeof data.entries === 'object')) {
+        const entVals = Array.isArray(data.entries) ? data.entries : Object.values(data.entries);
+        extraContent = entVals.map((e: any) => e.content || e.text || e.comment || "").join("");
+      } else if (data.qrList && Array.isArray(data.qrList)) {
+        extraContent = data.qrList.map((q: any) => q.message || q.label || "").join("");
       } else if (data.content && typeof data.content === "string") {
         extraContent = data.content;
       }
@@ -2639,6 +2568,7 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
 
       precomputed.push({
         id: char.id,
+        resType,
         rawName,
         baseName,
         isGenericName,
@@ -2668,6 +2598,7 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
   };
 
   // 1. 同基础名称（包含 _1, _12345, (1), _v2 等重名/迭代卡）
+  // 必须严格加上资源类型 resType 隔离，角色卡、世界书、QR绝对不能互相匹配！
   const baseNameMap = new Map<string, string[]>();
 
   // 2. 精确内容相同（设定与开场白均一致，支持改名或内容完全相同）
@@ -2678,29 +2609,30 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
   const nameFirstMap = new Map<string, string[]>();
 
   for (const item of precomputed) {
-    // 同基础名称 (非通用占位名) 自动聚合
+    // 同基础名称 (非通用占位名) 自动聚合 - 严格在相同资源类型内！
     if (item.baseName && !item.isGenericName) {
-      const list = baseNameMap.get(item.baseName) || [];
+      const key = `${item.resType}:::${item.baseName}`;
+      const list = baseNameMap.get(key) || [];
       list.push(item.id);
-      baseNameMap.set(item.baseName, list);
+      baseNameMap.set(key, list);
     }
 
     if (item.descClean && item.firstClean && (item.descClean.length > 20 || item.firstClean.length > 20)) {
-      const key = `${item.descClean}|${item.firstClean}`;
+      const key = `${item.resType}:::${item.descClean}|${item.firstClean}`;
       const list = contentMap.get(key) || [];
       list.push(item.id);
       contentMap.set(key, list);
     }
 
     if (item.baseName && item.descClean) {
-      const key = `${item.baseName}|${item.descClean}`;
+      const key = `${item.resType}:::${item.baseName}|${item.descClean}`;
       const list = nameDescMap.get(key) || [];
       list.push(item.id);
       nameDescMap.set(key, list);
     }
 
     if (item.baseName && item.firstClean) {
-      const key = `${item.baseName}|${item.firstClean}`;
+      const key = `${item.resType}:::${item.baseName}|${item.firstClean}`;
       const list = nameFirstMap.get(key) || [];
       list.push(item.id);
       nameFirstMap.set(key, list);
@@ -2729,16 +2661,38 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
     groupMap.set(root, list);
   }
 
-  const groups = Array.from(groupMap.values()).filter((list) => list.length > 1);
+  const rawGroups = Array.from(groupMap.values()).filter((list) => list.length > 1);
+
+  // 严密硬隔离防护：无论何种情况，重复卡组内绝对不能混入不同资源类型的卡！
+  // 角色卡只能和角色卡一组；快速回复只能和快速回复一组；世界书只能和世界书一组！
+  const strictlySeparatedGroups: string[][] = [];
+  for (const groupIds of rawGroups) {
+    const byType = new Map<ResourceType, string[]>();
+    for (const id of groupIds) {
+      const char = charMap.get(id);
+      if (!char) continue;
+      const type = getResourceType(char, foldersMap);
+      const list = byType.get(type) || [];
+      list.push(id);
+      byType.set(type, list);
+    }
+    for (const [_, typedIds] of byType.entries()) {
+      if (typedIds.length > 1) {
+        strictlySeparatedGroups.push(typedIds);
+      }
+    }
+  }
 
   const finalGroups: DuplicateGroup[] = [];
 
-  for (const groupIds of groups) {
+  for (const groupIds of strictlySeparatedGroups) {
     const groupChars: CharacterCard[] = [];
     for (const id of groupIds) {
       const char = charMap.get(id);
       if (char) groupChars.push(char);
     }
+
+    if (groupChars.length === 0) continue;
 
     await Promise.all(
       groupChars.map(async (char) => {
@@ -2753,6 +2707,7 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
       }),
     );
 
+    const groupResType = getResourceType(groupChars[0], foldersMap);
     const sorted = [...groupChars].sort((a, b) => a.createdAt - b.createdAt);
     const analyzedChars: DuplicateCharacter[] = [];
 
@@ -2768,76 +2723,113 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
       const oldest = sorted[0];
       const oData = oldest.data?.data || oldest.data || {};
 
-      const cDesc = cData.description || "";
-      const oDesc = oData.description || "";
-      const cFirst = cData.first_mes || "";
-      const oFirst = oData.first_mes || "";
-      const cMesExample = cData.mes_example || "";
-      const oMesExample = oData.mes_example || "";
-
-      const cBook =
-        cData.character_book?.entries?.length ||
-        cData.extensions?.character_book?.entries?.length ||
-        0;
-      const oBook =
-        oData.character_book?.entries?.length ||
-        oData.extensions?.character_book?.entries?.length ||
-        0;
-
-      const cAlt =
-        cData.alternate_greetings?.length ||
-        cData.extensions?.alternate_greetings?.length ||
-        0;
-      const oAlt =
-        oData.alternate_greetings?.length ||
-        oData.extensions?.alternate_greetings?.length ||
-        0;
-
       const reasons: string[] = [];
 
-      if (
-        cDesc === oDesc &&
-        cFirst === oFirst &&
-        cBook === oBook &&
-        cAlt === oAlt &&
-        cMesExample === oMesExample
-      ) {
-        let isIdenticalToPrev = false;
+      if (groupResType === 'worldbook') {
+        const cEnts = cData.entries || cData.data?.entries || {};
+        const oEnts = oData.entries || oData.data?.entries || {};
+        const cCount = Array.isArray(cEnts) ? cEnts.length : Object.keys(cEnts).length;
+        const oCount = Array.isArray(oEnts) ? oEnts.length : Object.keys(oEnts).length;
+        if (cCount > oCount) reasons.push(`词条+${cCount - oCount}`);
+        else if (cCount < oCount) reasons.push(`词条-${oCount - cCount}`);
+        else reasons.push("词条内容相同");
+      } else if (groupResType === 'qr') {
+        const cQr = Array.isArray(cData.qrList) ? cData.qrList.length : (Array.isArray(cData) ? cData.length : 0);
+        const oQr = Array.isArray(oData.qrList) ? oData.qrList.length : (Array.isArray(oData) ? oData.length : 0);
+        if (cQr > oQr) reasons.push(`动作+${cQr - oQr}`);
+        else if (cQr < oQr) reasons.push(`动作-${oQr - cQr}`);
+        else reasons.push("动作内容相同");
+      } else if (groupResType === 'preset') {
+        const cP = Array.isArray(cData.prompts) ? cData.prompts.length : 0;
+        const oP = Array.isArray(oData.prompts) ? oData.prompts.length : 0;
+        if (cP !== oP) reasons.push(`提示词条目变更`);
+        else reasons.push("预设参数微调");
+      } else {
+        // Character cards
+        const cDesc = cData.description || "";
+        const oDesc = oData.description || "";
+        const cFirst = cData.first_mes || "";
+        const oFirst = oData.first_mes || "";
+        const cMesExample = cData.mes_example || "";
+        const oMesExample = oData.mes_example || "";
+
+        const cBook =
+          cData.character_book?.entries?.length ||
+          cData.extensions?.character_book?.entries?.length ||
+          0;
+        const oBook =
+          oData.character_book?.entries?.length ||
+          oData.extensions?.character_book?.entries?.length ||
+          0;
+
+        const cAlt =
+          cData.alternate_greetings?.length ||
+          cData.extensions?.alternate_greetings?.length ||
+          0;
+        const oAlt =
+          oData.alternate_greetings?.length ||
+          oData.extensions?.alternate_greetings?.length ||
+          0;
+
+        // 首先检查是否与组内前面某张卡片内容完全一致（例如 1122 中的第二个 1 或第二个 2）
+        let identicalPrevIndex = -1;
         for (let j = 0; j < i; j++) {
           const pData = sorted[j].data?.data || sorted[j].data || {};
+          const pDesc = pData.description || "";
+          const pFirst = pData.first_mes || "";
+          const pMesEx = pData.mes_example || "";
+          const pBook =
+            pData.character_book?.entries?.length ||
+            pData.extensions?.character_book?.entries?.length ||
+            0;
+          const pAlt =
+            pData.alternate_greetings?.length ||
+            pData.extensions?.alternate_greetings?.length ||
+            0;
+
           if (
-            cDesc === (pData.description || "") &&
-            cFirst === (pData.first_mes || "")
+            cDesc === pDesc &&
+            cFirst === pFirst &&
+            cMesExample === pMesEx &&
+            cBook === pBook &&
+            cAlt === pAlt
           ) {
-            isIdenticalToPrev = true;
+            identicalPrevIndex = j;
             break;
           }
         }
-        if (isIdenticalToPrev) {
-          reasons.push("内容重复");
-        } else {
+
+        if (identicalPrevIndex !== -1) {
+          reasons.push("完全相同副本");
+        } else if (
+          cDesc === oDesc &&
+          cFirst === oFirst &&
+          cBook === oBook &&
+          cAlt === oAlt &&
+          cMesExample === oMesExample
+        ) {
           reasons.push("基本相同");
-        }
-      } else {
-        if (cFirst !== oFirst) {
-          if (cFirst.length > oFirst.length + 20) reasons.push("开场白长");
-          else if (cFirst.length < oFirst.length - 20) reasons.push("开场白短");
-          else reasons.push("改开场白");
-        }
-        if (cDesc !== oDesc) {
-          if (cDesc.length > oDesc.length + 50) reasons.push("设定较长");
-          else if (cDesc.length < oDesc.length - 50) reasons.push("设定较短");
-          else reasons.push("改设定");
-        }
-        if (cBook > oBook) reasons.push(`世界书+${cBook - oBook}`);
-        else if (cBook < oBook && cBook > 0)
-          reasons.push(`世界书-${oBook - cBook}`);
+        } else {
+          if (cFirst !== oFirst) {
+            if (cFirst.length > oFirst.length + 20) reasons.push("开场白长");
+            else if (cFirst.length < oFirst.length - 20) reasons.push("开场白短");
+            else reasons.push("改开场白");
+          }
+          if (cDesc !== oDesc) {
+            if (cDesc.length > oDesc.length + 50) reasons.push("设定较长");
+            else if (cDesc.length < oDesc.length - 50) reasons.push("设定较短");
+            else reasons.push("改设定");
+          }
+          if (cBook > oBook) reasons.push(`世界书+${cBook - oBook}`);
+          else if (cBook < oBook && cBook > 0)
+            reasons.push(`世界书-${oBook - cBook}`);
 
-        if (cAlt > oAlt) reasons.push(`备用开场+${cAlt - oAlt}`);
+          if (cAlt > oAlt) reasons.push(`备用开场+${cAlt - oAlt}`);
 
-        if (cMesExample !== oMesExample) {
-          if (cMesExample.length > oMesExample.length + 50)
-            reasons.push("示例较长");
+          if (cMesExample !== oMesExample) {
+            if (cMesExample.length > oMesExample.length + 50)
+              reasons.push("示例较长");
+          }
         }
       }
 
@@ -2856,6 +2848,7 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
 
     finalGroups.push({
       id: crypto.randomUUID(),
+      resourceType: groupResType,
       characters: analyzedChars,
     });
   }

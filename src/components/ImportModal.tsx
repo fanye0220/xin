@@ -986,10 +986,15 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                 continue;
               }
 
-              const isCharacterJson = isActualCharacterCard(parsedJson);
-              const detectedCategory = isCharacterJson
-                ? "未归类"
-                : getCharacterCategoryPrefix({ data: parsedJson });
+              const charCandidate = {
+                data: parsedJson,
+                autoImportFilename: file.name,
+                name: parsedJson.name || parsedJson.char_name || file.name,
+                ...parsedJson,
+              };
+              const isCharacterJson = isActualCharacterCard(charCandidate);
+              const detectedCategory = isCharacterJson ? "未归类" : getCharacterCategoryPrefix(charCandidate);
+              const isToolJson = !isCharacterJson && detectedCategory !== "未归类";
               const looksLikeCharacter = Boolean(
                 parsedJson.name ||
                   parsedJson.char_name ||
@@ -1711,13 +1716,19 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               item.toolPrefix,
             );
 
+            const toolCategory = (item.toolPrefix && item.toolPrefix[0]) || "工具";
+            const isQR = toolCategory === "快速回复" || (item.toolPrefix?.[0] === "快速回复");
+
             const toolTokens = getCharacterTokenBreakdown(data);
             const toolCard: CharacterCard = {
               id: crypto.randomUUID(),
               name: toolName,
+              category: toolCategory,
+              isTool: true,
+              isQR: isQR,
               autoImportFilename: file.name,
               data,
-              avatarUrlFallback: getFallbackAvatar(toolName),
+              avatarUrlFallback: getFallbackAvatar(toolName, isQR ? '快速回复' : toolCategory),
               createdAt: Date.now(),
               updatedAt: Date.now(),
               folderId: assignFolderId,
@@ -2604,15 +2615,15 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
 
                 {isAndroid() && (
                 <div className="mt-4 w-full flex justify-center">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); fetchTavernList(); }}
-                      disabled={isPulling}
-                      className="flex items-center gap-2 px-6 py-3.5 sm:py-4 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 rounded-2xl font-bold text-sm sm:text-base transition-all duration-300 disabled:opacity-50 w-full justify-center border border-blue-500/20 hover:border-blue-500/40 shadow-sm cursor-pointer"
-                    >
-                      {isPulling ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <Cloud className="w-5 h-5 shrink-0" />}
-                      <span className="truncate">拉取酒馆卡片</span>
-                    </button>
-                  </div>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); fetchTavernList(); }}
+                    disabled={isPulling}
+                    className="flex items-center gap-2 px-6 py-3.5 sm:py-4 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 rounded-2xl font-bold text-sm sm:text-base transition-all duration-300 disabled:opacity-50 w-full justify-center border border-blue-500/20 hover:border-blue-500/40 shadow-sm cursor-pointer"
+                  >
+                    {isPulling ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <Cloud className="w-5 h-5 shrink-0" />}
+                    <span className="truncate">拉取酒馆卡片</span>
+                  </button>
+                </div>
                   )}
 
                 {error && (
