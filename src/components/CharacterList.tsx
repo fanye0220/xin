@@ -3348,7 +3348,7 @@ export function CharacterList({
 
       <AnimatePresence>
         {!selectionMode ? (
-          <div className="fixed bottom-20 right-6 sm:right-8 z-40 flex flex-col items-center gap-2.5">
+          <div className="fixed bottom-24 sm:bottom-28 right-6 sm:right-8 z-40 flex flex-col items-center gap-2.5">
             {/* 1. 一键回顶 (半透明毛玻璃小球，触发滚动时显示在最上方) */}
             <AnimatePresence>
               {showScrollTop && (
@@ -4047,13 +4047,13 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
               e.stopPropagation();
               onToggleFavorite(e);
             }}
-            className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 transition relative group active:scale-90 cursor-pointer shrink-0 z-10"
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 transition relative group active:scale-90 cursor-pointer shrink-0 z-10"
             title={char.isFavorite ? "取消收藏" : "收藏"}
           >
             <Heart
-              className={`w-4.5 h-4.5 transition-all duration-200 ${
+              className={`w-4 h-4 sm:w-4.5 sm:h-4.5 transition-all duration-200 ${
                 char.isFavorite
-                  ? "text-rose-500 fill-rose-500 scale-110 drop-shadow-[0_2px_6px_rgba(244,63,94,0.4)]"
+                  ? "text-rose-500 fill-rose-500 drop-shadow-[0_1px_4px_rgba(244,63,94,0.4)]"
                   : "text-white/40 hover:text-rose-400 [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-rose-500"
               }`}
             />
@@ -4149,24 +4149,32 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
         </button>
       )}
 
-      {/* Top right Heart favorite button */}
+      {/* Top right Heart favorite button - differentiated by layout */}
       {!selectionMode && onToggleFavorite && (
         <button
           onClick={(e) => {
             e.stopPropagation();
             onToggleFavorite(e);
           }}
-          className={`absolute top-2 right-2 z-10 w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-200 cursor-pointer active:scale-85 ${
+          className={`absolute z-10 rounded-full flex items-center justify-center backdrop-blur-xs transition-all duration-200 cursor-pointer active:scale-85 ${
+            viewMode === "masonry"
+              ? "top-1.5 right-1.5 sm:top-2.5 sm:right-2.5 w-6 h-6 sm:w-7 sm:h-7"
+              : "top-1 right-1 sm:top-2 sm:right-2 w-5 h-5 sm:w-6.5 sm:h-6.5"
+          } ${
             char.isFavorite
-              ? "bg-black/50 text-rose-500 shadow-sm opacity-100"
-              : "bg-black/35 text-white/75 hover:text-rose-400 opacity-0 group-hover:opacity-100 max-sm:opacity-85"
+              ? "bg-black/45 text-rose-500 shadow-xs opacity-100 border border-white/10"
+              : "bg-black/30 text-white/70 hover:text-rose-400 opacity-0 group-hover:opacity-100"
           }`}
           title={char.isFavorite ? "取消收藏" : "收藏"}
         >
           <Heart
-            className={`w-4 h-4 transition-transform duration-200 ${
+            className={`transition-transform duration-200 ${
+              viewMode === "masonry"
+                ? "w-3.5 h-3.5 sm:w-4 sm:h-4"
+                : "w-2.5 h-2.5 sm:w-3.5 sm:h-3.5"
+            } ${
               char.isFavorite
-                ? "fill-rose-500 text-rose-500 scale-110 drop-shadow-[0_1px_4px_rgba(244,63,94,0.5)]"
+                ? "fill-rose-500 text-rose-500 drop-shadow-[0_1px_3px_rgba(244,63,94,0.5)]"
                 : "text-white/90 hover:text-white"
             }`}
           />

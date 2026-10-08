@@ -742,21 +742,20 @@ export function CharacterChatsSection({
                   </div>
 
                   {/* Font Size Adjuster for Novel & Bubble Mode */}
-                  <div className="flex items-center gap-0.5 bg-white/10 border border-white/20 rounded-full p-1 select-none [.light-theme_&]:!bg-[#eef2f7] [.light-theme_&]:!border-black/10">
+                  <div className="inline-flex items-center gap-1 select-none">
                     <button
                       onClick={() => {
                         const next = Math.max(13, novelFontSize - 1);
                         setNovelFontSize(next);
                         localStorage.setItem('chat_reader_font_size', String(next));
                       }}
-                      className="w-7 h-7 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/30 text-white text-[13px] font-extrabold leading-none tracking-tight transition active:scale-90 cursor-pointer [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/10"
+                      className="w-6 h-6 flex items-center justify-center rounded-lg text-xs font-bold leading-none text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 active:scale-90 transition cursor-pointer [.light-theme_&]:!text-blue-600 [.light-theme_&]:hover:!bg-blue-500/10"
                       title="缩小字号"
                     >
                       A-
                     </button>
-                    <span className="w-[42px] text-center text-xs font-bold font-mono text-blue-300 [.light-theme_&]:!text-blue-600">
+                    <span className="min-w-[28px] text-center text-xs font-mono font-bold text-blue-400 [.light-theme_&]:!text-blue-600">
                       {novelFontSize}
-                      <span className="text-[9px] font-semibold opacity-80 ml-0.5">px</span>
                     </span>
                     <button
                       onClick={() => {
@@ -764,7 +763,7 @@ export function CharacterChatsSection({
                         setNovelFontSize(next);
                         localStorage.setItem('chat_reader_font_size', String(next));
                       }}
-                      className="w-7 h-7 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/30 text-white text-[13px] font-extrabold leading-none tracking-tight transition active:scale-90 cursor-pointer [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/10"
+                      className="w-6 h-6 flex items-center justify-center rounded-lg text-xs font-bold leading-none text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 active:scale-90 transition cursor-pointer [.light-theme_&]:!text-blue-600 [.light-theme_&]:hover:!bg-blue-500/10"
                       title="放大字号"
                     >
                       A+
