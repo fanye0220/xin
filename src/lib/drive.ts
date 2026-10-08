@@ -216,15 +216,31 @@ function startAutoSyncRunner() {
     const isEnabled = localStorage.getItem('miu_auto_backup') === '1';
     if (!isEnabled || !currentAccessToken || syncState.isActive) return;
     
-    updateSyncState({ isActive: true, taskName: '自动备份', message: '准备备份...', isError: false, completed: false });
-    try {
-      await uploadBackupToDrive(currentAccessToken, (msg) => {
-        updateSyncState({ message: msg });
-      }, true);
-      updateSyncState({ isActive: false, completed: true, message: '自动备份完成' });
-    } catch (e: any) {
-      console.error("[AutoSync] Scheduled backup failed:", e);
-      updateSyncState({ isActive: false, isError: true, message: `自动备份失败: ${e.message}` });
+    const syncMode = localStorage.getItem('miu_auto_backup_mode') || 'cloud_library';
+
+    if (syncMode === 'zip') {
+      updateSyncState({ isActive: true, taskName: '自动备份(ZIP)', message: '准备打包备份...', isError: false, completed: false });
+      try {
+        await uploadBackupToDrive(currentAccessToken, (msg) => {
+          updateSyncState({ message: msg });
+        }, true);
+        updateSyncState({ isActive: false, completed: true, message: '自动打包备份完成' });
+      } catch (e: any) {
+        console.error("[AutoSync] Scheduled ZIP backup failed:", e);
+        updateSyncState({ isActive: false, isError: true, message: `自动备份失败: ${e.message}` });
+      }
+    } else {
+      updateSyncState({ isActive: true, taskName: '云端卡库同步', message: '准备同步卡片到云端卡库...', isError: false, completed: false });
+      try {
+        const { syncLibraryToCloud } = await import('./cloudDrive');
+        await syncLibraryToCloud(currentAccessToken, (msg) => {
+          updateSyncState({ message: msg });
+        });
+        updateSyncState({ isActive: false, completed: true, message: '云端卡库自动同步完成' });
+      } catch (e: any) {
+        console.error("[AutoSync] Scheduled cloud library sync failed:", e);
+        updateSyncState({ isActive: false, isError: true, message: `云端卡库同步失败: ${e.message}` });
+      }
     }
   }, 1000 * 60 * 30); // 30 minutes
 }
@@ -315,6 +331,7 @@ const BACKUP_SETTING_KEYS = [
   'tavern_sidebarFoldersExpanded',
   'chatViewer_customTags',
   'miu_auto_backup',
+  'miu_auto_backup_mode',
 ];
 
 const backupFolderPromiseCache = new Map<string, Promise<string>>();

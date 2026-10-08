@@ -333,6 +333,9 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
     }
     return localStorage.getItem('miu_auto_backup') === '1';
   });
+  const [autoBackupMode, setAutoBackupMode] = useState<'cloud_library' | 'zip'>(() => {
+    return (localStorage.getItem('miu_auto_backup_mode') as 'cloud_library' | 'zip') || 'cloud_library';
+  });
   const [oneClickProgress, setOneClickProgress] = useState<{current: number, total: number, message: string} | null>(null);
   const [syncFolderProgress, setSyncFolderProgress] = useState<{ current: number; total: number; message: string } | null>(null);
 
@@ -645,35 +648,79 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
               <span>对齐分类：仅整理目录结构(秒级)</span>
             </div>
 
-            <label className="flex items-center justify-between p-3.5 sm:p-4 border rounded-2xl cursor-pointer transition bg-white/5 hover:bg-white/10 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-black/10 [.light-theme_&]:!shadow-xs">
-              <div>
-                <div className="text-sm font-bold text-white [.light-theme_&]:!text-[#0f172a]">挂机自动同步</div>
-                <div className="text-xs mt-0.5 text-white/60 [.light-theme_&]:!text-slate-600">
-                  网页打开期间每隔30分钟自动静默覆盖备份到云端。
+            <div className="p-3.5 sm:p-4 border rounded-2xl bg-white/5 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-black/10 [.light-theme_&]:!shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-bold text-white [.light-theme_&]:!text-[#0f172a]">挂机自动同步</div>
+                  <div className="text-xs mt-0.5 text-white/60 [.light-theme_&]:!text-slate-600">
+                    {autoBackupMode === 'cloud_library'
+                      ? '网页打开期间每隔30分钟自动静默增量同步至云端卡库 (AIs_Studio_Cloud_Cards)。'
+                      : '网页打开期间每隔30分钟自动打包并上传单文件 ZIP 压缩包至网盘备份目录。'}
+                  </div>
                 </div>
-              </div>
-              <div 
-                className="relative inline-flex items-center cursor-pointer shrink-0 ml-3"
-                onClick={(e) => {
-                  e.preventDefault();
-                  const val = !isAutoBackup;
-                  setIsAutoBackup(val);
-                  localStorage.setItem('miu_auto_backup', val ? '1' : '0');
-                }}
-              >
-                <div className={`w-11 h-6 rounded-full transition-colors duration-200 ease-in-out p-0.5 flex items-center border ${
-                  isAutoBackup
-                    ? 'bg-blue-600 border-blue-600 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!border-[#007aff]'
-                    : 'bg-white/10 border-white/20 [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-[#cbd5e1]'
-                }`}>
-                  <div className={`w-5 h-5 rounded-full transition-transform duration-200 ease-in-out shadow-sm bg-white ${
+                <div 
+                  className="relative inline-flex items-center cursor-pointer shrink-0 ml-3"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const val = !isAutoBackup;
+                    setIsAutoBackup(val);
+                    localStorage.setItem('miu_auto_backup', val ? '1' : '0');
+                  }}
+                >
+                  <div className={`w-11 h-6 rounded-full transition-colors duration-200 ease-in-out p-0.5 flex items-center border ${
                     isAutoBackup
-                      ? 'translate-x-5'
-                      : 'translate-x-0'
-                  }`} />
+                      ? 'bg-blue-600 border-blue-600 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!border-[#007aff]'
+                      : 'bg-white/10 border-white/20 [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-[#cbd5e1]'
+                  }`}>
+                    <div className={`w-5 h-5 rounded-full transition-transform duration-200 ease-in-out shadow-sm bg-white ${
+                      isAutoBackup
+                        ? 'translate-x-5'
+                        : 'translate-x-0'
+                    }`} />
+                  </div>
                 </div>
               </div>
-            </label>
+
+              {isAutoBackup && (
+                <div className="pt-2 border-t border-white/10 [.light-theme_&]:border-slate-200">
+                  <div className="text-[11px] font-medium text-white/60 [.light-theme_&]:text-slate-500 mb-1.5">
+                    自动备份目标方式：
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAutoBackupMode('cloud_library');
+                        localStorage.setItem('miu_auto_backup_mode', 'cloud_library');
+                      }}
+                      className={`px-2.5 py-1.5 rounded-xl text-xs font-medium border text-left transition cursor-pointer ${
+                        autoBackupMode === 'cloud_library'
+                          ? 'bg-blue-600/20 text-blue-400 border-blue-500/40 [.light-theme_&]:bg-blue-50 [.light-theme_&]:text-blue-600 [.light-theme_&]:border-blue-200'
+                          : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10 [.light-theme_&]:bg-slate-50 [.light-theme_&]:text-slate-600 [.light-theme_&]:border-slate-200'
+                      }`}
+                    >
+                      <div className="font-semibold">云端卡库 (直连)</div>
+                      <div className="text-[10px] opacity-75 mt-0.5">全量增量同步，单卡可查</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAutoBackupMode('zip');
+                        localStorage.setItem('miu_auto_backup_mode', 'zip');
+                      }}
+                      className={`px-2.5 py-1.5 rounded-xl text-xs font-medium border text-left transition cursor-pointer ${
+                        autoBackupMode === 'zip'
+                          ? 'bg-blue-600/20 text-blue-400 border-blue-500/40 [.light-theme_&]:bg-blue-50 [.light-theme_&]:text-blue-600 [.light-theme_&]:border-blue-200'
+                          : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10 [.light-theme_&]:bg-slate-50 [.light-theme_&]:text-slate-600 [.light-theme_&]:border-slate-200'
+                      }`}
+                    >
+                      <div className="font-semibold">打包 ZIP (旧版)</div>
+                      <div className="text-[10px] opacity-75 mt-0.5">单文件归档备份包</div>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
           </div>
 

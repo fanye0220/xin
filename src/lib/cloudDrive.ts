@@ -1560,12 +1560,13 @@ export async function syncLibraryToCloud(token: string, onProgress?: (msg: strin
   const { getCachedMeta } = await import('./db');
   const allChars = (await getCachedMeta()).filter((c) => !c.deletedAt);
   let successCount = 0;
+  let movedCount = 0;
   let skippedCount = 0;
   let failCount = 0;
   let completedCount = 0;
 
   const isAndroid = Capacitor.isNativePlatform();
-  const CONCURRENCY = isAndroid ? 1 : 3;
+  const CONCURRENCY = isAndroid ? 2 : 4;
   let currentIndex = 0;
 
   const uploadWorker = async () => {
@@ -1576,6 +1577,8 @@ export async function syncLibraryToCloud(token: string, onProgress?: (msg: strin
         const result = await uploadCharacterToCloud(token, char.id, () => {});
         if (result === 'skipped') {
           skippedCount++;
+        } else if (result === 'moved') {
+          movedCount++;
         } else {
           successCount++;
         }
@@ -1584,8 +1587,8 @@ export async function syncLibraryToCloud(token: string, onProgress?: (msg: strin
         failCount++;
       } finally {
         completedCount++;
-        if (onProgress) onProgress(`正在批量同步至云端... (${completedCount}/${allChars.length})`);
-        await new Promise(r => setTimeout(r, isAndroid ? 200 : 50));
+        if (onProgress) onProgress(`正在同步至云端卡库... (${completedCount}/${allChars.length})`);
+        await new Promise(r => setTimeout(r, isAndroid ? 150 : 40));
       }
     }
   };
@@ -1597,7 +1600,9 @@ export async function syncLibraryToCloud(token: string, onProgress?: (msg: strin
   
   await Promise.all(workers);
 
-  if (onProgress) onProgress(`同步完成! 成功: ${successCount} 个, 跳过: ${skippedCount} 个, 失败: ${failCount} 个`);
+  if (onProgress) {
+    onProgress(`云端卡库同步完成! 上传/更新: ${successCount} 个, 移动: ${movedCount} 个, 一致跳过: ${skippedCount} 个${failCount > 0 ? `, 失败: ${failCount} 个` : ''}`);
+  }
 }
 
 export async function syncFolderStructureToCloud(
