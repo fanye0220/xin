@@ -56,7 +56,6 @@ import {
   getCachedMeta,
   getFilteredCharacterCount,
   getCharacterCategoryPrefix,
-  normalizeCardBaseName,
   invalidateCache,
 } from "../lib/db";
 import { useInView } from "../lib/useInView";
@@ -531,46 +530,6 @@ export function CharacterList({
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
   const [isCropping, setIsCropping] = useState(false);
   const [coverPickerFolder, setCoverPickerFolder] = useState<Folder | null>(null);
-
-  // 智能多版本识别：当主页面存在同一角色的不同版本卡片时，识别其主版本与副版本关系
-  const versionRoleMap = useMemo(() => {
-    const map = new Map<string, 'main' | 'deputy'>();
-    const nameBuckets = new Map<string, CharacterCard[]>();
-
-    for (const c of characters) {
-      if (c.deletedAt || c.isTool || c.isQR) continue;
-      const baseName = normalizeCardBaseName(c.name || c.id).toLowerCase();
-      if (!baseName) continue;
-      const list = nameBuckets.get(baseName) || [];
-      list.push(c);
-      nameBuckets.set(baseName, list);
-    }
-
-    nameBuckets.forEach(group => {
-      if (group.length > 1) {
-        const sorted = [...group].sort((a, b) => {
-          const aHasHistory = (a.versionHistory && a.versionHistory.length > 0) ? 1 : 0;
-          const bHasHistory = (b.versionHistory && b.versionHistory.length > 0) ? 1 : 0;
-          if (bHasHistory !== aHasHistory) return bHasHistory - aHasHistory;
-
-          const aLen = (a.tokenCount || 0) || ((a.data?.data?.description || a.data?.description || '').length);
-          const bLen = (b.tokenCount || 0) || ((b.data?.data?.description || b.data?.description || '').length);
-          if (bLen !== aLen) return bLen - aLen;
-
-          return (b.createdAt || 0) - (a.createdAt || 0);
-        });
-
-        map.set(sorted[0].id, 'main');
-        for (let i = 1; i < sorted.length; i++) {
-          map.set(sorted[i].id, 'deputy');
-        }
-      } else if (group.length === 1 && group[0].versionHistory && group[0].versionHistory.length > 0) {
-        map.set(group[0].id, 'main');
-      }
-    });
-
-    return map;
-  }, [characters]);
 
   const getCroppedImgBlob = async (
     imageSrc: string,
@@ -3214,7 +3173,6 @@ export function CharacterList({
                         isSelected={selectedIds.has(char.id)}
                         viewMode={viewMode}
                         showMainTokens={showMainTokens}
-                        versionRole={versionRoleMap.get(char.id)}
                         onClick={() => {
                           if (selectionMode) toggleSelection(char.id);
                           else onSelect(char.id);
@@ -3255,7 +3213,6 @@ export function CharacterList({
                         isSelected={selectedIds.has(char.id)}
                         viewMode={viewMode}
                         showMainTokens={showMainTokens}
-                        versionRole={versionRoleMap.get(char.id)}
                         onClick={() => {
                           if (selectionMode) toggleSelection(char.id);
                           else onSelect(char.id);
@@ -3802,7 +3759,6 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   isSelected,
   viewMode,
   showMainTokens = true,
-  versionRole,
 }: {
   key?: React.Key;
   char: CharacterCard;
@@ -3814,7 +3770,6 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   isSelected: boolean;
   viewMode: "grid" | "list" | "masonry";
   showMainTokens?: boolean;
-  versionRole?: 'main' | 'deputy' | null;
 }) {
   const defaultFallback = getFallbackAvatar(char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
   const initialUrl = resolveAvatarUrl(char.avatarUrlFallback, char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
@@ -4045,18 +4000,6 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
                 <span>{badgeInfo.label}</span>
               </span>
             )}
-            {!badgeInfo && versionRole === 'main' && (
-              <span className="text-[10px] bg-emerald-500/20 text-emerald-300 [.light-theme_&]:!bg-emerald-50 [.light-theme_&]:!text-emerald-700 px-1.5 py-0.5 rounded-md flex-shrink-0 flex items-center gap-1 font-bold select-none border border-emerald-500/30 [.light-theme_&]:!border-emerald-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                <span>主版本</span>
-              </span>
-            )}
-            {!badgeInfo && versionRole === 'deputy' && (
-              <span className="text-[10px] bg-amber-500/20 text-amber-300 [.light-theme_&]:!bg-amber-100 [.light-theme_&]:!text-amber-800 px-1.5 py-0.5 rounded-md flex-shrink-0 flex items-center gap-1 font-bold select-none border border-amber-500/30 [.light-theme_&]:!border-amber-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                <span>副版本</span>
-              </span>
-            )}
             {showMainTokens && !badgeInfo && char.tokenCount !== undefined && char.tokenCount > 0 && (
               <button
                 type="button"
@@ -4185,45 +4128,21 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
         )}
       </div>
 
-      {badgeInfo ? (
+      {badgeInfo && (
         <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-md text-[10px] font-medium text-white/90 border border-white/10 flex items-center gap-1.5 shadow-sm pointer-events-none select-none">
           <span className={`w-1.5 h-1.5 rounded-full ${badgeInfo.dotColor} shrink-0`} />
           <span>{badgeInfo.label}</span>
         </div>
-      ) : versionRole === 'main' ? (
-        <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/65 backdrop-blur-md rounded-md text-[10px] font-bold text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 shadow-sm pointer-events-none select-none [.light-theme_&]:!bg-emerald-50 [.light-theme_&]:!text-emerald-700 [.light-theme_&]:!border-emerald-300">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-          <span>主版本</span>
-        </div>
-      ) : versionRole === 'deputy' ? (
-        <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/65 backdrop-blur-md rounded-md text-[10px] font-bold text-amber-300 border border-amber-500/30 flex items-center gap-1.5 shadow-sm pointer-events-none select-none [.light-theme_&]:!bg-amber-50 [.light-theme_&]:!text-amber-800 [.light-theme_&]:!border-amber-300">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-          <span>副版本</span>
-        </div>
-      ) : null}
-
-      {showMainTokens && !badgeInfo && !versionRole && char.tokenCount !== undefined && char.tokenCount > 0 && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenTokenBreakdown?.(char);
-          }}
-          className="absolute top-2 left-2 z-10 px-1.5 py-0.5 bg-black/60 hover:bg-black/80 backdrop-blur-md rounded-md text-[10px] font-mono font-medium text-white/90 hover:text-white border border-white/20 flex items-center shadow-xs transition cursor-pointer select-none active:scale-95"
-          title={`Token 数量: ${char.tokenCount.toLocaleString()} (常驻: ${formatTokenCount(char.permanentTokens || 0)})，点击查看拆解`}
-        >
-          <span>{formatTokenCount(char.tokenCount)} T</span>
-        </button>
       )}
 
-      {showMainTokens && (badgeInfo || versionRole) && char.tokenCount !== undefined && char.tokenCount > 0 && (
+      {showMainTokens && !badgeInfo && char.tokenCount !== undefined && char.tokenCount > 0 && (
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
             onOpenTokenBreakdown?.(char);
           }}
-          className="absolute top-8.5 left-2 z-10 px-1.5 py-0.5 bg-black/60 hover:bg-black/80 backdrop-blur-md rounded-md text-[10px] font-mono font-medium text-white/90 hover:text-white border border-white/20 flex items-center shadow-xs transition cursor-pointer select-none active:scale-95"
+          className={`absolute ${badgeInfo ? "top-8.5" : "top-2"} left-2 z-10 px-1.5 py-0.5 bg-black/60 hover:bg-black/80 backdrop-blur-md rounded-md text-[10px] font-mono font-medium text-white/90 hover:text-white border border-white/20 flex items-center shadow-xs transition cursor-pointer select-none active:scale-95`}
           title={`Token 数量: ${char.tokenCount.toLocaleString()} (常驻: ${formatTokenCount(char.permanentTokens || 0)})，点击查看拆解`}
         >
           <span>{formatTokenCount(char.tokenCount)} T</span>

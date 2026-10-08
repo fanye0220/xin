@@ -1,5 +1,5 @@
 import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Trash2, X, Merge, MessageSquarePlus, ArrowLeft,
@@ -9,6 +9,26 @@ import {
 } from 'lucide-react';
 import { CharacterCard, DuplicateGroup, ResourceType, findDuplicates, deleteCharacter, saveCharacter, getResourceType } from '../lib/db';
 import { getLocalImageUrl } from '../lib/appBridge';
+
+// 便宜的"数据变更指纹"：只读轻量的 char_meta 索引（不含卡片正文），
+// 用来判断这次刷新到底有没有必要重跑昂贵的全量查重扫描。
+async function computeMetaSignature(): Promise<string> {
+  try {
+    const { getCachedMeta } = await import('../lib/db');
+    const meta = await getCachedMeta();
+    let deletedCount = 0;
+    let newestUpdatedAt = 0;
+    for (const m of meta) {
+      if (m.deletedAt) deletedCount += 1;
+      const u = m.updatedAt || 0;
+      if (u > newestUpdatedAt) newestUpdatedAt = u;
+    }
+    return `${meta.length}|${deletedCount}|${newestUpdatedAt}`;
+  } catch {
+    // 失败时返回一个不可能相等的值，保证该扫的时候一定会扫
+    return `unknown-${Date.now()}`;
+  }
+}
 
 // 综合字数、世界书、开场白、拓展条目的完整度评分算法（支持角色卡、世界书、QR等独立类型评分）
 export function computeCompletenessScore(char: CharacterCard, resType: ResourceType = 'character'): {
@@ -226,9 +246,10 @@ function CharAvatarImg({ char, className }: { char: CharacterCard, className: st
 interface Props {
   onClose: () => void;
   onSelectChar: (id: string) => void;
+  refreshTrigger?: number;
 }
 
-export function DuplicateDetector({ onClose, onSelectChar }: Props) {
+export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Props) {
   const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
   const [folderPathMap, setFolderPathMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -351,8 +372,16 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
     });
   };
 
-  const loadDuplicates = async () => {
-    setLoading(true);
+  // 记录最近一次扫描开始的时刻，避免"面板内部操作已经立即扫过一遍"之后又被
+  // refreshTrigger 触发一次重复的全量扫描（大卡库下这个扫描开销不小）。
+  const lastScanAtRef = useRef(0);
+  const refreshTriggerRef = useRef(refreshTrigger);
+  const lastSignatureRef = useRef<string | null>(null);
+
+  const loadDuplicates = useCallback(async (showSpinner: boolean = true) => {
+    if (showSpinner) setLoading(true);
+    lastScanAtRef.current = Date.now();
+    const signature = await computeMetaSignature();
     const groups = await findDuplicates();
     
     // 包含普通角色卡以及工具区预设、世界书、脚本等所有资源
@@ -375,13 +404,31 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
       console.error("加载文件夹路径出错:", e);
     }
 
+    lastSignatureRef.current = signature;
     setDuplicateGroups(filteredGroups);
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     loadDuplicates();
-  }, []);
+  }, [loadDuplicates]);
+
+  // App 里的 refreshKey 会在"卡片数据变化 / 详情页关闭"时变化。查重面板在详情页
+  // 打开时不会卸载，所以这里必须跟着重新扫描一次；否则刚被移进回收站或归档成历史
+  // 版本的卡片会一直留在重复卡列表里（看起来像"已经放进回收站却还在 app 里"）。
+  useEffect(() => {
+    if (refreshTrigger === undefined || refreshTriggerRef.current === refreshTrigger) return;
+    refreshTriggerRef.current = refreshTrigger;
+    const timer = setTimeout(async () => {
+      // 面板自己的删除 / 合并已经立即重新扫过一遍了，这里不再重复扫
+      if (Date.now() - lastScanAtRef.current < 600) return;
+      // 卡片数据其实没变（例如只是关掉详情页、切了下文件夹）就直接跳过，
+      // 一次扫描都不跑，大卡库下也不会反复卡顿。
+      if ((await computeMetaSignature()) === lastSignatureRef.current) return;
+      loadDuplicates(false);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [refreshTrigger, loadDuplicates]);
 
   const handleDelete = async (id: string) => {
     if (lockedIds.has(id)) {

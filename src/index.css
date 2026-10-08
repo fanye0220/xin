@@ -358,10 +358,12 @@ button:focus-visible,
   outline: none !important;
 }
 
-/* Ensure text in bubbles inherits bubble color properly across themes */
+/* Ensure text in bubbles inherits bubble color properly across themes and has legible font size */
 .chat-bubble-prose {
   color: inherit;
   white-space: pre-wrap !important;
+  font-size: var(--chat-font-size, 16.5px) !important;
+  line-height: 1.68 !important;
   --tw-prose-body: currentColor;
   --tw-prose-headings: currentColor;
   --tw-prose-lead: currentColor;
@@ -369,6 +371,27 @@ button:focus-visible,
   --tw-prose-counters: currentColor;
   --tw-prose-bullets: currentColor;
   --tw-prose-quotes: currentColor;
+}
+
+.chat-bubble-prose p {
+  font-size: inherit !important;
+  line-height: inherit !important;
+  margin-top: 0.5em !important;
+  margin-bottom: 0.5em !important;
+}
+
+.chat-bubble-prose p:first-child {
+  margin-top: 0 !important;
+}
+
+.chat-bubble-prose p:last-child {
+  margin-bottom: 0 !important;
+}
+
+.chat-bubble-prose li,
+.chat-bubble-prose blockquote {
+  font-size: inherit !important;
+  line-height: inherit !important;
 }
 
 /* Greeting Reader Markdown and Think Block rendering */

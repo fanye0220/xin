@@ -76,6 +76,8 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
         width: 100% !important;
         overflow-x: hidden !important;
         color: ${defaultTextColor};
+        font-size: 16px !important;
+        line-height: 1.65 !important;
         font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
       }
       

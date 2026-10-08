@@ -532,6 +532,7 @@ export default function App() {
           <DuplicateDetector 
             onClose={() => { setSelectedFolderId(null); setRefreshKey(prev => prev + 1); }} 
             onSelectChar={handleSelectChar}
+            refreshTrigger={refreshKey}
           />
         ) : selectedFolderId === 'autotagger' ? (
           <AutoTagger onClose={() => { setSelectedFolderId(null); setRefreshKey(prev => prev + 1); }} onOpenSettings={() => setIsSettingsOpen(true)} />

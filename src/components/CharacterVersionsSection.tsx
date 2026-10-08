@@ -11,7 +11,7 @@ import {
 import { 
   CharacterCard, CardVersionSnapshot, saveCharacter, 
   getCharacters, deleteCharacter, getCharacter, getCharacterBlob,
-  getCharacterThumb, getCharacterCategoryPrefix
+  getCharacterThumb, getCharacterCategoryPrefix, getResourceType, ResourceType
 } from '../lib/db';
 import { getCardTypeBadgeInfo } from '../lib/cardType';
 import { injectTavernData, extractTavernData } from '../lib/png';
@@ -26,19 +26,24 @@ interface Props {
   isLightMode?: boolean;
 }
 
-// Helper to strictly filter out tools, worldbooks, presets, scripts, etc. and keep only actual character cards
-function isCharacterCardOnly(c: CharacterCard): boolean {
-  if (c.deletedAt) return false;
-  if (c.isTool || c.isQR) return false;
-  if (getCardTypeBadgeInfo(c) !== null) return false;
-  const cat = c.category || getCharacterCategoryPrefix(c);
-  if (cat && ["世界书", "预设", "工具区", "美化", "快速回复", "脚本", "聊天记录"].includes(cat)) {
-    return false;
-  }
+// 候选卡片的显示名：优先卡片自身的 name，其次回退到 data 里的名字 / 导入时的文件名。
+// 有些历史卡片的 name 只存在 data 里，只按 c.name 匹配会出现"卡库里有、绑定弹窗里搜不到"。
+function getCandidateDisplayName(c: CharacterCard): string {
+  const inner: any = (c as any)?.data || {};
+  const nested: any = inner?.data || {};
+  return String(
+    c?.name || nested?.name || inner?.name || inner?.char_name || c?.autoImportFilename || ""
+  ).trim();
+}
+
+// 只保留可以归档成历史版本的候选卡：资源类型必须和当前卡片一致
+// （角色卡 ↔ 角色卡，世界书 ↔ 世界书……），避免角色卡和工具被互相绑定。
+function isBindableCandidate(c: CharacterCard, currentType: ResourceType): boolean {
+  if (!c || c.deletedAt) return false;
   const raw = c.data?.data || c.data || {};
   if (Array.isArray(c.data) || Array.isArray(raw)) return false;
-  if (raw.quick_replies || raw.qrList) return false;
-  return true;
+  if ((raw as any).quick_replies || (raw as any).qrList) return false;
+  return getResourceType(c) === currentType;
 }
 
 // Standalone lazy-loaded avatar component for candidate cards with viewport-driven loading
@@ -531,7 +536,8 @@ export function CharacterVersionsSection({
     let isMounted = true;
     getCharacters(1, 10000, undefined, "", [], "newest_import", false, true).then(res => {
       if (!isMounted) return;
-      const available = res.characters.filter(c => c.id !== character.id && isCharacterCardOnly(c));
+      const currentType = getResourceType(character);
+      const available = res.characters.filter(c => c.id !== character.id && isBindableCandidate(c, currentType));
       setCandidateCards(available);
     });
     return () => { isMounted = false; };
@@ -547,20 +553,21 @@ export function CharacterVersionsSection({
   // Sort candidate cards
   const filteredCandidates = useMemo(() => {
     const q = linkSearchQuery.trim().toLowerCase();
-    const currName = (character.name || '').trim().toLowerCase();
+    const currName = getCandidateDisplayName(character).toLowerCase();
 
     let list = candidateCards;
     if (q) {
       list = list.filter(c => 
-        (c.name || '').toLowerCase().includes(q) ||
+        getCandidateDisplayName(c).toLowerCase().includes(q) ||
+        (c.autoImportFilename || '').toLowerCase().includes(q) ||
         (c.data?.creator || '').toLowerCase().includes(q) ||
         (c.data?.data?.creator || '').toLowerCase().includes(q)
       );
     }
 
     return [...list].sort((a, b) => {
-      const aName = (a.name || '').trim().toLowerCase();
-      const bName = (b.name || '').trim().toLowerCase();
+      const aName = getCandidateDisplayName(a).toLowerCase();
+      const bName = getCandidateDisplayName(b).toLowerCase();
       const aIsExact = aName === currName;
       const bIsExact = bName === currName;
       if (aIsExact && !bIsExact) return -1;
@@ -1582,7 +1589,7 @@ export function CharacterVersionsSection({
                             <div className="min-w-0">
                               <div className="flex items-center gap-2">
                                 <h4 className="font-bold text-sm sm:text-base truncate version-candidate-name">
-                                  {c.name}
+                                  {getCandidateDisplayName(c)}
                                 </h4>
                                 <span className="text-xs px-2 py-0.5 rounded-full font-mono font-semibold version-candidate-badge shrink-0">
                                   v{ver}

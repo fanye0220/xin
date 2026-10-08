@@ -39,6 +39,7 @@ import {
   Palette,
   LayoutList,
   MoreHorizontal,
+  Type,
 } from "lucide-react";
 import { useBubbleTheme, BubbleThemeId, ColorSphere } from "../lib/bubbleThemes";
 import { MessageContent } from "./MessageContent";
@@ -519,6 +520,18 @@ export function ChatViewer({
   const [showBubblePicker, setShowBubblePicker] = useState(false);
   const { themeId: bubbleThemeId, theme: bubbleTheme, setTheme: setBubbleTheme, allThemes: bubbleThemes } = useBubbleTheme();
   const [showUserAvatarSheet, setShowUserAvatarSheet] = useState(false);
+
+  // 聊天记录字体大小（默认 16.5px，在手机移动端字迹清晰舒适，支持记忆与调节）
+  const [chatFontSize, setChatFontSize] = useState<number>(() => {
+    const saved = localStorage.getItem("chatViewer_fontSize");
+    return saved ? parseFloat(saved) : 16.5;
+  });
+
+  const handleSetFontSize = (size: number) => {
+    const clamped = Math.max(13, Math.min(24, Math.round(size * 2) / 2));
+    setChatFontSize(clamped);
+    localStorage.setItem("chatViewer_fontSize", String(clamped));
+  };
   const [newTagInput, setNewTagInput] = useState("");
   const userAvatarInputRef = useRef<HTMLInputElement>(null);
   const userFileInputRef = useRef<HTMLInputElement>(null);
@@ -1659,7 +1672,37 @@ export function ChatViewer({
                       exit={{ opacity: 0, scale: 0.9, y: 10 }}
                       className="chat-header-popover absolute top-full right-0 mt-3 backdrop-blur-3xl rounded-2xl shadow-2xl w-64 p-4 z-40 overflow-hidden"
                     >
-                      <div className="flex flex-col gap-4">
+                      <div className="flex flex-col gap-3.5">
+                        {/* 快捷字号微调 */}
+                        <div className="flex items-center justify-between pb-3 border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0]">
+                          <span className="text-xs text-white/70 [.light-theme_&]:!text-slate-600 font-semibold flex items-center gap-1.5 select-none">
+                            <Type className="w-3.5 h-3.5 text-blue-400 [.light-theme_&]:!text-blue-600" />
+                            字体大小
+                          </span>
+                          <div className="flex items-center gap-0.5 bg-white/10 [.light-theme_&]:!bg-[#f1f5f9] border border-white/15 [.light-theme_&]:!border-black/10 rounded-full p-1 select-none">
+                            <button
+                              type="button"
+                              onClick={() => handleSetFontSize(chatFontSize - 1)}
+                              className="w-7 h-7 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/30 text-white text-[13px] font-extrabold leading-none tracking-tight active:scale-90 transition cursor-pointer [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/10"
+                              title="缩小字号"
+                            >
+                              A-
+                            </button>
+                            <span className="w-[40px] text-center text-xs font-mono font-bold text-blue-400 [.light-theme_&]:!text-blue-600">
+                              {chatFontSize}
+                              <span className="text-[9px] font-semibold opacity-80 ml-0.5">px</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleSetFontSize(chatFontSize + 1)}
+                              className="w-7 h-7 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/30 text-white text-[13px] font-extrabold leading-none tracking-tight active:scale-90 transition cursor-pointer [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/10"
+                              title="放大字号"
+                            >
+                              A+
+                            </button>
+                          </div>
+                        </div>
+
                         <div className="flex flex-col gap-2 flex-1 min-h-0">
                           <label className="text-xs text-white/60 [.light-theme_&]:!text-slate-600 font-semibold shrink-0">
                             绑定角色获得正则效果
@@ -2108,6 +2151,9 @@ export function ChatViewer({
               exit={{ opacity: 0, scale: 0.98, y: 20 }}
               transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
               className="absolute inset-0 z-10 bg-slate-900/80 backdrop-blur-xl flex h-full pt-16 [.light-theme_&]:bg-[#FCFCFC]/80 [.light-theme_&]:backdrop-blur-3xl"
+              style={{
+                '--chat-font-size': `${chatFontSize}px`,
+              } as React.CSSProperties}
             >
               <div className="relative z-0 h-full w-full">
                 <div className="absolute inset-0">
@@ -2210,7 +2256,7 @@ export function ChatViewer({
 
                               {/* Card Body Content */}
                               <div 
-                                className="prose prose-sm sm:prose-base max-w-none chat-bubble-prose leading-relaxed break-words"
+                                className="prose max-w-none chat-bubble-prose leading-relaxed break-words"
                                 style={{ color: cardTextColor }}
                               >
                                 <MessageContent
@@ -2303,7 +2349,7 @@ export function ChatViewer({
                                 }}
                               >
                                 <div
-                                  className="prose prose-sm max-w-none chat-bubble-prose
+                                  className="prose max-w-none chat-bubble-prose
                                       prose-headings:text-inherit prose-p:leading-relaxed 
                                       prose-a:underline hover:opacity-80
                                       prose-strong:font-bold prose-code:text-pink-300
@@ -2407,6 +2453,85 @@ export function ChatViewer({
                       className="hidden"
                     />
                   </div>
+                </div>
+              </div>
+
+              {/* Font Size Settings */}
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-white/80 [.light-theme_&]:text-[#1c1c1e]/80 flex items-center gap-2">
+                    <Type className="w-4 h-4 text-blue-400 [.light-theme_&]:text-blue-600" />
+                    聊天字体大小
+                  </label>
+                  <span className="text-xs text-blue-400 [.light-theme_&]:text-blue-600 font-mono font-semibold">
+                    {chatFontSize}px {chatFontSize === 16.5 ? '(推荐)' : ''}
+                  </span>
+                </div>
+
+                {/* 快捷预设档位 */}
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { label: "紧凑", size: 14.5 },
+                    { label: "标准", size: 16.5 },
+                    { label: "舒适", size: 18 },
+                    { label: "大号", size: 20 },
+                  ].map((preset) => {
+                    const isSelected = Math.abs(chatFontSize - preset.size) < 0.6;
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => handleSetFontSize(preset.size)}
+                        className={`py-2 px-1 rounded-xl text-xs font-medium transition flex flex-col items-center gap-0.5 border cursor-pointer active:scale-95 ${
+                          isSelected
+                            ? 'bg-blue-500/20 text-blue-400 border-blue-500/50 [.light-theme_&]:bg-blue-50 [.light-theme_&]:text-blue-600 [.light-theme_&]:border-blue-300 font-bold shadow-xs'
+                            : 'bg-white/5 hover:bg-white/10 text-white/70 border-white/10 [.light-theme_&]:bg-black/5 [.light-theme_&]:hover:bg-black/10 [.light-theme_&]:text-[#1c1c1e]/70 [.light-theme_&]:border-black/5'
+                        }`}
+                      >
+                        <span>{preset.label}</span>
+                        <span className="text-[10px] opacity-70 font-mono">{preset.size}px</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* 滑块微调 */}
+                <div className="flex items-center gap-3 bg-white/5 [.light-theme_&]:bg-black/5 p-3 rounded-xl border border-white/5 [.light-theme_&]:border-black/5">
+                  <button
+                    type="button"
+                    onClick={() => handleSetFontSize(chatFontSize - 0.5)}
+                    className="w-9 h-9 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/10 [.light-theme_&]:!bg-black/[0.06] [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-black flex items-center justify-center font-extrabold text-base leading-none shrink-0 active:scale-95 transition cursor-pointer"
+                    title="缩小"
+                  >
+                    A-
+                  </button>
+                  <input
+                    type="range"
+                    min="13"
+                    max="22"
+                    step="0.5"
+                    value={chatFontSize}
+                    onChange={(e) => handleSetFontSize(parseFloat(e.target.value))}
+                    className="flex-1 accent-blue-500 cursor-pointer h-1.5 rounded-lg bg-white/20"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleSetFontSize(chatFontSize + 0.5)}
+                    className="w-9 h-9 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/10 [.light-theme_&]:!bg-black/[0.06] [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-black flex items-center justify-center font-extrabold text-base leading-none shrink-0 active:scale-95 transition cursor-pointer"
+                    title="放大"
+                  >
+                    A+
+                  </button>
+                </div>
+
+                {/* 实时效果预览 */}
+                <div 
+                  className="p-3.5 rounded-xl border border-white/10 [.light-theme_&]:border-black/10 bg-white/[0.03] [.light-theme_&]:bg-black/[0.03]"
+                  style={{ fontSize: `${chatFontSize}px`, lineHeight: 1.68 }}
+                >
+                  <p className="font-medium text-white/90 [.light-theme_&]:text-slate-900 m-0">
+                    「文字大小实时预览：在手机屏幕上阅读更清晰、更舒服，不再感到字迹微小。」
+                  </p>
                 </div>
               </div>
 
