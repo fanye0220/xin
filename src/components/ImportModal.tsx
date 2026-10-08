@@ -2613,7 +2613,6 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   </div>
                 </div>
 
-                {isAndroid() && (
                 <div className="mt-4 w-full flex justify-center">
                   <button 
                     onClick={(e) => { e.stopPropagation(); fetchTavernList(); }}
@@ -2624,7 +2623,6 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     <span className="truncate">拉取酒馆卡片</span>
                   </button>
                 </div>
-                  )}
 
                 {error && (
                   <motion.div

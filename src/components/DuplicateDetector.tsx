@@ -961,22 +961,23 @@ export function DuplicateDetector({ onClose, onSelectChar }: Props) {
                             const badgeInfo = (() => {
                               switch (group.resourceType) {
                                 case 'qr':
-                                  return { label: '快速回复 (QR)', bgCls: 'bg-cyan-500/20 text-cyan-300 [.light-theme_&]:!bg-cyan-50 [.light-theme_&]:!text-cyan-700' };
+                                  return { label: '快速回复 (QR)', dotColor: 'bg-emerald-400' };
                                 case 'worldbook':
-                                  return { label: '世界书', bgCls: 'bg-emerald-500/20 text-emerald-300 [.light-theme_&]:!bg-emerald-50 [.light-theme_&]:!text-emerald-700' };
+                                  return { label: '世界书', dotColor: 'bg-purple-400' };
                                 case 'preset':
-                                  return { label: '预设', bgCls: 'bg-amber-500/20 text-amber-300 [.light-theme_&]:!bg-amber-50 [.light-theme_&]:!text-amber-700' };
+                                  return { label: '预设', dotColor: 'bg-amber-400' };
                                 case 'script':
-                                  return { label: '脚本', bgCls: 'bg-violet-500/20 text-violet-300 [.light-theme_&]:!bg-violet-50 [.light-theme_&]:!text-violet-700' };
+                                  return { label: '脚本', dotColor: 'bg-cyan-400' };
                                 case 'theme':
-                                  return { label: '美化', bgCls: 'bg-pink-500/20 text-pink-300 [.light-theme_&]:!bg-pink-50 [.light-theme_&]:!text-pink-700' };
+                                  return { label: '美化', dotColor: 'bg-pink-400' };
                                 default:
-                                  return { label: '角色卡', bgCls: 'bg-indigo-500/20 text-indigo-300 [.light-theme_&]:!bg-indigo-50 [.light-theme_&]:!text-indigo-700' };
+                                  return { label: '角色卡', dotColor: 'bg-indigo-400' };
                               }
                             })();
                             return (
-                              <span className={`text-[11px] px-2 py-0.5 rounded-full font-bold shrink-0 ${badgeInfo.bgCls}`}>
-                                {badgeInfo.label}
+                              <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-slate-200 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#334155] font-semibold shrink-0 flex items-center gap-1.5 select-none">
+                                <span className={`w-1.5 h-1.5 rounded-full ${badgeInfo.dotColor} shrink-0`} />
+                                <span>{badgeInfo.label}</span>
                               </span>
                             );
                           })()}
