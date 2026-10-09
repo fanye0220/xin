@@ -10,8 +10,9 @@ import {
 } from 'lucide-react';
 import { 
   CharacterCard, CardVersionSnapshot, saveCharacter, 
-  getCharacters, deleteCharacter, getCharacter, getCharacterBlob,
-  getCharacterThumb, getCharacterCategoryPrefix, getResourceType, ResourceType
+  deleteCharacter, getCharacter, getCharacterBlob,
+  getCharacterThumb, getResourceType, ResourceType,
+  getCachedMeta, CharMeta
 } from '../lib/db';
 import { getCardTypeBadgeInfo } from '../lib/cardType';
 import { injectTavernData, extractTavernData } from '../lib/png';
@@ -27,27 +28,41 @@ interface Props {
 }
 
 // 候选卡片的显示名：优先卡片自身的 name，其次回退到 data 里的名字 / 导入时的文件名。
-// 有些历史卡片的 name 只存在 data 里，只按 c.name 匹配会出现"卡库里有、绑定弹窗里搜不到"。
-function getCandidateDisplayName(c: CharacterCard): string {
+function getCandidateDisplayName(c: CharacterCard | CharMeta): string {
   const inner: any = (c as any)?.data || {};
   const nested: any = inner?.data || {};
   return String(
     c?.name || nested?.name || inner?.name || inner?.char_name || c?.autoImportFilename || ""
-  ).trim();
+  ).trim() || "未命名卡片";
 }
 
 // 只保留可以归档成历史版本的候选卡：资源类型必须和当前卡片一致
-// （角色卡 ↔ 角色卡，世界书 ↔ 世界书……），避免角色卡和工具被互相绑定。
-function isBindableCandidate(c: CharacterCard, currentType: ResourceType): boolean {
+// （角色卡 ↔ 角色卡，世界书 ↔ 世界书……），优先利用 CharMeta 预计算的轻量索引，杜绝读取大字段
+function isBindableCandidate(c: CharacterCard | CharMeta, currentType: ResourceType): boolean {
   if (!c || c.deletedAt) return false;
-  const raw = c.data?.data || c.data || {};
-  if (Array.isArray(c.data) || Array.isArray(raw)) return false;
+
+  // 1. 如果是轻量索引元数据 (CharMeta) 或已有分类标记，直接毫秒级比对，零内存开销
+  if (c.category !== undefined || c.isTool !== undefined || c.isQR !== undefined) {
+    if (currentType === 'character') {
+      return !c.isTool && !c.isQR && (c.category === '未归类' || !c.category);
+    }
+    if (currentType === 'worldbook') return c.category === '世界书';
+    if (currentType === 'qr') return Boolean(c.isQR || c.category === '快速回复');
+    if (currentType === 'preset') return c.category === '预设';
+    if (currentType === 'script') return c.category === '脚本';
+    if (currentType === 'theme') return c.category === '美化';
+    return true;
+  }
+
+  // 2. 回退到普通对象检查
+  const raw = (c as any).data?.data || (c as any).data || {};
+  if (Array.isArray((c as any).data) || Array.isArray(raw)) return false;
   if ((raw as any).quick_replies || (raw as any).qrList) return false;
   return getResourceType(c) === currentType;
 }
 
 // Standalone lazy-loaded avatar component for candidate cards with viewport-driven loading
-const CandidateAvatar = React.memo(function CandidateAvatar({ char }: { char: CharacterCard }) {
+const CandidateAvatar = React.memo(function CandidateAvatar({ char }: { char: CharacterCard | CharMeta }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isInView, setIsInView] = useState(false);
   const [imgSrc, setImgSrc] = useState<string | null>(null);
@@ -82,10 +97,10 @@ const CandidateAvatar = React.memo(function CandidateAvatar({ char }: { char: Ch
       import('../lib/appBridge').then(({ getLocalImageUrl }) => {
         if (isMounted) setImgSrc(getLocalImageUrl(char.localFilePath!, char.updatedAt || char.createdAt));
       });
-    } else if (char.avatarBlob) {
-      objectUrl = URL.createObjectURL(char.avatarBlob);
+    } else if ((char as CharacterCard).avatarBlob) {
+      objectUrl = URL.createObjectURL((char as CharacterCard).avatarBlob!);
       if (isMounted) setImgSrc(objectUrl);
-    } else if (char.hasBlobsSeparated) {
+    } else {
       getCharacterThumb(char.id).then((thumb) => {
         if (!isMounted) return;
         if (thumb) {
@@ -96,21 +111,23 @@ const CandidateAvatar = React.memo(function CandidateAvatar({ char }: { char: Ch
             if (blobs?.avatarBlob && isMounted) {
               objectUrl = URL.createObjectURL(blobs.avatarBlob);
               setImgSrc(objectUrl);
+            } else if (isMounted) {
+              setImgSrc(char.avatarUrlFallback || resolveAvatarUrl(undefined, char.name));
             }
+          }).catch(() => {
+            if (isMounted) setImgSrc(char.avatarUrlFallback || resolveAvatarUrl(undefined, char.name));
           });
         }
       }).catch(() => {
-        if (isMounted) setImgSrc(defaultFallback);
+        if (isMounted) setImgSrc(char.avatarUrlFallback || resolveAvatarUrl(undefined, char.name));
       });
-    } else {
-      setImgSrc(char.avatarUrlFallback || resolveAvatarUrl(undefined, char.name));
     }
 
     return () => {
       isMounted = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [isInView, char, defaultFallback]);
+  }, [isInView, char.id, char.localFilePath, (char as CharacterCard).avatarBlob, char.avatarUrlFallback, char.name, char.updatedAt, char.createdAt, defaultFallback]);
 
   return (
     <div
@@ -321,9 +338,10 @@ export function CharacterVersionsSection({
 
   // Link existing card modal
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
-  const [candidateCards, setCandidateCards] = useState<CharacterCard[]>([]);
+  const [candidateCards, setCandidateCards] = useState<CharMeta[]>([]);
   const [linkSearchQuery, setLinkSearchQuery] = useState('');
-  const [selectedCandidate, setSelectedCandidate] = useState<CharacterCard | null>(null);
+  const [selectedCandidate, setSelectedCandidate] = useState<CharMeta | null>(null);
+  const [isLoadingCandidates, setIsLoadingCandidates] = useState(false);
   const [deleteCandidateAfterLink, setDeleteCandidateAfterLink] = useState(() => {
     const saved = localStorage.getItem('tavern_version_delete_candidate');
     return saved !== null ? saved === 'true' : true;
@@ -530,15 +548,20 @@ export function CharacterVersionsSection({
   const currentGreetingsCount = 1 + (currentData.alternate_greetings?.length || 0);
   const currentWeatherBookCount = currentData.character_book?.entries?.length || 0;
 
-  // Load candidate cards when Link Modal opens
+  // Load candidate cards when Link Modal opens using lightweight CharMeta cache
   useEffect(() => {
     if (!isLinkModalOpen) return;
     let isMounted = true;
-    getCharacters(1, 10000, undefined, "", [], "newest_import", false, true).then(res => {
+    setIsLoadingCandidates(true);
+    getCachedMeta().then(allMeta => {
       if (!isMounted) return;
       const currentType = getResourceType(character);
-      const available = res.characters.filter(c => c.id !== character.id && isBindableCandidate(c, currentType));
+      const available = allMeta.filter(c => c.id !== character.id && isBindableCandidate(c, currentType));
       setCandidateCards(available);
+      setIsLoadingCandidates(false);
+    }).catch(err => {
+      console.error('Failed to load candidate cards:', err);
+      if (isMounted) setIsLoadingCandidates(false);
     });
     return () => { isMounted = false; };
   }, [isLinkModalOpen, character.id]);
@@ -560,8 +583,7 @@ export function CharacterVersionsSection({
       list = list.filter(c => 
         getCandidateDisplayName(c).toLowerCase().includes(q) ||
         (c.autoImportFilename || '').toLowerCase().includes(q) ||
-        (c.data?.creator || '').toLowerCase().includes(q) ||
-        (c.data?.data?.creator || '').toLowerCase().includes(q)
+        (c.tags || []).some(t => t.toLowerCase().includes(q))
       );
     }
 
@@ -573,8 +595,8 @@ export function CharacterVersionsSection({
       if (aIsExact && !bIsExact) return -1;
       if (!aIsExact && bIsExact) return 1;
 
-      const aIsSub = aName.includes(currName) || currName.includes(aName);
-      const bIsSub = bName.includes(currName) || currName.includes(bName);
+      const aIsSub = Boolean(currName && (aName.includes(currName) || currName.includes(aName)));
+      const bIsSub = Boolean(currName && (bName.includes(currName) || currName.includes(bName)));
       if (aIsSub && !bIsSub) return -1;
       if (!aIsSub && bIsSub) return 1;
 
@@ -1566,15 +1588,21 @@ export function CharacterVersionsSection({
                   onScroll={handleCandidateScroll}
                   className="flex-1 overflow-y-auto space-y-2 sm:space-y-2.5 pr-1 my-2 max-h-[42vh] custom-scrollbar relative z-10"
                 >
-                  {filteredCandidates.length === 0 ? (
+                  {isLoadingCandidates ? (
+                    <div className="py-12 text-center text-sm version-modal-desc flex items-center justify-center gap-2">
+                      <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin opacity-70" />
+                      <span>正在检索卡库候选卡...</span>
+                    </div>
+                  ) : filteredCandidates.length === 0 ? (
                     <div className="py-12 text-center text-sm version-modal-desc">
                       没有找到符合条件的角色卡片
                     </div>
                   ) : (
                     visibleCandidates.map(c => {
                       const isSelected = selectedCandidate?.id === c.id;
-                      const cData = c.data?.data || c.data || {};
-                      const ver = cData.character_version || c.data?.character_version || '1.0';
+                      const tokenStr = c.tokenCount !== undefined && c.tokenCount > 0 
+                        ? `${c.tokenCount.toLocaleString()} Tokens` 
+                        : null;
 
                       return (
                         <div
@@ -1591,12 +1619,11 @@ export function CharacterVersionsSection({
                                 <h4 className="font-bold text-sm sm:text-base truncate version-candidate-name">
                                   {getCandidateDisplayName(c)}
                                 </h4>
-                                <span className="text-xs px-2 py-0.5 rounded-full font-mono font-semibold version-candidate-badge shrink-0">
-                                  v{ver}
-                                </span>
                               </div>
                               <p className="text-xs truncate mt-1 font-normal version-candidate-sub">
-                                修改: {new Date(c.fileModifiedAt || c.updatedAt || c.createdAt).toLocaleDateString()} · 描述: {(cData.description || '').length}字
+                                修改: {new Date(c.fileModifiedAt || c.updatedAt || c.createdAt).toLocaleDateString()}
+                                {tokenStr ? ` · ${tokenStr}` : ''}
+                                {c.tags && c.tags.length > 0 ? ` · ${c.tags.slice(0, 2).join(', ')}` : ''}
                               </p>
                             </div>
                           </div>
@@ -1611,7 +1638,7 @@ export function CharacterVersionsSection({
                     })
                   )}
 
-                  {visibleCandidates.length < filteredCandidates.length && (
+                  {!isLoadingCandidates && visibleCandidates.length < filteredCandidates.length && (
                     <div className="py-2 text-center text-xs version-modal-desc">
                       下滑查看更多角色卡 ({visibleCandidates.length} / {filteredCandidates.length})...
                     </div>
