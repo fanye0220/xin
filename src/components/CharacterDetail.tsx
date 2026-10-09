@@ -136,8 +136,8 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
 
   const [showTokenBreakdownModal, setShowTokenBreakdownModal] = useState(false);
   const tokenBreakdown = useMemo(() => {
-    return getCharacterTokenBreakdown(character);
-  }, [character]);
+    return getCharacterTokenBreakdown(character?.data ?? character);
+  }, [character?.data]);
 
   const hasDetailOverlay = Boolean(
     showTokenBreakdownModal ||
@@ -219,35 +219,41 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         }
 
         // Authenticate real modification time from file metadata / PNG chunks
-        try {
-          const { resolveCharacterModifiedTime } = await import('../lib/fileDate');
-          let imgBuf: ArrayBuffer | null = null;
-          if (char.avatarBlob) {
-            try { imgBuf = await char.avatarBlob.arrayBuffer(); } catch (e) {}
-          } else if (char.originalFile) {
-            try { imgBuf = await char.originalFile.arrayBuffer(); } catch (e) {}
-          } else if (char.localFilePath) {
-            try {
-              const { readLocalFileBuffer } = await import('../lib/appBridge');
-              imgBuf = await readLocalFileBuffer(char.localFilePath);
-            } catch (e) {}
-          }
-
-          const resolved = resolveCharacterModifiedTime(char, imgBuf);
-          if (resolved) {
-            setResolvedModifiedDate(new Date(resolved));
-            if (!char.fileModifiedAt || char.fileModifiedAt !== resolved) {
-              char.fileModifiedAt = resolved;
-              saveCharacter(char).catch(console.error);
+        // 已经记过真实修改时间的卡就不要再把整张头像读进内存重解析一遍了 ——
+        // 每打开一次详情页都读一次大图, 正是详情页发卡的来源之一。
+        if (char.fileModifiedAt) {
+          setResolvedModifiedDate(new Date(char.fileModifiedAt));
+        } else {
+          try {
+            const { resolveCharacterModifiedTime } = await import('../lib/fileDate');
+            let imgBuf: ArrayBuffer | null = null;
+            if (char.avatarBlob) {
+              try { imgBuf = await char.avatarBlob.arrayBuffer(); } catch (e) {}
+            } else if (char.originalFile) {
+              try { imgBuf = await char.originalFile.arrayBuffer(); } catch (e) {}
+            } else if (char.localFilePath) {
+              try {
+                const { readLocalFileBuffer } = await import('../lib/appBridge');
+                imgBuf = await readLocalFileBuffer(char.localFilePath);
+              } catch (e) {}
             }
-          } else if (char.originalFile?.lastModified) {
-            setResolvedModifiedDate(new Date(char.originalFile.lastModified));
-          } else {
-            setResolvedModifiedDate(null);
-          }
-        } catch (e) {
-          if (char.originalFile?.lastModified) {
-            setResolvedModifiedDate(new Date(char.originalFile.lastModified));
+
+            const resolved = resolveCharacterModifiedTime(char, imgBuf);
+            if (resolved) {
+              setResolvedModifiedDate(new Date(resolved));
+              if (char.fileModifiedAt !== resolved) {
+                char.fileModifiedAt = resolved;
+                saveCharacter(char).catch(console.error);
+              }
+            } else if (char.originalFile?.lastModified) {
+              setResolvedModifiedDate(new Date(char.originalFile.lastModified));
+            } else {
+              setResolvedModifiedDate(null);
+            }
+          } catch (e) {
+            if (char.originalFile?.lastModified) {
+              setResolvedModifiedDate(new Date(char.originalFile.lastModified));
+            }
           }
         }
       }

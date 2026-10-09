@@ -381,32 +381,47 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
   const loadDuplicates = useCallback(async (showSpinner: boolean = true) => {
     if (showSpinner) setLoading(true);
     lastScanAtRef.current = Date.now();
-    const signature = await computeMetaSignature();
-    const groups = await findDuplicates();
-    
-    // 包含普通角色卡以及工具区预设、世界书、脚本等所有资源
-    const filteredGroups = groups.filter(group => group.characters.length > 0);
-
     try {
-      const { resolveFolderPath } = await import('../lib/db');
-      const pathMap: Record<string, string> = {};
-      for (const group of filteredGroups) {
-        for (const item of group.characters) {
-          if (item.char.folderId) {
-            pathMap[item.char.id] = await resolveFolderPath(item.char.folderId);
-          } else {
-            pathMap[item.char.id] = "主页 未分类";
+      const signature = await computeMetaSignature();
+      const groups = await findDuplicates();
+
+      // 包含普通角色卡以及工具区预设、世界书、脚本等所有资源
+      const filteredGroups = groups.filter(group => group.characters.length > 0);
+
+      lastSignatureRef.current = signature;
+      setDuplicateGroups(filteredGroups);
+      setLoading(false);
+
+      // 文件夹路径只是展示用的附加信息, 放到列表渲染之后再补, 不要拖着首屏转圈。
+      try {
+        const { resolveFolderPath } = await import('../lib/db');
+        const pathCache = new Map<string, string>();
+        const pathMap: Record<string, string> = {};
+        for (const group of filteredGroups) {
+          for (const item of group.characters) {
+            const folderId = item.char.folderId;
+            if (!folderId) {
+              pathMap[item.char.id] = "主页 未分类";
+              continue;
+            }
+            let path = pathCache.get(folderId);
+            if (path === undefined) {
+              path = await resolveFolderPath(folderId);
+              pathCache.set(folderId, path);
+            }
+            pathMap[item.char.id] = path;
           }
         }
+        setFolderPathMap(pathMap);
+      } catch (e) {
+        console.error("加载文件夹路径出错:", e);
       }
-      setFolderPathMap(pathMap);
     } catch (e) {
-      console.error("加载文件夹路径出错:", e);
+      // 扫描失败也必须收起加载态, 否则面板会永远停在"转圈"上。
+      console.error("查重扫描失败:", e);
+      lastSignatureRef.current = null;
+      setLoading(false);
     }
-
-    lastSignatureRef.current = signature;
-    setDuplicateGroups(filteredGroups);
-    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -765,7 +780,56 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
   }, [currentTabGroups, typeFilter]);
 
   const totalPages = Math.ceil(currentGroups.length / pageSize) || 1;
-  const paginatedGroups = currentGroups.slice((page - 1) * pageSize, page * pageSize);
+  const paginatedGroups = React.useMemo(
+    () => currentGroups.slice((page - 1) * pageSize, page * pageSize),
+    [currentGroups, page]
+  );
+
+  // 每张卡的内容指纹 / 完整度评分原本是在 render 里现算的, 组内还算了一次
+  // Math.max(...map(score)) —— 一个几百张卡的重复组就是近十万次全文扫描, 每敲一个
+  // 字都会重跑一遍, 表现出来就是"一直在转圈"。这里按当前页数据只算一次, 渲染查表。
+  const cardStats = React.useMemo(() => {
+    const map = new Map<string, {
+      sig: string;
+      completeness: ReturnType<typeof computeCompletenessScore>;
+      hasQR: boolean;
+      hasSource: boolean;
+      hasNotes: boolean;
+    }>();
+    for (const group of paginatedGroups) {
+      for (const dupChar of group.characters) {
+        const char = dupChar.char;
+        if (map.has(char.id)) continue;
+        const targetData: any = char.data?.data ? char.data.data : char.data;
+        map.set(char.id, {
+          sig: getCardContentSignature(char, group.resourceType),
+          completeness: computeCompletenessScore(char, group.resourceType),
+          hasQR: (targetData?.extensions?.quick_replies?.length || 0) > 0,
+          hasSource: !!(targetData?.extensions?.source || targetData?.source),
+          hasNotes: !!targetData?.creator_notes,
+        });
+      }
+    }
+    return map;
+  }, [paginatedGroups]);
+
+  const groupStats = React.useMemo(() => {
+    const perGroup = new Map<string, { maxScore: number; buckets: Map<string, CharacterCard[]> }>();
+    for (const group of paginatedGroups) {
+      const buckets = new Map<string, CharacterCard[]>();
+      let maxScore = -Infinity;
+      for (const dupChar of group.characters) {
+        const stat = cardStats.get(dupChar.char.id);
+        if (!stat) continue;
+        if (stat.completeness.score > maxScore) maxScore = stat.completeness.score;
+        const list = buckets.get(stat.sig) || [];
+        list.push(dupChar.char);
+        buckets.set(stat.sig, list);
+      }
+      perGroup.set(group.id, { maxScore, buckets });
+    }
+    return perGroup;
+  }, [paginatedGroups, cardStats]);
 
   const allSelectableIds = React.useMemo(() => {
     const ids: string[] = [];
@@ -981,13 +1045,7 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
                   const sig = getGroupSignature(group);
                   const isStashed = stashedGroupSignatures.has(sig);
 
-                  const sigBuckets = new Map<string, CharacterCard[]>();
-                  group.characters.forEach(c => {
-                    const cSig = getCardContentSignature(c.char, group.resourceType);
-                    const list = sigBuckets.get(cSig) || [];
-                    list.push(c.char);
-                    sigBuckets.set(cSig, list);
-                  });
+                  const sigBuckets = groupStats.get(group.id)?.buckets || new Map<string, CharacterCard[]>();
                   let groupRedundantCount = 0;
                   sigBuckets.forEach(b => {
                     if (b.length > 1) groupRedundantCount += (b.length - 1);
@@ -1069,13 +1127,14 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
                         {group.characters.map(dupChar => {
                           const char = dupChar.char;
                           const reason = dupChar.reason;
-                          const cardSig = getCardContentSignature(char, group.resourceType);
+                          const stat = cardStats.get(char.id);
+                          const cardSig = stat?.sig || "";
                           const sameSigCards = sigBuckets.get(cardSig) || [];
                           const isDeputyVersion = sameSigCards.length > 1 && sameSigCards[0].id !== char.id;
                           const targetData = char.data.data ? char.data.data : char.data;
-                          const hasQR = targetData.extensions?.quick_replies?.length > 0;
-                          const hasSource = !!(targetData.extensions?.source || targetData.source);
-                          const hasNotes = !!targetData.creator_notes;
+                          const hasQR = stat?.hasQR || false;
+                          const hasSource = stat?.hasSource || false;
+                          const hasNotes = stat?.hasNotes || false;
                           const modifiedTime = char.fileModifiedAt || char.originalFile?.lastModified || char.updatedAt || char.createdAt;
                           const modifiedDate = new Date(modifiedTime);
 
@@ -1083,8 +1142,8 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
                           const isLocked = lockedIds.has(char.id);
                           const folderPath = folderPathMap[char.id] || (char.folderId ? "分类文件夹" : "主页 (未分类)");
 
-                          const completeness = computeCompletenessScore(char, group.resourceType);
-                          const maxScoreInGroup = Math.max(...group.characters.map(c => computeCompletenessScore(c.char, group.resourceType).score));
+                          const completeness = stat?.completeness ?? computeCompletenessScore(char, group.resourceType);
+                          const maxScoreInGroup = groupStats.get(group.id)?.maxScore ?? -Infinity;
                           const isMostComplete = group.characters.length > 1 && completeness.score === maxScoreInGroup;
 
                           return (

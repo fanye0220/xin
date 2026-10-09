@@ -475,7 +475,15 @@ export async function exportAllDataForBackup(onProgress: (msg: string) => void):
         if (snap.completeCardPngBlob) {
           zip.file(`${folderPath}/Versions/${snap.id}.png`, snap.completeCardPngBlob, { compression: "STORE" });
         } else if (snap.avatarBlob) {
-          zip.file(`${folderPath}/Versions/${snap.id}.png`, snap.avatarBlob, { compression: "STORE" });
+          // 快照不再持久化整张 PNG(体积太大), 这里现把角色数据写回头像,
+          // 保证导出/备份出来的仍然是能重新导入酒馆的完整角色卡。
+          try {
+            const { injectTavernData } = await import("./png");
+            const arrayBuf = await snap.avatarBlob.arrayBuffer();
+            zip.file(`${folderPath}/Versions/${snap.id}.png`, injectTavernData(arrayBuf, snap.data), { compression: "STORE" });
+          } catch {
+            zip.file(`${folderPath}/Versions/${snap.id}.png`, snap.avatarBlob, { compression: "STORE" });
+          }
         }
       }
     }

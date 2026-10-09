@@ -1133,11 +1133,29 @@ export async function getCachedMeta(): Promise<CharMeta[]> {
   if (cachedMeta) return cachedMeta;
 
   if (isBuildingCache) {
-    while (isBuildingCache) await new Promise((r) => setTimeout(r, 50));
+    // 等待正在进行的重建, 但设一个上限: 万一上次重建中途抛错导致标志位没复位,
+    // 也不能让整个列表永远卡在"转圈"状态里。
+    const waitStart = Date.now();
+    while (isBuildingCache && Date.now() - waitStart < 30000) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
     if (cachedMeta) return cachedMeta;
+    // 兜底: 强制复位, 由本次调用自己重建, 避免死锁。
+    isBuildingCache = false;
   }
   isBuildingCache = true;
 
+  try {
+    cachedMeta = await buildMetaCache();
+  } finally {
+    // 用 try/finally 保证标志位一定复位: 任何一步抛错(比如内存不足)都不会让
+    // 后续所有调用永久卡在"等待重建"上。
+    isBuildingCache = false;
+  }
+  return cachedMeta;
+}
+
+async function buildMetaCache(): Promise<CharMeta[]> {
   const db = await initDB();
   let newMeta = await db.getAll("char_meta");
 
@@ -1172,7 +1190,10 @@ export async function getCachedMeta(): Promise<CharMeta[]> {
     const updatedCharsToWrite: CharacterCard[] = [];
     newMeta = [];
 
+    let processed = 0;
     for (const char of allChars) {
+      // 重建索引是重活, 定期让出主线程, 避免首次升级/修复时整个界面卡住。
+      if (++processed % 50 === 0) await new Promise((r) => setTimeout(r, 0));
       // 过滤空无内容的无效幽灵数据
       const data = char.data?.data || char.data || {};
       const charName = char.name || data.name || data.char_name;
@@ -1244,7 +1265,6 @@ export async function getCachedMeta(): Promise<CharMeta[]> {
   }
 
   cachedMeta = newMeta;
-  isBuildingCache = false;
   return cachedMeta;
 }
 
@@ -1670,6 +1690,27 @@ export async function saveCharacter(character: CharacterCard): Promise<void> {
   return saveCharacters([character]);
 }
 
+/**
+ * 判断两个二进制资源是不是"同一张图"。这里不能用对象引用比较: 每次从 IndexedDB
+ * 读出来的 Blob 都是新对象, 直接比引用会把"根本没换过头像"误判成换过头像, 于是
+ * 白白清掉缩略图缓存 + 触发一次全量安卓图库同步 —— 详情页打开、版本切换/绑定
+ * 之后的卡顿很大一部分就是这么来的。退回到体积 + MIME 比较(有文件名/修改时间时
+ * 一并比较)。
+ */
+function isSameBinary(a?: Blob | File | null, b?: Blob | File | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.size !== b.size) return false;
+  if ((a.type || "") !== (b.type || "")) return false;
+  const aName = (a as File).name;
+  const bName = (b as File).name;
+  if (aName !== undefined && bName !== undefined) {
+    if (aName !== bName) return false;
+    if ((a as File).lastModified !== (b as File).lastModified) return false;
+  }
+  return true;
+}
+
 export async function saveCharacters(
   characters: CharacterCard[],
   cleanupAndroidPaths?: string[],
@@ -1753,7 +1794,7 @@ export async function saveCharacters(
       if (existingBlobs) {
         if (
           character.avatarBlob !== undefined &&
-          character.avatarBlob !== existingBlobs.avatarBlob
+          !isSameBinary(character.avatarBlob, existingBlobs.avatarBlob)
         ) {
           (character as any)._isExplicitAvatarUpdate = true;
         }
@@ -1811,6 +1852,17 @@ export async function saveCharacters(
     delete charToSave.avatarBlob;
     delete charToSave.originalFile;
     delete charToSave.avatarHistory;
+    // 版本快照里的 completeCardPngBlob 是把头像 + 酒馆数据现合成的整张 PNG,
+    // 体积和头像同级。它完全可以从 snap.avatarBlob + snap.data 现推出来(导入
+    // /导出/云备份等所有出口都有现推分支), 所以不存进库 —— 否则每张卡的历史
+    // 版本都会让 characters 这行膨胀好几倍, 全表读取/写库因此爆炸。
+    if (Array.isArray(charToSave.versionHistory) && charToSave.versionHistory.length > 0) {
+      charToSave.versionHistory = charToSave.versionHistory.map((snap) => {
+        if (!snap || !snap.completeCardPngBlob) return snap;
+        const { completeCardPngBlob: _drop, ...rest } = snap;
+        return rest as CardVersionSnapshot;
+      });
+    }
     delete (charToSave as any)._isExplicitAvatarUpdate;
     delete (charToSave as any)._oldFolderId;
     delete (charToSave as any)._wasDeleted;
@@ -2506,13 +2558,35 @@ export function normalizeCardBaseName(rawName: string): string {
   return s.trim() || rawName.trim();
 }
 
+interface DuplicateScanEntry {
+  id: string;
+  resType: ResourceType;
+  baseName: string;
+  isGenericName: boolean;
+  descHash: string;
+  firstHash: string;
+  descLen: number;
+  firstLen: number;
+}
+
+/**
+ * 给超长正文算一个短指纹当 Map key 用。查重以前直接把"设定 + 开场白"的全文拼成
+ * key 塞进 Map, 卡一多就是几十 MB 的字符串长期驻留内存, 光哈希这些 key 就能把
+ * 主线程堵死。这里换成 64 位量级哈希 + 长度, 等值判断的效果和全文 key 等价。
+ */
+function hashForDuplicateKey(input: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < input.length; i++) {
+    const code = input.charCodeAt(i);
+    h1 = Math.imul(h1 ^ code, 16777619);
+    h2 = Math.imul(h2 + code, 2246822519);
+  }
+  return `${(h1 >>> 0).toString(16)}${(h2 >>> 0).toString(16)}-${input.length.toString(16)}`;
+}
+
 export async function findDuplicates(): Promise<DuplicateGroup[]> {
   const db = await initDB();
-
-  const tx = db.transaction("characters", "readonly");
-  const store = tx.store;
-  const allChars = await store.getAll();
-  await tx.done;
 
   // 加载文件夹映射，确保能准确识别位于特定工具文件夹中的卡片类型
   const foldersTx = db.transaction("folders", "readonly");
@@ -2522,9 +2596,6 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
   for (const f of allFolders) {
     foldersMap.set(f.id, f.name);
   }
-
-  const precomputed: any[] = [];
-  const charMap = new Map<string, CharacterCard>();
 
   const GENERIC_NAMES = new Set([
     "",
@@ -2539,16 +2610,19 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
     "新建角色",
   ]);
 
-  for (const char of allChars) {
+  // 流式扫描: 逐条读到就地把正文压成短指纹, 不在内存里留下一整张卡的完整对象
+  // (旧写法 getAll() 会把整张表连同历史版本一起拉进内存, 大卡库下直接卡死)。
+  const precomputed: DuplicateScanEntry[] = [];
+  const scanTx = db.transaction("characters", "readonly");
+  let cursor = await scanTx.store.openCursor();
+  while (cursor) {
+    const char = cursor.value as CharacterCard;
     if (!char.deletedAt) {
-      charMap.set(char.id, char);
-      const resType = getResourceType(char, foldersMap);
       const data = char.data?.data || char.data || {};
-      const firstMes = data.first_mes || "";
-      const desc = data.description || "";
+      const firstMes = String(data.first_mes || "");
+      const desc = String(data.description || "");
       const rawName = (char.name || data.name || "").trim();
       const baseName = normalizeCardBaseName(rawName).toLowerCase();
-      const isGenericName = GENERIC_NAMES.has(baseName);
 
       // Support presets, worldbooks, and other tool types content matching
       let extraContent = "";
@@ -2568,16 +2642,21 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
 
       precomputed.push({
         id: char.id,
-        resType,
-        rawName,
+        resType: getResourceType(char, foldersMap),
         baseName,
-        isGenericName,
-        descClean,
-        firstClean,
-        bothEmpty: !descClean && !firstClean,
+        isGenericName: GENERIC_NAMES.has(baseName),
+        descHash: descClean ? hashForDuplicateKey(descClean) : "",
+        firstHash: firstClean ? hashForDuplicateKey(firstClean) : "",
+        descLen: descClean.length,
+        firstLen: firstClean.length,
       });
     }
+    cursor = await cursor.continue();
   }
+  await scanTx.done;
+
+  const entryById = new Map<string, DuplicateScanEntry>();
+  for (const item of precomputed) entryById.set(item.id, item);
 
   // 并查集 (Union-Find) 关联所有同名/重名/迭代/内容重复的卡片
   const parent = new Map<string, string>();
@@ -2617,22 +2696,22 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
       baseNameMap.set(key, list);
     }
 
-    if (item.descClean && item.firstClean && (item.descClean.length > 20 || item.firstClean.length > 20)) {
-      const key = `${item.resType}:::${item.descClean}|${item.firstClean}`;
+    if (item.descHash && item.firstHash && (item.descLen > 20 || item.firstLen > 20)) {
+      const key = `${item.resType}:::${item.descHash}|${item.firstHash}`;
       const list = contentMap.get(key) || [];
       list.push(item.id);
       contentMap.set(key, list);
     }
 
-    if (item.baseName && item.descClean) {
-      const key = `${item.resType}:::${item.baseName}|${item.descClean}`;
+    if (item.baseName && item.descHash) {
+      const key = `${item.resType}:::${item.baseName}|${item.descHash}`;
       const list = nameDescMap.get(key) || [];
       list.push(item.id);
       nameDescMap.set(key, list);
     }
 
-    if (item.baseName && item.firstClean) {
-      const key = `${item.resType}:::${item.baseName}|${item.firstClean}`;
+    if (item.baseName && item.firstHash) {
+      const key = `${item.resType}:::${item.baseName}|${item.firstHash}`;
       const list = nameFirstMap.get(key) || [];
       list.push(item.id);
       nameFirstMap.set(key, list);
@@ -2669,12 +2748,11 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
   for (const groupIds of rawGroups) {
     const byType = new Map<ResourceType, string[]>();
     for (const id of groupIds) {
-      const char = charMap.get(id);
-      if (!char) continue;
-      const type = getResourceType(char, foldersMap);
-      const list = byType.get(type) || [];
+      const entry = entryById.get(id);
+      if (!entry) continue;
+      const list = byType.get(entry.resType) || [];
       list.push(id);
-      byType.set(type, list);
+      byType.set(entry.resType, list);
     }
     for (const [_, typedIds] of byType.entries()) {
       if (typedIds.length > 1) {
@@ -2684,28 +2762,17 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
   }
 
   const finalGroups: DuplicateGroup[] = [];
+  const fetchTx = db.transaction("characters", "readonly");
+  const fetchStore = fetchTx.store;
 
   for (const groupIds of strictlySeparatedGroups) {
     const groupChars: CharacterCard[] = [];
     for (const id of groupIds) {
-      const char = charMap.get(id);
-      if (char) groupChars.push(char);
+      const char = await fetchStore.get(id);
+      if (char && !char.deletedAt) groupChars.push(char);
     }
 
     if (groupChars.length === 0) continue;
-
-    await Promise.all(
-      groupChars.map(async (char) => {
-        if (char.hasBlobsSeparated) {
-          const blobs = await db.get("blobs", char.id);
-          if (blobs) {
-            char.avatarBlob = blobs.avatarBlob;
-            char.originalFile = blobs.originalFile;
-            char.avatarHistory = blobs.avatarHistory;
-          }
-        }
-      }),
-    );
 
     const groupResType = getResourceType(groupChars[0], foldersMap);
     const sorted = [...groupChars].sort((a, b) => a.createdAt - b.createdAt);
@@ -2853,6 +2920,7 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
     });
   }
 
+  await fetchTx.done;
   return finalGroups;
 }
 

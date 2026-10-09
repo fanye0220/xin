@@ -1280,7 +1280,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
           saveChatsBulk,
           cleanupEmptyFolders,
         } = await import("../lib/db");
-        const { characters: existingChars } = await getCharacters(1, 10000);
+        // 这里只拿"同名卡自动归类 / 聊天记录对号"要用的 name / folderId / 文件名,
+        // 不需要正文和头像大图, 走轻量索引即可, 大卡库导入时快很多。
+        const { characters: existingChars } = await getCharacters(1, 10000, undefined, "", [], "newest_import", false, false);
         const existingFolders = await getFolders();
         const existingMeta = await getCachedMeta();
         const { extractImageTimestamp, extractDateFromCardData } = await import(
