@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Image as ImageIcon, Sparkles, Upload, RotateCcw, Loader2, Search } from "lucide-react";
 import { Folder, CharacterCard, getCharacters, getCharacterThumb } from "../lib/db";
-import { getFallbackAvatar, resolveAvatarUrl } from "../lib/avatar";
+import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from "../lib/avatar";
 import { peekCachedUrl, putCachedBlobUrl } from "../lib/thumbCache";
 import { useBackHandler } from "../lib/useBackHandler";
 
@@ -38,9 +38,11 @@ const CoverPickerItem = React.memo(function CoverPickerItem({
   useEffect(() => {
     let isMounted = true;
     if (char.avatarBlob) {
-      const objUrl = URL.createObjectURL(char.avatarBlob);
-      blobUrlRef.current = objUrl;
-      setUrl(objUrl);
+      const objUrl = safeCreateObjectURL(char.avatarBlob);
+      if (objUrl) {
+        blobUrlRef.current = objUrl;
+        setUrl(objUrl);
+      }
     } else if (char.hasBlobsSeparated) {
       const thumbKey = `${char.id}:${char.updatedAt || 0}`;
       const cached = peekCachedUrl(thumbKey);

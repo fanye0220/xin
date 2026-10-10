@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Folder } from "../lib/db";
-import { getFallbackAvatar } from "../lib/avatar";
+import { getFallbackAvatar, safeCreateObjectURL } from "../lib/avatar";
 import { Folder as FolderIcon, Sparkles, Plus } from "lucide-react";
 
 export interface FolderPreviewItem {
@@ -29,10 +29,12 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
 
   useEffect(() => {
     if (folder.avatarBlob) {
-      const objectUrl = URL.createObjectURL(folder.avatarBlob);
+      const objectUrl = safeCreateObjectURL(folder.avatarBlob);
       setCustomAvatarUrl(objectUrl);
       return () => {
-        URL.revokeObjectURL(objectUrl);
+        if (objectUrl && objectUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(objectUrl);
+        }
       };
     } else {
       setCustomAvatarUrl(null);

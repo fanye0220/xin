@@ -47,6 +47,23 @@ export function resolveAvatarUrl(avatarFallback: string | undefined | null, seed
  */
 export function safeCreateObjectURL(blob: any): string | null {
   if (!blob) return null;
+  
+  // 如果本身就是合法的 URL 字符串(如 data: 或 blob: 或 http 或 本地路径), 直接返回
+  if (typeof blob === 'string') {
+    const trimmed = blob.trim();
+    if (
+      trimmed.startsWith('blob:') ||
+      trimmed.startsWith('data:') ||
+      trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://') ||
+      trimmed.startsWith('/') ||
+      trimmed.startsWith('file:')
+    ) {
+      return trimmed;
+    }
+    return null;
+  }
+
   try {
     if (blob instanceof Blob || blob instanceof File) {
       return URL.createObjectURL(blob);
@@ -55,21 +72,41 @@ export function safeCreateObjectURL(blob: any): string | null {
       return URL.createObjectURL(new Blob([blob]));
     }
     if (ArrayBuffer.isView(blob)) {
-      return URL.createObjectURL(new Blob([blob.buffer]));
+      const view = blob as any;
+      if (view.buffer && view.buffer instanceof ArrayBuffer) {
+        const sliced = view.buffer.slice(view.byteOffset || 0, (view.byteOffset || 0) + (view.byteLength || 0));
+        return URL.createObjectURL(new Blob([sliced]));
+      }
+      return URL.createObjectURL(new Blob([blob as any]));
     }
     if (typeof blob === 'object') {
       if (blob.buffer && blob.buffer instanceof ArrayBuffer) {
-        return URL.createObjectURL(new Blob([blob.buffer]));
+        const offset = blob.byteOffset || 0;
+        const length = blob.byteLength || blob.buffer.byteLength;
+        return URL.createObjectURL(new Blob([blob.buffer.slice(offset, offset + length)]));
       }
       if (Array.isArray(blob.data)) {
         return URL.createObjectURL(new Blob([new Uint8Array(blob.data)]));
       }
-      if ('size' in blob && 'type' in blob) {
-        return URL.createObjectURL(new Blob([blob as any]));
+      if (blob._data || blob.data) {
+        const d = blob._data || blob.data;
+        if (d instanceof ArrayBuffer || ArrayBuffer.isView(d)) {
+          return safeCreateObjectURL(d);
+        }
+        if (Array.isArray(d)) {
+          return URL.createObjectURL(new Blob([new Uint8Array(d)]));
+        }
+      }
+      // 尝试原生 createObjectURL (例如 Worker/Polyfill 或跨 frame 传过来的 Blob)
+      try {
+        return URL.createObjectURL(blob);
+      } catch {
+        // 如果原生失败，尝试包装进 Blob
+        return URL.createObjectURL(new Blob([blob]));
       }
     }
   } catch (err) {
-    console.warn('safeCreateObjectURL error:', err);
+    console.warn('safeCreateObjectURL handled error:', err);
   }
   return null;
 }

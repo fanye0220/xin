@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { getAuth } from 'firebase/auth';
 import { getCharacter, getFolders, getCachedMeta, getChatsForCharacter, getChatById, isActualCharacterCard } from './db';
+import { safeCreateObjectURL } from './avatar';
 import { uploadBlobToDrive } from './driveUpload';
 
 const CLOUD_FOLDER_NAME = 'AIs_Studio_Cloud_Cards';
@@ -137,7 +138,8 @@ async function blobToBase64(blob: Blob): Promise<string> {
 async function generateThumbnail(blob: Blob): Promise<string | null> {
   return new Promise((resolve) => {
     const img = new Image();
-    const url = URL.createObjectURL(blob);
+    const url = safeCreateObjectURL(blob);
+    if (!url) return resolve(null);
     img.onload = () => {
       const canvas = document.createElement('canvas');
       const MAX_WIDTH = 256;
@@ -163,25 +165,24 @@ async function generateThumbnail(blob: Blob): Promise<string | null> {
       ctx.drawImage(img, 0, 0, width, height);
       
       const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-      URL.revokeObjectURL(url);
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
       
       const b64 = dataUrl.split(',')[1];
       resolve(b64);
     };
     img.onerror = () => {
-      URL.revokeObjectURL(url);
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
       resolve(null);
     };
     img.src = url;
   });
 }
 
-
-
 async function convertToPNG(blob: Blob): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    const url = URL.createObjectURL(blob);
+    const url = safeCreateObjectURL(blob);
+    if (!url) return reject(new Error('Failed to create object URL for PNG conversion'));
     img.onload = () => {
       const canvas = document.createElement('canvas');
       canvas.width = img.width;
@@ -189,13 +190,13 @@ async function convertToPNG(blob: Blob): Promise<Blob> {
       const ctx = canvas.getContext('2d');
       if (ctx) ctx.drawImage(img, 0, 0);
       canvas.toBlob((b) => {
-        URL.revokeObjectURL(url);
+        if (url.startsWith('blob:')) URL.revokeObjectURL(url);
         if (b) resolve(b);
         else reject(new Error("Canvas toBlob failed"));
       }, 'image/png');
     };
     img.onerror = () => {
-      URL.revokeObjectURL(url);
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
       reject(new Error("Image load failed"));
     };
     img.src = url;

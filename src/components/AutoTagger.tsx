@@ -1,4 +1,4 @@
-import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
+import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Tag, Play, CheckCircle2, Loader2, AlertCircle, Pause, Square, PlayCircle, RefreshCw, X, ArrowRightLeft, History, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -36,14 +36,14 @@ function RetagReviewCard({ item }: { item: RetagReviewItem }) {
         if(isMounted) setAvatarUrl(getLocalImageUrl(item.char.localFilePath!, item.char.updatedAt || item.char.createdAt));
       });
     } else if (item.char.avatarBlob) {
-      url = URL.createObjectURL(item.char.avatarBlob);
-      if(isMounted) setAvatarUrl(url);
+      url = safeCreateObjectURL(item.char.avatarBlob) || undefined;
+      if(isMounted && url) setAvatarUrl(url);
     } else if (item.char.hasBlobsSeparated) {
       import('../lib/db').then(({ getCharacterBlob }) => {
         getCharacterBlob(item.char.id).then(blobs => {
           if (blobs?.avatarBlob && isMounted) {
-            url = URL.createObjectURL(blobs.avatarBlob);
-            setAvatarUrl(url);
+            url = safeCreateObjectURL(blobs.avatarBlob) || undefined;
+            if (url) setAvatarUrl(url);
           }
         });
       });

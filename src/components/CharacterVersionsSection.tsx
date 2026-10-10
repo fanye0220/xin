@@ -405,98 +405,6 @@ async function resolveFullCardBinaryAssets(char: CharacterCard): Promise<{
   return { avatarBlob, completeCardPngBlob, avatarHistory };
 }
 
-// PNG 文件头判定：只有真 PNG 才能直接写回酒馆元数据
-function isPngBuffer(buffer: ArrayBuffer): boolean {
-  if (buffer.byteLength < 8) return false;
-  const u8 = new Uint8Array(buffer, 0, 8);
-  return u8[0] === 0x89 && u8[1] === 0x50 && u8[2] === 0x4e && u8[3] === 0x47 && u8[4] === 0x0d && u8[5] === 0x0a && u8[6] === 0x1a && u8[7] === 0x0a;
-}
-
-// 头像底图是 webp/jpg 等格式时，先画到 canvas 转成 PNG，否则写不回酒馆元数据
-async function convertImageBufferToPng(buffer: ArrayBuffer, mimeType?: string): Promise<ArrayBuffer | null> {
-  return new Promise((resolve) => {
-    const url = safeCreateObjectURL(new Blob([buffer], { type: mimeType || 'image/png' }));
-    if (!url) return resolve(null);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      try {
-        let width = img.width || 512;
-        let height = img.height || 768;
-        const MAX_SIZE = 1024;
-        if (width > MAX_SIZE || height > MAX_SIZE) {
-          if (width > height) {
-            height = Math.round((height * MAX_SIZE) / width);
-            width = MAX_SIZE;
-          } else {
-            width = Math.round((width * MAX_SIZE) / height);
-            height = MAX_SIZE;
-          }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return resolve(null);
-        ctx.drawImage(img, 0, 0, width, height);
-        canvas.toBlob(async (b) => {
-          resolve(await toArrayBufferLoose(b));
-        }, 'image/png');
-      } catch (e) {
-        resolve(null);
-      }
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve(null);
-    };
-    img.src = url;
-  });
-}
-
-// 有些卡片对象里存的不是 Blob，而是 ArrayBuffer / 类型化数组 / {buffer} / {data:[...]} / 远程地址 / base64 字符串，
-// 直接调 .arrayBuffer() 会抛 "arrayBuffer is not a function"，这里统一转成 ArrayBuffer
-async function toArrayBufferLoose(value: any): Promise<ArrayBuffer | null> {
-  if (!value) return null;
-  try {
-    if (typeof value.arrayBuffer === 'function') {
-      const buf = await value.arrayBuffer();
-      if (buf && buf.byteLength > 0) return buf;
-    }
-  } catch (e) {}
-  try {
-    if (value instanceof ArrayBuffer) return value.byteLength > 0 ? value : null;
-    if (ArrayBuffer.isView(value)) return (value as ArrayBufferView).buffer as ArrayBuffer;
-    if (value.buffer instanceof ArrayBuffer) return value.buffer;
-    if (Array.isArray(value.data)) return new Uint8Array(value.data).buffer;
-    if (typeof value === 'string') {
-      if (value.startsWith('data:') || value.startsWith('http')) {
-        const res = await fetch(value);
-        if (res.ok) {
-          const buf = await res.arrayBuffer();
-          if (buf.byteLength > 0) return buf;
-        }
-      } else if (value.length > 0) {
-        const bin = atob(value);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        if (bytes.byteLength > 0) return bytes.buffer;
-      }
-    }
-  } catch (e) {}
-  return null;
-}
-
-// 按文件头判断图片真实格式，避免 MIME 用错导致 canvas 解码失败
-function sniffImageMime(buffer: ArrayBuffer): string | undefined {
-  const u8 = new Uint8Array(buffer, 0, Math.min(12, buffer.byteLength));
-  if (u8.length >= 8 && u8[0] === 0x89 && u8[1] === 0x50 && u8[2] === 0x4e && u8[3] === 0x47) return 'image/png';
-  if (u8.length >= 3 && u8[0] === 0xff && u8[1] === 0xd8 && u8[2] === 0xff) return 'image/jpeg';
-  if (u8.length >= 12 && u8[0] === 0x52 && u8[1] === 0x49 && u8[2] === 0x46 && u8[3] === 0x46 && u8[8] === 0x57 && u8[9] === 0x45 && u8[10] === 0x42 && u8[11] === 0x50) return 'image/webp';
-  if (u8.length >= 6 && u8[0] === 0x47 && u8[1] === 0x49 && u8[2] === 0x46 && u8[3] === 0x38) return 'image/gif';
-  return undefined;
-}
-
 // Helper to get clean display version (e.g. v1.0)
 function getSnapshotVersionStr(snapshot: CardVersionSnapshot, fallbackVer = '1.0'): string {
   const snapData = snapshot.data?.data || snapshot.data || {};
@@ -1145,8 +1053,11 @@ export function CharacterVersionsSection({
       const carriedHistory = (oldHistory.length > 0 && !oldHistory[0].sourceCharId) ? oldHistory.slice(1) : oldHistory;
       const updatedHistory = [...baseHistory, newSnapshot, ...carriedHistory];
 
+      const { avatarBlob: mainBlob } = await resolveFullCardBinaryAssets(character);
+
       let updatedChar: CharacterCard = {
         ...character,
+        avatarBlob: mainBlob || character.avatarBlob,
         versionHistory: updatedHistory,
         activeVersionId: activeId,
         updatedAt: Date.now(),
@@ -1464,81 +1375,128 @@ export function CharacterVersionsSection({
     }, 3500);
   };
 
-  // 取历史版本的 PNG 底图：快照自带 → 源卡（关联卡） → 主卡 → 本地文件 → 远程地址
-  // 依次尝试, 谁先能拿出真实字节就用谁, 避免某个字段存了空对象就整个导出失败
-  const resolveSnapshotPngBuffer = async (snapshot: CardVersionSnapshot): Promise<ArrayBuffer | null> => {
-    const candidates: any[] = [];
-    const localPaths: string[] = [];
-
-    if (snapshot.completeCardPngBlob) candidates.push(snapshot.completeCardPngBlob);
-    if (snapshot.avatarBlob) candidates.push(snapshot.avatarBlob);
-
-    if (snapshot.sourceCharId) {
-      try {
-        const sourceBlobs = await getCharacterBlob(snapshot.sourceCharId);
-        if (sourceBlobs?.avatarBlob) candidates.push(sourceBlobs.avatarBlob);
-        if (sourceBlobs?.originalFile) candidates.push(sourceBlobs.originalFile);
-      } catch (e) {}
-      try {
-        const sourceChar = await getCharacter(snapshot.sourceCharId);
-        if (sourceChar) {
-          if (sourceChar.avatarBlob) candidates.push(sourceChar.avatarBlob);
-          if (sourceChar.originalFile) candidates.push(sourceChar.originalFile);
-          if (sourceChar.avatarUrlFallback) candidates.push(sourceChar.avatarUrlFallback);
-          if (sourceChar.localFilePath) localPaths.push(sourceChar.localFilePath);
-        }
-      } catch (e) {}
-    }
-
-    if (character.avatarBlob) candidates.push(character.avatarBlob);
-    if (character.originalFile) candidates.push(character.originalFile);
-    if (character.avatarUrlFallback) candidates.push(character.avatarUrlFallback);
-    if (snapshot.avatarUrlFallback) candidates.push(snapshot.avatarUrlFallback);
-    if (character.localFilePath) localPaths.push(character.localFilePath);
-
-    let raw: ArrayBuffer | null = null;
-    for (const item of candidates) {
-      raw = await toArrayBufferLoose(item);
-      if (raw) break;
-    }
-
-    if (!raw) {
-      const { readLocalFileBuffer } = await import('../lib/appBridge');
-      for (const p of localPaths) {
-        try {
-          const buf = await readLocalFileBuffer(p);
-          if (buf && buf.byteLength > 0) { raw = buf; break; }
-        } catch (e) {}
-      }
-    }
-
-    if (!raw) return null;
-
-    // 头像底图可能不是 PNG（webp/jpg），先转成 PNG 再写回角色卡
-    if (!isPngBuffer(raw)) {
-      const converted = await convertImageBufferToPng(raw, sniffImageMime(raw));
-      if (!converted) return null;
-      raw = converted;
-    }
-    return raw;
-  };
-
   // Export historical version as standalone PNG
   const handleExportSnapshot = async (snapshot: CardVersionSnapshot) => {
     try {
-      const safeName = (snapshot.cardName || character.name || 'Character').replace(/[\\/:*?"<>|]/g, '_');
-      const filename = `${safeName}_${snapshot.versionName || 'snapshot'}.png`;
+      let baseAsset: any = snapshot.avatarBlob || snapshot.completeCardPngBlob;
 
-      const buffer = await resolveSnapshotPngBuffer(snapshot);
-      if (!buffer) {
-        alert('该快照缺少头像底图，无法导出为 PNG 角色卡');
+      // 1. Fetch from source character
+      if (!baseAsset && snapshot.sourceCharId) {
+        const { getCharacterBlob, getCharacter } = await import('../lib/db');
+        const sourceBlobs = await getCharacterBlob(snapshot.sourceCharId);
+        if (sourceBlobs?.avatarBlob) {
+          baseAsset = sourceBlobs.avatarBlob;
+        } else {
+          const sourceChar = await getCharacter(snapshot.sourceCharId);
+          if (sourceChar?.avatarBlob) baseAsset = sourceChar.avatarBlob;
+        }
+      }
+
+      // 2. Fetch from main character
+      if (!baseAsset) {
+        const { getCharacterBlob } = await import('../lib/db');
+        const mainBlobs = await getCharacterBlob(character.id);
+        if (mainBlobs?.avatarBlob) {
+          baseAsset = mainBlobs.avatarBlob;
+        } else if (character.avatarBlob) {
+          baseAsset = character.avatarBlob;
+        }
+      }
+
+      // 3. Fetch from fallback URL
+      if (!baseAsset && (snapshot.avatarUrlFallback || character.avatarUrlFallback)) {
+        baseAsset = snapshot.avatarUrlFallback || character.avatarUrlFallback;
+      }
+
+      if (!baseAsset) {
+        alert('无法获取该快照的头像底图，导出 PNG 失败');
         return;
       }
 
-      const injected = injectTavernData(buffer, snapshot.data);
+      // Robust helper to safely extract ArrayBuffer from any image asset (Blob/File/ArrayBuffer/TypedArray/URL)
+      const toArrayBuffer = async (data: any): Promise<ArrayBuffer> => {
+        if (!data) throw new Error('数据为空');
+        if (data instanceof ArrayBuffer) return data;
+        if (ArrayBuffer.isView(data)) {
+          return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+        }
+        if (typeof data.arrayBuffer === 'function') {
+          return await data.arrayBuffer();
+        }
+        if (typeof data === 'string' && (data.startsWith('http') || data.startsWith('blob:') || data.startsWith('data:'))) {
+          const res = await fetch(data);
+          return await res.arrayBuffer();
+        }
+        if (data instanceof Blob || data instanceof File) {
+          return await new Response(data).arrayBuffer();
+        }
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as ArrayBuffer);
+          reader.onerror = () => reject(reader.error || new Error('读取 ArrayBuffer 失败'));
+          reader.readAsArrayBuffer(data);
+        });
+      };
+
+      // Always pass through Canvas to guarantee standard, valid PNG format
+      let pngArrayBuffer: ArrayBuffer | null = null;
+      try {
+        let objectUrl: string | null = null;
+        if (typeof baseAsset === 'string') {
+          objectUrl = baseAsset;
+        } else if (baseAsset instanceof Blob) {
+          objectUrl = safeCreateObjectURL(baseAsset);
+        } else if (baseAsset instanceof ArrayBuffer || ArrayBuffer.isView(baseAsset)) {
+          const blob = new Blob([baseAsset], { type: 'image/png' });
+          objectUrl = safeCreateObjectURL(blob);
+        }
+
+        if (objectUrl) {
+          pngArrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+              if (objectUrl && objectUrl.startsWith('blob:')) URL.revokeObjectURL(objectUrl);
+              const canvas = document.createElement('canvas');
+              canvas.width = img.width || 400;
+              canvas.height = img.height || 400;
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0);
+              canvas.toBlob(async (b) => {
+                if (b) {
+                  try {
+                    const buf = await toArrayBuffer(b);
+                    resolve(buf);
+                  } catch (err) {
+                    reject(err);
+                  }
+                } else {
+                  reject(new Error('Canvas 转换为 PNG 失败'));
+                }
+              }, 'image/png');
+            };
+            img.onerror = () => {
+              if (objectUrl && objectUrl.startsWith('blob:')) URL.revokeObjectURL(objectUrl);
+              reject(new Error('底图加载失败'));
+            };
+            img.src = objectUrl;
+          });
+        }
+      } catch (convErr) {
+        console.warn('Canvas PNG conversion failed, attempting direct ArrayBuffer read', convErr);
+      }
+
+      if (!pngArrayBuffer) {
+        pngArrayBuffer = await toArrayBuffer(baseAsset);
+      }
+
+      const injected = injectTavernData(pngArrayBuffer, snapshot.data);
+      const safeName = (snapshot.cardName || character.name || 'Character').replace(/[\\/:*?"<>|]/g, '_');
+      const filename = `${safeName}_${snapshot.versionName || 'snapshot'}.png`;
+
       await downloadOrShareFile(filename, injected, 'image/png', false);
     } catch (e: any) {
-      alert('导出失败: ' + (e?.message || e));
+      alert('导出失败: ' + (e.message || String(e)));
     }
   };
 

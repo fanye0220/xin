@@ -1,4 +1,4 @@
-import { getFallbackAvatar, resolveAvatarUrl } from "../lib/avatar";
+import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from "../lib/avatar";
 import React, { useState, useRef, useEffect, memo, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -120,10 +120,10 @@ const ImportCardAvatar = memo(function ImportCardAvatar({
       setBlobUrl(null);
       return;
     }
-    const url = URL.createObjectURL(blob);
+    const url = safeCreateObjectURL(blob);
     setBlobUrl(url);
     return () => {
-      URL.revokeObjectURL(url);
+      if (url && url.startsWith('blob:')) URL.revokeObjectURL(url);
     };
   }, [blob]);
 
@@ -195,9 +195,13 @@ export function TavernAvatar({ char, aiSettings, className = "w-12 h-12 sm:w-14 
 
           if (res.ok && !cancelled) {
             const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            tavernAvatarCache.set(char.avatar, url);
-            setBlobUrl(url);
+            const url = safeCreateObjectURL(blob);
+            if (url) {
+              tavernAvatarCache.set(char.avatar, url);
+              setBlobUrl(url);
+            } else {
+              setError(true);
+            }
           } else {
             if (!cancelled) setError(true);
           }
@@ -2675,7 +2679,8 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     <span className="truncate">拉取酒馆卡片</span>
                   </button>
                 </div>
-                  )}
+
+                )}
 
                 {error && (
                   <motion.div

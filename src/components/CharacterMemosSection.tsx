@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { getMemosForCharacter, saveMemo, deleteMemo, CharacterMemo } from '../lib/db';
+import { safeCreateObjectURL } from '../lib/avatar';
 import { getDownloadTooltip } from '../lib/appBridge';
 import { StickyNote, Image as ImageIcon, File, Trash2, Plus, Download, X, Share2, Pin, Edit, FileUp, Eye, Save, ChevronDown, ChevronUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -647,9 +648,13 @@ function MemoImage({ memo }: { memo: CharacterMemo }) {
 
     useEffect(() => {
         if (!memo.blob) return;
-        const objectUrl = URL.createObjectURL(memo.blob);
-        setUrl(objectUrl);
-        return () => URL.revokeObjectURL(objectUrl);
+        const objectUrl = safeCreateObjectURL(memo.blob);
+        if (objectUrl) {
+          setUrl(objectUrl);
+          return () => {
+            if (objectUrl.startsWith('blob:')) URL.revokeObjectURL(objectUrl);
+          };
+        }
     }, [memo]);
 
     if (!url) return <div className="h-48 bg-white/5 animate-pulse" />;

@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { safeCreateObjectURL } from './avatar';
 
 export const isAndroid = () => {
   if (typeof window === 'undefined') return false;
@@ -603,14 +604,15 @@ export async function downloadOrShareFile(
   }
 
   // 常规浏览器直接下载（PC 桌面端测试，或不支持 Web Share 的浏览器环境）
-  const url = URL.createObjectURL(blob);
+  const url = safeCreateObjectURL(blob);
+  if (!url) return { success: false };
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  if (url.startsWith("blob:")) URL.revokeObjectURL(url);
   return { success: true };
 }
 

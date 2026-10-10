@@ -14,7 +14,7 @@ import {
   List,
 } from 'lucide-react';
 import { CharacterCard } from '../lib/db';
-import { getFallbackAvatar } from '../lib/avatar';
+import { getFallbackAvatar, safeCreateObjectURL } from '../lib/avatar';
 import { MessageContent } from './MessageContent';
 import {
   applyRegexToText,
@@ -475,7 +475,7 @@ export function GreetingFullScreenModal({
 
   const effectiveAvatar =
     avatarUrl ||
-    (character.avatarBlob ? URL.createObjectURL(character.avatarBlob) : null) ||
+    (character.avatarBlob ? safeCreateObjectURL(character.avatarBlob) : null) ||
     getFallbackAvatar(character.name || character.id);
 
   return createPortal(

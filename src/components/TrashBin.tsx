@@ -1,4 +1,4 @@
-import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
+import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Trash2, RotateCcw, X, AlertTriangle, CheckCircle2, CheckCircle, Check, CheckSquare } from 'lucide-react';
@@ -34,14 +34,14 @@ const TrashedCharacterCard = ({
          if (isMounted) setAvatarUrl(getLocalImageUrl(char.localFilePath!, char.updatedAt || char.createdAt));
       });
     } else if (char.avatarBlob) {
-      url = URL.createObjectURL(char.avatarBlob);
-      setAvatarUrl(url);
+      url = safeCreateObjectURL(char.avatarBlob);
+      if (url) setAvatarUrl(url);
     } else if (char.hasBlobsSeparated) {
       import('../lib/db').then(({ getCharacter }) => {
         getCharacter(char.id).then(fullChar => {
           if (fullChar && fullChar.avatarBlob && isMounted) {
-             const objectUrl = URL.createObjectURL(fullChar.avatarBlob);
-             setAvatarUrl(objectUrl);
+             const objectUrl = safeCreateObjectURL(fullChar.avatarBlob);
+             if (objectUrl) setAvatarUrl(objectUrl);
           }
         });
       });

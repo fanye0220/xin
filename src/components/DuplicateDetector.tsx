@@ -1,4 +1,4 @@
-import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
+import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -216,15 +216,15 @@ function CharAvatarImg({ char, className }: { char: CharacterCard, className: st
     if (char.localFilePath) {
       setUrl(getLocalImageUrl(char.localFilePath, char.updatedAt || char.createdAt));
     } else if (char.avatarBlob) {
-      objectUrl = URL.createObjectURL(char.avatarBlob);
-      setUrl(objectUrl);
+      objectUrl = safeCreateObjectURL(char.avatarBlob);
+      if (objectUrl) setUrl(objectUrl);
     } else if (char.hasBlobsSeparated) {
       import('../lib/db').then(({ getCharacter }) => {
         if (!isMounted) return;
         getCharacter(char.id).then(fullChar => {
           if (fullChar && fullChar.avatarBlob && isMounted) {
-            objectUrl = URL.createObjectURL(fullChar.avatarBlob);
-            setUrl(objectUrl);
+            objectUrl = safeCreateObjectURL(fullChar.avatarBlob);
+            if (objectUrl) setUrl(objectUrl);
           }
         });
       });

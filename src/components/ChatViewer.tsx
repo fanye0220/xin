@@ -1,5 +1,4 @@
-import { resolveAvatarUrl } from "../lib/avatar";
-import { getFallbackAvatar } from "../lib/avatar";
+import { resolveAvatarUrl, getFallbackAvatar, safeCreateObjectURL } from "../lib/avatar";
 import React, {
   useState,
   useRef,
@@ -326,11 +325,13 @@ export function ChatViewer({
   // 记录 onError 兜底逻辑里给某个角色创建过的 blob URL, 换新的之前先把旧的释放掉,
   // 避免每次头像加载失败都新建一个却不释放。
   const fallbackAvatarUrlsRef = useRef<Record<string, string>>({});
-  const setFallbackAvatarBlobUrl = (charId: string, blob: Blob): string => {
+  const setFallbackAvatarBlobUrl = (charId: string, blob: Blob): string | null => {
     const prev = fallbackAvatarUrlsRef.current[charId];
-    if (prev) URL.revokeObjectURL(prev);
-    const newUrl = URL.createObjectURL(blob);
-    fallbackAvatarUrlsRef.current[charId] = newUrl;
+    if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+    const newUrl = safeCreateObjectURL(blob);
+    if (newUrl) {
+      fallbackAvatarUrlsRef.current[charId] = newUrl;
+    }
     return newUrl;
   };
   useEffect(() => {
@@ -585,8 +586,8 @@ export function ChatViewer({
         if (userFileInputRef.current) userFileInputRef.current.value = "";
         return;
       }
-      const url = URL.createObjectURL(file);
-      setImageToCrop(url);
+      const url = safeCreateObjectURL(file);
+      if (url) setImageToCrop(url);
       if (userAvatarInputRef.current) {
         userAvatarInputRef.current.value = "";
       }
@@ -761,9 +762,11 @@ export function ChatViewer({
             char.updatedAt || char.createdAt,
           );
         } else if (char.avatarBlob) {
-          const objectUrl = URL.createObjectURL(char.avatarBlob);
-          localObjectUrls.push(objectUrl);
-          urls[char.id] = objectUrl;
+          const objectUrl = safeCreateObjectURL(char.avatarBlob);
+          if (objectUrl) {
+            if (objectUrl.startsWith('blob:')) localObjectUrls.push(objectUrl);
+            urls[char.id] = objectUrl;
+          }
         } else if (char.hasBlobsSeparated) {
           const thumbCacheKey = `${char.id}:${char.updatedAt || 0}`;
           const cached = peekCachedUrl(thumbCacheKey);
