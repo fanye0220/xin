@@ -910,19 +910,55 @@ button:focus-visible,
 }
 
 .version-edit-box {
-  background: rgba(20, 20, 24, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #1c1c1e;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
+  color: #ffffff;
 }
-.light-theme .version-edit-box {
-  background: #f8fafc !important;
-  border: 1px solid #e2e8f0 !important;
+.version-edit-box label {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.light-theme .version-edit-box,
+body.light-theme .version-edit-box,
+html.light-theme .version-edit-box,
+[data-theme="light"] .version-edit-box {
+  background: #f2f2f7 !important;
+  border: 1px solid rgba(0, 0, 0, 0.05) !important;
+  border-radius: 1rem !important;
+  color: #000000 !important;
+  box-shadow: none !important;
+}
+
+.light-theme .version-edit-box label,
+body.light-theme .version-edit-box label,
+html.light-theme .version-edit-box label,
+[data-theme="light"] .version-edit-box label {
+  color: #636366 !important;
+  font-weight: 600 !important;
+  font-size: 0.75rem !important;
+}
+
+.light-theme .version-edit-box input,
+body.light-theme .version-edit-box input,
+html.light-theme .version-edit-box input,
+[data-theme="light"] .version-edit-box input {
+  color: #000000 !important;
+  background-color: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
 }
 
 .version-diff-card {
   background: rgba(20, 20, 24, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
-.light-theme .version-diff-card {
+.light-theme .version-diff-card,
+body.light-theme .version-diff-card,
+html.light-theme .version-diff-card,
+[data-theme="light"] .version-diff-card {
   background: #f8fafc !important;
   border: 1px solid #e2e8f0 !important;
 }
@@ -954,8 +990,8 @@ button:focus-visible,
 }
 .light-theme .version-diff-bullet-box {
   background: #f8fafc !important;
-  border: 1px solid #cbd5e1 !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
 }
 
 .version-diff-bullet-title {
@@ -1152,21 +1188,33 @@ button:focus-visible,
 }
 
 .version-input {
-  background: rgba(0, 0, 0, 0.4);
+  background: #2c2c2e;
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: #ffffff;
 }
 
-.light-theme .version-input {
+.light-theme .version-input,
+body.light-theme .version-input,
+html.light-theme .version-input,
+[data-theme="light"] .version-input {
   background: #ffffff !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #0f172a !important;
+  border: 1px solid #e5e5ea !important;
+  color: #000000 !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
 }
 
-.light-theme .version-input:focus {
+.light-theme .version-input::placeholder,
+body.light-theme .version-input::placeholder,
+html.light-theme .version-input::placeholder {
+  color: #8e8e93 !important;
+}
+
+.light-theme .version-input:focus,
+body.light-theme .version-input:focus,
+html.light-theme .version-input:focus {
   background: #ffffff !important;
-  border-color: #2563eb !important;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15) !important;
+  border-color: #007aff !important;
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15) !important;
 }
 
 .version-candidate-card {

@@ -1,6 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { CURRENT_APP_VERSION } from "../config/version";
-import { getFallbackAvatar, resolveAvatarUrl } from "../lib/avatar";
+import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from "../lib/avatar";
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Masonry from 'react-masonry-css';
@@ -3812,8 +3812,8 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
     let objectUrl: string | null = null;
 
     if (char.avatarBlob) {
-      objectUrl = URL.createObjectURL(char.avatarBlob);
-      setUrl(objectUrl);
+      objectUrl = safeCreateObjectURL(char.avatarBlob);
+      if (objectUrl) setUrl(objectUrl);
     } else if (char.hasBlobsSeparated) {
       // 优先用小缩略图, 而不是整张原图去解码显示(参考卡库的做法):
       // 有界LRU缓存里已经有就直接用(几乎零成本), 没有再去数据库拿
@@ -3977,11 +3977,14 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
                 setUrl(defaultFallback);
                 return;
               }
-              if (char.avatarBlob) setUrlWithFallbackCleanup(URL.createObjectURL(char.avatarBlob), true);
-              else if (char.hasBlobsSeparated) {
+              if (char.avatarBlob) {
+                const u = safeCreateObjectURL(char.avatarBlob);
+                if (u) setUrlWithFallbackCleanup(u, true);
+                else setUrl(defaultFallback);
+              } else if (char.hasBlobsSeparated) {
                 getCharacterBlob(char.id).then((b) => {
-                  if (b && b.avatarBlob)
-                    setUrlWithFallbackCleanup(URL.createObjectURL(b.avatarBlob), true);
+                  const u = b?.avatarBlob ? safeCreateObjectURL(b.avatarBlob) : null;
+                  if (u) setUrlWithFallbackCleanup(u, true);
                   else setUrl(defaultFallback);
                 });
               } else setUrl(defaultFallback);
@@ -4098,10 +4101,14 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
             setUrl(defaultFallback);
             return;
           }
-          if (char.avatarBlob) setUrlWithFallbackCleanup(URL.createObjectURL(char.avatarBlob), true);
-          else if (char.hasBlobsSeparated) {
+          if (char.avatarBlob) {
+            const u = safeCreateObjectURL(char.avatarBlob);
+            if (u) setUrlWithFallbackCleanup(u, true);
+            else setUrl(defaultFallback);
+          } else if (char.hasBlobsSeparated) {
             getCharacterBlob(char.id).then((b) => {
-              if (b && b.avatarBlob) setUrlWithFallbackCleanup(URL.createObjectURL(b.avatarBlob), true);
+              const u = b?.avatarBlob ? safeCreateObjectURL(b.avatarBlob) : null;
+              if (u) setUrlWithFallbackCleanup(u, true);
               else setUrl(defaultFallback);
             });
           } else setUrl(defaultFallback);

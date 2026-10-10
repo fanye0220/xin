@@ -6,7 +6,7 @@ import {
   Trash2, Download, Eye, ChevronDown, ChevronUp, Check, 
   X, Search, Sparkles, Book, MessageSquare, AlertCircle,
   Clock, ArrowRight, FileText, CheckCircle2, User, Layers,
-  Calendar, ShieldCheck, Compass, Edit3, Pencil
+  Calendar, ShieldCheck, Compass, Unlink, MoreHorizontal
 } from 'lucide-react';
 import { 
   CharacterCard, CardVersionSnapshot, saveCharacter, 
@@ -16,7 +16,7 @@ import {
 import { getCardTypeBadgeInfo } from '../lib/cardType';
 import { injectTavernData, extractTavernData } from '../lib/png';
 import { downloadOrShareFile } from '../lib/appBridge';
-import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
+import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
 
 interface Props {
   character: CharacterCard;
@@ -100,19 +100,19 @@ const CandidateAvatar = React.memo(function CandidateAvatar({ char }: { char: Ch
         if (isMounted) setImgSrc(getLocalImageUrl(char.localFilePath!, char.updatedAt || char.createdAt));
       });
     } else if (char.avatarBlob) {
-      objectUrl = URL.createObjectURL(char.avatarBlob);
-      if (isMounted) setImgSrc(objectUrl);
+      objectUrl = safeCreateObjectURL(char.avatarBlob);
+      if (isMounted) setImgSrc(objectUrl || defaultFallback);
     } else if (char.hasBlobsSeparated) {
       getCharacterThumb(char.id).then((thumb) => {
         if (!isMounted) return;
         if (thumb) {
-          objectUrl = URL.createObjectURL(thumb);
-          setImgSrc(objectUrl);
+          objectUrl = safeCreateObjectURL(thumb);
+          setImgSrc(objectUrl || defaultFallback);
         } else {
           getCharacterBlob(char.id).then((blobs) => {
             if (blobs?.avatarBlob && isMounted) {
-              objectUrl = URL.createObjectURL(blobs.avatarBlob);
-              setImgSrc(objectUrl);
+              objectUrl = safeCreateObjectURL(blobs.avatarBlob);
+              setImgSrc(objectUrl || defaultFallback);
             }
           });
         }
@@ -167,12 +167,12 @@ function ActiveAvatar({ character, avatarUrl }: { character: CharacterCard; avat
     let isCancelled = false;
 
     if (character.avatarBlob) {
-      objectUrl = URL.createObjectURL(character.avatarBlob);
+      objectUrl = safeCreateObjectURL(character.avatarBlob);
       setBlobUrl(objectUrl);
     } else if (character.hasBlobsSeparated) {
       getCharacterBlob(character.id).then((b) => {
         if (!isCancelled && b?.avatarBlob) {
-          objectUrl = URL.createObjectURL(b.avatarBlob);
+          objectUrl = safeCreateObjectURL(b.avatarBlob);
           setBlobUrl(objectUrl);
         }
       });
@@ -203,45 +203,132 @@ function ActiveAvatar({ character, avatarUrl }: { character: CharacterCard; avat
 }
 
 // Standalone component to securely render snapshot avatar with memory management
-function SnapshotAvatar({ snapshot, fallbackName }: { snapshot: CardVersionSnapshot; fallbackName: string }) {
+function SnapshotAvatar({ 
+  snapshot, 
+  fallbackName, 
+  parentCharacter 
+}: { 
+  snapshot: CardVersionSnapshot; 
+  fallbackName: string;
+  parentCharacter?: CharacterCard;
+}) {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
     let objectUrl: string | null = null;
-    if (snapshot.avatarBlob) {
-      objectUrl = URL.createObjectURL(snapshot.avatarBlob);
-      setUrl(objectUrl);
-    } else if (snapshot.completeCardPngBlob) {
-      objectUrl = URL.createObjectURL(snapshot.completeCardPngBlob);
-      setUrl(objectUrl);
-    } else if (snapshot.avatarUrlFallback) {
-      setUrl(snapshot.avatarUrlFallback);
-    } else {
-      setUrl(null);
+    let isCancelled = false;
+
+    async function loadAvatar() {
+      if (snapshot.avatarBlob) {
+        objectUrl = safeCreateObjectURL(snapshot.avatarBlob);
+        if (!isCancelled && objectUrl) {
+          setUrl(objectUrl);
+          return;
+        }
+      }
+      if (snapshot.completeCardPngBlob) {
+        objectUrl = safeCreateObjectURL(snapshot.completeCardPngBlob);
+        if (!isCancelled && objectUrl) {
+          setUrl(objectUrl);
+          return;
+        }
+      }
+
+      if (snapshot.sourceCharId) {
+        try {
+          const sourceBlobs = await getCharacterBlob(snapshot.sourceCharId);
+          if (!isCancelled && sourceBlobs?.avatarBlob) {
+            objectUrl = safeCreateObjectURL(sourceBlobs.avatarBlob);
+            if (objectUrl) {
+              setUrl(objectUrl);
+              return;
+            }
+          }
+          const sourceChar = await getCharacter(snapshot.sourceCharId);
+          if (!isCancelled && sourceChar) {
+            if (sourceChar.avatarBlob) {
+              objectUrl = safeCreateObjectURL(sourceChar.avatarBlob);
+              if (objectUrl) {
+                setUrl(objectUrl);
+                return;
+              }
+            }
+            if (sourceChar.localFilePath) {
+              const { getLocalImageUrl } = await import('../lib/appBridge');
+              if (!isCancelled) {
+                setUrl(getLocalImageUrl(sourceChar.localFilePath, sourceChar.updatedAt || sourceChar.createdAt));
+                return;
+              }
+            }
+            if (sourceChar.avatarUrlFallback) {
+              if (!isCancelled) {
+                setUrl(resolveAvatarUrl(sourceChar.avatarUrlFallback, sourceChar.name));
+                return;
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (snapshot.avatarUrlFallback) {
+        if (!isCancelled) {
+          setUrl(resolveAvatarUrl(snapshot.avatarUrlFallback, fallbackName));
+          return;
+        }
+      }
+
+      if (parentCharacter) {
+        if (parentCharacter.avatarBlob) {
+          objectUrl = safeCreateObjectURL(parentCharacter.avatarBlob);
+          if (!isCancelled && objectUrl) {
+            setUrl(objectUrl);
+            return;
+          }
+        }
+        if (parentCharacter.localFilePath) {
+          const { getLocalImageUrl } = await import('../lib/appBridge');
+          if (!isCancelled) {
+            setUrl(getLocalImageUrl(parentCharacter.localFilePath, parentCharacter.updatedAt || parentCharacter.createdAt));
+            return;
+          }
+        }
+        if (parentCharacter.avatarUrlFallback) {
+          if (!isCancelled) {
+            setUrl(resolveAvatarUrl(parentCharacter.avatarUrlFallback, parentCharacter.name));
+            return;
+          }
+        }
+      }
+
+      if (!isCancelled) {
+        setUrl(getFallbackAvatar(fallbackName));
+      }
     }
 
+    loadAvatar();
+
     return () => {
+      isCancelled = true;
       if (objectUrl) {
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [snapshot.avatarBlob, snapshot.completeCardPngBlob, snapshot.avatarUrlFallback]);
+  }, [snapshot, parentCharacter, fallbackName]);
 
-  if (!url) {
-    return (
-      <div className="w-full h-full flex items-center justify-center text-xs font-semibold opacity-70">
-        {snapshot.versionName?.slice(0, 2) || '旧版'}
-      </div>
-    );
-  }
+  const displaySrc = url || getFallbackAvatar(fallbackName);
 
   return (
     <img
-      src={url}
+      src={displaySrc}
       alt={snapshot.versionName || fallbackName}
       className="w-full h-full object-cover"
       onError={(e) => {
-        e.currentTarget.src = getFallbackAvatar(fallbackName);
+        const fallback = getFallbackAvatar(fallbackName);
+        if (e.currentTarget.src !== fallback) {
+          e.currentTarget.src = fallback;
+        }
       }}
     />
   );
@@ -318,6 +405,223 @@ async function resolveFullCardBinaryAssets(char: CharacterCard): Promise<{
   return { avatarBlob, completeCardPngBlob, avatarHistory };
 }
 
+// PNG 文件头判定：只有真 PNG 才能直接写回酒馆元数据
+function isPngBuffer(buffer: ArrayBuffer): boolean {
+  if (buffer.byteLength < 8) return false;
+  const u8 = new Uint8Array(buffer, 0, 8);
+  return u8[0] === 0x89 && u8[1] === 0x50 && u8[2] === 0x4e && u8[3] === 0x47 && u8[4] === 0x0d && u8[5] === 0x0a && u8[6] === 0x1a && u8[7] === 0x0a;
+}
+
+// 头像底图是 webp/jpg 等格式时，先画到 canvas 转成 PNG，否则写不回酒馆元数据
+async function convertImageBufferToPng(buffer: ArrayBuffer, mimeType?: string): Promise<ArrayBuffer | null> {
+  return new Promise((resolve) => {
+    const url = safeCreateObjectURL(new Blob([buffer], { type: mimeType || 'image/png' }));
+    if (!url) return resolve(null);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      try {
+        let width = img.width || 512;
+        let height = img.height || 768;
+        const MAX_SIZE = 1024;
+        if (width > MAX_SIZE || height > MAX_SIZE) {
+          if (width > height) {
+            height = Math.round((height * MAX_SIZE) / width);
+            width = MAX_SIZE;
+          } else {
+            width = Math.round((width * MAX_SIZE) / height);
+            height = MAX_SIZE;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(null);
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(async (b) => {
+          resolve(await toArrayBufferLoose(b));
+        }, 'image/png');
+      } catch (e) {
+        resolve(null);
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+    img.src = url;
+  });
+}
+
+// 有些卡片对象里存的不是 Blob，而是 ArrayBuffer / 类型化数组 / {buffer} / {data:[...]} / 远程地址 / base64 字符串，
+// 直接调 .arrayBuffer() 会抛 "arrayBuffer is not a function"，这里统一转成 ArrayBuffer
+async function toArrayBufferLoose(value: any): Promise<ArrayBuffer | null> {
+  if (!value) return null;
+  try {
+    if (typeof value.arrayBuffer === 'function') {
+      const buf = await value.arrayBuffer();
+      if (buf && buf.byteLength > 0) return buf;
+    }
+  } catch (e) {}
+  try {
+    if (value instanceof ArrayBuffer) return value.byteLength > 0 ? value : null;
+    if (ArrayBuffer.isView(value)) return (value as ArrayBufferView).buffer as ArrayBuffer;
+    if (value.buffer instanceof ArrayBuffer) return value.buffer;
+    if (Array.isArray(value.data)) return new Uint8Array(value.data).buffer;
+    if (typeof value === 'string') {
+      if (value.startsWith('data:') || value.startsWith('http')) {
+        const res = await fetch(value);
+        if (res.ok) {
+          const buf = await res.arrayBuffer();
+          if (buf.byteLength > 0) return buf;
+        }
+      } else if (value.length > 0) {
+        const bin = atob(value);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        if (bytes.byteLength > 0) return bytes.buffer;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+// 按文件头判断图片真实格式，避免 MIME 用错导致 canvas 解码失败
+function sniffImageMime(buffer: ArrayBuffer): string | undefined {
+  const u8 = new Uint8Array(buffer, 0, Math.min(12, buffer.byteLength));
+  if (u8.length >= 8 && u8[0] === 0x89 && u8[1] === 0x50 && u8[2] === 0x4e && u8[3] === 0x47) return 'image/png';
+  if (u8.length >= 3 && u8[0] === 0xff && u8[1] === 0xd8 && u8[2] === 0xff) return 'image/jpeg';
+  if (u8.length >= 12 && u8[0] === 0x52 && u8[1] === 0x49 && u8[2] === 0x46 && u8[3] === 0x46 && u8[8] === 0x57 && u8[9] === 0x45 && u8[10] === 0x42 && u8[11] === 0x50) return 'image/webp';
+  if (u8.length >= 6 && u8[0] === 0x47 && u8[1] === 0x49 && u8[2] === 0x46 && u8[3] === 0x38) return 'image/gif';
+  return undefined;
+}
+
+// Helper to get clean display version (e.g. v1.0)
+function getSnapshotVersionStr(snapshot: CardVersionSnapshot, fallbackVer = '1.0'): string {
+  const snapData = snapshot.data?.data || snapshot.data || {};
+  let charVer = String(snapData.character_version || snapshot.data?.character_version || '').trim();
+  // Strip any parenthesized text like "(常疏)" or "(当前版本)"
+  charVer = charVer.replace(/\s*\(.*?\)\s*/g, '').trim();
+  if (charVer && charVer !== '无版本') {
+    return charVer.startsWith('v') || charVer.startsWith('V') ? charVer : `v${charVer}`;
+  }
+  if (snapshot.versionName) {
+    const cleaned = snapshot.versionName.replace(/\s*\(.*?\)\s*/g, '').trim();
+    const match = cleaned.match(/^v?\d+(\.\d+)*/i);
+    if (match) {
+      const v = match[0];
+      return v.startsWith('v') || v.startsWith('V') ? v : `v${v}`;
+    }
+    if (cleaned) {
+      return cleaned.startsWith('v') || cleaned.startsWith('V') ? cleaned : `v${cleaned}`;
+    }
+  }
+  const cleanFallback = fallbackVer.replace(/\s*\(.*?\)\s*/g, '').trim();
+  return cleanFallback.startsWith('v') || cleanFallback.startsWith('V') ? cleanFallback : `v${cleanFallback}`;
+}
+
+// Helper to get clean note string, converting legacy '原始初始版本' to '无备注'
+function getSnapshotNoteStr(snapshot: CardVersionSnapshot): string {
+  const note = String(snapshot.note || '').trim();
+  if (!note || note === '原始初始版本' || note === '切换前自动留存的原始版本' || note === '当前正在编辑的角色卡') {
+    return '无备注';
+  }
+  return note;
+}
+
+// Extract QR details from card data
+function extractCardQr(data: any) {
+  const d = data?.data || data || {};
+  const ext = d.extensions || data?.extensions || {};
+  const qrSets = ext.tavern_qr_sets || d.tavern_qr_sets || data?.tavern_qr_sets;
+  const quickReplies = ext.quick_replies || d.quick_replies || data?.quick_replies;
+  const qrList = d.qrList || data?.qrList;
+  const count = (Array.isArray(qrSets) ? qrSets.length : 0) +
+                (Array.isArray(quickReplies) ? quickReplies.length : 0) +
+                (Array.isArray(qrList) ? qrList.length : 0);
+  const hasQr = count > 0;
+  return { hasQr, qrSets, quickReplies, qrList, count };
+}
+
+// Extract Source Link from card data
+function extractCardSource(data: any, fallbackSourceUrl?: string) {
+  const d = data?.data || data || {};
+  const ext = d.extensions || data?.extensions || {};
+  const source = ext.source || d.source || data?.source || fallbackSourceUrl || '';
+  const cleanSource = typeof source === 'string' ? source.trim() : '';
+  return { hasSource: Boolean(cleanSource), source: cleanSource };
+}
+
+// Inherit & merge QR and Source from source data into target character card
+function inheritQrAndSource(
+  targetChar: CharacterCard, 
+  sourceData: any, 
+  sourceCharName?: string,
+  sourceUrlFallback?: string,
+  options: { inheritQr?: boolean; inheritSource?: boolean } = { inheritQr: true, inheritSource: true }
+): CharacterCard {
+  const clonedTarget: CharacterCard = JSON.parse(JSON.stringify(targetChar));
+  if (!clonedTarget.data) clonedTarget.data = {};
+  let targetInner = clonedTarget.data.data ? clonedTarget.data.data : clonedTarget.data;
+  if (typeof targetInner !== 'object' || Array.isArray(targetInner)) {
+    targetInner = {};
+    clonedTarget.data = targetInner;
+  }
+  if (!targetInner.extensions) targetInner.extensions = {};
+
+  // 1. Inherit Source Link
+  if (options.inheritSource !== false) {
+    const { hasSource, source } = extractCardSource(sourceData, sourceUrlFallback);
+    if (hasSource) {
+      targetInner.extensions.source = source;
+      targetInner.source = source;
+      clonedTarget.sourceUrl = source;
+    }
+  }
+
+  // 2. Inherit Quick Replies (QR)
+  if (options.inheritQr !== false) {
+    const { hasQr, qrSets, quickReplies, qrList } = extractCardQr(sourceData);
+    if (hasQr) {
+      const existingSets: any[] = Array.isArray(targetInner.extensions.tavern_qr_sets)
+        ? [...targetInner.extensions.tavern_qr_sets]
+        : [];
+
+      if (Array.isArray(qrSets) && qrSets.length > 0) {
+        qrSets.forEach((set: any) => {
+          if (!existingSets.some((e: any) => e.sourceName === set.sourceName && e.replies?.length === set.replies?.length)) {
+            existingSets.push(JSON.parse(JSON.stringify(set)));
+          }
+        });
+      } else if (Array.isArray(quickReplies) && quickReplies.length > 0) {
+        existingSets.push({
+          id: Date.now().toString() + Math.random().toString(),
+          sourceName: sourceCharName || '旧版本继承',
+          replies: JSON.parse(JSON.stringify(quickReplies)),
+        });
+      } else if (Array.isArray(qrList) && qrList.length > 0) {
+        existingSets.push({
+          id: Date.now().toString() + Math.random().toString(),
+          sourceName: sourceCharName || '旧版本继承',
+          replies: JSON.parse(JSON.stringify(qrList)),
+        });
+      }
+
+      targetInner.extensions.tavern_qr_sets = existingSets;
+      targetInner.extensions.quick_replies = existingSets.flatMap((s: any) => s.replies || []);
+    }
+  }
+
+  if (clonedTarget.data.data) {
+    clonedTarget.data.data = targetInner;
+  } else {
+    clonedTarget.data = targetInner;
+  }
+
+  return clonedTarget;
+}
+
 export function CharacterVersionsSection({ 
   character, 
   onUpdateCharacter, 
@@ -338,9 +642,99 @@ export function CharacterVersionsSection({
     const saved = localStorage.getItem('tavern_version_delete_candidate');
     return saved !== null ? saved === 'true' : true;
   });
+  // Inherit QR & Source link checkbox options when linking existing card
+  const [inheritQrAfterLink, setInheritQrAfterLink] = useState(() => {
+    const saved = localStorage.getItem('tavern_version_inherit_qr');
+    return saved !== null ? saved === 'true' : true;
+  });
+  const [inheritSourceAfterLink, setInheritSourceAfterLink] = useState(() => {
+    const saved = localStorage.getItem('tavern_version_inherit_source');
+    return saved !== null ? saved === 'true' : true;
+  });
+  const [showLinkOptions, setShowLinkOptions] = useState(false);
+
+  // Selective Inherit Modal for any snapshot
+  const [inheritModalSnapshot, setInheritModalSnapshot] = useState<CardVersionSnapshot | null>(null);
+  const [inheritQrChoice, setInheritQrChoice] = useState(true);
+  const [inheritSourceChoice, setInheritSourceChoice] = useState(true);
 
   // Diff preview expansion
   const [expandedDiffId, setExpandedDiffId] = useState<string | null>(null);
+
+  // Theme state: track light theme accurately and reactively
+  const [isThemeLight, setIsThemeLight] = useState(() => {
+    if (isLightMode) return true;
+    if (typeof document !== 'undefined') {
+      return document.documentElement.classList.contains('light-theme') || 
+             document.body.classList.contains('light-theme') || 
+             localStorage.getItem('tavern_theme') === 'light';
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const checkTheme = () => {
+      const isL = isLightMode || (typeof document !== 'undefined' && (
+        document.documentElement.classList.contains('light-theme') || 
+        document.body.classList.contains('light-theme') || 
+        localStorage.getItem('tavern_theme') === 'light'
+      ));
+      setIsThemeLight(Boolean(isL));
+    };
+    checkTheme();
+    const observer = new MutationObserver(checkTheme);
+    if (typeof document !== 'undefined') {
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+      observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    }
+    return () => observer.disconnect();
+  }, [isLightMode]);
+
+  // Floating more-action menu state (Portal top-level floating layer like FolderSidebar)
+  const [versionMenuState, setVersionMenuState] = useState<{
+    snapshot: CardVersionSnapshot;
+    x: number;
+    y: number;
+    placement: 'top' | 'bottom';
+  } | null>(null);
+
+  const handleToggleVersionMenu = (snapshot: CardVersionSnapshot, e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (versionMenuState?.snapshot.id === snapshot.id) {
+      setVersionMenuState(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const menuWidth = 200;
+    const menuHeight = snapshot.id === 'current-live' ? 100 : 185;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const isUpward = spaceBelow < menuHeight + 10;
+
+    let x = rect.right - menuWidth;
+    if (x < 12) x = 12;
+    if (x + menuWidth > window.innerWidth - 12) {
+      x = window.innerWidth - menuWidth - 12;
+    }
+
+    setVersionMenuState({
+      snapshot,
+      x,
+      y: isUpward ? rect.top - 6 : rect.bottom + 6,
+      placement: isUpward ? 'top' : 'bottom',
+    });
+  };
+
+  // Close floating portal menu on window scroll/resize
+  useEffect(() => {
+    if (!versionMenuState) return;
+    const handleClose = () => setVersionMenuState(null);
+    window.addEventListener('scroll', handleClose, true);
+    window.addEventListener('resize', handleClose);
+    return () => {
+      window.removeEventListener('scroll', handleClose, true);
+      window.removeEventListener('resize', handleClose);
+    };
+  }, [versionMenuState]);
 
   // Selected active version ID with direct reactive state for instant toggle
   const [activeVersionId, setActiveVersionId] = useState<string>(() => {
@@ -356,6 +750,24 @@ export function CharacterVersionsSection({
       setActiveVersionId('current-live');
     }
   }, [character.activeVersionId, character.versionHistory]);
+
+  // Migrate legacy '原始初始版本' notes in existing versionHistory to '无备注'
+  useEffect(() => {
+    if (!character.versionHistory || character.versionHistory.length === 0) return;
+    let needsMigration = false;
+    const migratedHistory = character.versionHistory.map(s => {
+      if (s.note === '原始初始版本' || s.note === '切换前自动留存的原始版本' || s.note === '当前正在编辑的角色卡') {
+        needsMigration = true;
+        return { ...s, note: '无备注' };
+      }
+      return s;
+    });
+    if (needsMigration) {
+      const updatedChar = { ...character, versionHistory: migratedHistory };
+      saveCharacter(updatedChar).catch(console.error);
+      onUpdateCharacter(updatedChar);
+    }
+  }, [character.id]);
 
   // Rollback feedback message state
   const [rollbackFeedback, setRollbackFeedback] = useState<string | null>(null);
@@ -484,6 +896,22 @@ export function CharacterVersionsSection({
         tags.push({ text: `差分头像-${currAvatarsCount - snapAvatarsCount}`, type: 'decrease' });
       }
 
+      // 6. QR (快速回复)
+      const snapQr = extractCardQr(snapData);
+      const currQr = extractCardQr(currData);
+      if (snapQr.hasQr && !currQr.hasQr) {
+        tags.push({ text: '含快速回复', type: 'increase' });
+        bullets.push(`包含此版本专属的快速回复 (QR) 动作库 (${snapQr.count} 项)`);
+      }
+
+      // 7. 来源链接
+      const snapSrc = extractCardSource(snapData);
+      const currSrc = extractCardSource(currData);
+      if (snapSrc.hasSource && !currSrc.hasSource) {
+        tags.push({ text: '含来源链接', type: 'increase' });
+        bullets.push(`包含原作者卡片来源: ${snapSrc.source}`);
+      }
+
       if (tags.length === 0) {
         tags.push({ text: '微调细节', type: 'change' });
         bullets.push('卡片基础字段有微调');
@@ -505,18 +933,31 @@ export function CharacterVersionsSection({
   // Start editing a snapshot's note and name
   const handleStartEditNote = (snapshot: CardVersionSnapshot) => {
     setEditingSnapshotId(snapshot.id);
-    setEditingVersionName(snapshot.versionName || '');
-    setEditingNote(snapshot.note || '');
+    const snapVer = getSnapshotVersionStr(snapshot, currentVersionStr);
+    setEditingVersionName(snapshot.versionName || snapVer);
+    setEditingNote(getSnapshotNoteStr(snapshot));
   };
 
   // Save edited note and version name
   const handleSaveSnapshotNote = async (snapshotId: string) => {
     const updatedHistory = (character.versionHistory || []).map(s => {
       if (s.id === snapshotId) {
+        const newVer = editingVersionName.trim();
+        const newNote = editingNote.trim();
+        const clonedData = s.data ? JSON.parse(JSON.stringify(s.data)) : {};
+        if (newVer) {
+          const rawNum = newVer.replace(/^v/i, '').trim();
+          if (clonedData.data) {
+            clonedData.data.character_version = rawNum || newVer;
+          } else {
+            clonedData.character_version = rawNum || newVer;
+          }
+        }
         return {
           ...s,
-          versionName: editingVersionName.trim() || s.versionName || '未命名快照',
-          note: editingNote.trim(),
+          versionName: newVer || s.versionName || `v${currentVersionStr}`,
+          note: newNote || '无备注',
+          data: clonedData,
         };
       }
       return s;
@@ -615,7 +1056,7 @@ export function CharacterVersionsSection({
     const newSnapshot: CardVersionSnapshot = {
       id: crypto.randomUUID(),
       versionName: vName,
-      note: snapshotNote.trim() || '手动保存的版本快照',
+      note: snapshotNote.trim() || '无备注',
       createdAt: Date.now(),
       fileModifiedAt: character.fileModifiedAt || character.updatedAt || character.createdAt,
       data: JSON.parse(JSON.stringify(character.data || {})),
@@ -683,7 +1124,7 @@ export function CharacterVersionsSection({
         const currSnap: CardVersionSnapshot = {
           id: crypto.randomUUID(),
           versionName: `v${currentVersionStr} (当前版本)`,
-          note: '原始初始版本',
+          note: '无备注',
           createdAt: character.createdAt || Date.now(),
           fileModifiedAt: character.fileModifiedAt || character.updatedAt || character.createdAt,
           data: JSON.parse(JSON.stringify(character.data || {})),
@@ -700,14 +1141,26 @@ export function CharacterVersionsSection({
       }
 
       const oldHistory = fullOldChar.versionHistory || [];
-      const updatedHistory = [...baseHistory, newSnapshot, ...oldHistory];
+      // 旧卡自身当前版本的快照与本次关联的卡片内容重复，跳过它，避免版本列表出现 3 2 2 1 的重复项
+      const carriedHistory = (oldHistory.length > 0 && !oldHistory[0].sourceCharId) ? oldHistory.slice(1) : oldHistory;
+      const updatedHistory = [...baseHistory, newSnapshot, ...carriedHistory];
 
-      const updatedChar: CharacterCard = {
+      let updatedChar: CharacterCard = {
         ...character,
         versionHistory: updatedHistory,
         activeVersionId: activeId,
         updatedAt: Date.now(),
       };
+
+      if (inheritQrAfterLink || inheritSourceAfterLink) {
+        updatedChar = inheritQrAndSource(
+          updatedChar, 
+          fullOldChar.data, 
+          fullOldChar.name, 
+          fullOldChar.sourceUrl,
+          { inheritQr: inheritQrAfterLink, inheritSource: inheritSourceAfterLink }
+        );
+      }
 
       await saveCharacter(updatedChar);
 
@@ -745,13 +1198,84 @@ export function CharacterVersionsSection({
         await deleteCharacter(fullOldChar.id);
       }
 
+      const { hasQr, count: qrCount } = extractCardQr(fullOldChar.data);
+      const { hasSource } = extractCardSource(fullOldChar.data, fullOldChar.sourceUrl);
+      const inheritedItems: string[] = [];
+      if (inheritQrAfterLink && hasQr) inheritedItems.push(`快速回复 QR (${qrCount}条)`);
+      if (inheritSourceAfterLink && hasSource) inheritedItems.push('来源链接');
+      const inheritedNotice = inheritedItems.length > 0 ? `\n（已成功继承旧版的 ${inheritedItems.join(' 与 ')}）` : '';
+
       onUpdateCharacter(updatedChar);
       setIsLinkModalOpen(false);
       setSelectedCandidate(null);
-      alert(`已成功将「${fullOldChar.name}」绑定为历史版本！\n\n已归档至版本列表，点击卡片即可在各版本间即时滑动切换！${deleteCandidateAfterLink ? '\n（原卡已移至回收站以防冗余）' : ''}`);
+      window.dispatchEvent(new CustomEvent('charactersUpdated'));
+
+      setRollbackFeedback(`已成功关联「${fullOldChar.name}」${inheritedItems.length > 0 ? `，并继承其 ${inheritedItems.join(' 与 ')}` : ''}！`);
+      setTimeout(() => setRollbackFeedback(null), 3500);
+
+      alert(`已成功将「${fullOldChar.name}」绑定为历史版本！\n\n已归档至版本列表，点击卡片即可在各版本间即时滑动切换！${inheritedNotice}${deleteCandidateAfterLink ? '\n（原卡已移至回收站以防冗余）' : ''}`);
     } catch (e: any) {
       alert('绑定失败: ' + e.message);
     }
+  };
+
+  // Open Inherit Modal for a snapshot
+  const handleOpenInheritModal = (snapshot: CardVersionSnapshot) => {
+    const { hasQr } = extractCardQr(snapshot.data);
+    const { hasSource } = extractCardSource(snapshot.data, snapshot.sourceUrlFallback);
+
+    if (!hasQr && !hasSource) {
+      alert(`版本「${snapshot.versionName || snapshot.cardName}」未检测到快速回复 (QR) 或来源网址数据。`);
+      return;
+    }
+
+    setInheritQrChoice(hasQr);
+    setInheritSourceChoice(hasSource);
+    setInheritModalSnapshot(snapshot);
+  };
+
+  // Confirm Inherit from Snapshot
+  const handleConfirmInheritModal = async () => {
+    if (!inheritModalSnapshot) return;
+    if (!inheritQrChoice && !inheritSourceChoice) {
+      alert('请至少勾选一项要继承的内容（快速回复 QR 或来源链接）。');
+      return;
+    }
+
+    const snap = inheritModalSnapshot;
+    const { hasQr, count: qrCount } = extractCardQr(snap.data);
+    const { hasSource, source } = extractCardSource(snap.data, snap.sourceUrlFallback);
+
+    const willInheritQr = inheritQrChoice && hasQr;
+    const willInheritSource = inheritSourceChoice && hasSource;
+
+    if (!willInheritQr && !willInheritSource) {
+      alert('所选项目在该版本中暂无有效数据可供继承。');
+      return;
+    }
+
+    const updatedChar = inheritQrAndSource(
+      character,
+      snap.data,
+      snap.cardName || character.name,
+      snap.sourceUrlFallback,
+      { inheritQr: willInheritQr, inheritSource: willInheritSource }
+    );
+
+    await saveCharacter(updatedChar);
+    onUpdateCharacter(updatedChar);
+    window.dispatchEvent(new CustomEvent('charactersUpdated'));
+
+    const items: string[] = [];
+    if (willInheritQr) items.push(`快速回复 QR (${qrCount}条)`);
+    if (willInheritSource) items.push('来源链接');
+
+    setRollbackFeedback(`已成功从版本「${snap.versionName || snap.cardName}」继承 ${items.join(' 与 ')}！`);
+    setTimeout(() => {
+      setRollbackFeedback(null);
+    }, 3500);
+
+    setInheritModalSnapshot(null);
   };
 
   // Import local file as historical version
@@ -810,7 +1334,7 @@ export function CharacterVersionsSection({
         const currSnap: CardVersionSnapshot = {
           id: crypto.randomUUID(),
           versionName: `v${currentVersionStr} (当前版本)`,
-          note: '原始初始版本',
+          note: '无备注',
           createdAt: character.createdAt || Date.now(),
           fileModifiedAt: character.fileModifiedAt || character.updatedAt || character.createdAt,
           data: JSON.parse(JSON.stringify(character.data || {})),
@@ -869,7 +1393,7 @@ export function CharacterVersionsSection({
       const prevLiveSnapshot: CardVersionSnapshot = {
         id: 'current-live',
         versionName: `v${currentVersionStr} (原版本备份)`,
-        note: '切换前自动留存的原始版本',
+        note: '无备注',
         createdAt: character.createdAt || Date.now(),
         fileModifiedAt: character.fileModifiedAt || character.updatedAt || character.createdAt,
         data: JSON.parse(JSON.stringify(character.data || {})),
@@ -885,7 +1409,36 @@ export function CharacterVersionsSection({
       }
     }
 
-    const chosenBlob = snapshot.avatarBlob || snapshot.completeCardPngBlob || character.avatarBlob;
+    let chosenBlob = snapshot.avatarBlob || snapshot.completeCardPngBlob;
+    let chosenFallback = snapshot.avatarUrlFallback;
+
+    if ((!chosenBlob || !chosenFallback) && snapshot.sourceCharId) {
+      try {
+        const { getCharacterBlob, getCharacter } = await import('../lib/db');
+        if (!chosenBlob) {
+          const sourceBlobs = await getCharacterBlob(snapshot.sourceCharId);
+          if (sourceBlobs?.avatarBlob) {
+            chosenBlob = sourceBlobs.avatarBlob;
+          }
+        }
+        const sourceChar = await getCharacter(snapshot.sourceCharId);
+        if (sourceChar) {
+          if (!chosenBlob && sourceChar.avatarBlob) {
+            chosenBlob = sourceChar.avatarBlob;
+          }
+          if (!chosenFallback && sourceChar.avatarUrlFallback) {
+            chosenFallback = sourceChar.avatarUrlFallback;
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (!chosenBlob) {
+      chosenBlob = character.avatarBlob;
+    }
+    if (!chosenFallback) {
+      chosenFallback = character.avatarUrlFallback;
+    }
 
     const updatedChar: CharacterCard & { _skipTouchUpdatedAt?: boolean; _isExplicitAvatarUpdate?: boolean } = {
       ...character,
@@ -893,7 +1446,7 @@ export function CharacterVersionsSection({
       name: snapshot.cardName || character.name,
       avatarBlob: chosenBlob,
       avatarHistory: snapshot.avatarHistory || character.avatarHistory,
-      avatarUrlFallback: snapshot.avatarUrlFallback || character.avatarUrlFallback,
+      avatarUrlFallback: chosenFallback,
       tags: snapshot.tags || character.tags,
       activeVersionId: snapshot.id,
       versionHistory: updatedHistory,
@@ -911,30 +1464,81 @@ export function CharacterVersionsSection({
     }, 3500);
   };
 
+  // 取历史版本的 PNG 底图：快照自带 → 源卡（关联卡） → 主卡 → 本地文件 → 远程地址
+  // 依次尝试, 谁先能拿出真实字节就用谁, 避免某个字段存了空对象就整个导出失败
+  const resolveSnapshotPngBuffer = async (snapshot: CardVersionSnapshot): Promise<ArrayBuffer | null> => {
+    const candidates: any[] = [];
+    const localPaths: string[] = [];
+
+    if (snapshot.completeCardPngBlob) candidates.push(snapshot.completeCardPngBlob);
+    if (snapshot.avatarBlob) candidates.push(snapshot.avatarBlob);
+
+    if (snapshot.sourceCharId) {
+      try {
+        const sourceBlobs = await getCharacterBlob(snapshot.sourceCharId);
+        if (sourceBlobs?.avatarBlob) candidates.push(sourceBlobs.avatarBlob);
+        if (sourceBlobs?.originalFile) candidates.push(sourceBlobs.originalFile);
+      } catch (e) {}
+      try {
+        const sourceChar = await getCharacter(snapshot.sourceCharId);
+        if (sourceChar) {
+          if (sourceChar.avatarBlob) candidates.push(sourceChar.avatarBlob);
+          if (sourceChar.originalFile) candidates.push(sourceChar.originalFile);
+          if (sourceChar.avatarUrlFallback) candidates.push(sourceChar.avatarUrlFallback);
+          if (sourceChar.localFilePath) localPaths.push(sourceChar.localFilePath);
+        }
+      } catch (e) {}
+    }
+
+    if (character.avatarBlob) candidates.push(character.avatarBlob);
+    if (character.originalFile) candidates.push(character.originalFile);
+    if (character.avatarUrlFallback) candidates.push(character.avatarUrlFallback);
+    if (snapshot.avatarUrlFallback) candidates.push(snapshot.avatarUrlFallback);
+    if (character.localFilePath) localPaths.push(character.localFilePath);
+
+    let raw: ArrayBuffer | null = null;
+    for (const item of candidates) {
+      raw = await toArrayBufferLoose(item);
+      if (raw) break;
+    }
+
+    if (!raw) {
+      const { readLocalFileBuffer } = await import('../lib/appBridge');
+      for (const p of localPaths) {
+        try {
+          const buf = await readLocalFileBuffer(p);
+          if (buf && buf.byteLength > 0) { raw = buf; break; }
+        } catch (e) {}
+      }
+    }
+
+    if (!raw) return null;
+
+    // 头像底图可能不是 PNG（webp/jpg），先转成 PNG 再写回角色卡
+    if (!isPngBuffer(raw)) {
+      const converted = await convertImageBufferToPng(raw, sniffImageMime(raw));
+      if (!converted) return null;
+      raw = converted;
+    }
+    return raw;
+  };
+
   // Export historical version as standalone PNG
   const handleExportSnapshot = async (snapshot: CardVersionSnapshot) => {
     try {
-      if (snapshot.completeCardPngBlob) {
-        const safeName = (snapshot.cardName || character.name || 'Character').replace(/[\\/:*?"<>|]/g, '_');
-        const filename = `${safeName}_${snapshot.versionName || 'snapshot'}.png`;
-        await downloadOrShareFile(filename, await snapshot.completeCardPngBlob.arrayBuffer(), 'image/png', false);
-        return;
-      }
+      const safeName = (snapshot.cardName || character.name || 'Character').replace(/[\\/:*?"<>|]/g, '_');
+      const filename = `${safeName}_${snapshot.versionName || 'snapshot'}.png`;
 
-      let baseBlob = snapshot.avatarBlob || character.avatarBlob;
-      if (!baseBlob) {
+      const buffer = await resolveSnapshotPngBuffer(snapshot);
+      if (!buffer) {
         alert('该快照缺少头像底图，无法导出为 PNG 角色卡');
         return;
       }
 
-      const buffer = await baseBlob.arrayBuffer();
       const injected = injectTavernData(buffer, snapshot.data);
-      const safeName = (snapshot.cardName || character.name || 'Character').replace(/[\\/:*?"<>|]/g, '_');
-      const filename = `${safeName}_${snapshot.versionName || 'snapshot'}.png`;
-
       await downloadOrShareFile(filename, injected, 'image/png', false);
     } catch (e: any) {
-      alert('导出失败: ' + e.message);
+      alert('导出失败: ' + (e?.message || e));
     }
   };
 
@@ -960,6 +1564,179 @@ export function CharacterVersionsSection({
     setActiveVersionId(nextActiveId);
   };
 
+  // Unbind a snapshot and restore it back to the card library as an independent card
+  const handleUnbindSnapshot = async (snapshot: CardVersionSnapshot) => {
+    const targetName = snapshot.cardName || character.name || '角色卡片';
+    const snapVer = getSnapshotVersionStr(snapshot, currentVersionStr);
+
+    if (!window.confirm(`确定要解绑版本「${snapVer} ${targetName}」吗？\n\n解绑后：\n1. 该卡片将原路恢复至卡库作为独立角色卡；\n2. 从当前角色的版本历史中移除；\n3. 相关对话记录将同步归还。`)) {
+      return;
+    }
+
+    try {
+      const { initDB, saveCharacter, getCharacter, getCharacterBlob } = await import('../lib/db');
+      const db = await initDB();
+
+      const targetId = snapshot.sourceCharId || snapshot.id || crypto.randomUUID();
+
+      // Resolve best available avatar blob and fallback URL for the snapshot being restored
+      let targetAvatarBlob = snapshot.avatarBlob || snapshot.completeCardPngBlob;
+      let targetFallback = snapshot.avatarUrlFallback;
+
+      if (snapshot.sourceCharId) {
+        const sourceBlobs = await getCharacterBlob(snapshot.sourceCharId);
+        if (sourceBlobs?.avatarBlob) {
+          targetAvatarBlob = sourceBlobs.avatarBlob;
+        }
+        const sourceChar = await getCharacter(snapshot.sourceCharId);
+        if (sourceChar) {
+          if (!targetAvatarBlob && sourceChar.avatarBlob) {
+            targetAvatarBlob = sourceChar.avatarBlob;
+          }
+          if (sourceChar.avatarUrlFallback) {
+            targetFallback = sourceChar.avatarUrlFallback;
+          }
+        }
+      }
+
+      // If still no blob and this is a snapshot of the main card, fall back to main card's blob
+      if (!targetAvatarBlob && !snapshot.sourceCharId) {
+        const mainBlobs = await getCharacterBlob(character.id);
+        if (mainBlobs?.avatarBlob) {
+          targetAvatarBlob = mainBlobs.avatarBlob;
+        } else if (character.avatarBlob) {
+          targetAvatarBlob = character.avatarBlob;
+        }
+      }
+
+      // 1. Check if the original card exists in IndexedDB (including soft-deleted)
+      let existingChar = await getCharacter(targetId);
+
+      if (existingChar) {
+        // If it was soft-deleted, clear deletedAt to restore it!
+        delete existingChar.deletedAt;
+        existingChar.updatedAt = Date.now();
+        if (snapshot.data) {
+          existingChar.data = JSON.parse(JSON.stringify(snapshot.data));
+        }
+        if (snapshot.cardName) {
+          existingChar.name = snapshot.cardName;
+        }
+        if (targetAvatarBlob) {
+          existingChar.avatarBlob = targetAvatarBlob;
+        }
+        if (snapshot.avatarHistory) {
+          existingChar.avatarHistory = snapshot.avatarHistory;
+        }
+        if (targetFallback) {
+          existingChar.avatarUrlFallback = targetFallback;
+        }
+        if (snapshot.tags) {
+          existingChar.tags = snapshot.tags;
+        }
+        await saveCharacter(existingChar);
+      } else {
+        // If it doesn't exist, create a new independent CharacterCard
+        const restoredCard: CharacterCard = {
+          id: targetId,
+          name: snapshot.cardName || character.name,
+          avatarBlob: targetAvatarBlob,
+          avatarHistory: snapshot.avatarHistory,
+          avatarUrlFallback: targetFallback || character.avatarUrlFallback,
+          data: JSON.parse(JSON.stringify(snapshot.data || {})),
+          tags: snapshot.tags ? [...snapshot.tags] : undefined,
+          createdAt: snapshot.createdAt || Date.now(),
+          updatedAt: Date.now(),
+          fileModifiedAt: snapshot.fileModifiedAt || snapshot.createdAt,
+        };
+        await saveCharacter(restoredCard);
+      }
+
+      // 2. Re-assign any migrated chats or memos back to this unlinked character
+      try {
+        if (snapshot.sourceCharId) {
+          const currentChats = await db.getAllFromIndex('chats', 'by-character', character.id);
+          if (currentChats && currentChats.length > 0) {
+            const tx = db.transaction('chats', 'readwrite');
+            for (const chat of currentChats) {
+              if (
+                chat.name.startsWith(`[${snapVer}]`) || 
+                chat.name.startsWith(`[v${snapVer.replace(/^v/i, '')}]`) ||
+                (snapshot.cardName && chat.name.includes(snapshot.cardName))
+              ) {
+                chat.characterId = snapshot.sourceCharId;
+                await tx.objectStore('chats').put(chat);
+              }
+            }
+            await tx.done;
+          }
+
+          const currentMemos = await db.getAllFromIndex('memos', 'by-character', character.id);
+          if (currentMemos && currentMemos.length > 0) {
+            const tx = db.transaction('memos', 'readwrite');
+            for (const memo of currentMemos) {
+              if (
+                (snapshot.cardName && memo.content?.includes(snapshot.cardName)) ||
+                memo.content?.includes(snapVer)
+              ) {
+                memo.characterId = snapshot.sourceCharId;
+                await tx.objectStore('memos').put(memo);
+              }
+            }
+            await tx.done;
+          }
+        }
+      } catch (chatErr) {
+        console.warn('Failed to restore chat logs on unbind', chatErr);
+      }
+
+      // 3. Remove snapshot from current character's version history
+      const updatedHistory = (character.versionHistory || []).filter(s => s.id !== snapshot.id);
+      let nextActiveId = activeVersionId;
+      let nextData = character.data;
+      let nextName = character.name;
+      let nextAvatarBlob = character.avatarBlob;
+
+      // If the currently active version WAS the snapshot being unbound, revert main card to remaining active snapshot
+      if (activeVersionId === snapshot.id) {
+        nextActiveId = updatedHistory.length > 0 ? updatedHistory[0].id : 'current-live';
+        const remainingActiveSnap = updatedHistory.find(s => s.id === nextActiveId) || updatedHistory[0];
+        if (remainingActiveSnap) {
+          nextData = JSON.parse(JSON.stringify(remainingActiveSnap.data || character.data));
+          if (remainingActiveSnap.cardName) nextName = remainingActiveSnap.cardName;
+          if (remainingActiveSnap.avatarBlob) {
+            nextAvatarBlob = remainingActiveSnap.avatarBlob;
+          } else if (remainingActiveSnap.sourceCharId) {
+            const remBlobs = await getCharacterBlob(remainingActiveSnap.sourceCharId);
+            if (remBlobs?.avatarBlob) nextAvatarBlob = remBlobs.avatarBlob;
+          }
+        }
+      }
+
+      const updatedChar: CharacterCard = {
+        ...character,
+        data: nextData,
+        name: nextName,
+        avatarBlob: nextAvatarBlob,
+        versionHistory: updatedHistory,
+        activeVersionId: nextActiveId,
+        updatedAt: Date.now(),
+      };
+
+      await saveCharacter(updatedChar);
+      onUpdateCharacter(updatedChar);
+      setActiveVersionId(nextActiveId);
+
+      // 4. Invalidate and broadcast so main card list refreshes immediately
+      window.dispatchEvent(new CustomEvent('charactersUpdated'));
+
+      setRollbackFeedback(`已成功解绑「${snapshot.cardName || character.name}」并原路恢复至卡库！`);
+      setTimeout(() => setRollbackFeedback(null), 3500);
+    } catch (err: any) {
+      alert('解绑失败: ' + err.message);
+    }
+  };
+
   // Unified display list of version cards (Keeps card list order completely fixed and stable)
   const displayList: CardVersionSnapshot[] = useMemo(() => {
     const history = character.versionHistory || [];
@@ -973,7 +1750,7 @@ export function CharacterVersionsSection({
       const liveSnapshot: CardVersionSnapshot = {
         id: 'current-live',
         versionName: `v${currentVersionStr} (当前版本)`,
-        note: '当前正在编辑的角色卡',
+        note: '无备注',
         createdAt: character.createdAt || Date.now(),
         fileModifiedAt: character.fileModifiedAt || character.updatedAt || character.createdAt,
         data: character.data,
@@ -1002,7 +1779,7 @@ export function CharacterVersionsSection({
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className={`space-y-6 pb-12 ${isThemeLight ? 'light-theme' : ''}`}>
       {/* 
         ========================================================================
         Top Header Section
@@ -1019,8 +1796,8 @@ export function CharacterVersionsSection({
           </h2>
         </div>
 
-        {/* Clean Monochrome Header Controls */}
-        <div className="flex items-center gap-1.5 sm:gap-2 flex-nowrap overflow-x-auto hide-scrollbar shrink-0 max-w-full">
+        {/* Clean Monochrome Header Controls - Mobile grid & desktop flex */}
+        <div className="grid grid-cols-3 sm:flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto shrink-0">
           <input
             ref={fileInputRef}
             type="file"
@@ -1031,7 +1808,7 @@ export function CharacterVersionsSection({
 
           <button
             onClick={() => setIsCreatingSnapshot(prev => !prev)}
-            className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 shrink-0 whitespace-nowrap ${
+            className={`px-2 sm:px-4 py-2 sm:py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 shrink-0 whitespace-nowrap ${
               isCreatingSnapshot 
                 ? 'bg-white text-black border border-white shadow-sm [.light-theme_&]:!bg-black [.light-theme_&]:!border-black [.light-theme_&]:!text-white' 
                 : 'soft-pill'
@@ -1044,7 +1821,7 @@ export function CharacterVersionsSection({
 
           <button
             onClick={() => setIsLinkModalOpen(true)}
-            className="soft-pill px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 shrink-0 whitespace-nowrap"
+            className="soft-pill px-2 sm:px-4 py-2 sm:py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 shrink-0 whitespace-nowrap"
             title="将卡库中旧卡片关联/绑定为本角色的历史版本"
           >
             <LinkIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-80 shrink-0" />
@@ -1053,7 +1830,7 @@ export function CharacterVersionsSection({
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="soft-pill px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 shrink-0 whitespace-nowrap"
+            className="soft-pill px-2 sm:px-4 py-2 sm:py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 shrink-0 whitespace-nowrap"
             title="直接导入本地 .png 或 .json 文件为新版本"
           >
             <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-80 shrink-0" />
@@ -1112,7 +1889,7 @@ export function CharacterVersionsSection({
                   type="text"
                   value={snapshotNote}
                   onChange={e => setSnapshotNote(e.target.value)}
-                  placeholder="例如：优化人设提示词与第2段开场白"
+                  placeholder="例如：优化人设提示词（留空为无备注）"
                   className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 sm:py-3 text-sm text-white/90 outline-none focus:border-blue-500/50 transition [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-slate-400"
                 />
               </div>
@@ -1127,7 +1904,11 @@ export function CharacterVersionsSection({
               </button>
               <button
                 onClick={handleCreateSnapshot}
-                className="px-6 py-2 rounded-full text-xs sm:text-sm font-bold bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-black [.light-theme_&]:!border-black [.light-theme_&]:!text-white shadow-sm cursor-pointer transition active:scale-95 flex items-center justify-center"
+                className={`px-6 py-2 rounded-full text-xs sm:text-sm font-bold shadow-sm cursor-pointer transition active:scale-95 flex items-center justify-center ${
+                  isThemeLight 
+                    ? 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-600 shadow-blue-500/20' 
+                    : 'bg-white hover:bg-neutral-200 text-black border border-white'
+                }`}
               >
                 保存快照
               </button>
@@ -1201,13 +1982,52 @@ export function CharacterVersionsSection({
                       <span className="hidden sm:inline">当前生效版本</span>
                       <span className="sm:hidden">当前生效</span>
                     </span>
+
+                    <button
+                      type="button"
+                      onClick={(e) => handleToggleVersionMenu({
+                        id: 'current-live',
+                        versionName: `v${currentVersionStr} (当前版本)`,
+                        note: '无备注',
+                        createdAt: character.createdAt || Date.now(),
+                        fileModifiedAt: character.fileModifiedAt || character.updatedAt || character.createdAt,
+                        data: character.data,
+                        avatarBlob: character.avatarBlob,
+                        completeCardPngBlob: character.originalFile,
+                        avatarHistory: character.avatarHistory,
+                        avatarUrlFallback: character.avatarUrlFallback,
+                        cardName: character.name,
+                        tags: character.tags,
+                      }, e)}
+                      className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition active:scale-95 cursor-pointer ${
+                        versionMenuState?.snapshot.id === 'current-live'
+                          ? 'bg-blue-600 text-white border border-blue-600 shadow-sm [.light-theme_&]:!bg-blue-600 [.light-theme_&]:!border-blue-600 [.light-theme_&]:!text-white'
+                          : 'soft-pill text-white/70 hover:text-white [.light-theme_&]:text-slate-600 [.light-theme_&]:hover:text-slate-900'
+                      }`}
+                      title="更多操作"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
 
                 <div className="relative z-10 space-y-1.5">
-                  <p className="version-card-note text-sm leading-relaxed font-normal line-clamp-1 sm:line-clamp-2">
-                    {currentDescription || "当前卡片设定完整生效中，开场白与世界书随时可供溯源。"}
-                  </p>
+                  <div className="flex items-center gap-2 min-w-0 truncate py-0.5">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-mono font-bold shrink-0 border ${
+                      isThemeLight
+                        ? 'bg-[#f1f5f9] text-[#007aff] border-[#e2e8f0]'
+                        : 'bg-white/5 text-[#0A84FF] border-white/10'
+                    } [.light-theme_&]:!text-[#007aff]`}>
+                      {currentVersionStr.startsWith('v') || currentVersionStr.startsWith('V') ? currentVersionStr : `v${currentVersionStr}`}
+                    </span>
+                    <span className={`select-none text-xs ${isThemeLight ? 'text-slate-300' : 'text-white/20'}`}>•</span>
+                    <span className="text-xs font-medium text-white/50 [.light-theme_&]:!text-slate-500 shrink-0">
+                      备注:
+                    </span>
+                    <p className="version-card-note text-sm leading-relaxed font-normal line-clamp-1 sm:line-clamp-2 truncate">
+                      无备注
+                    </p>
+                  </div>
 
                   <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
                     <span className="soft-pill px-2.5 py-0.5 rounded-full text-xs font-medium tracking-tight whitespace-nowrap">
@@ -1259,6 +2079,8 @@ export function CharacterVersionsSection({
                 const snapWbCount = snapData.character_book?.entries?.length || 0;
                 const isExpanded = expandedDiffId === snapshot.id;
                 const isActive = (snapshot.id === activeVersionId);
+                const displayVer = getSnapshotVersionStr(snapshot, currentVersionStr);
+                const displayNote = getSnapshotNoteStr(snapshot);
 
                 // Automated difference calculation against current active card
                 const diffResult = computeVersionDiff(
@@ -1287,7 +2109,7 @@ export function CharacterVersionsSection({
                       className={`soft-card rounded-2xl py-2.5 px-3.5 sm:py-3 sm:px-4 pl-4.5 sm:pl-5 relative overflow-hidden transition-all duration-300 space-y-1.5 sm:space-y-2 cursor-pointer ${
                         isActive 
                           ? 'border border-white/20 shadow-md [.light-theme_&]:!border-blue-400/80 [.light-theme_&]:!bg-[#f8faff] [.light-theme_&]:!shadow-xs' 
-                          : 'hover:shadow-md hover:border-slate-600 [.light-theme_&]:hover:!border-[#cbd5e1] active:scale-[0.99]'
+                          : 'hover:shadow-md hover:border-blue-300/60 [.light-theme_&]:hover:!border-blue-300 active:scale-[0.99]'
                       }`}
                     >
                       {/* Sliding Left Vertical Accent Bar (Smoothly glides between cards when selected) */}
@@ -1300,24 +2122,26 @@ export function CharacterVersionsSection({
                       )}
 
                       {/* Top Row: Snapshot Title + Status or Actions */}
-                      <div className="flex items-center justify-between gap-2 relative z-10 flex-wrap sm:flex-nowrap">
-                        <h4 className="version-card-title text-sm sm:text-base font-semibold tracking-tight flex items-center gap-1.5 min-w-0 truncate">
-                          <span className="truncate">{snapshot.cardName || character.name || '未命名角色'}</span>
+                      <div className="flex items-center justify-between gap-2 relative z-10">
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                          <h4 className="version-card-title text-sm sm:text-base font-semibold tracking-tight truncate">
+                            {snapshot.cardName || character.name || '未命名角色'}
+                          </h4>
                           {snapshot.id === 'current-live' ? (
-                            <span className="px-2 py-0.5 rounded-full text-xs font-medium text-white bg-white/10 border border-white/20 [.light-theme_&]:bg-neutral-100 [.light-theme_&]:text-neutral-800 [.light-theme_&]:border-neutral-200 shrink-0">
-                              最新主卡
+                            <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium text-white bg-white/10 border border-white/20 [.light-theme_&]:bg-neutral-100 [.light-theme_&]:text-neutral-800 [.light-theme_&]:border-neutral-200 shrink-0">
+                              主卡
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 rounded-full text-xs font-normal text-slate-400 bg-white/5 border border-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#475569] [.light-theme_&]:!border-[#e2e8f0] shrink-0">
-                              {snapshot.sourceCharId ? '关联旧卡' : '历史快照'}
+                            <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-normal text-slate-400 bg-white/5 border border-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#475569] [.light-theme_&]:!border-[#e2e8f0] shrink-0">
+                              {snapshot.sourceCharId ? '关联卡' : '快照'}
                             </span>
                           )}
-                        </h4>
+                        </div>
 
-                        {/* Action buttons */}
-                        <div className="flex items-center gap-1 shrink-0">
+                        {/* Clean, Compact Action Controls (Reduced button clutter) */}
+                        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
                           {isActive ? (
-                            <span className="bg-blue-500/15 text-blue-300 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-700 px-2.5 py-0.5 rounded-full text-xs font-semibold flex items-center gap-1.5 shadow-xs">
+                            <span className="bg-blue-500/15 text-blue-300 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-700 px-2 sm:px-2.5 py-0.5 rounded-full text-xs font-semibold flex items-center gap-1.5 shadow-xs">
                               <span className="w-1.5 h-1.5 rounded-full bg-blue-400 [.light-theme_&]:!bg-blue-600 animate-pulse shrink-0 shadow-xs shadow-blue-400/50" />
                               <span className="hidden sm:inline">当前生效版本</span>
                               <span className="sm:hidden">当前生效</span>
@@ -1329,10 +2153,11 @@ export function CharacterVersionsSection({
                                 e.stopPropagation();
                                 handleSwitchVersion(snapshot);
                               }}
-                              className="soft-pill px-3 py-1 rounded-full text-xs font-semibold transition active:scale-95 cursor-pointer shadow-xs flex items-center gap-1 hover:border-white hover:text-white [.light-theme_&]:hover:border-black [.light-theme_&]:hover:text-black"
+                              className="soft-pill px-2.5 sm:px-3 py-1 rounded-full text-xs font-semibold transition active:scale-95 cursor-pointer shadow-xs flex items-center gap-1 hover:border-blue-400 hover:text-blue-500 [.light-theme_&]:hover:!border-blue-400 [.light-theme_&]:hover:!text-blue-600"
                             >
-                              <Check className="w-3.5 h-3.5" />
-                              <span>切换至此版本</span>
+                              <Check className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                              <span className="hidden sm:inline">切换至此版本</span>
+                              <span className="sm:hidden">切换</span>
                             </button>
                           )}
 
@@ -1342,114 +2167,161 @@ export function CharacterVersionsSection({
                               e.stopPropagation();
                               setExpandedDiffId(isExpanded ? null : snapshot.id);
                             }}
-                            className={`px-2.5 py-1 rounded-full text-xs font-medium transition flex items-center gap-1 active:scale-95 cursor-pointer ${
+                            className={`px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium transition flex items-center gap-1 active:scale-95 cursor-pointer ${
                               isExpanded 
-                                ? 'soft-pill !bg-white/20 !text-white !border-white/30 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/15 [.light-theme_&]:!text-[#0f172a] shadow-xs' 
-                                : 'soft-pill'
+                                ? 'soft-pill !bg-white/20 !text-white !border-white/30 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-slate-300 [.light-theme_&]:!text-[#0f172a] shadow-xs' 
+                                : 'soft-pill text-white/70 [.light-theme_&]:text-slate-600'
                             }`}
-                            title="查看与当前生效版本的智能差异对比"
+                            title="查看版本变动对比"
                           >
                             <Eye className="w-3.5 h-3.5 opacity-70" />
                             <span className="hidden sm:inline">对比</span>
                             {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                           </button>
 
+                          {/* Floating More Options Button (Triggers top-level portal menu) */}
                           <button
                             type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleExportSnapshot(snapshot);
-                            }}
-                            className="soft-pill w-7 h-7 rounded-full flex items-center justify-center transition active:scale-95 cursor-pointer"
-                            title="导出为此历史版本的 PNG 角色卡"
+                            onClick={(e) => handleToggleVersionMenu(snapshot, e)}
+                            className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition active:scale-95 cursor-pointer ${
+                              versionMenuState?.snapshot.id === snapshot.id
+                                ? 'bg-blue-600 text-white border border-blue-600 shadow-sm [.light-theme_&]:!bg-blue-600 [.light-theme_&]:!border-blue-600 [.light-theme_&]:!text-white'
+                                : 'soft-pill text-white/70 hover:text-white [.light-theme_&]:text-slate-600 [.light-theme_&]:hover:text-slate-900'
+                            }`}
+                            title="更多操作"
                           >
-                            <Download className="w-3.5 h-3.5 opacity-70" />
+                            <MoreHorizontal className="w-4 h-4" />
                           </button>
-
-                          {snapshot.id !== 'current-live' && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteSnapshot(snapshot.id, snapshot.versionName);
-                              }}
-                              className="soft-pill w-7 h-7 rounded-full flex items-center justify-center transition active:scale-95 cursor-pointer text-slate-400 hover:text-rose-500 hover:border-rose-300"
-                              title="删除该版本快照"
-                            >
-                              <Trash2 className="w-3.5 h-3.5 opacity-70" />
-                            </button>
-                          )}
                         </div>
                       </div>
 
-                  {/* Middle: Note / Description (Editable inline) & Metrics */}
+                  {/* Middle: Version Number (版号) & Note / Description (Editable inline) & Metrics */}
                   <div className="relative z-10 space-y-1.5">
                     {editingSnapshotId === snapshot.id ? (
-                      <div className="version-edit-box space-y-1.5 p-2 rounded-xl" onClick={e => e.stopPropagation()}>
-                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                          <input
-                            type="text"
-                            value={editingVersionName}
-                            onChange={e => setEditingVersionName(e.target.value)}
-                            placeholder="版本标识名称"
-                            className="version-input sm:w-1/3 px-3 py-1.5 text-xs sm:text-sm rounded-lg outline-none focus:border-blue-500"
-                          />
-                          <input
-                            type="text"
-                            value={editingNote}
-                            onChange={e => setEditingNote(e.target.value)}
-                            placeholder="输入版本备注 / 迭代说明..."
-                            className="version-input flex-1 px-3 py-1.5 text-xs sm:text-sm rounded-lg outline-none focus:border-blue-500"
-                            autoFocus
-                          />
+                      <div 
+                        className={`version-edit-box space-y-2.5 p-3 sm:p-3.5 rounded-2xl border transition-all ${
+                          isThemeLight
+                            ? '!bg-[#f0f6ff] !border-[#bfdbfe] shadow-xs text-slate-900'
+                            : '!bg-[#14161f] !border-white/15 shadow-xl text-white'
+                        }`} 
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                          <div className="sm:w-1/3">
+                            <label 
+                              style={{ color: isThemeLight ? '#0f172a' : '#cbd5e1' }}
+                              className="block text-[11px] font-bold mb-1 [.light-theme_&]:!text-[#0f172a]"
+                            >
+                              版号
+                            </label>
+                            <input
+                              type="text"
+                              value={editingVersionName}
+                              onChange={e => setEditingVersionName(e.target.value)}
+                              placeholder={`例如 v${currentVersionStr}`}
+                              style={{
+                                color: isThemeLight ? '#0f172a' : '#ffffff',
+                                backgroundColor: isThemeLight ? '#ffffff' : 'rgba(0,0,0,0.4)',
+                                borderColor: isThemeLight ? '#93c5fd' : 'rgba(255,255,255,0.15)'
+                              }}
+                              className="version-input w-full px-3 py-1.5 text-xs sm:text-sm rounded-xl outline-none font-mono font-medium border transition focus:ring-2 focus:ring-blue-400/30 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!bg-white [.light-theme_&]:!border-blue-300"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <label 
+                              style={{ color: isThemeLight ? '#0f172a' : '#cbd5e1' }}
+                              className="block text-[11px] font-bold mb-1 [.light-theme_&]:!text-[#0f172a]"
+                            >
+                              备注说明
+                            </label>
+                            <input
+                              type="text"
+                              value={editingNote}
+                              onChange={e => setEditingNote(e.target.value)}
+                              placeholder="输入版本备注 (无备注留空或输入无备注)..."
+                              style={{
+                                color: isThemeLight ? '#0f172a' : '#ffffff',
+                                backgroundColor: isThemeLight ? '#ffffff' : 'rgba(0,0,0,0.4)',
+                                borderColor: isThemeLight ? '#93c5fd' : 'rgba(255,255,255,0.15)'
+                              }}
+                              className="version-input w-full px-3 py-1.5 text-xs sm:text-sm rounded-xl outline-none font-medium border transition focus:ring-2 focus:ring-blue-400/30 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!bg-white [.light-theme_&]:!border-blue-300"
+                              autoFocus
+                            />
+                          </div>
                         </div>
                         <div className="flex items-center justify-end gap-2 pt-0.5">
                           <button
                             type="button"
                             onClick={() => setEditingSnapshotId(null)}
-                            className="px-3 py-1 rounded-full text-xs text-slate-300 hover:text-slate-100 cursor-pointer"
+                            style={{ color: isThemeLight ? '#475569' : '#94a3b8' }}
+                            className="px-3 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer hover:bg-black/5 [.light-theme_&]:!text-[#475569]"
                           >
                             取消
                           </button>
                           <button
                             type="button"
                             onClick={() => handleSaveSnapshotNote(snapshot.id)}
-                            className="px-3.5 py-1 rounded-full text-xs font-semibold bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-black [.light-theme_&]:!border-black [.light-theme_&]:!text-white cursor-pointer shadow-xs"
+                            style={{
+                              backgroundColor: isThemeLight ? '#2563eb' : '#ffffff',
+                              color: isThemeLight ? '#ffffff' : '#000000',
+                            }}
+                            className="px-4 py-1.5 rounded-full text-xs font-bold cursor-pointer shadow-xs transition active:scale-95"
                           >
-                            保存备注
+                            保存修改
                           </button>
                         </div>
                       </div>
                     ) : (
-                      <div className="group/note flex items-center justify-between gap-2" onClick={e => { e.stopPropagation(); handleStartEditNote(snapshot); }}>
+                      <div className="flex items-center gap-2 min-w-0 flex-1 truncate py-0.5">
+                        {/* 版号胶囊 */}
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-mono font-bold shrink-0 border ${
+                          isThemeLight
+                            ? 'bg-[#f1f5f9] text-[#007aff] border-[#e2e8f0]'
+                            : 'bg-white/5 text-[#0A84FF] border-white/10'
+                        } [.light-theme_&]:!text-[#007aff]`}>
+                          {displayVer}
+                        </span>
+                        <span className={`select-none text-xs ${isThemeLight ? 'text-slate-300' : 'text-white/20'}`}>•</span>
+                        <span className="text-xs font-medium text-white/50 [.light-theme_&]:!text-slate-500 shrink-0">
+                          备注:
+                        </span>
                         <p 
-                          className="version-card-note text-sm leading-relaxed font-normal line-clamp-1 sm:line-clamp-2 cursor-pointer transition hover:opacity-80"
-                          title="点击修改版本名称与备注"
+                          className="version-card-note text-xs sm:text-sm leading-relaxed font-normal line-clamp-1 sm:line-clamp-2 truncate"
                         >
-                          {snapshot.note || snapDesc || '（暂无备注，点击修改...）'}
+                          {displayNote}
                         </p>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); handleStartEditNote(snapshot); }}
-                          className="p-1 rounded-md text-slate-300 hover:text-white transition shrink-0 cursor-pointer opacity-75 hover:opacity-100 hover:bg-white/10 [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#0f172a] [.light-theme_&]:hover:bg-[#f1f5f9]"
-                          title="修改版本名称与备注"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
                       </div>
                     )}
 
                     {/* Basic Metric Pills */}
                     <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                      <span className="soft-pill px-2.5 py-0.5 rounded-full text-xs font-medium tracking-tight whitespace-nowrap">
+                      <span className="soft-pill px-2 sm:px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-medium tracking-tight whitespace-nowrap">
                         描: {formatWordCount(snapDesc.length)}
                       </span>
-                      <span className="soft-pill px-2.5 py-0.5 rounded-full text-xs font-medium tracking-tight whitespace-nowrap">
+                      <span className="soft-pill px-2 sm:px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-medium tracking-tight whitespace-nowrap">
                         开场白: {snapGreetingsCount} 篇
                       </span>
-                      <span className="soft-pill px-2.5 py-0.5 rounded-full text-xs font-medium tracking-tight whitespace-nowrap">
+                      <span className="soft-pill px-2 sm:px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-medium tracking-tight whitespace-nowrap">
                         世界书: {snapWbCount} 项
                       </span>
+                      {(() => {
+                        const { hasQr, count: qCount } = extractCardQr(snapData);
+                        const { hasSource } = extractCardSource(snapData, snapshot.sourceUrlFallback);
+                        return (
+                          <>
+                            {hasQr && (
+                              <span className="soft-pill px-2 sm:px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-medium tracking-tight whitespace-nowrap text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20">
+                                QR: {qCount}条
+                              </span>
+                            )}
+                            {hasSource && (
+                              <span className="soft-pill px-2 sm:px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-medium tracking-tight whitespace-nowrap text-blue-600 dark:text-blue-400 bg-blue-500/10 border-blue-500/20">
+                                含来源
+                              </span>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -1462,7 +2334,7 @@ export function CharacterVersionsSection({
 
                     <div className="w-6 h-6 sm:w-6.5 sm:h-6.5 rounded-full overflow-hidden shrink-0 soft-pill p-0.5 shadow-xs">
                       <div className="w-full h-full rounded-full overflow-hidden">
-                        <SnapshotAvatar snapshot={snapshot} fallbackName={snapshot.cardName || character.name} />
+                        <SnapshotAvatar snapshot={snapshot} fallbackName={snapshot.cardName || character.name} parentCharacter={character} />
                       </div>
                     </div>
                   </div>
@@ -1539,15 +2411,15 @@ export function CharacterVersionsSection({
                 initial={{ opacity: 0, scale: 0.95, y: 15 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 15 }}
-                className="version-modal-box rounded-3xl p-5 sm:p-6 w-[92vw] sm:w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh] relative overflow-hidden"
+                className="version-modal-box rounded-3xl p-4 sm:p-6 w-[94vw] sm:w-full max-w-lg shadow-2xl flex flex-col max-h-[88vh] relative overflow-hidden"
               >
-                <div className="flex items-center justify-between pb-3.5 border-b version-modal-border relative z-10 shrink-0">
+                <div className="flex items-center justify-between pb-3 sm:pb-3.5 border-b version-modal-border relative z-10 shrink-0">
                   <div className="min-w-0 pr-2">
-                    <h3 className="text-base sm:text-lg font-bold version-modal-title flex items-center gap-2 truncate">
-                      <LinkIcon className="w-5 h-5 shrink-0 opacity-80" />
+                    <h3 className="text-sm sm:text-lg font-bold version-modal-title flex items-center gap-1.5 sm:gap-2 truncate">
+                      <LinkIcon className="w-4 h-4 sm:w-5 sm:h-5 shrink-0 opacity-80" />
                       关联已有卡片为历史版本
                     </h3>
-                    <p className="text-xs sm:text-sm version-modal-desc mt-0.5 line-clamp-1 sm:line-clamp-none">
+                    <p className="text-[11px] sm:text-sm version-modal-desc mt-0.5 line-clamp-1 sm:line-clamp-none">
                       将卡库中的旧版本完整归档为当前角色的迭代分支，便于对比和随心回滚
                     </p>
                   </div>
@@ -1560,7 +2432,7 @@ export function CharacterVersionsSection({
                 </div>
 
                 {/* Search input */}
-                <div className="pt-3.5 pb-2 relative z-10 shrink-0">
+                <div className="pt-3 pb-2 relative z-10 shrink-0">
                   <div className="relative">
                     <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 version-modal-search-icon" />
                     <input
@@ -1568,7 +2440,7 @@ export function CharacterVersionsSection({
                       placeholder="搜索卡库角色..."
                       value={linkSearchQuery}
                       onChange={e => setLinkSearchQuery(e.target.value)}
-                      className="version-input w-full rounded-2xl pl-10 pr-4 py-2.5 sm:py-3 text-sm sm:text-base outline-none focus:border-blue-500 transition"
+                      className="version-input w-full rounded-2xl pl-10 pr-4 py-2 sm:py-3 text-xs sm:text-base outline-none focus:border-blue-500 transition"
                     />
                   </div>
                 </div>
@@ -1576,7 +2448,7 @@ export function CharacterVersionsSection({
                 {/* Candidate list */}
                 <div 
                   onScroll={handleCandidateScroll}
-                  className="flex-1 overflow-y-auto space-y-2 sm:space-y-2.5 pr-1 my-2 max-h-[42vh] custom-scrollbar relative z-10"
+                  className="flex-1 overflow-y-auto space-y-2 sm:space-y-2.5 pr-1 my-2 max-h-[50vh] custom-scrollbar relative z-10"
                 >
                   {filteredCandidates.length === 0 ? (
                     <div className="py-12 text-center text-sm version-modal-desc">
@@ -1592,20 +2464,30 @@ export function CharacterVersionsSection({
                         <div
                           key={c.id}
                           onClick={() => setSelectedCandidate(isSelected ? null : c)}
-                          className={`p-3 sm:p-3.5 rounded-2xl transition cursor-pointer flex items-center justify-between gap-3 border version-candidate-card ${
+                          className={`p-2.5 sm:p-3.5 rounded-2xl transition cursor-pointer flex items-center justify-between gap-2.5 sm:gap-3 border version-candidate-card ${
                             isSelected ? 'is-selected' : ''
                           }`}
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             <CandidateAvatar char={c} />
                             <div className="min-w-0">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <h4 className="font-bold text-sm sm:text-base truncate version-candidate-name">
                                   {getCandidateDisplayName(c)}
                                 </h4>
                                 <span className="text-xs px-2 py-0.5 rounded-full font-mono font-semibold version-candidate-badge shrink-0">
                                   v{ver}
                                 </span>
+                                {extractCardQr(c.data).hasQr && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold shrink-0">
+                                    含 QR
+                                  </span>
+                                )}
+                                {extractCardSource(c.data, c.sourceUrl).hasSource && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-blue-500/15 text-blue-600 dark:text-blue-400 font-semibold shrink-0">
+                                    含来源
+                                  </span>
+                                )}
                               </div>
                               <p className="text-xs truncate mt-1 font-normal version-candidate-sub">
                                 修改: {new Date(c.fileModifiedAt || c.updatedAt || c.createdAt).toLocaleDateString()} · 描述: {(cData.description || '').length}字
@@ -1630,30 +2512,115 @@ export function CharacterVersionsSection({
                   )}
                 </div>
 
-                {/* Delete candidate checkbox */}
-                <div 
-                  onClick={() => {
-                    const next = !deleteCandidateAfterLink;
-                    setDeleteCandidateAfterLink(next);
-                    localStorage.setItem('tavern_version_delete_candidate', String(next));
-                  }}
-                  className="flex items-start gap-3 p-3 sm:p-3.5 rounded-2xl version-candidate-card select-none my-2 cursor-pointer relative z-10 transition shrink-0"
-                >
-                  <div
-                    className={`w-5 h-5 rounded-lg flex items-center justify-center transition shrink-0 mt-0.5 version-checkbox-icon ${
-                      deleteCandidateAfterLink ? 'is-checked' : ''
-                    }`}
+                {/* Collapsible options container: Delete candidate & Inherit QR/Source */}
+                <div className="my-2 shrink-0 relative z-10">
+                  <button
+                    type="button"
+                    onClick={() => setShowLinkOptions(!showLinkOptions)}
+                    className="w-full flex items-center justify-between p-2 px-3 sm:px-3.5 rounded-xl border version-modal-border bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition cursor-pointer text-xs select-none"
                   >
-                    {deleteCandidateAfterLink && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <span className="text-xs sm:text-sm font-bold version-candidate-name block">
-                      绑定后将原独立卡片移至回收站
-                    </span>
-                    <span className="text-xs version-candidate-sub block mt-0.5 leading-relaxed">
-                      推荐勾选，避免在列表中留有重复同名卡片，旧卡所有数据均完整封存在版本历史中
-                    </span>
-                  </div>
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="font-semibold version-candidate-name shrink-0">高级关联设置</span>
+                      <span className="text-[11px] version-candidate-sub opacity-60 truncate">
+                        ({deleteCandidateAfterLink ? '原卡移回收站' : '保留原卡'} · {inheritQrAfterLink ? '继承QR' : '不继承QR'} · {inheritSourceAfterLink ? '继承网址' : '不继承网址'})
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 text-slate-400 shrink-0 ml-1">
+                      {showLinkOptions ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </div>
+                  </button>
+
+                  <AnimatePresence>
+                    {showLinkOptions && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="p-1.5 sm:p-2 mt-1.5 rounded-2xl border version-modal-border space-y-1 bg-black/5 dark:bg-white/5">
+                          {/* Delete candidate checkbox */}
+                          <div 
+                            onClick={() => {
+                              const next = !deleteCandidateAfterLink;
+                              setDeleteCandidateAfterLink(next);
+                              localStorage.setItem('tavern_version_delete_candidate', String(next));
+                            }}
+                            className="flex items-center justify-between gap-2 p-1.5 sm:p-2 px-2.5 sm:px-3 rounded-xl select-none cursor-pointer transition hover:bg-black/5 dark:hover:bg-white/5"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div
+                                className={`w-4.5 h-4.5 rounded-md flex items-center justify-center transition shrink-0 version-checkbox-icon ${
+                                  deleteCandidateAfterLink ? 'is-checked' : ''
+                                }`}
+                              >
+                                {deleteCandidateAfterLink && <Check className="w-3 h-3 stroke-[2.5]" />}
+                              </div>
+                              <span className="text-xs sm:text-sm font-semibold version-candidate-name truncate">
+                                绑定后原独立卡片移至回收站
+                              </span>
+                            </div>
+                            <span className="text-[11px] version-candidate-sub opacity-60 shrink-0 hidden sm:inline">
+                              避免重复，解绑可恢复
+                            </span>
+                          </div>
+
+                          {/* Inherit QR checkbox */}
+                          <div 
+                            onClick={() => {
+                              const next = !inheritQrAfterLink;
+                              setInheritQrAfterLink(next);
+                              localStorage.setItem('tavern_version_inherit_qr', String(next));
+                            }}
+                            className="flex items-center justify-between gap-2 p-1.5 sm:p-2 px-2.5 sm:px-3 rounded-xl select-none cursor-pointer transition hover:bg-black/5 dark:hover:bg-white/5"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div
+                                className={`w-4.5 h-4.5 rounded-md flex items-center justify-center transition shrink-0 version-checkbox-icon ${
+                                  inheritQrAfterLink ? 'is-checked' : ''
+                                }`}
+                              >
+                                {inheritQrAfterLink && <Check className="w-3 h-3 stroke-[2.5]" />}
+                              </div>
+                              <span className="text-xs sm:text-sm font-semibold version-candidate-name truncate">
+                                继承旧版本的快速回复 (QR)
+                              </span>
+                            </div>
+                            <span className="text-[11px] version-candidate-sub opacity-60 shrink-0 hidden sm:inline">
+                              继承气泡并合并
+                            </span>
+                          </div>
+
+                          {/* Inherit Source link checkbox */}
+                          <div 
+                            onClick={() => {
+                              const next = !inheritSourceAfterLink;
+                              setInheritSourceAfterLink(next);
+                              localStorage.setItem('tavern_version_inherit_source', String(next));
+                            }}
+                            className="flex items-center justify-between gap-2 p-1.5 sm:p-2 px-2.5 sm:px-3 rounded-xl select-none cursor-pointer transition hover:bg-black/5 dark:hover:bg-white/5"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div
+                                className={`w-4.5 h-4.5 rounded-md flex items-center justify-center transition shrink-0 version-checkbox-icon ${
+                                  inheritSourceAfterLink ? 'is-checked' : ''
+                                }`}
+                              >
+                                {inheritSourceAfterLink && <Check className="w-3 h-3 stroke-[2.5]" />}
+                              </div>
+                              <span className="text-xs sm:text-sm font-semibold version-candidate-name truncate">
+                                继承旧版本的来源链接与发布网址
+                              </span>
+                            </div>
+                            <span className="text-[11px] version-candidate-sub opacity-60 shrink-0 hidden sm:inline">
+                              填入当前主卡
+                            </span>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
 
                 {/* Modal footer */}
@@ -1669,7 +2636,11 @@ export function CharacterVersionsSection({
                     type="button"
                     disabled={!selectedCandidate}
                     onClick={handleConfirmLink}
-                    className="flex-1 py-3 sm:py-3.5 px-4 rounded-2xl bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-black [.light-theme_&]:!border-black [.light-theme_&]:!text-white font-bold text-sm sm:text-base shadow-sm disabled:opacity-40 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer whitespace-nowrap"
+                    className={`flex-1 py-3 sm:py-3.5 px-4 rounded-2xl font-bold text-sm sm:text-base shadow-sm disabled:opacity-40 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer whitespace-nowrap ${
+                      isThemeLight
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-600 shadow-blue-500/20'
+                        : 'bg-white hover:bg-neutral-200 text-black border border-white'
+                    }`}
                   >
                     <LinkIcon className="w-4 h-4 shrink-0" />
                     关联
@@ -1678,6 +2649,282 @@ export function CharacterVersionsSection({
               </motion.div>
             </div>
           )}
+        </AnimatePresence>,
+        document.body
+      )}
+
+      {/* 
+        ========================================================================
+        Topmost Floating Portal Dropdown Menu for Version Card (•••)
+        Renders via portal in document.body at topmost layer (z-[300]) to never be clipped or pressed
+        ======================================================================== 
+      */}
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {versionMenuState && (
+            <div 
+              className={`fixed inset-0 z-[300] select-none ${isThemeLight ? 'light-theme' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setVersionMenuState(null);
+              }} 
+              onTouchStart={(e) => {
+                if (e.target === e.currentTarget) {
+                  e.stopPropagation();
+                  setVersionMenuState(null);
+                }
+              }}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: versionMenuState.placement === 'top' ? 6 : -6 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: versionMenuState.placement === 'top' ? 6 : -6 }}
+                transition={{ duration: 0.15 }}
+                style={{
+                  position: 'fixed',
+                  left: `${versionMenuState.x}px`,
+                  top: versionMenuState.placement === 'top' ? undefined : `${versionMenuState.y}px`,
+                  bottom: versionMenuState.placement === 'top' ? `${window.innerHeight - versionMenuState.y}px` : undefined,
+                }}
+                className={`z-[301] w-44 sm:w-48 py-1.5 rounded-2xl border backdrop-blur-xl shadow-2xl overflow-hidden ${
+                  isThemeLight
+                    ? 'bg-white/98 border-[#e2e8f0] text-[#0f172a] shadow-xl'
+                    : 'bg-[#181b24]/98 border-white/15 text-white shadow-2xl'
+                }`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    const snap = versionMenuState.snapshot;
+                    setVersionMenuState(null);
+                    handleStartEditNote(snap);
+                  }}
+                  className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer ${
+                    isThemeLight
+                      ? 'text-[#0f172a] hover:bg-slate-100'
+                      : 'text-white hover:bg-white/10'
+                  }`}
+                >
+                  修改版号与备注
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const snap = versionMenuState.snapshot;
+                    setVersionMenuState(null);
+                    handleExportSnapshot(snap);
+                  }}
+                  className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer ${
+                    isThemeLight
+                      ? 'text-[#0f172a] hover:bg-slate-100'
+                      : 'text-white hover:bg-white/10'
+                  }`}
+                >
+                  导出 PNG 角色卡
+                </button>
+
+                {versionMenuState.snapshot.id !== 'current-live' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const snap = versionMenuState.snapshot;
+                      setVersionMenuState(null);
+                      handleOpenInheritModal(snap);
+                    }}
+                    className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer ${
+                      isThemeLight
+                        ? 'text-[#0f172a] hover:bg-slate-100'
+                        : 'text-white hover:bg-white/10'
+                    }`}
+                  >
+                    继承此版本 QR 与来源
+                  </button>
+                )}
+
+                {versionMenuState.snapshot.id !== 'current-live' && (
+                  <>
+                    <div className={`my-1 border-t ${isThemeLight ? 'border-[#f1f5f9]' : 'border-white/10'}`} />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const snap = versionMenuState.snapshot;
+                        setVersionMenuState(null);
+                        handleUnbindSnapshot(snap);
+                      }}
+                      className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer ${
+                        isThemeLight
+                          ? 'text-[#0f172a] hover:bg-slate-100'
+                          : 'text-white hover:bg-white/10'
+                      }`}
+                    >
+                      解绑并还原至卡库
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const snap = versionMenuState.snapshot;
+                        setVersionMenuState(null);
+                        handleDeleteSnapshot(snap.id, snap.versionName);
+                      }}
+                      className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer ${
+                        isThemeLight
+                          ? 'text-[#dc2626] hover:bg-red-50'
+                          : 'text-red-400 hover:bg-red-500/10'
+                      }`}
+                    >
+                      删除此版本快照
+                    </button>
+                  </>
+                )}
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+
+      {/* 
+        ========================================================================
+        Inherit QR & Source Link Selection Modal (Clean Monochrome Style)
+        Renders via portal in document.body at layer z-[310]
+        ======================================================================== 
+      */}
+      {typeof document !== 'undefined' && inheritModalSnapshot && createPortal(
+        <AnimatePresence>
+          <div className={`fixed inset-0 z-[310] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-sm pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] ${isThemeLight ? 'light-theme' : ''}`}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="version-modal-box rounded-3xl p-4 sm:p-6 w-[94vw] sm:w-full max-w-md shadow-2xl flex flex-col relative overflow-hidden"
+            >
+              <div className="flex items-center justify-between pb-3 sm:pb-3.5 border-b version-modal-border relative z-10 shrink-0">
+                <div className="min-w-0 pr-2">
+                  <h3 className="text-sm sm:text-base font-bold version-modal-title flex items-center gap-1.5 sm:gap-2 truncate">
+                    选择继承旧版本数据
+                  </h3>
+                  <p className="text-[11px] sm:text-xs version-modal-desc mt-0.5 line-clamp-1">
+                    从「{inheritModalSnapshot.versionName || inheritModalSnapshot.cardName}」合并继承至当前主卡
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInheritModalSnapshot(null)}
+                  className="w-8 h-8 rounded-full version-modal-close-btn flex items-center justify-center cursor-pointer transition shadow-xs shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Options */}
+              <div className="space-y-2.5 my-4 relative z-10">
+                {(() => {
+                  const { hasQr, count: qrCount } = extractCardQr(inheritModalSnapshot.data);
+                  const { hasSource, source } = extractCardSource(inheritModalSnapshot.data, inheritModalSnapshot.sourceUrlFallback);
+
+                  return (
+                    <>
+                      {/* QR Checkbox Option */}
+                      <div
+                        onClick={() => {
+                          if (hasQr) setInheritQrChoice(!inheritQrChoice);
+                        }}
+                        className={`flex items-start gap-3 p-3 rounded-2xl version-candidate-card select-none transition ${
+                          hasQr ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'
+                        }`}
+                      >
+                        <div
+                          className={`w-5 h-5 rounded-lg flex items-center justify-center transition shrink-0 mt-0.5 version-checkbox-icon ${
+                            hasQr && inheritQrChoice ? 'is-checked' : ''
+                          }`}
+                        >
+                          {hasQr && inheritQrChoice && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs sm:text-sm font-bold version-candidate-name">
+                              快速回复 (QR / Quick Replies)
+                            </span>
+                            {hasQr && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold">
+                                {qrCount}条
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs version-candidate-sub block mt-0.5 leading-relaxed">
+                            {hasQr
+                              ? `包含 ${qrCount} 条气泡回复，勾选后将合并追加至当前活跃卡片`
+                              : '该版本未包含快速回复数据'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Source Link Checkbox Option */}
+                      <div
+                        onClick={() => {
+                          if (hasSource) setInheritSourceChoice(!inheritSourceChoice);
+                        }}
+                        className={`flex items-start gap-3 p-3 rounded-2xl version-candidate-card select-none transition ${
+                          hasSource ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'
+                        }`}
+                      >
+                        <div
+                          className={`w-5 h-5 rounded-lg flex items-center justify-center transition shrink-0 mt-0.5 version-checkbox-icon ${
+                            hasSource && inheritSourceChoice ? 'is-checked' : ''
+                          }`}
+                        >
+                          {hasSource && inheritSourceChoice && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs sm:text-sm font-bold version-candidate-name">
+                              来源网址 / 来源链接
+                            </span>
+                            {hasSource && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-blue-500/15 text-blue-600 dark:text-blue-400 font-semibold">
+                                含链接
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs version-candidate-sub block mt-0.5 leading-relaxed truncate" title={source}>
+                            {hasSource
+                              ? `来源: ${source}`
+                              : '该版本未登记来源网址'}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* Modal footer */}
+              <div className="flex gap-3 pt-3 border-t version-modal-border relative z-10 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setInheritModalSnapshot(null)}
+                  className="soft-pill flex-1 py-2.5 px-4 rounded-2xl font-semibold text-xs sm:text-sm cursor-pointer transition active:scale-95 text-center"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmInheritModal}
+                  disabled={!inheritQrChoice && !inheritSourceChoice}
+                  className={`flex-1 py-2.5 px-4 rounded-2xl font-bold text-xs sm:text-sm shadow-sm disabled:opacity-40 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer whitespace-nowrap ${
+                    isThemeLight
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-600 shadow-blue-500/20'
+                      : 'bg-white hover:bg-neutral-200 text-black border border-white'
+                  }`}
+                >
+                  确认继承
+                </button>
+              </div>
+            </motion.div>
+          </div>
         </AnimatePresence>,
         document.body
       )}

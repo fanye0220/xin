@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Link2, ArrowRight, Check } from "lucide-react";
 import { CharacterCard, getCharacterBlob } from "../lib/db";
-import { getFallbackAvatar, resolveAvatarUrl } from "../lib/avatar";
+import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from "../lib/avatar";
 import { useBackHandler } from "../lib/useBackHandler";
 
 interface Props {
@@ -50,13 +50,13 @@ function ItemCardPreview({
           );
       });
     } else if (char.avatarBlob) {
-      objectUrl = URL.createObjectURL(char.avatarBlob);
-      if (isMounted) setUrl(objectUrl);
+      objectUrl = safeCreateObjectURL(char.avatarBlob);
+      if (isMounted && objectUrl) setUrl(objectUrl);
     } else if (char.hasBlobsSeparated || (char as any).hasBlobsSeparated) {
       getCharacterBlob(char.id).then((blobs) => {
         if (blobs?.avatarBlob && isMounted) {
-          objectUrl = URL.createObjectURL(blobs.avatarBlob);
-          setUrl(objectUrl);
+          objectUrl = safeCreateObjectURL(blobs.avatarBlob);
+          if (objectUrl) setUrl(objectUrl);
         }
       });
     }
@@ -68,15 +68,9 @@ function ItemCardPreview({
 
   return (
     <div
-      className="flex flex-col items-center text-center p-3 sm:p-3.5 rounded-2xl flex-1 min-w-0 border version-candidate-card"
+      className="flex flex-col items-center text-center p-3 sm:p-4 rounded-2xl flex-1 min-w-0 border version-candidate-card transition-all"
     >
-      <div
-        className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden shrink-0 mb-2.5 border ${
-          isLightMode
-            ? "bg-slate-200/70 border-slate-200"
-            : "bg-black/40 border-white/10"
-        }`}
-      >
+      <div className="w-13 h-13 sm:w-16 sm:h-16 rounded-2xl overflow-hidden shrink-0 mb-2">
         <img
           src={url || defaultFallback}
           alt={char.name}
@@ -87,20 +81,16 @@ function ItemCardPreview({
         />
       </div>
       <h4
-        className="font-bold text-xs sm:text-sm truncate w-full version-candidate-name"
+        className="font-bold text-xs sm:text-sm truncate w-full version-candidate-name px-1"
         title={char.name}
       >
         {char.name}
       </h4>
       <span
-        className={`text-[10px] sm:text-[11px] mt-1.5 px-2.5 py-0.5 rounded-full font-medium border ${
+        className={`text-[10px] sm:text-[11px] mt-1.5 px-2.5 py-0.5 rounded-full font-medium tracking-tight whitespace-nowrap ${
           isQR
-            ? isLightMode
-              ? "bg-black/5 text-black border-black/15 font-semibold"
-              : "bg-white/15 text-white border-white/25 font-semibold"
-            : isLightMode
-              ? "bg-slate-200/70 text-slate-700 border-slate-300/80"
-              : "bg-white/10 text-white/80 border-white/15"
+            ? "bg-blue-500/15 text-blue-500 dark:text-blue-400 border border-blue-500/20 font-semibold"
+            : "soft-pill font-medium"
         }`}
       >
         {isQR ? "快速回复 (QR)" : "目标角色卡"}
@@ -222,62 +212,46 @@ export function ConfirmBindQRModal({
           </div>
 
           {/* Cards Connection Visualization */}
-          <div className="py-4 sm:py-5 relative z-10">
+          <div className="py-3.5 sm:py-4 relative z-10 space-y-3">
             <div className="flex items-center gap-2">
               <ItemCardPreview char={qrChar} isQR={true} isLightMode={isLightMode} />
 
-              <div className="flex flex-col items-center justify-center shrink-0 px-1">
-                <div
-                  className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full border flex items-center justify-center ${
-                    isLightMode
-                      ? "bg-blue-50 border-blue-200/80 text-blue-600"
-                      : "bg-blue-500/15 border-blue-500/25 text-blue-400"
-                  }`}
-                >
-                  <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.2]" />
-                </div>
-                <span
-                  className="text-xs font-bold mt-1 text-slate-400 [.light-theme_&]:!text-slate-600"
-                >
-                  绑定至
-                </span>
+              <div className="flex items-center justify-center shrink-0 px-1 sm:px-1.5">
+                <ArrowRight className="w-5 h-5 text-blue-500 dark:text-blue-400 stroke-[2.2]" />
               </div>
 
               <ItemCardPreview char={targetChar} isQR={false} isLightMode={isLightMode} />
             </div>
 
-            <div className="text-sm sm:text-base mt-4 leading-relaxed p-4 rounded-2xl border font-medium version-candidate-card">
-              确定要将快速回复「
-              <span className="font-bold text-white [.light-theme_&]:!text-black">
-                {qrChar.name}
-              </span>
-              」绑定到角色「
-              <span className="font-bold text-white [.light-theme_&]:!text-black">
-                {targetChar.name}
-              </span>
-              」吗？
+            <div className="text-xs sm:text-sm leading-relaxed p-3 sm:p-3.5 rounded-2xl border font-medium version-candidate-card flex items-center gap-2.5">
+              <div className="w-6 h-6 rounded-lg bg-blue-500/15 text-blue-500 dark:text-blue-400 flex items-center justify-center shrink-0">
+                <Link2 className="w-3.5 h-3.5 stroke-[2.2]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                确认将快速回复「<span className="font-bold version-candidate-name">{qrChar.name}</span>」合并存入角色卡「<span className="font-bold version-candidate-name">{targetChar.name}</span>」中？
+              </div>
             </div>
 
             {/* Delete Source Option */}
             <div
               onClick={handleToggleDeleteSource}
-              className="flex items-start gap-3 p-4 mt-3 rounded-2xl border transition cursor-pointer select-none version-candidate-card"
+              className="flex items-center justify-between gap-2.5 p-2.5 sm:p-3 px-3.5 rounded-2xl border transition cursor-pointer select-none version-candidate-card"
             >
-              <div
-                className={`w-5 h-5 rounded-lg flex items-center justify-center transition shrink-0 mt-0.5 version-checkbox-icon ${
-                  deleteSource ? 'is-checked' : ''
-                }`}
-              >
-                {deleteSource && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <span className="text-sm font-bold block version-candidate-name">
-                  绑定后将独立 QR 卡片移至回收站
-                </span>
-                <span className="text-xs sm:text-sm block mt-0.5 leading-relaxed version-candidate-sub">
-                  推荐勾选，避免在列表中残留重复冗余的独立快速回复卡
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <div
+                  className={`w-4.5 h-4.5 rounded-md flex items-center justify-center transition shrink-0 version-checkbox-icon ${
+                    deleteSource ? 'is-checked' : ''
+                  }`}
+                >
+                  {deleteSource && <Check className="w-3 h-3 stroke-[2.5]" />}
+                </div>
+                <span className="text-xs sm:text-sm font-semibold version-candidate-name truncate">
+                  绑定后将原独立 QR 卡片移至回收站
                 </span>
               </div>
+              <span className="text-[11px] version-candidate-sub opacity-60 shrink-0 hidden sm:inline">
+                避免重复残留
+              </span>
             </div>
           </div>
 
@@ -293,7 +267,7 @@ export function ConfirmBindQRModal({
             <button
               type="button"
               onClick={handleConfirm}
-              className="flex-1 py-3 sm:py-3.5 px-4 rounded-2xl bg-white hover:bg-neutral-200 text-black border border-white [.light-theme_&]:!bg-black [.light-theme_&]:!border-black [.light-theme_&]:!text-white font-bold shadow-sm transition-all text-sm sm:text-base flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+              className="flex-1 py-3 sm:py-3.5 px-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white border border-blue-600 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:!border-blue-600 [.light-theme_&]:!text-white font-bold shadow-sm transition-all text-sm sm:text-base flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
             >
               <Link2 className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.2]" />
               确认绑定

@@ -313,7 +313,7 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                       type="text"
                       value={editForm.scriptName || editForm.name || ''}
                       onChange={(e) => setEditForm({ ...editForm, scriptName: e.target.value })}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition [.light-theme_&]:!bg-[#f2f2f7] [.light-theme_&]:!border-slate-200/80 [.light-theme_&]:!text-[#0f172a]"
                       placeholder="例如: 屏蔽特定格式的星号动作"
                     />
                   </div>
@@ -323,7 +323,7 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                     <textarea
                       value={editForm.regex || editForm.findRegex || ''}
                       onChange={(e) => setEditForm({ ...editForm, regex: e.target.value })}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition font-mono min-h-[100px] [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition font-mono min-h-[100px] [.light-theme_&]:!bg-[#f2f2f7] [.light-theme_&]:!border-slate-200/80 [.light-theme_&]:!text-[#0f172a]"
                       placeholder="输入合法的正则表达式"
                     />
                   </div>
@@ -333,7 +333,7 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                     <textarea
                       value={editForm.replacementString ?? editForm.replaceString ?? ''}
                       onChange={(e) => setEditForm({ ...editForm, replacementString: e.target.value })}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition font-mono min-h-[100px] [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition font-mono min-h-[100px] [.light-theme_&]:!bg-[#f2f2f7] [.light-theme_&]:!border-slate-200/80 [.light-theme_&]:!text-[#0f172a]"
                       placeholder="输入替换内容，可使用 $1, $2 等捕获组"
                     />
                   </div>
@@ -344,7 +344,7 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                          type="checkbox"
                          checked={!editForm.disabled}
                          onChange={(e) => setEditForm({ ...editForm, disabled: !e.target.checked })}
-                         className="rounded bg-black/30 border-white/10 text-blue-500 focus:ring-blue-500/20 [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-black/20"
+                         className="rounded bg-black/30 border-white/10 text-blue-500 focus:ring-blue-500/20 [.light-theme_&]:bg-[#ffffff] [.light-theme_&]:border-slate-300"
                        />
                        启用
                      </label>
@@ -369,7 +369,7 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                       saveRegexScripts(newScripts);
                       setEditingIndex(null);
                     }}
-                    className="px-6 py-2 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-2 shadow-sm cursor-pointer"
+                    className="px-6 py-2 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-[#0066d6] transition flex items-center gap-2 shadow-xs cursor-pointer"
                   >
                     <Save className="w-4 h-4 stroke-[2.5]" />
                     保存

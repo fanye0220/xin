@@ -43,6 +43,38 @@ export function resolveAvatarUrl(avatarFallback: string | undefined | null, seed
 }
 
 /**
+ * 安全创建 Object URL，防止传入非 Blob/File 对象时导致 URL.createObjectURL 抛出 TypeError Overload resolution failed 崩溃。
+ */
+export function safeCreateObjectURL(blob: any): string | null {
+  if (!blob) return null;
+  try {
+    if (blob instanceof Blob || blob instanceof File) {
+      return URL.createObjectURL(blob);
+    }
+    if (blob instanceof ArrayBuffer) {
+      return URL.createObjectURL(new Blob([blob]));
+    }
+    if (ArrayBuffer.isView(blob)) {
+      return URL.createObjectURL(new Blob([blob.buffer]));
+    }
+    if (typeof blob === 'object') {
+      if (blob.buffer && blob.buffer instanceof ArrayBuffer) {
+        return URL.createObjectURL(new Blob([blob.buffer]));
+      }
+      if (Array.isArray(blob.data)) {
+        return URL.createObjectURL(new Blob([new Uint8Array(blob.data)]));
+      }
+      if ('size' in blob && 'type' in blob) {
+        return URL.createObjectURL(new Blob([blob as any]));
+      }
+    }
+  } catch (err) {
+    console.warn('safeCreateObjectURL error:', err);
+  }
+  return null;
+}
+
+/**
  * 把一张原图压成高清缩略图, 专门给列表/卡片展示场景用,
  * 既保证 2K/3K 视网膜屏极致清澈无损画质，又避免列表解码多张大尺寸原图 (仅 ~30-50KB)。
  *
@@ -55,7 +87,8 @@ export async function generateThumbnail(
   maxSize: number = 800,
   quality: number = 0.90,
 ): Promise<Blob> {
-  const objectUrl = URL.createObjectURL(blob);
+  const objectUrl = safeCreateObjectURL(blob);
+  if (!objectUrl) return blob;
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = new Image();

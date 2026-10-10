@@ -1,4 +1,4 @@
-import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
+import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -46,14 +46,14 @@ function CharacterOption({
           );
       });
     } else if (char.avatarBlob) {
-      objectUrl = URL.createObjectURL(char.avatarBlob);
-      if (isMounted) setUrl(objectUrl);
+      objectUrl = safeCreateObjectURL(char.avatarBlob);
+      if (isMounted && objectUrl) setUrl(objectUrl);
     } else if (char.hasBlobsSeparated) {
       import('../lib/db').then(({ getCharacterBlob }) => {
         getCharacterBlob(char.id).then((blobs) => {
           if (blobs?.avatarBlob && isMounted) {
-            objectUrl = URL.createObjectURL(blobs.avatarBlob);
-            setUrl(objectUrl);
+            objectUrl = safeCreateObjectURL(blobs.avatarBlob);
+            if (objectUrl) setUrl(objectUrl);
           }
         });
       });
@@ -70,13 +70,7 @@ function CharacterOption({
       className="p-3 sm:p-3.5 rounded-2xl transition-all cursor-pointer flex items-center justify-between gap-3.5 border active:scale-[0.99] version-candidate-card"
     >
       <div className="flex items-center gap-3 min-w-0">
-        <div
-          className={`w-12 h-12 rounded-2xl overflow-hidden shrink-0 border ${
-            isLightMode
-              ? 'bg-slate-200/70 border-slate-200'
-              : 'bg-black/40 border-white/10'
-          }`}
-        >
+        <div className="w-12 h-12 rounded-2xl overflow-hidden shrink-0">
           <img
             src={url || defaultFallback}
             alt={char.name}
@@ -189,7 +183,7 @@ export function BindQRModal({
           >
             <div className="flex items-center justify-between pb-3.5 border-b version-modal-border relative z-10 shrink-0">
               <div className="flex items-center gap-3 min-w-0 pr-2">
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center shadow-xs shrink-0 border bg-white/10 border-white/20 text-white [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-black">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center shadow-xs shrink-0 border bg-blue-500/15 border-blue-500/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!border-blue-200/80 [.light-theme_&]:!text-blue-600">
                   <Link2 className="w-5 h-5 stroke-[2.2]" />
                 </div>
                 <div className="min-w-0">

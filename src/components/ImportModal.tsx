@@ -28,6 +28,8 @@ import { extractTavernData, parsePayload } from "../lib/png";
 import {
   saveCharacter,
   saveCharacters,
+  beginBulkCharacterUpdates,
+  endBulkCharacterUpdates,
   CharacterCard,
   getSafeFilename,
   getFolders,
@@ -230,6 +232,8 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
     message?: string;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // 一次导入过程里文件夹表只需要读一次，避免每张卡都全表读一遍
+  const foldersCacheRef = useRef<DBFolder[] | null>(null);
 
   const [isLightMode, setIsLightMode] = useState(() => {
     return (
@@ -580,7 +584,10 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
     startParentId?: string | null,
   ): Promise<string | undefined> => {
     if (pathParts.length === 0) return startParentId || undefined;
-    const folders = await getFolders();
+    if (!foldersCacheRef.current) {
+      foldersCacheRef.current = await getFolders();
+    }
+    const folders = foldersCacheRef.current;
     let currentParentId = startParentId || undefined;
 
     for (const folderName of pathParts) {
@@ -615,6 +622,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
   ) => {
     setError(null);
     setImportErrors([]);
+    foldersCacheRef.current = null;
     const fileArray = Array.from(fileList);
     if (fileArray.length === 0) return;
 
@@ -1283,7 +1291,10 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
         // 这里只拿"同名卡自动归类 / 聊天记录对号"要用的 name / folderId / 文件名,
         // 不需要正文和头像大图, 走轻量索引即可, 大卡库导入时快很多。
         const { characters: existingChars } = await getCharacters(1, 10000, undefined, "", [], "newest_import", false, false);
-        const existingFolders = await getFolders();
+        if (!foldersCacheRef.current) {
+          foldersCacheRef.current = await getFolders();
+        }
+        const existingFolders = foldersCacheRef.current;
         const existingMeta = await getCachedMeta();
         const { extractImageTimestamp, extractDateFromCardData } = await import(
           "../lib/fileDate"
@@ -1297,13 +1308,20 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
           breakdown?: CharacterTokenBreakdown;
         }> = [];
 
+        const folderPathCache = new Map<string, string>();
+        const folderById = new Map<string, DBFolder>();
         const findFolderPath = (fId: string): string => {
+          const cachedPath = folderPathCache.get(fId);
+          if (cachedPath !== undefined) return cachedPath;
+          if (folderById.size !== existingFolders.length) {
+            folderById.clear();
+            for (const f of existingFolders) folderById.set(f.id, f);
+          }
           const names: string[] = [];
           let curr: string | undefined = fId;
-          while (curr) {
-            const found: DBFolder | undefined = existingFolders.find(
-              (f) => f.id === curr,
-            );
+          let hops = 0;
+          while (curr && hops++ < 128) {
+            const found = folderById.get(curr);
             if (found) {
               names.unshift(found.name);
               curr = found.parentId;
@@ -1311,7 +1329,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               break;
             }
           }
-          return names.join(" / ") || "未知文件夹";
+          const path = names.join(" / ") || "未知文件夹";
+          folderPathCache.set(fId, path);
+          return path;
         };
 
         // 判定本次导入文件是否全归属于同一个最外层包裹文件夹（例如拖入文件夹 "试验品"）
@@ -1656,6 +1676,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             const cardTokens = getCharacterTokenBreakdown(newCard.data);
             newCard.tokenCount = cardTokens.totalTokens;
             newCard.permanentTokens = cardTokens.permanentTokens;
+            (newCard as any).__srcItem = item;
             charsToSave.push(newCard);
             successCount++;
 
@@ -1664,7 +1685,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               charName,
               folderId: assignFolderId,
               folderPath: assignFolderId ? findFolderPath(assignFolderId) : "未分类",
-              avatarBlob: newCard.avatarBlob,
+              avatarBlob: importedCardsTokens.length < 90 ? newCard.avatarBlob : undefined,
               avatarUrlFallback: newCard.avatarUrlFallback,
               breakdown: cardTokens,
               attachedChatsCount: (altImagesByMain.get(item) || []).length,
@@ -1684,11 +1705,13 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             errors.push({ file: item.file.name, error: err.message || "未知错误" });
           }
 
-          setProgress({
-            current: charsToSave.length,
-            total: mainItems.length + toolItems.length,
-            message: "正在解析数据...",
-          });
+          if (mIdx % 10 === 0 || mIdx === mainItems.length - 1) {
+            setProgress({
+              current: charsToSave.length,
+              total: mainItems.length + toolItems.length,
+              message: "正在解析数据...",
+            });
+          }
         }
 
         // ---------- 工具类文件（世界书 / 预设 / 快速回复 / 美化 / 脚本） ----------
@@ -1738,6 +1761,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               permanentTokens: toolTokens.permanentTokens,
             };
 
+            (toolCard as any).__srcItem = item;
             charsToSave.push(toolCard);
             successCount++;
 
@@ -1764,16 +1788,36 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             message: "正在保存到数据库...",
           });
           const BATCH_SIZE = 50;
-          for (let bIdx = 0; bIdx < charsToSave.length; bIdx += BATCH_SIZE) {
-            const batch = charsToSave.slice(bIdx, bIdx + BATCH_SIZE);
-            const currentSaved = Math.min(bIdx + batch.length, charsToSave.length);
-            setProgress({
-              current: currentSaved,
-              total: charsToSave.length,
-              message: `正在写入本地数据库 (${currentSaved}/${charsToSave.length})...`,
-            });
-            await saveCharacters(batch);
-            await new Promise((resolve) => setTimeout(resolve, 0));
+          // 批量写入期间先不逐条通知首页刷新（否则几千张卡会触发上百次整表重载），
+          // 同时每存完一批就把这批卡身上的大对象释放掉，避免全程把几千张卡的图片留在内存里。
+          beginBulkCharacterUpdates();
+          try {
+            for (let bIdx = 0; bIdx < charsToSave.length; bIdx += BATCH_SIZE) {
+              const batch = charsToSave.slice(bIdx, bIdx + BATCH_SIZE);
+              const currentSaved = Math.min(bIdx + batch.length, charsToSave.length);
+              setProgress({
+                current: currentSaved,
+                total: charsToSave.length,
+                message: `正在写入本地数据库 (${currentSaved}/${charsToSave.length})...`,
+              });
+              await saveCharacters(batch);
+              for (const savedCard of batch) {
+                const srcItem: ParsedItem | undefined = (savedCard as any).__srcItem;
+                if (srcItem) {
+                  srcItem.file = undefined as any;
+                  srcItem.data = undefined;
+                  delete (savedCard as any).__srcItem;
+                }
+                delete (savedCard as any).avatarBlob;
+                delete (savedCard as any).originalFile;
+                delete (savedCard as any).avatarHistory;
+                delete (savedCard as any).versionHistory;
+                (savedCard as any).data = undefined;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 0));
+            }
+          } finally {
+            endBulkCharacterUpdates();
           }
         }
 
@@ -2062,7 +2106,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     系统匹配到已有同名角色的分类文件夹并已自动整理归类。您可以前往查看，或一键移回主页。
                   </p>
                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
-                    {autoCategorizedSummary.map((item, idx) => (
+                    {autoCategorizedSummary.slice(0, 60).map((item, idx) => (
                       <div key={idx} className="flex items-center justify-between text-xs sm:text-sm p-3 rounded-xl border bg-black/30 border-white/10 text-white [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]">
                         <div className="min-w-0 flex-1 mr-2">
                           <div className="flex items-center gap-2">
@@ -2097,6 +2141,11 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                       </div>
                     ))}
                   </div>
+                  {autoCategorizedSummary.length > 60 && (
+                    <div className="text-[11px] text-center pt-1.5 text-white/50 [.light-theme_&]:!text-slate-500">
+                      还有 {autoCategorizedSummary.length - 60} 张已自动归类，可在对应文件夹里查看
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex gap-2.5 mt-auto pt-2 shrink-0">
