@@ -407,6 +407,12 @@ export interface CharacterCard {
   isQR?: boolean;
   category?: string;
   sourceUrl?: string;
+  updateUrl?: string;
+  lastCheckResult?: any;
+  lastCheckVersion?: string;
+  lastCheckError?: string;
+  lastCheckChanges?: any;
+  lastCheckedAt?: number;
   tokenCount?: number;
   permanentTokens?: number;
 }
@@ -565,6 +571,20 @@ export function initDB() {
           }
         }
       },
+      blocked() {
+        console.warn("IndexedDB open blocked by another tab or instance");
+      },
+      blocking() {
+        console.warn("IndexedDB blocking database upgrade in another tab");
+      },
+      terminated() {
+        console.warn("IndexedDB connection terminated unexpectedly");
+        dbPromise = null as any;
+      },
+    }).catch((err) => {
+      console.error("Failed to initialize IndexedDB:", err);
+      dbPromise = null as any;
+      throw err;
     });
   }
   return dbPromise;
@@ -636,15 +656,12 @@ export async function migrateDatabase(
   }
 
   // Second pass: retroactively categorize tool cards into designated tool folders and refresh char_meta
-  const txScan = db.transaction("characters", "readonly");
-  let cursorScan = await txScan.objectStore("characters").openCursor();
-  const allChars: CharacterCard[] = [];
-  while (cursorScan) {
-    allChars.push(cursorScan.value);
-    cursorScan = await cursorScan.continue();
-  }
+  const scanTx = db.transaction("characters", "readonly");
+  let cursorScan = await scanTx.objectStore("characters").openCursor();
+  let countProcessed = 0;
 
-  for (const char of allChars) {
+  while (cursorScan) {
+    const char = cursorScan.value;
     let changed = false;
     const category = getCharacterCategoryPrefix(char);
     if (category !== "未归类" && (!char.folderId || char.folderId === "all")) {
@@ -662,6 +679,11 @@ export async function migrateDatabase(
     }
     await writeTx.objectStore("char_meta").put(buildCharMeta(char));
     await writeTx.done;
+
+    if (++countProcessed % 50 === 0) {
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    cursorScan = await cursorScan.continue();
   }
 
   if (typeof localStorage !== 'undefined') {
@@ -751,7 +773,9 @@ export async function getFolderPreviews(
             );
           } else if (meta.hasBlobsSeparated) {
             const blobs = await db.get("blobs", meta.id);
-            if (blobs?.avatarBlob) url = safeCreateObjectURL(blobs.avatarBlob);
+            // 头像可能被去重掉了(和 originalFile 同一份字节), 用原图顶上
+            const coverBlob = blobs?.avatarBlob ?? blobs?.originalFile;
+            if (coverBlob) url = safeCreateObjectURL(coverBlob);
           } else {
             const legacyChar = await db.get("characters", meta.id);
             if (legacyChar?.avatarBlob) {
@@ -846,12 +870,14 @@ export async function saveFolder(folder: Folder): Promise<void> {
         }
       }
 
-      const allChars = await db.getAll("characters");
-      const charsToSync = allChars.filter(
+      const allMeta = await getCachedMeta();
+      const metaToSync = allMeta.filter(
         (c) => c.folderId && descendantIds.has(c.folderId) && !c.deletedAt,
       );
 
-      for (const char of charsToSync) {
+      for (const meta of metaToSync) {
+        const char = await getCharacter(meta.id);
+        if (!char) continue;
         const blobs = await db.get("blobs", char.id);
         const newPaths = await syncCharacterToAndroid(char, blobs || null);
         if (newPaths && newPaths.length > 0) {
@@ -993,12 +1019,13 @@ export async function cleanupEmptyFolders(): Promise<void> {
   const db = await initDB();
   const tx = db.transaction(["folders", "characters", "char_meta"], "readwrite");
   const allFolders = await tx.objectStore("folders").getAll();
-  const allCharacters = await tx.objectStore("characters").getAll();
-
   const charStore = tx.objectStore("characters");
   const charMetaStore = tx.objectStore("char_meta");
   let purgedTrashCharacters = 0;
-  for (const c of allCharacters) {
+
+  let cursor = await charStore.openCursor();
+  while (cursor) {
+    const c = cursor.value;
     if (
       c.localFilePath &&
       (c.localFilePath.includes("回收站/") ||
@@ -1006,11 +1033,12 @@ export async function cleanupEmptyFolders(): Promise<void> {
     ) {
       if (!c.deletedAt) {
         c.deletedAt = Date.now();
-        await charStore.put(c);
+        await cursor.update(c);
         await charMetaStore.put(buildCharMeta(c));
         purgedTrashCharacters++;
       }
     }
+    cursor = await cursor.continue();
   }
 
   if (allFolders.length === 0 && purgedTrashCharacters === 0) {
@@ -1214,10 +1242,6 @@ async function buildMetaCache(): Promise<CharMeta[]> {
   // 第一次升级/索引丢失/缺少 category 字段/缺少 token 统计/需要修复历史错误分类时, 从完整角色表重建一次, 并写回轻量索引。
   // 之后所有常用入口都只读 char_meta, 不再触碰大字段 data。
   if (!newMeta || newMeta.length === 0 || newMeta.some((m) => m.category === undefined || m.tokenCount === undefined) || needsRepair) {
-    const tx = db.transaction("characters", "readonly");
-    const allChars = await tx.store.getAll();
-    await tx.done;
-
     // Build folder map for folder-based classification
     const foldersTx = db.transaction("folders", "readonly");
     const allFolders = await foldersTx.store.getAll();
@@ -1234,18 +1258,20 @@ async function buildMetaCache(): Promise<CharMeta[]> {
       }
     }
 
-    const updatedCharsToWrite: CharacterCard[] = [];
     newMeta = [];
-
     let processed = 0;
-    for (const char of allChars) {
-      // 重建索引是重活, 定期让出主线程, 避免首次升级/修复时整个界面卡住。
+    const tx = db.transaction("characters", "readonly");
+    let cursor = await tx.store.openCursor();
+
+    while (cursor) {
+      const char = cursor.value;
       if (++processed % 50 === 0) await new Promise((r) => setTimeout(r, 0));
-      // 过滤空无内容的无效幽灵数据
+
       const data = char.data?.data || char.data || {};
       const charName = char.name || data.name || data.char_name;
       const hasContent = !!(data.description || data.first_mes || data.scenario || data.creator_notes || Object.keys(data).length > 0);
       if (!charName && !hasContent) {
+        cursor = await cursor.continue();
         continue;
       }
 
@@ -1269,14 +1295,12 @@ async function buildMetaCache(): Promise<CharMeta[]> {
           changed = true;
         }
       } else {
-        // 真正普通角色卡
         if (char.category !== "未归类" || char.isTool || char.isQR) {
           char.category = "未归类";
           char.isTool = false;
           char.isQR = false;
           changed = true;
         }
-        // 若普通角色卡误入工具文件夹，恢复为未归类
         if (char.folderId && toolFolderIds.has(char.folderId)) {
           char.folderId = undefined;
           changed = true;
@@ -1284,25 +1308,26 @@ async function buildMetaCache(): Promise<CharMeta[]> {
       }
 
       if (changed) {
-        updatedCharsToWrite.push(char);
+        const writeTx = db.transaction("characters", "readwrite");
+        await writeTx.store.put(char);
+        await writeTx.done;
       }
-      newMeta.push(buildCharMeta(char, folderMap));
-    }
 
-    if (updatedCharsToWrite.length > 0) {
-      const writeTx = db.transaction("characters", "readwrite");
-      for (const item of updatedCharsToWrite) {
-        await writeTx.store.put(item);
-      }
-      await writeTx.done;
+      newMeta.push(buildCharMeta(char, folderMap));
+      cursor = await cursor.continue();
     }
+    await tx.done;
 
     if (newMeta.length > 0) {
-      const putTx = db.transaction("char_meta", "readwrite");
-      for (const meta of newMeta) {
-        await putTx.store.put(meta);
+      const CHUNK = 200;
+      for (let i = 0; i < newMeta.length; i += CHUNK) {
+        const chunk = newMeta.slice(i, i + CHUNK);
+        const putTx = db.transaction("char_meta", "readwrite");
+        for (const meta of chunk) {
+          await putTx.store.put(meta);
+        }
+        await putTx.done;
       }
-      await putTx.done;
     }
 
     if (typeof localStorage !== 'undefined') {
@@ -1493,11 +1518,7 @@ export async function getCharacters(
       for (const char of characters) {
         if (char.hasBlobsSeparated) {
           const blobs = await db.get("blobs", char.id);
-          if (blobs) {
-            char.avatarBlob = blobs.avatarBlob;
-            char.originalFile = blobs.originalFile;
-            char.avatarHistory = blobs.avatarHistory;
-          }
+          attachBlobsToCharacter(char, blobs);
         }
       }
     }
@@ -1525,11 +1546,7 @@ export async function getCharacters(
     for (const char of characters) {
       if (char.hasBlobsSeparated) {
         const blobs = await db.get("blobs", char.id);
-        if (blobs) {
-          char.avatarBlob = blobs.avatarBlob;
-          char.originalFile = blobs.originalFile;
-          char.avatarHistory = blobs.avatarHistory;
-        }
+        attachBlobsToCharacter(char, blobs);
       }
     }
   }
@@ -1539,17 +1556,27 @@ export async function getCharacters(
 
 export async function getAllCharacters(includeBlobs = true): Promise<CharacterCard[]> {
   const db = await initDB();
-  const all = await db.getAll('characters');
-  const valid = all.filter((c) => !c.deletedAt);
+  const valid: CharacterCard[] = [];
+  const tx = db.transaction("characters", "readonly");
+  let cursor = await tx.store.openCursor();
+  let count = 0;
+
+  while (cursor) {
+    const char = cursor.value;
+    if (!char.deletedAt) {
+      valid.push(char);
+    }
+    if (++count % 100 === 0) {
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    cursor = await cursor.continue();
+  }
+
   if (includeBlobs) {
     for (const char of valid) {
       if (char.hasBlobsSeparated) {
         const blobs = await db.get('blobs', char.id);
-        if (blobs) {
-          char.avatarBlob = blobs.avatarBlob;
-          char.originalFile = blobs.originalFile;
-          char.avatarHistory = blobs.avatarHistory;
-        }
+        attachBlobsToCharacter(char, blobs);
       }
     }
   }
@@ -1648,9 +1675,42 @@ function runBlobReads() {
 
 export function getCharacterBlob(id: string): Promise<any> {
   return new Promise((resolve, reject) => {
-    _blobReadQueue.push({ id, resolve, reject });
+    _blobReadQueue.push({
+      id,
+      // 头像去重后可能没有单独的 avatarBlob(它和 originalFile 是同一份字节),
+      // 这里统一顶上, 保证调用方拿到的记录和以前一样"一定有 avatarBlob" ——
+      // 导出卡片、把角色图设成文件夹封面这些路径不会因为去重而丢头像。
+      resolve: (blobs: any) =>
+        resolve(
+          blobs && !blobs.avatarBlob && blobs.originalFile
+            ? { ...blobs, avatarBlob: blobs.originalFile }
+            : blobs,
+        ),
+      reject,
+    });
     runBlobReads();
   });
+}
+
+/**
+ * 缩略图缓存版本。
+ * 3 及更早: 原图不超过 800px 时直接把原图当缩略图存了一份(PNG, 几百 KB),
+ *          超过 800px 的也是 800px JPEG(q0.90), 都不小。
+ * 4 起: 统一重编码成 WebP, 像素尺寸不变、体积小一个量级。
+ * 见到旧版本号就重新生成一次, 顺便把已有数据的体积也降下来。
+ */
+const THUMB_CACHE_VERSION = 4;
+
+/**
+ * 把 blobs 记录里的图片挂到角色对象上。
+ * 头像去重之后 avatarBlob 可能不再单独存一份(说明它和 originalFile 是同一份字节),
+ * 这时用 originalFile 顶上即可 —— 显示的还是同一张图, 但库里只占一份空间。
+ */
+function attachBlobsToCharacter(char: CharacterCard, blobs?: any): void {
+  if (!blobs) return;
+  char.avatarBlob = blobs.avatarBlob ?? blobs.originalFile;
+  char.originalFile = blobs.originalFile;
+  char.avatarHistory = blobs.avatarHistory;
 }
 
 /**
@@ -1662,11 +1722,12 @@ export function getCharacterBlob(id: string): Promise<any> {
 export async function getCharacterThumb(id: string): Promise<Blob | null> {
   const db = await initDB();
   const blobs = await db.get("blobs", id);
-  if (blobs?.thumbBlob && (blobs as any).thumbVersion === 3) {
+  if (blobs?.thumbBlob && (blobs as any).thumbVersion === THUMB_CACHE_VERSION) {
     return blobs.thumbBlob;
   }
 
-  let avatarBlob = blobs?.avatarBlob;
+  // 头像去重后可能没有单独的 avatarBlob, 用 originalFile 顶上(同一份图)
+  let avatarBlob = blobs?.avatarBlob ?? blobs?.originalFile;
   if (!avatarBlob) {
     const char = await db.get("characters", id);
     if (char?.localFilePath && isAndroid()) {
@@ -1690,20 +1751,26 @@ export async function getCharacterThumb(id: string): Promise<Blob | null> {
   const { generateThumbnail } = await import("./avatar");
   let thumb: Blob;
   try {
-    thumb = await generateThumbnail(avatarBlob, 800, 0.90);
+    thumb = await generateThumbnail(avatarBlob, 800);
   } catch {
     return blobs?.thumbBlob || null;
   }
 
-  // 存回去(带上 thumbVersion: 3 标记), 下次直接读高清缓存, 不用重新生成
-  try {
-    const tx = db.transaction("blobs", "readwrite");
-    const store = tx.objectStore("blobs");
-    const current = (await store.get(id)) || {};
-    await store.put({ ...current, thumbBlob: thumb, thumbVersion: 3 } as any, id);
-    await tx.done;
-  } catch (e) {
-    console.warn("Failed to persist generated HD thumbnail:", e);
+  // 只有确实比原图小才值得另存一份; 否则(比如原图本来就是个很小的图)
+  // 存进去等于又白复制一份, 直接当场用就好。
+  if (thumb && thumb !== avatarBlob && thumb.size < avatarBlob.size) {
+    try {
+      const tx = db.transaction("blobs", "readwrite");
+      const store = tx.objectStore("blobs");
+      const current = (await store.get(id)) || {};
+      await store.put(
+        { ...current, thumbBlob: thumb, thumbVersion: THUMB_CACHE_VERSION } as any,
+        id,
+      );
+      await tx.done;
+    } catch (e) {
+      console.warn("Failed to persist generated thumbnail:", e);
+    }
   }
   return thumb;
 }
@@ -1722,11 +1789,7 @@ export async function getCharacter(
 
     if (char.hasBlobsSeparated) {
       const blobs = await db.get("blobs", id);
-      if (blobs) {
-        char.avatarBlob = blobs.avatarBlob;
-        char.originalFile = blobs.originalFile;
-        char.avatarHistory = blobs.avatarHistory;
-      }
+      attachBlobsToCharacter(char, blobs);
     }
   }
   return char;
@@ -1756,6 +1819,201 @@ function isSameBinary(a?: Blob | File | null, b?: Blob | File | null): boolean {
     if ((a as File).lastModified !== (b as File).lastModified) return false;
   }
   return true;
+}
+
+/**
+ * 判定两个二进制是不是"同一份字节"。比 isSameBinary 更彻底:
+ * - 不看文件名 / 修改时间(导入时会故意修正 lastModified, 云盘恢复会重建 File 对象,
+ *   这两种情况下两个对象其实是同一份字节, 但 isSameBinary 会判成不同);
+ * - 长度和 MIME 都对得上的"可疑对子", 再对比开头 1KB 内容, 避免把体积恰好相同的
+ *   两张不同图误判成同一份。
+ */
+async function isSameBytes(a?: Blob | null, b?: Blob | null): Promise<boolean> {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.size !== b.size) return false;
+  if ((a.type || "") !== (b.type || "")) return false;
+  if (a.size === 0) return true;
+  try {
+    const n = Math.min(1024, a.size);
+    const [bufA, bufB] = await Promise.all([
+      a.slice(0, n).arrayBuffer(),
+      b.slice(0, n).arrayBuffer(),
+    ]);
+    const viewA = new Uint8Array(bufA);
+    const viewB = new Uint8Array(bufB);
+    for (let i = 0; i < viewA.length; i++) {
+      if (viewA[i] !== viewB[i]) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 把写库失败的错误翻译成人能看懂的话。
+ *
+ * iOS Safari(WebKit)不会像桌面版那样弹"是否允许该网站使用更多存储空间": 站点配额
+ * 用满时它直接让写入事务失败, 抛出来的往往是 QuotaExceededError / UnknownError /
+ * AbortError 这类, 用户看了完全不知道发生了什么。这里统一换成带"已用空间"的说明,
+ * 顺便告诉用户该清理了。
+ */
+async function describeStorageWriteError(err: any): Promise<Error> {
+  const name = String(err?.name || "");
+  const message = String(err?.message || "");
+  const isQuotaLike =
+    name === "QuotaExceededError" ||
+    err?.code === 22 ||
+    name === "UnknownError" ||
+    /quota|storage/i.test(message);
+
+  if (!isQuotaLike) {
+    return err instanceof Error ? err : new Error(message || String(err));
+  }
+
+  let usageText = "";
+  try {
+    const estimate = await navigator.storage?.estimate?.();
+    if (estimate?.usage) {
+      const mb = (n: number) => `${Math.round(n / 1024 / 1024)}MB`;
+      usageText = `当前已用约 ${mb(estimate.usage)}${
+        estimate.quota ? `, 浏览器给这个网站的上限约 ${mb(estimate.quota)}` : ""
+      }。`;
+    }
+  } catch {}
+
+  return new Error(
+    `本地存储写入失败, 多半是空间满了。${usageText}` +
+      `浏览器给单个网站的本地存储配额有限(iOS 上大约 1GB, 而且写满时不会弹窗提示), ` +
+      `请先导出或删除一部分卡片, 再继续导入。`,
+  );
+}
+
+const BLOB_DEDUPE_FLAG = "tavern_blob_dedupe_v1_done";
+const BLOB_DEDUPE_STATS_KEY = "tavern_blob_dedupe_stats_v1";
+
+export interface BlobDedupeStats {
+  at: number;
+  checked: number;
+  freed: number;
+  failed: number;
+}
+
+/** 上一次回收重复图片副本的结果(设置页展示用), 没跑过就返回 null */
+export function getBlobDedupeStats(): BlobDedupeStats | null {
+  try {
+    const raw = localStorage.getItem(BLOB_DEDUPE_STATS_KEY);
+    return raw ? (JSON.parse(raw) as BlobDedupeStats) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 一次性回收历史数据里"重复的图片字节"(升级后第一次启动跑一次)。
+ *
+ * 老版本每张卡都会存好几份完全相同的图:
+ *   - avatarBlob(头像)和 originalFile(整张卡片原文件)其实是一样的字节;
+ *   - thumbBlob(缩略图)在原图不超过 800px 时, 存的就是原图本身。
+ * 这里把多余的那份删掉。因为读的时候会自动用留下的那份顶上(attachBlobsToCharacter),
+ * 显示/导出结果完全不变, 但本地占用立刻少一大截 —— iOS 上配额紧张, 这一步很关键。
+ *
+ * 只做"删掉重复副本", 不碰任何独一份的数据, 也不预生成新图(缩略图交给下次显示时懒生成,
+ * 那时会按新版 WebP 重新生成, 比原来的小得多)。
+ */
+export async function dedupeStoredBlobCopies(
+  options?: {
+    /** 忽略"只跑一次"的标记, 手动再扫一遍(设置页的按钮用) */
+    force?: boolean;
+    onProgress?: (current: number, total: number) => void;
+  },
+): Promise<{ checked: number; freed: number }> {
+  const onProgress = options?.onProgress;
+  if (
+    !options?.force &&
+    typeof localStorage !== "undefined" &&
+    localStorage.getItem(BLOB_DEDUPE_FLAG) === "true"
+  ) {
+    return { checked: 0, freed: 0 };
+  }
+
+  const db = await initDB();
+  const keys = (await db.getAllKeys("blobs")) as string[];
+  let freed = 0;
+  let failed = 0;
+
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    // 读一条 → 事务立刻结束 → 再去比对字节内容 → 需要改的话另开一个短事务写回。
+    // 不能在事务还开着的时候 await 读 Blob 内容: 那段 await 期间没有任何 IDB 请求
+    // 挂起, WebKit / Chromium 都会让事务提前提交, 后面的 put 就会抛
+    // TransactionInactiveError(那样这一轮回收就白跑了)。
+    const record: any = await db.get("blobs", key);
+    if (record) {
+      const next: any = { ...record };
+      let changed = false;
+
+      // 头像和整张卡片原文件是同一份字节 → 只留 originalFile
+      if (
+        next.avatarBlob &&
+        next.originalFile &&
+        (await isSameBytes(next.avatarBlob, next.originalFile))
+      ) {
+        next.avatarBlob = undefined;
+        changed = true;
+      }
+
+      // 缩略图和留下的那张原图一模一样 → 删掉, 下次显示时按新版 WebP 重新生成
+      const keptImage = next.avatarBlob ?? next.originalFile;
+      if (
+        next.thumbBlob &&
+        keptImage &&
+        (await isSameBytes(next.thumbBlob, keptImage))
+      ) {
+        next.thumbBlob = undefined;
+        next.thumbVersion = undefined;
+        changed = true;
+      }
+
+      if (changed) {
+        try {
+          await db.put("blobs", next, key);
+          freed++;
+        } catch (e) {
+          console.warn("[BlobDedupe] failed to write back record:", key, e);
+          failed++;
+        }
+      }
+    }
+
+    if (i % 20 === 19) {
+      onProgress?.(i + 1, keys.length);
+      // 定期让出主线程, 别让几千张卡的维护把界面卡住
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+
+  onProgress?.(keys.length, keys.length);
+
+  // 全部写回成功才打标记。存储已经写满时个别记录可能真的写不进去, 那就下次启动再试一次 ——
+  // 这个回收本身就是在腾空间, 值得多试几轮。
+  if (failed === 0 && typeof localStorage !== "undefined") {
+    localStorage.setItem(BLOB_DEDUPE_FLAG, "true");
+  }
+  if (typeof localStorage !== "undefined") {
+    try {
+      const stats: BlobDedupeStats = {
+        at: Date.now(),
+        checked: keys.length,
+        freed,
+        failed,
+      };
+      localStorage.setItem(BLOB_DEDUPE_STATS_KEY, JSON.stringify(stats));
+    } catch {}
+  }
+  invalidateCache();
+  return { checked: keys.length, freed };
 }
 
 export async function saveCharacters(
@@ -1841,7 +2099,11 @@ export async function saveCharacters(
       if (existingBlobs) {
         if (
           character.avatarBlob !== undefined &&
-          !isSameBinary(character.avatarBlob, existingBlobs.avatarBlob)
+          !isSameBinary(
+            character.avatarBlob,
+            // 去重后头像可能没单独存, 实际留在库里的是 originalFile
+            existingBlobs.avatarBlob ?? existingBlobs.originalFile,
+          )
         ) {
           (character as any)._isExplicitAvatarUpdate = true;
         }
@@ -1873,9 +2135,35 @@ export async function saveCharacters(
       (character as any)._needsFullAndroidSync = true;
     }
 
+    // 去重: 导入时头像(avatarBlob)和整张卡片原文件(originalFile)常常就是同一份字节,
+    // 每个字段各存一份等于白占一倍空间(iOS 上这点空间非常值钱)。这里只留 originalFile,
+    // 读的时候 attachBlobsToCharacter 会自动用它顶上头像, 显示/导出结果完全一样。
+    // 只有用户手动裁切换过头像、两者确实不是同一份字节时, 才会照旧各存一份。
+    if (
+      finalBlobs.avatarBlob &&
+      finalBlobs.originalFile &&
+      isSameBinary(finalBlobs.avatarBlob, finalBlobs.originalFile)
+    ) {
+      finalBlobs.avatarBlob = undefined;
+    }
+
     allFinalBlobs.set(character.id, finalBlobs);
   }
   await tx1.done;
+
+  // 上面那个 isSameBinary 只能快速命中"同一实例 / 同名同时间"的情况; 但导入时会
+  // 故意修正 lastModified, 云盘恢复会重建 File 对象, 这两种情况下同一份字节会被判成
+  // 不同, 所以这里再做一次字节级确认(只处理长度 + MIME 都对得上的可疑对子, 开销很小)。
+  // 放在 tx1 提交之后做: 事务里插入文件读取的 await 容易让事务提前结束。
+  for (const finalBlobs of allFinalBlobs.values()) {
+    if (
+      finalBlobs.avatarBlob &&
+      finalBlobs.originalFile &&
+      (await isSameBytes(finalBlobs.avatarBlob, finalBlobs.originalFile))
+    ) {
+      finalBlobs.avatarBlob = undefined;
+    }
+  }
 
   // 2) Write to IndexedDB using a new transaction
   const tx2 = db.transaction(["characters", "blobs", "char_meta"], "readwrite");
@@ -1883,44 +2171,50 @@ export async function saveCharacters(
   const blobStore2 = tx2.objectStore("blobs");
   const charMetaStore2 = tx2.objectStore("char_meta");
 
-  for (const character of characters) {
-    if ((character.tokenCount === undefined || character.permanentTokens === undefined) && character.data) {
-      try {
-        const breakdown = getCharacterTokenBreakdown(character.data);
-        character.tokenCount = breakdown.totalTokens;
-        character.permanentTokens = breakdown.permanentTokens;
-      } catch {}
+  try {
+    for (const character of characters) {
+      if ((character.tokenCount === undefined || character.permanentTokens === undefined) && character.data) {
+        try {
+          const breakdown = getCharacterTokenBreakdown(character.data);
+          character.tokenCount = breakdown.totalTokens;
+          character.permanentTokens = breakdown.permanentTokens;
+        } catch {}
+      }
+
+      const finalBlobs = allFinalBlobs.get(character.id);
+      await blobStore2.put(finalBlobs, character.id);
+
+      const charToSave = { ...character, hasBlobsSeparated: true };
+      delete charToSave.avatarBlob;
+      delete charToSave.originalFile;
+      delete charToSave.avatarHistory;
+      // 版本快照里的 completeCardPngBlob 是把头像 + 酒馆数据现合成的整张 PNG,
+      // 体积和头像同级。它完全可以从 snap.avatarBlob + snap.data 现推出来(导入
+      // /导出/云备份等所有出口都有现推分支), 所以不存进库 —— 否则每张卡的历史
+      // 版本都会让 characters 这行膨胀好几倍, 全表读取/写库因此爆炸。
+      if (Array.isArray(charToSave.versionHistory) && charToSave.versionHistory.length > 0) {
+        charToSave.versionHistory = charToSave.versionHistory.map((snap) => {
+          if (!snap || !snap.completeCardPngBlob) return snap;
+          const { completeCardPngBlob: _drop, ...rest } = snap;
+          return rest as CardVersionSnapshot;
+        });
+      }
+      delete (charToSave as any)._isExplicitAvatarUpdate;
+      delete (charToSave as any)._oldFolderId;
+      delete (charToSave as any)._wasDeleted;
+      delete (charToSave as any)._previousFilePath;
+      delete (charToSave as any)._skipTouchUpdatedAt;
+
+      await charStore2.put(charToSave);
+      await charMetaStore2.put(buildCharMeta(charToSave));
     }
 
-    const finalBlobs = allFinalBlobs.get(character.id);
-    await blobStore2.put(finalBlobs, character.id);
-
-    const charToSave = { ...character, hasBlobsSeparated: true };
-    delete charToSave.avatarBlob;
-    delete charToSave.originalFile;
-    delete charToSave.avatarHistory;
-    // 版本快照里的 completeCardPngBlob 是把头像 + 酒馆数据现合成的整张 PNG,
-    // 体积和头像同级。它完全可以从 snap.avatarBlob + snap.data 现推出来(导入
-    // /导出/云备份等所有出口都有现推分支), 所以不存进库 —— 否则每张卡的历史
-    // 版本都会让 characters 这行膨胀好几倍, 全表读取/写库因此爆炸。
-    if (Array.isArray(charToSave.versionHistory) && charToSave.versionHistory.length > 0) {
-      charToSave.versionHistory = charToSave.versionHistory.map((snap) => {
-        if (!snap || !snap.completeCardPngBlob) return snap;
-        const { completeCardPngBlob: _drop, ...rest } = snap;
-        return rest as CardVersionSnapshot;
-      });
-    }
-    delete (charToSave as any)._isExplicitAvatarUpdate;
-    delete (charToSave as any)._oldFolderId;
-    delete (charToSave as any)._wasDeleted;
-    delete (charToSave as any)._previousFilePath;
-    delete (charToSave as any)._skipTouchUpdatedAt;
-
-    await charStore2.put(charToSave);
-    await charMetaStore2.put(buildCharMeta(charToSave));
+    await tx2.done;
+  } catch (err) {
+    // iOS Safari 的站点存储配额用满时不会弹窗, 直接让写入事务失败, 原始报错用户看不懂。
+    // 这里统一转成能看懂的说明(带上当前已用空间), 便于判断是不是"存满了"。
+    throw await describeStorageWriteError(err);
   }
-
-  await tx2.done;
   invalidateCache();
 
   for (const character of characters) {
@@ -2489,11 +2783,7 @@ export async function getTrashedCharacters(
     for (const char of trashed) {
       if (char.hasBlobsSeparated) {
         const blobs = await db.get("blobs", char.id);
-        if (blobs) {
-          char.avatarBlob = blobs.avatarBlob;
-          char.originalFile = blobs.originalFile;
-          char.avatarHistory = blobs.avatarHistory;
-        }
+        attachBlobsToCharacter(char, blobs);
       }
     }
   }

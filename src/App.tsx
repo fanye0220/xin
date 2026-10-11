@@ -289,8 +289,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // 启动 3 秒后静默检测远端版本更新（网页版没有本地应用，跳过；仅本地应用才需要）
-    if (!isAndroid()) return;
+    // 启动 3 秒后静默检测远端版本更新
     const timer = setTimeout(async () => {
       const ignoredVer = localStorage.getItem('miu_ignored_version');
       const res = await checkForAppUpdates();
@@ -399,12 +398,19 @@ export default function App() {
       setIsMigrating(false);
       // Run background maintenance asynchronously without blocking app startup
       setTimeout(() => {
-        import('./lib/db').then(({ cleanupEmptyFolders, cleanupGhostCards }) => {
+        import('./lib/db').then(({ cleanupEmptyFolders, cleanupGhostCards, dedupeStoredBlobCopies }) => {
           cleanupEmptyFolders();
           cleanupGhostCards().then(({ cleanedCount }) => {
             if (cleanedCount > 0) {
               console.log(`[Startup] Cleaned ${cleanedCount} ghost card entries from database.`);
             }
+            // 回收老版本重复存了好几遍的图片字节(只在升级后第一次运行):
+            // 同一张图以前可能被 avatarBlob / originalFile / thumbBlob 各存了一份。
+            dedupeStoredBlobCopies().then(({ checked, freed }) => {
+              if (freed > 0) {
+                console.log(`[Startup] Deduped blob copies: ${freed}/${checked} entries cleaned.`);
+              }
+            }).catch(() => {});
           });
         });
       }, 500);

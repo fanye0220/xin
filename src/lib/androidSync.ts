@@ -60,10 +60,8 @@ export async function _tryCleanupOldAndroidFilesWorker(char: CharacterCard, newP
   const targetPath = char.localFilePath || (char as any)._androidSyncPath;
   if (!targetPath) return;
 
-  const db = await initDB();
-  const tx = db.transaction("characters", "readonly");
-  const allChars = await tx.store.getAll();
-  await tx.done;
+  const { getCachedMeta } = await import("./db");
+  const allChars = await getCachedMeta();
 
   const parts = targetPath.split("/");
   const safeName = getSafeFilename(char.name);

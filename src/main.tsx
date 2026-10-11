@@ -38,6 +38,20 @@ function ensureRandomUUID() {
 }
 ensureRandomUUID();
 
+// iOS WebClip（添加到主屏幕）独立模式下跳转保护：防止点击内部链接弹回 Safari 浏览器
+if (typeof window !== 'undefined' && (window.navigator as any).standalone) {
+  document.addEventListener('click', (e: MouseEvent) => {
+    const target = (e.target as HTMLElement)?.closest('a');
+    if (target && target.href && target.target !== '_blank') {
+      const url = new URL(target.href, window.location.href);
+      if (url.origin === window.location.origin) {
+        e.preventDefault();
+        window.location.href = target.href;
+      }
+    }
+  }, false);
+}
+
 // Load theme preference on startup
 if (localStorage.getItem('tavern_theme') === 'light') {
   document.documentElement.classList.add('light-theme');

@@ -322,9 +322,8 @@ export function CharacterChatsSection({
                 }
                 const folderName = nameIndex >= 0 ? pathParts[nameIndex] : "";
                 if (folderName) {
-                  const { initDB } = await import("../lib/db");
-                  const db = await initDB();
-                  const allChars: any[] = await db.getAll("characters");
+                  const { getCachedMeta } = await import("../lib/db");
+                  const allChars: any[] = await getCachedMeta();
                   const folderMatch = allChars.find(
                     (c: any) => c.name && c.name.toLowerCase() === folderName.toLowerCase(),
                   );

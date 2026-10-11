@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { CharacterCard } from '../lib/db';
 import { CardUpdateResult, applyCardUpdate } from '../lib/cardUpdater';
-import { resolveAvatarUrl, getFallbackAvatar } from '../lib/avatar';
+import { resolveAvatarUrl, getFallbackAvatar, safeCreateObjectURL } from '../lib/avatar';
 import { useBackHandler } from '../lib/useBackHandler';
 
 interface Props {
@@ -52,13 +52,13 @@ export function CardUpdateDiffModal({
   const localTarget = character.data?.data || character.data || {};
   const remoteTarget = updateResult.remoteData?.data || updateResult.remoteData || {};
 
-  const localAvatarUrl = character.avatarBlob 
-    ? URL.createObjectURL(character.avatarBlob) 
-    : resolveAvatarUrl(character.avatarUrlFallback, character.name);
+  const localAvatarUrl = (character.avatarBlob 
+    ? safeCreateObjectURL(character.avatarBlob) 
+    : null) || resolveAvatarUrl(character.avatarUrlFallback, character.name);
 
-  const remoteAvatarUrl = updateResult.remoteAvatarBlob
-    ? URL.createObjectURL(updateResult.remoteAvatarBlob)
-    : localAvatarUrl;
+  const remoteAvatarUrl = (updateResult.remoteAvatarBlob
+    ? safeCreateObjectURL(updateResult.remoteAvatarBlob)
+    : null) || localAvatarUrl;
 
   const handleApply = async (mode: 'upgrade' | 'save_as_new') => {
     setIsApplying(true);

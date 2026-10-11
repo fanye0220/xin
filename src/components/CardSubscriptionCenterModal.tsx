@@ -17,9 +17,9 @@ import {
   Clock,
   Radio
 } from 'lucide-react';
-import { CharacterCard, getAllCharacters, saveCharacter } from '../lib/db';
+import { CharacterCard, getCachedMeta, saveCharacter } from '../lib/db';
 import { checkForCardUpdate, CardUpdateResult } from '../lib/cardUpdater';
-import { resolveAvatarUrl, getFallbackAvatar } from '../lib/avatar';
+import { resolveAvatarUrl, getFallbackAvatar, safeCreateObjectURL } from '../lib/avatar';
 import { CardUpdateDiffModal } from './CardUpdateDiffModal';
 import { useBackHandler } from '../lib/useBackHandler';
 
@@ -64,9 +64,9 @@ export function CardSubscriptionCenterModal({
   const [diffModalResult, setDiffModalResult] = useState<CardUpdateResult | null>(null);
 
   const loadCards = async () => {
-    const list = await getAllCharacters();
+    const list = await getCachedMeta();
     // Filter actual character cards (exclude tools if any)
-    const valid = list.filter(c => !c.deletedAt && !c.isTool && !c.isQR);
+    const valid = list.filter(c => !c.deletedAt && !c.isTool && !c.isQR) as unknown as CharacterCard[];
     setCards(valid);
   };
 
@@ -355,9 +355,8 @@ export function CardSubscriptionCenterModal({
                 const isLatest = card.lastCheckResult === 'latest';
                 const isError = card.lastCheckResult === 'error';
 
-                const avatarUrl = card.avatarBlob 
-                  ? URL.createObjectURL(card.avatarBlob)
-                  : resolveAvatarUrl(card.avatarUrlFallback, card.name);
+                const avatarUrl = (card.avatarBlob ? safeCreateObjectURL(card.avatarBlob) : null) ||
+                  resolveAvatarUrl(card.avatarUrlFallback, card.name);
 
                 return (
                   <div

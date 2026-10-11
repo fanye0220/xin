@@ -1590,7 +1590,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             if (isAndroid() && (file as any).androidAbsPath) {
               localFilePath = (file as any).androidAbsPath;
             } else if (item.isImage) {
-              avatarBlob = file;
+              // 直接用和 originalFile 同一个 File 对象: 它们本来就是同一份字节,
+              // 存库时会被去重成一份(显示效果完全一样), 不再白占一倍空间。
+              avatarBlob = refreshedFile;
             }
             const originalFile: File = refreshedFile;
 
@@ -2670,7 +2672,6 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   </div>
                 </div>
 
-                {isAndroid() && (
                 <div className="mt-4 w-full flex justify-center">
                   <button 
                     onClick={(e) => { e.stopPropagation(); fetchTavernList(); }}
@@ -2681,8 +2682,6 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     <span className="truncate">拉取酒馆卡片</span>
                   </button>
                 </div>
-
-                )}
 
                 {error && (
                   <motion.div
