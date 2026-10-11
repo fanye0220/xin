@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Globe, CheckCircle2, AlertCircle, Loader2, RefreshCw, Plus, Trash2, ChevronDown, ChevronUp, Save } from 'lucide-react';
-import { AISettings, CustomEndpoint, getAISettings, saveAISettings, testConnection, fetchCustomModels } from '../lib/ai';
+import { X, Globe, CheckCircle2, AlertCircle, Loader2, RefreshCw, Plus, Trash2, ChevronDown, ChevronUp, Save, ShieldAlert } from 'lucide-react';
+import { AISettings, CustomEndpoint, getAISettings, saveAISettings, testConnection, fetchCustomModels, COMMUNITY_JAILBREAK_PRESET, MINIMAL_BYPASS_PRESET, IMMERSIVE_FICTION_PRESET } from '../lib/ai';
 import { CloudSyncTab } from './CloudSyncTab';
 import { SidebarWallpaperTab } from './SidebarWallpaperTab';
 import { useSidebarWallpaper, saveSidebarWallpaperConfig } from '../lib/sidebarWallpaper';
@@ -347,6 +347,214 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
                       placeholder="gpt-3.5-turbo"
                       className="w-full rounded-xl px-4 py-2.5 text-sm transition focus:outline-none bg-black/40 border border-white/10 text-white placeholder:text-white/20 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#94a3b8]"
                     />
+                  )}
+                </div>
+
+                {/* 破限设置 */}
+                <div className="p-4 rounded-2xl border transition bg-black/30 border-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <ShieldAlert className="w-4 h-4 text-blue-400 [.light-theme_&]:!text-blue-600 shrink-0" />
+                      <div>
+                        <div className="text-sm font-bold text-white [.light-theme_&]:!text-[#0f172a]">
+                          破限
+                        </div>
+                        <div className="text-[11px] text-white/50 [.light-theme_&]:!text-[#64748b]">
+                          开启后在生成角色简介、总结与自动分类时自动注入破限指令，防止限制级卡片报错。
+                        </div>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-2">
+                      <input
+                        type="checkbox"
+                        checked={activeEndpoint.enableJailbreak ?? settings.enableJailbreak ?? false}
+                        onChange={(e) => {
+                          const val = e.target.checked;
+                          updateActiveEndpoint({ enableJailbreak: val });
+                          setSettings(prev => ({ ...prev, enableJailbreak: val }));
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 [.light-theme_&]:bg-slate-200 [.light-theme_&]:peer-checked:!bg-blue-500" />
+                    </label>
+                  </div>
+
+                  {(activeEndpoint.enableJailbreak ?? settings.enableJailbreak) && (
+                    <div className="space-y-3 pt-2 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0]">
+                      {(() => {
+                        const presets = activeEndpoint.customJailbreaks ?? settings.customJailbreaks ?? [];
+                        const activeJailbreakId = activeEndpoint.activeJailbreakId ?? settings.activeJailbreakId ?? presets[0]?.id;
+                        const activePreset = presets.find(p => p.id === activeJailbreakId) || presets[0];
+
+                        return (
+                          <>
+                            <div>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <label className="block text-xs font-semibold text-white/70 [.light-theme_&]:!text-[#0f172a]">
+                                  选择破限预设
+                                </label>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={activeJailbreakId || ''}
+                                  onChange={(e) => {
+                                    const selectedId = e.target.value;
+                                    const targetPreset = presets.find(p => p.id === selectedId);
+                                    const newPrompt = targetPreset ? targetPreset.text : '';
+                                    updateActiveEndpoint({
+                                      activeJailbreakId: selectedId,
+                                      jailbreakPrompt: newPrompt
+                                    });
+                                    setSettings(prev => ({
+                                      ...prev,
+                                      activeJailbreakId: selectedId,
+                                      jailbreakPrompt: newPrompt
+                                    }));
+                                  }}
+                                  className="flex-1 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm appearance-none transition focus:outline-none bg-black/40 border border-white/10 text-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]"
+                                >
+                                  {presets.length === 0 ? (
+                                    <option value="" className="bg-slate-900 text-slate-100 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a]">
+                                      默认破限 (空)
+                                    </option>
+                                  ) : (
+                                    presets.map(p => (
+                                      <option key={p.id} value={p.id} className="bg-slate-900 text-slate-100 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a]">
+                                        {p.label || '未命名预设'}
+                                      </option>
+                                    ))
+                                  )}
+                                </select>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newId = Date.now().toString();
+                                    const newPreset = {
+                                      id: newId,
+                                      label: `破限预设 ${presets.length + 1}`,
+                                      text: ''
+                                    };
+                                    const updated = [...presets, newPreset];
+                                    updateActiveEndpoint({
+                                      customJailbreaks: updated,
+                                      activeJailbreakId: newId,
+                                      jailbreakPrompt: ''
+                                    });
+                                    setSettings(prev => ({
+                                      ...prev,
+                                      customJailbreaks: updated,
+                                      activeJailbreakId: newId,
+                                      jailbreakPrompt: ''
+                                    }));
+                                  }}
+                                  className="p-2.5 rounded-xl border transition cursor-pointer bg-white/10 border-white/15 hover:bg-white/20 text-white [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!border-[#bfdbfe] [.light-theme_&]:!text-[#1d4ed8] [.light-theme_&]:hover:!bg-[#dbeafe] shrink-0"
+                                  title="新建破限预设"
+                                >
+                                  <Plus className="w-4 h-4" />
+                                </button>
+
+                                {presets.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const targetId = activeJailbreakId || presets[0]?.id;
+                                      const updated = presets.filter(p => p.id !== targetId);
+                                      const lastPreset = updated[updated.length - 1];
+                                      const nextId = lastPreset?.id;
+                                      const nextPrompt = lastPreset?.text ?? '';
+
+                                      updateActiveEndpoint({
+                                        customJailbreaks: updated,
+                                        activeJailbreakId: nextId,
+                                        jailbreakPrompt: nextPrompt
+                                      });
+                                      setSettings(prev => ({
+                                        ...prev,
+                                        customJailbreaks: updated,
+                                        activeJailbreakId: nextId,
+                                        jailbreakPrompt: nextPrompt
+                                      }));
+                                    }}
+                                    className="p-2.5 rounded-xl border transition cursor-pointer bg-white/5 border-white/10 text-white/50 hover:text-rose-400 hover:bg-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-rose-600 [.light-theme_&]:hover:!bg-rose-50 shrink-0"
+                                    title="删除当前选中的破限预设"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Preset Name Edit Field */}
+                            {activePreset && (
+                              <div>
+                                <label className="block text-xs font-semibold mb-1 text-white/70 [.light-theme_&]:!text-[#0f172a]">
+                                  预设名称
+                                </label>
+                                <input
+                                  type="text"
+                                  value={activePreset.label || ''}
+                                  onChange={(e) => {
+                                    const newLabel = e.target.value;
+                                    const updated = presets.map(p => p.id === activePreset.id ? { ...p, label: newLabel } : p);
+                                    updateActiveEndpoint({ customJailbreaks: updated });
+                                    setSettings(prev => ({ ...prev, customJailbreaks: updated }));
+                                  }}
+                                  placeholder="例如：二次元破限、轻量解除限制..."
+                                  className="w-full rounded-xl px-3.5 py-2 text-xs transition focus:outline-none bg-black/40 border border-white/10 text-white placeholder:text-white/20 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#94a3b8]"
+                                />
+                              </div>
+                            )}
+
+                            <div>
+                              <label className="block text-xs font-semibold mb-1 text-white/70 [.light-theme_&]:!text-[#0f172a]">
+                                破限指令词 (System Prompt)
+                              </label>
+                              <textarea
+                                rows={4}
+                                value={activeEndpoint.jailbreakPrompt ?? settings.jailbreakPrompt ?? ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  let updatedPresets = [...presets];
+
+                                  if (updatedPresets.length === 0) {
+                                    const newId = Date.now().toString();
+                                    updatedPresets = [{ id: newId, label: '破限预设 1', text: val }];
+                                    updateActiveEndpoint({
+                                      customJailbreaks: updatedPresets,
+                                      activeJailbreakId: newId,
+                                      jailbreakPrompt: val
+                                    });
+                                    setSettings(prev => ({
+                                      ...prev,
+                                      customJailbreaks: updatedPresets,
+                                      activeJailbreakId: newId,
+                                      jailbreakPrompt: val
+                                    }));
+                                  } else {
+                                    const targetId = activeJailbreakId || updatedPresets[0].id;
+                                    updatedPresets = updatedPresets.map(p => p.id === targetId ? { ...p, text: val } : p);
+                                    updateActiveEndpoint({
+                                      customJailbreaks: updatedPresets,
+                                      activeJailbreakId: targetId,
+                                      jailbreakPrompt: val
+                                    });
+                                    setSettings(prev => ({
+                                      ...prev,
+                                      customJailbreaks: updatedPresets,
+                                      activeJailbreakId: targetId,
+                                      jailbreakPrompt: val
+                                    }));
+                                  }
+                                }}
+                                placeholder="在此输入或粘贴自定义破限指令/System Prompt..."
+                                className="w-full rounded-xl p-3 text-xs font-mono transition focus:outline-none bg-black/40 border border-white/10 text-white placeholder:text-white/20 custom-scrollbar [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#94a3b8]"
+                              />
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
                   )}
                 </div>
               </motion.div>

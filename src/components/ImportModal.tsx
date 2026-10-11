@@ -101,6 +101,7 @@ interface ParsedItem {
   isVersion?: boolean;
   isMeta?: boolean;
   toolPrefix?: string[];
+  toolCategory?: string;
   errorMsg?: string;
 }
 
@@ -922,7 +923,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     name: fileName.replace(/\.[^/.]+$/, ""),
                     content: text,
                   },
-                  toolPrefix: ["工具区"],
+                  toolCategory: "脚本", toolPrefix: ["工具区"],
                 });
               }
               continue;
@@ -940,7 +941,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   name: fileName.replace(/\.[^/.]+$/, ""),
                   content: text,
                 },
-                toolPrefix: ["工具区"],
+                toolCategory: "脚本", toolPrefix: ["工具区"],
               });
               continue;
             }
@@ -1044,6 +1045,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   isMain: false,
                   isImage: false,
                   data: parsedJson,
+                  toolCategory: detectedCategory,
                   toolPrefix: [
                     detectedCategory === "脚本" ? "工具区" : detectedCategory,
                   ],
@@ -1745,7 +1747,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               item.toolPrefix,
             );
 
-            const toolCategory = (item.toolPrefix && item.toolPrefix[0]) || "工具";
+            const toolCategory = item.toolCategory || (item.toolPrefix && item.toolPrefix[0]) || "工具";
             const isQR = toolCategory === "快速回复" || (item.toolPrefix?.[0] === "快速回复");
 
             const toolTokens = getCharacterTokenBreakdown(data);

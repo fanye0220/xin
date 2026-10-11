@@ -303,7 +303,15 @@ export function getResourceType(char: any, foldersMap?: Map<string, string>): Re
     filename.includes('.script') || filename.includes('_script') || filename.includes('.regex') ||
     /(?:^|[_\-\s\[\(（【])(?:脚本|正则|script|regex)(?:[\]\)）】]|$|[_\-\s\.])/i.test(rawName);
 
-  if (isScriptArray || hasScriptProps || isScriptFileOrName || char?.isTool) {
+  // 套壳写法：文件最外层是 { name, regex / scripts / regex_scripts: [...] }
+  // 只认文件最外层（outer），不认卡内 extensions 里的正则，避免把角色卡误判成脚本。
+  // 而且真角色卡在函数开头已被 isActualCharacterCard 拦截，根本走不到这里。
+  const isNestedScriptContainer =
+    (Array.isArray(outer.regex) && outer.regex.length > 0) ||
+    (Array.isArray(outer.scripts) && outer.scripts.length > 0) ||
+    (Array.isArray(outer.regex_scripts) && outer.regex_scripts.length > 0);
+
+  if (isScriptArray || hasScriptProps || isScriptFileOrName || isNestedScriptContainer || char?.isTool) {
     return 'script';
   }
 
