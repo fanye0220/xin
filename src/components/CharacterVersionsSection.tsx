@@ -203,132 +203,45 @@ function ActiveAvatar({ character, avatarUrl }: { character: CharacterCard; avat
 }
 
 // Standalone component to securely render snapshot avatar with memory management
-function SnapshotAvatar({ 
-  snapshot, 
-  fallbackName, 
-  parentCharacter 
-}: { 
-  snapshot: CardVersionSnapshot; 
-  fallbackName: string;
-  parentCharacter?: CharacterCard;
-}) {
+function SnapshotAvatar({ snapshot, fallbackName }: { snapshot: CardVersionSnapshot; fallbackName: string }) {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
     let objectUrl: string | null = null;
-    let isCancelled = false;
-
-    async function loadAvatar() {
-      if (snapshot.avatarBlob) {
-        objectUrl = safeCreateObjectURL(snapshot.avatarBlob);
-        if (!isCancelled && objectUrl) {
-          setUrl(objectUrl);
-          return;
-        }
-      }
-      if (snapshot.completeCardPngBlob) {
-        objectUrl = safeCreateObjectURL(snapshot.completeCardPngBlob);
-        if (!isCancelled && objectUrl) {
-          setUrl(objectUrl);
-          return;
-        }
-      }
-
-      if (snapshot.sourceCharId) {
-        try {
-          const sourceBlobs = await getCharacterBlob(snapshot.sourceCharId);
-          if (!isCancelled && sourceBlobs?.avatarBlob) {
-            objectUrl = safeCreateObjectURL(sourceBlobs.avatarBlob);
-            if (objectUrl) {
-              setUrl(objectUrl);
-              return;
-            }
-          }
-          const sourceChar = await getCharacter(snapshot.sourceCharId);
-          if (!isCancelled && sourceChar) {
-            if (sourceChar.avatarBlob) {
-              objectUrl = safeCreateObjectURL(sourceChar.avatarBlob);
-              if (objectUrl) {
-                setUrl(objectUrl);
-                return;
-              }
-            }
-            if (sourceChar.localFilePath) {
-              const { getLocalImageUrl } = await import('../lib/appBridge');
-              if (!isCancelled) {
-                setUrl(getLocalImageUrl(sourceChar.localFilePath, sourceChar.updatedAt || sourceChar.createdAt));
-                return;
-              }
-            }
-            if (sourceChar.avatarUrlFallback) {
-              if (!isCancelled) {
-                setUrl(resolveAvatarUrl(sourceChar.avatarUrlFallback, sourceChar.name));
-                return;
-              }
-            }
-          }
-        } catch {
-          // ignore
-        }
-      }
-
-      if (snapshot.avatarUrlFallback) {
-        if (!isCancelled) {
-          setUrl(resolveAvatarUrl(snapshot.avatarUrlFallback, fallbackName));
-          return;
-        }
-      }
-
-      if (parentCharacter) {
-        if (parentCharacter.avatarBlob) {
-          objectUrl = safeCreateObjectURL(parentCharacter.avatarBlob);
-          if (!isCancelled && objectUrl) {
-            setUrl(objectUrl);
-            return;
-          }
-        }
-        if (parentCharacter.localFilePath) {
-          const { getLocalImageUrl } = await import('../lib/appBridge');
-          if (!isCancelled) {
-            setUrl(getLocalImageUrl(parentCharacter.localFilePath, parentCharacter.updatedAt || parentCharacter.createdAt));
-            return;
-          }
-        }
-        if (parentCharacter.avatarUrlFallback) {
-          if (!isCancelled) {
-            setUrl(resolveAvatarUrl(parentCharacter.avatarUrlFallback, parentCharacter.name));
-            return;
-          }
-        }
-      }
-
-      if (!isCancelled) {
-        setUrl(getFallbackAvatar(fallbackName));
-      }
+    if (snapshot.avatarBlob) {
+      objectUrl = URL.createObjectURL(snapshot.avatarBlob);
+      setUrl(objectUrl);
+    } else if (snapshot.completeCardPngBlob) {
+      objectUrl = URL.createObjectURL(snapshot.completeCardPngBlob);
+      setUrl(objectUrl);
+    } else if (snapshot.avatarUrlFallback) {
+      setUrl(snapshot.avatarUrlFallback);
+    } else {
+      setUrl(null);
     }
 
-    loadAvatar();
-
     return () => {
-      isCancelled = true;
       if (objectUrl) {
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [snapshot, parentCharacter, fallbackName]);
+  }, [snapshot.avatarBlob, snapshot.completeCardPngBlob, snapshot.avatarUrlFallback]);
 
-  const displaySrc = url || getFallbackAvatar(fallbackName);
+  if (!url) {
+    return (
+      <div className="w-full h-full flex items-center justify-center text-xs font-semibold opacity-70">
+        {snapshot.versionName?.slice(0, 2) || '旧版'}
+      </div>
+    );
+  }
 
   return (
     <img
-      src={displaySrc}
+      src={url}
       alt={snapshot.versionName || fallbackName}
       className="w-full h-full object-cover"
       onError={(e) => {
-        const fallback = getFallbackAvatar(fallbackName);
-        if (e.currentTarget.src !== fallback) {
-          e.currentTarget.src = fallback;
-        }
+        e.currentTarget.src = getFallbackAvatar(fallbackName);
       }}
     />
   );
@@ -1053,11 +966,8 @@ export function CharacterVersionsSection({
       const carriedHistory = (oldHistory.length > 0 && !oldHistory[0].sourceCharId) ? oldHistory.slice(1) : oldHistory;
       const updatedHistory = [...baseHistory, newSnapshot, ...carriedHistory];
 
-      const { avatarBlob: mainBlob } = await resolveFullCardBinaryAssets(character);
-
       let updatedChar: CharacterCard = {
         ...character,
-        avatarBlob: mainBlob || character.avatarBlob,
         versionHistory: updatedHistory,
         activeVersionId: activeId,
         updatedAt: Date.now(),
@@ -1320,36 +1230,7 @@ export function CharacterVersionsSection({
       }
     }
 
-    let chosenBlob = snapshot.avatarBlob || snapshot.completeCardPngBlob;
-    let chosenFallback = snapshot.avatarUrlFallback;
-
-    if ((!chosenBlob || !chosenFallback) && snapshot.sourceCharId) {
-      try {
-        const { getCharacterBlob, getCharacter } = await import('../lib/db');
-        if (!chosenBlob) {
-          const sourceBlobs = await getCharacterBlob(snapshot.sourceCharId);
-          if (sourceBlobs?.avatarBlob) {
-            chosenBlob = sourceBlobs.avatarBlob;
-          }
-        }
-        const sourceChar = await getCharacter(snapshot.sourceCharId);
-        if (sourceChar) {
-          if (!chosenBlob && sourceChar.avatarBlob) {
-            chosenBlob = sourceChar.avatarBlob;
-          }
-          if (!chosenFallback && sourceChar.avatarUrlFallback) {
-            chosenFallback = sourceChar.avatarUrlFallback;
-          }
-        }
-      } catch (e) {}
-    }
-
-    if (!chosenBlob) {
-      chosenBlob = character.avatarBlob;
-    }
-    if (!chosenFallback) {
-      chosenFallback = character.avatarUrlFallback;
-    }
+    const chosenBlob = snapshot.avatarBlob || snapshot.completeCardPngBlob || character.avatarBlob;
 
     const updatedChar: CharacterCard & { _skipTouchUpdatedAt?: boolean; _isExplicitAvatarUpdate?: boolean } = {
       ...character,
@@ -1357,7 +1238,7 @@ export function CharacterVersionsSection({
       name: snapshot.cardName || character.name,
       avatarBlob: chosenBlob,
       avatarHistory: snapshot.avatarHistory || character.avatarHistory,
-      avatarUrlFallback: chosenFallback,
+      avatarUrlFallback: snapshot.avatarUrlFallback || character.avatarUrlFallback,
       tags: snapshot.tags || character.tags,
       activeVersionId: snapshot.id,
       versionHistory: updatedHistory,
@@ -2292,7 +2173,7 @@ export function CharacterVersionsSection({
 
                     <div className="w-6 h-6 sm:w-6.5 sm:h-6.5 rounded-full overflow-hidden shrink-0 soft-pill p-0.5 shadow-xs">
                       <div className="w-full h-full rounded-full overflow-hidden">
-                        <SnapshotAvatar snapshot={snapshot} fallbackName={snapshot.cardName || character.name} parentCharacter={character} />
+                        <SnapshotAvatar snapshot={snapshot} fallbackName={snapshot.cardName || character.name} />
                       </div>
                     </div>
                   </div>
