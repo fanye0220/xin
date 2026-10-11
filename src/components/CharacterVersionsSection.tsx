@@ -386,7 +386,15 @@ function inheritQrAndSource(
   sourceUrlFallback?: string,
   options: { inheritQr?: boolean; inheritSource?: boolean } = { inheritQr: true, inheritSource: true }
 ): CharacterCard {
-  const clonedTarget: CharacterCard = JSON.parse(JSON.stringify(targetChar));
+  // 只深拷贝卡片正文(data)。头像 avatarBlob / 原卡文件 originalFile / 历史头像 avatarHistory /
+  // 版本快照里的二进制必须原样带过去：一旦被 JSON 序列化就会被抹成 {}，
+  // 主卡和所有历史版本的头像都会因此丢掉（绑定后头像变空白/消失就是这个原因）。
+  const clonedTarget: CharacterCard = {
+    ...targetChar,
+    data: targetChar.data ? JSON.parse(JSON.stringify(targetChar.data)) : {},
+    avatarHistory: targetChar.avatarHistory ? [...targetChar.avatarHistory] : targetChar.avatarHistory,
+    versionHistory: targetChar.versionHistory ? [...targetChar.versionHistory] : targetChar.versionHistory,
+  };
   if (!clonedTarget.data) clonedTarget.data = {};
   let targetInner = clonedTarget.data.data ? clonedTarget.data.data : clonedTarget.data;
   if (typeof targetInner !== 'object' || Array.isArray(targetInner)) {
