@@ -208,15 +208,19 @@ function SnapshotAvatar({ snapshot, fallbackName }: { snapshot: CardVersionSnaps
 
   useEffect(() => {
     let objectUrl: string | null = null;
-    if (snapshot.avatarBlob) {
-      objectUrl = URL.createObjectURL(snapshot.avatarBlob);
-      setUrl(objectUrl);
-    } else if (snapshot.completeCardPngBlob) {
-      objectUrl = URL.createObjectURL(snapshot.completeCardPngBlob);
-      setUrl(objectUrl);
-    } else if (snapshot.avatarUrlFallback) {
-      setUrl(snapshot.avatarUrlFallback);
-    } else {
+    try {
+      if (snapshot.avatarBlob) {
+        objectUrl = safeCreateObjectURL(snapshot.avatarBlob);
+        setUrl(objectUrl);
+      } else if (snapshot.completeCardPngBlob) {
+        objectUrl = safeCreateObjectURL(snapshot.completeCardPngBlob);
+        setUrl(objectUrl);
+      } else if (snapshot.avatarUrlFallback) {
+        setUrl(snapshot.avatarUrlFallback);
+      } else {
+        setUrl(null);
+      }
+    } catch {
       setUrl(null);
     }
 
