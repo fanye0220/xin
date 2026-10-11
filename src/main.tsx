@@ -3,6 +3,41 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
+// iOS / 老浏览器兼容：crypto.randomUUID 在 iOS 15.4 以下或非 HTTPS 环境不存在，
+// 而项目里多处用它生成 id。这里只补一个等价实现；新设备上函数已存在，直接跳过。
+function ensureRandomUUID() {
+  const g: any = globalThis;
+  if (!g.crypto || typeof g.crypto.randomUUID === 'function') return;
+  const fn = () => {
+    const bytes = new Uint8Array(16);
+    if (typeof g.crypto.getRandomValues === 'function') {
+      g.crypto.getRandomValues(bytes);
+    } else {
+      for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex: string[] = [];
+    for (let i = 0; i < 16; i++) hex.push((bytes[i] + 0x100).toString(16).slice(1));
+    return (
+      hex.slice(0, 4).join('') + '-' +
+      hex.slice(4, 6).join('') + '-' +
+      hex.slice(6, 8).join('') + '-' +
+      hex.slice(8, 10).join('') + '-' +
+      hex.slice(10, 16).join('')
+    );
+  };
+  try {
+    g.crypto.randomUUID = fn;
+  } catch {}
+  try {
+    if (typeof g.crypto.randomUUID !== 'function' && g.Crypto && g.Crypto.prototype) {
+      g.Crypto.prototype.randomUUID = fn;
+    }
+  } catch {}
+}
+ensureRandomUUID();
+
 // Load theme preference on startup
 if (localStorage.getItem('tavern_theme') === 'light') {
   document.documentElement.classList.add('light-theme');
