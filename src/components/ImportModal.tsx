@@ -49,6 +49,7 @@ import { useInView } from "../lib/useInView";
 import { getCharacterTokenBreakdown, formatTokenCount, CharacterTokenBreakdown } from "../lib/tokens";
 import { TokenBreakdownModal } from "./TokenBreakdownModal";
 import { withReadSlot } from "../lib/thumbCache";
+import { describeSaveFailure, describeSaveFailureShort } from "../lib/saveError";
 
 const tavernAvatarCache = new Map<string, string>();
 
@@ -1738,7 +1739,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               await new Promise((resolve) => setTimeout(resolve, 15));
             }
           } catch (err: any) {
-            errors.push({ file: item.file.name, error: err.message || "未知错误" });
+            errors.push({ file: item.file.name, error: describeSaveFailureShort(err) });
           }
         }
 
@@ -1822,7 +1823,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               await new Promise((resolve) => setTimeout(resolve, 15));
             }
           } catch (err: any) {
-            errors.push({ file: item.file.name, error: err.message || "未知错误" });
+            errors.push({ file: item.file.name, error: describeSaveFailureShort(err) });
           }
         }
 
@@ -1949,7 +1950,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
         }
       } catch (err: any) {
         setProgress(null);
-        setError(`保存角色失败: ${err.message}`);
+        setError(`保存角色失败: ${await describeSaveFailure(err)}`);
       }
   };
 

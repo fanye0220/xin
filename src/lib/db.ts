@@ -1928,6 +1928,18 @@ export async function saveCharacters(
   const blobStore2 = tx2.objectStore("blobs");
   const charMetaStore2 = tx2.objectStore("char_meta");
 
+  // 事务无论是提交还是中止, tx2.done 最后都会 settle。把"清缓存"挂在这里最稳:
+  // 循环里任何一条 put 失败时(最常见是空间写满 QuotaExceededError, 事务会被 abort),
+  // 这句话仍然会执行, 界面不会继续拿旧 meta 显示、看不到已经落库的那几张。
+  // 同时, 事务失败时这个 promise 也会 reject; 循环里那句 await 会先抛出真正的错误,
+  // 它就变成没人接的 unhandled rejection(会被 main.tsx 的兜底捕捉成红屏), 所以顺手
+  // 挂一个空 catch 把它吃掉。
+  tx2.done.catch(() => {});
+  tx2.done.then(
+    () => invalidateCache(),
+    () => invalidateCache(),
+  );
+
   for (const character of characters) {
     if ((character.tokenCount === undefined || character.permanentTokens === undefined) && character.data) {
       try {
@@ -1966,7 +1978,6 @@ export async function saveCharacters(
   }
 
   await tx2.done;
-  invalidateCache();
 
   for (const character of characters) {
     if ((character as any)._isExplicitAvatarUpdate) {

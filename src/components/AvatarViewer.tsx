@@ -6,26 +6,7 @@ import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import { X, Upload, Check, Trash2, Download, Share2, Image as ImageIcon, FolderOpen, FolderArchive, Search, Loader2, ChevronRight } from 'lucide-react';
 import { CharacterCard, saveCharacter, resolveFolderPath } from '../lib/db';
 import { isAndroid, getLocalImageUrl, getDownloadTooltip } from '../lib/appBridge';
-
-// 把 IndexedDB / 存储层的失败翻译成用户能看懂的原因（存储满、被占用、其它）
-async function describeSaveFailure(err: any): Promise<string> {
-  const raw = `${err?.name || ''} ${err?.message || err || ''}`.trim();
-  let hint = '';
-  if (/quota|exceed/i.test(raw)) {
-    hint = '存储空间已满，浏览器拒绝了这次写入。';
-  } else if (/blocked|abort/i.test(raw)) {
-    hint = '数据库写入被中断（可能 MIU 同时开在别的标签页/窗口里）。';
-  }
-  try {
-    const est: any = await (navigator as any)?.storage?.estimate?.();
-    if (est && est.quota) {
-      const usedMb = Math.round((est.usage || 0) / 1048576);
-      const quotaMb = Math.round(est.quota / 1048576);
-      hint += `${hint ? ' ' : ''}当前占用约 ${usedMb}MB / 上限约 ${quotaMb}MB。`;
-    }
-  } catch {}
-  return hint || raw || '未知错误';
-}
+import { describeSaveFailure } from '../lib/saveError';
 
 interface Props {
   isOpen: boolean;
