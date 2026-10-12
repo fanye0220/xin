@@ -451,8 +451,13 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
       return;
     }
     if (confirm('确定要删除此重复角色吗？')) {
-      await deleteCharacter(id);
-      loadDuplicates();
+      // 乐观更新：立刻从重复卡分组中移除，用户视觉上零感知延迟
+      setDuplicateGroups(prev => prev.map(group => ({
+        ...group,
+        characters: group.characters.filter(c => c.char.id !== id)
+      })).filter(group => group.characters.length > 1));
+
+      deleteCharacter(id).catch(() => loadDuplicates());
     }
   };
 
@@ -690,54 +695,62 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
     const validSelectedSet = new Set(validIds);
 
     if (confirm(`确定要删除选中的 ${validIds.length} 张重复副本吗？\n（已自动跳过并保护锁定的卡片；相同副本的聊天与拓展配置将自动合并至其对应的保留卡片）`)) {
-      setLoading(true);
-
-      for (const group of duplicateGroups) {
-        const charsToDelete = group.characters.map(c => c.char).filter(c => validSelectedSet.has(c.id));
-        const charsToKeep = group.characters.map(c => c.char).filter(c => !validSelectedSet.has(c.id));
-
-        if (charsToDelete.length > 0) {
-          const { deleteCharactersBulk, getChatsForCharacter, saveChat } = await import('../lib/db');
-
-          if (charsToKeep.length > 0) {
-            // 对待删除卡片进行智能归属匹配：
-            // 如果有多张卡片被保留（例如新版本 1A 和旧版本 2A 同时被保留）：
-            // 待删副本 1B 归并至 1A；待删副本 2B 归并至 2A！
-            // 聊天记录和元数据对应迁移，互不混淆！
-            const deleteBuckets = new Map<string, CharacterCard[]>();
-            for (const delChar of charsToDelete) {
-              const delSig = getCardContentSignature(delChar, group.resourceType);
-              let matchedKept = charsToKeep.find(k => getCardContentSignature(k, group.resourceType) === delSig);
-              if (!matchedKept) {
-                matchedKept = charsToKeep[0];
-              }
-              const list = deleteBuckets.get(matchedKept.id) || [];
-              list.push(delChar);
-              deleteBuckets.set(matchedKept.id, list);
-            }
-
-            for (const [keptId, bucketDelChars] of deleteBuckets.entries()) {
-              const keptChar = charsToKeep.find(k => k.id === keptId);
-              if (keptChar) {
-                await mergeAndSave(keptChar, bucketDelChars);
-              }
-              for (const delChar of bucketDelChars) {
-                const chats = await getChatsForCharacter(delChar.id);
-                for (const chat of chats) {
-                  chat.characterId = keptId;
-                  await saveChat(chat);
-                }
-              }
-            }
-          }
-
-          await deleteCharactersBulk(charsToDelete.map(c => c.id));
-        }
-      }
-
+      // 乐观更新：零等待立刻更新 UI 分组与选中状态
+      const groupsToProcess = [...duplicateGroups];
+      setDuplicateGroups(prev => prev.map(group => ({
+        ...group,
+        characters: group.characters.filter(c => !validSelectedSet.has(c.char.id))
+      })).filter(group => group.characters.length > 1));
       setSelectedIds(new Set());
       setSelectionMode(false);
-      await loadDuplicates();
+
+      // 后台异步执行数据库/物理文件与聊天关联数据的转移和销毁
+      (async () => {
+        try {
+          for (const group of groupsToProcess) {
+            const charsToDelete = group.characters.map(c => c.char).filter(c => validSelectedSet.has(c.id));
+            const charsToKeep = group.characters.map(c => c.char).filter(c => !validSelectedSet.has(c.id));
+
+            if (charsToDelete.length > 0) {
+              const { deleteCharactersBulk, getChatsForCharacter, saveChat } = await import('../lib/db');
+
+              if (charsToKeep.length > 0) {
+                const deleteBuckets = new Map<string, CharacterCard[]>();
+                for (const delChar of charsToDelete) {
+                  const delSig = getCardContentSignature(delChar, group.resourceType);
+                  let matchedKept = charsToKeep.find(k => getCardContentSignature(k, group.resourceType) === delSig);
+                  if (!matchedKept) {
+                    matchedKept = charsToKeep[0];
+                  }
+                  const list = deleteBuckets.get(matchedKept.id) || [];
+                  list.push(delChar);
+                  deleteBuckets.set(matchedKept.id, list);
+                }
+
+                for (const [keptId, bucketDelChars] of deleteBuckets.entries()) {
+                  const keptChar = charsToKeep.find(k => k.id === keptId);
+                  if (keptChar) {
+                    await mergeAndSave(keptChar, bucketDelChars);
+                  }
+                  for (const delChar of bucketDelChars) {
+                    const chats = await getChatsForCharacter(delChar.id);
+                    for (const chat of chats) {
+                      chat.characterId = keptId;
+                      await saveChat(chat);
+                    }
+                  }
+                }
+              }
+
+              await deleteCharactersBulk(charsToDelete.map(c => c.id));
+            }
+          }
+        } catch (e) {
+          console.error("Batch delete duplicates error:", e);
+        } finally {
+          loadDuplicates();
+        }
+      })();
     }
   };
 

@@ -2242,8 +2242,12 @@ export async function deleteCharactersBulk(
   const toHardDelete: CharacterCard[] = [];
   const toSoftDelete: CharacterCard[] = [];
 
-  for (const id of ids) {
-    const char = await db.get("characters", id);
+  const readTx = db.transaction("characters", "readonly");
+  const store = readTx.objectStore("characters");
+  const chars = await Promise.all(ids.map((id) => store.get(id)));
+  await readTx.done;
+
+  for (const char of chars) {
     if (!char) continue;
     if (char.deletedAt) {
       toHardDelete.push(char);
@@ -2516,6 +2520,93 @@ export async function restoreCharacter(id: string): Promise<void> {
       );
     }
   }
+  invalidateCache();
+  if (typeof window !== "undefined") {
+    notifyCharactersUpdated();
+  }
+}
+
+export async function restoreCharactersBulk(ids: string[]): Promise<void> {
+  if (!ids || ids.length === 0) return;
+  invalidateCache();
+  const db = await initDB();
+
+  const readTx = db.transaction("characters", "readonly");
+  const store = readTx.objectStore("characters");
+  const chars = await Promise.all(ids.map((id) => store.get(id)));
+  await readTx.done;
+
+  const validChars = chars.filter((c): c is CharacterCard => !!c && !!c.deletedAt);
+  if (validChars.length === 0) return;
+
+  const writeTx = db.transaction(["characters", "char_meta", "folders"], "readwrite");
+  const charStore = writeTx.objectStore("characters");
+  const metaStore = writeTx.objectStore("char_meta");
+  const folderStore = writeTx.objectStore("folders");
+
+  const restoredChars: CharacterCard[] = [];
+
+  for (const char of validChars) {
+    delete char.deletedAt;
+    if (char.folderId) {
+      const folder = await folderStore.get(char.folderId);
+      if (!folder) {
+        delete char.folderId;
+      } else {
+        let currentFolderId: string | undefined = char.folderId;
+        while (currentFolderId) {
+          const f = await folderStore.get(currentFolderId);
+          if (f) {
+            if (f.deletedAt) {
+              delete f.deletedAt;
+              await folderStore.put(f);
+            }
+            currentFolderId = f.parentId;
+          } else {
+            break;
+          }
+        }
+      }
+    }
+    await charStore.put(char);
+    await metaStore.put(buildCharMeta(char));
+    restoredChars.push(char);
+  }
+
+  await writeTx.done;
+
+  if (ENABLE_ANDROID_FILE_SYNC && isAndroid()) {
+    import("./androidSync").then(async ({ fastMoveCharacterOnAndroid, syncCharacterToAndroid }) => {
+      const dbRef = await initDB();
+      for (const char of restoredChars) {
+        try {
+          const fastPaths = await fastMoveCharacterOnAndroid(char);
+          if (fastPaths && fastPaths.length > 0) {
+            if (fastPaths[0].match(/\.(png|jpe?g|webp|gif|bmp)$/i)) {
+              char.localFilePath = fastPaths[0];
+            } else {
+              delete char.localFilePath;
+              (char as any)._androidSyncPath = fastPaths[0];
+            }
+            await dbRef.put("characters", char);
+          } else {
+            const blobs = await dbRef.get("blobs", char.id);
+            const syncPaths = await syncCharacterToAndroid(char, blobs || null);
+            if (syncPaths && syncPaths.length > 0) {
+              if (syncPaths[0].match(/\.(png|jpe?g|webp|gif|bmp)$/i)) {
+                char.localFilePath = syncPaths[0];
+              } else {
+                delete char.localFilePath;
+                (char as any)._androidSyncPath = syncPaths[0];
+              }
+              await dbRef.put("characters", char);
+            }
+          }
+        } catch (e) {}
+      }
+    });
+  }
+
   invalidateCache();
   if (typeof window !== "undefined") {
     notifyCharactersUpdated();

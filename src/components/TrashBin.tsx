@@ -2,7 +2,7 @@ import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Trash2, RotateCcw, X, AlertTriangle, CheckCircle2, CheckCircle, Check, CheckSquare } from 'lucide-react';
-import { CharacterCard, getTrashedCharacters, restoreCharacter, deleteCharacter, emptyTrash, cleanupOldTrash } from '../lib/db';
+import { CharacterCard, getTrashedCharacters, restoreCharacter, restoreCharactersBulk, deleteCharacter, emptyTrash, cleanupOldTrash } from '../lib/db';
 
 interface Props {
   onClose: () => void;
@@ -222,8 +222,12 @@ export function TrashBin({ onClose }: Props) {
 
   const handleEmptyTrash = async () => {
     if (confirm('确定要清空回收站吗？所有角色将被永久删除。')) {
-      await emptyTrash();
-      loadTrash();
+      // 乐观更新：立刻清空页面 DOM 节点与选择状态
+      setTrashedCharacters([]);
+      setSelectedIds(new Set());
+      setSelectionMode(false);
+      // 后台异步清空磁盘与数据库
+      emptyTrash().catch(() => loadTrash());
     }
   };
 
@@ -253,29 +257,33 @@ export function TrashBin({ onClose }: Props) {
 
   const handleBatchRestore = async () => {
     if (selectedIds.size === 0) return;
-    if (confirm(`确定要恢复选中的 ${selectedIds.size} 个角色吗？`)) {
-      setLoading(true);
-      for (const id of selectedIds) {
-        await restoreCharacter(id);
-      }
+    const targetIds = Array.from(selectedIds);
+    if (confirm(`确定要恢复选中的 ${targetIds.length} 个角色吗？`)) {
+      const targetSet = new Set(targetIds);
+      // 乐观更新：零等待立刻从列表中剔除被恢复的卡片，并退出选择模式
+      setTrashedCharacters(prev => prev.filter(c => !targetSet.has(c.id)));
       setSelectedIds(new Set());
       setSelectionMode(false);
-      await loadTrash();
+
+      // 后台单事务批量高效恢复
+      restoreCharactersBulk(targetIds).catch(() => loadTrash());
     }
   };
 
   const handleBatchHardDelete = async () => {
     if (selectedIds.size === 0) return;
-    if (confirm(`确定要将选中的 ${selectedIds.size} 个角色永久删除吗？此操作不可撤销！`)) {
-      setLoading(true);
-      // 批量操作保留 miu 这边的批量原生接口(只查一次全部角色、只调一次
-      // 原生批量接口, 而不是安卓那边一个个 deleteCharacter(id) 循环删),
-      // 但不再"乐观更新": 老实等它真正删完, 用数据库真实结果刷新列表。
-      const { deleteCharactersBulk } = await import('../lib/db');
-      await deleteCharactersBulk(Array.from(selectedIds));
+    const targetIds = Array.from(selectedIds);
+    if (confirm(`确定要将选中的 ${targetIds.length} 个角色永久删除吗？此操作不可撤销！`)) {
+      const targetSet = new Set(targetIds);
+      // 乐观更新：零等待立刻从列表剔除，让用户感觉瞬间完成
+      setTrashedCharacters(prev => prev.filter(c => !targetSet.has(c.id)));
       setSelectedIds(new Set());
       setSelectionMode(false);
-      await loadTrash();
+
+      // 后台异步进行底层的物理文件/数据批量销毁
+      import('../lib/db').then(m => {
+        m.deleteCharactersBulk(targetIds).catch(() => loadTrash());
+      });
     }
   };
 
@@ -315,6 +323,16 @@ export function TrashBin({ onClose }: Props) {
             </p>
           </div>
         </div>
+
+        {!selectionMode && trashedCharacters.length > 0 && (
+          <button
+            onClick={handleEmptyTrash}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 active:scale-95 transition cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>清空回收站</span>
+          </button>
+        )}
       </header>
 
       {/* Main Content Area */}
