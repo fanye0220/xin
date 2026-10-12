@@ -59,7 +59,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
   const [actionFileId, setActionFileId] = useState<string | null>(null);
   const [syncInfo, setSyncInfo] = useState<SyncState>({ isActive: false, taskName: '', message: '', isError: false, completed: false });
 
-  const [activeTab, setActiveTab] = useState<'backup' | 'cloud_drive'>('backup');
+    const [activeTab, setActiveTab] = useState<'backup' | 'cloud_drive'>('backup');
   const [cloudChars, setCloudChars] = useState<any[]>([]);
   const [isLoadingCloud, setIsLoadingCloud] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -516,110 +516,87 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
     return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`;
   };
 
+  if (needsAuth) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
+        <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-2 ${
+          isLight ? 'bg-neutral-100 text-black' : 'bg-white/10 text-white'
+        }`}>
+          <Cloud className="w-8 h-8" />
+        </div>
+        <h3 className={`text-lg font-bold ${isLight ? 'text-black' : 'text-white'}`}>Google Drive 云端备份</h3>
+        <p className={`text-sm max-w-xs ${isLight ? 'text-neutral-500' : 'text-white/60'}`}>
+          连接你的 Google 账号，将所有角色卡片、对话记录安全地备份到你的私人网盘中。
+        </p>
+        <button
+          onClick={handleLogin}
+          disabled={isLoggingIn}
+          className={`gsi-material-button mt-4 px-5 py-2.5 rounded-full flex items-center justify-center gap-3 disabled:opacity-50 transition font-semibold border shadow-xs cursor-pointer ${
+            isLight ? 'bg-white text-black border-neutral-300 hover:bg-neutral-50' : 'bg-white text-black hover:bg-neutral-200 border-white'
+          }`}
+        >
+          {isLoggingIn ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+            <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-5 h-5">
+              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+              <path fill="none" d="M0 0h48v48H0z"></path>
+            </svg>
+          )}
+          Sign in with Google
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {/* Top Tab Selection */}
-      <div className="flex p-1 rounded-2xl mb-6 border bg-white/5 border-white/10 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 gap-1 overflow-x-auto">
+      {/* Account Info */}
+      <div className="flex items-center justify-between p-4 border rounded-xl bg-white/5 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-black/10 [.light-theme_&]:!shadow-xs">
+        <div className="flex items-center gap-3">
+          {user?.photoURL ? (
+            <img src={user.photoURL} alt="Avatar" className="w-10 h-10 rounded-full" />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-white/10 text-white flex items-center justify-center border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-black/10">
+              <Cloud className="w-5 h-5 opacity-80" />
+            </div>
+          )}
+          <div>
+            <div className="text-sm font-bold text-white [.light-theme_&]:!text-[#0f172a]">{user?.displayName || '已连接账号'}</div>
+            <div className="text-xs text-white/60 [.light-theme_&]:!text-slate-600">{user?.email}</div>
+          </div>
+        </div>
         <button
-          onClick={() => setActiveTab('cloud_drive')}
-          className={`flex-1 py-2.5 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer whitespace-nowrap ${
-            activeTab === 'cloud_drive'
-              ? 'bg-white text-black shadow-xs [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-xs'
-              : 'text-white/60 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]'
-          }`}
+          onClick={handleLogout}
+          className="text-xs px-3.5 py-1.5 rounded-lg transition font-bold cursor-pointer bg-white/10 text-white hover:bg-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/10 border-0 outline-none"
         >
-          <span>Google Drive 卡库</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('backup')}
-          className={`flex-1 py-2.5 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer whitespace-nowrap ${
-            activeTab === 'backup'
-              ? 'bg-white text-black shadow-xs [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-xs'
-              : 'text-white/60 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]'
-          }`}
-        >
-          <span>Google Drive 备份</span>
+          退出
         </button>
       </div>
 
-      {needsAuth && (
-        <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
-          <div
-            className={`w-16 h-16 rounded-full flex items-center justify-center mb-2 ${
-              isLight ? 'bg-neutral-100 text-black' : 'bg-white/10 text-white'
-            }`}
-          >
-            <Cloud className="w-8 h-8" />
-          </div>
-          <h3 className={`text-lg font-bold ${isLight ? 'text-black' : 'text-white'}`}>
-            Google Drive 云端服务
-          </h3>
-          <p className={`text-sm max-w-xs ${isLight ? 'text-neutral-500' : 'text-white/60'}`}>
-            连接你的 Google 账号，将角色卡片、对话记录同步到你的谷歌网盘中。
-          </p>
-          <button
-            onClick={handleLogin}
-            disabled={isLoggingIn}
-            className={`gsi-material-button mt-4 px-5 py-2.5 rounded-full flex items-center justify-center gap-3 disabled:opacity-50 transition font-semibold border shadow-xs cursor-pointer ${
-              isLight
-                ? 'bg-white text-black border-neutral-300 hover:bg-neutral-50'
-                : 'bg-white text-black hover:bg-neutral-200 border-white'
-            }`}
-          >
-            {isLoggingIn ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-5 h-5">
-                <path
-                  fill="#EA4335"
-                  d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
-                ></path>
-                <path
-                  fill="#4285F4"
-                  d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
-                ></path>
-                <path
-                  fill="#FBBC05"
-                  d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
-                ></path>
-                <path
-                  fill="#34A853"
-                  d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
-                ></path>
-                <path fill="none" d="M0 0h48v48H0z"></path>
-              </svg>
-            )}
-            Sign in with Google
-          </button>
-        </div>
-      )}
-
-      {!needsAuth && (
-        <>
-          {/* Account Info */}
-          <div className="flex items-center justify-between p-4 border rounded-xl bg-white/5 border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-black/10 [.light-theme_&]:!shadow-xs">
-            <div className="flex items-center gap-3">
-              {user?.photoURL ? (
-                <img src={user.photoURL} alt="Avatar" className="w-10 h-10 rounded-full" />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-white/10 text-white flex items-center justify-center border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-black/10">
-                  <Cloud className="w-5 h-5 opacity-80" />
-                </div>
-              )}
-              <div>
-                <div className="text-sm font-bold text-white [.light-theme_&]:!text-[#0f172a]">
-                  {user?.displayName || '已连接账号'}
-                </div>
-                <div className="text-xs text-white/60 [.light-theme_&]:!text-slate-600">{user?.email}</div>
-              </div>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="text-xs px-3.5 py-1.5 rounded-lg transition font-bold cursor-pointer bg-white/10 text-white hover:bg-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/10 border-0 outline-none"
-            >
-              退出
-            </button>
-          </div>
+      <div className="flex p-1 rounded-2xl mb-6 border bg-white/5 border-white/10 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10">
+        <button
+          onClick={() => setActiveTab('backup')}
+          className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
+            activeTab === 'backup' 
+              ? 'bg-white text-black shadow-xs [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-xs' 
+              : 'text-white/60 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]'
+          }`}
+        >
+          完整备份库
+        </button>
+        <button
+          onClick={() => setActiveTab('cloud_drive')}
+          className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
+            activeTab === 'cloud_drive' 
+              ? 'bg-white text-black shadow-xs [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-xs' 
+              : 'text-white/60 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]'
+          }`}
+        >
+          云端卡库
+        </button>
+      </div>
 
       {activeTab === 'backup' && (
         <div className="space-y-6">
@@ -1197,8 +1174,6 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
             )}
           </div>
         </div>
-      )}
-      </>
       )}
     </div>
   );
