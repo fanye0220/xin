@@ -518,6 +518,30 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
 
   return (
     <div className="space-y-6">
+      {/* Top Tab Selection */}
+      <div className="flex p-1 rounded-2xl mb-6 border bg-white/5 border-white/10 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 gap-1 overflow-x-auto">
+        <button
+          onClick={() => setActiveTab('cloud_drive')}
+          className={`flex-1 py-2.5 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer whitespace-nowrap ${
+            activeTab === 'cloud_drive'
+              ? 'bg-white text-black shadow-xs [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-xs'
+              : 'text-white/60 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]'
+          }`}
+        >
+          <span>Google Drive 卡库</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('backup')}
+          className={`flex-1 py-2.5 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer whitespace-nowrap ${
+            activeTab === 'backup'
+              ? 'bg-white text-black shadow-xs [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-xs'
+              : 'text-white/60 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]'
+          }`}
+        >
+          <span>Google Drive 备份</span>
+        </button>
+      </div>
+
       {needsAuth && (
         <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
           <div
@@ -596,29 +620,6 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
               退出
             </button>
           </div>
-
-      <div className="flex p-1 rounded-2xl mb-6 border bg-white/5 border-white/10 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10">
-        <button
-          onClick={() => setActiveTab('backup')}
-          className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
-            activeTab === 'backup'
-              ? 'bg-white text-black shadow-xs [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-xs'
-              : 'text-white/60 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]'
-          }`}
-        >
-          完整备份库
-        </button>
-        <button
-          onClick={() => setActiveTab('cloud_drive')}
-          className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
-            activeTab === 'cloud_drive'
-              ? 'bg-white text-black shadow-xs [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-xs'
-              : 'text-white/60 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]'
-          }`}
-        >
-          云端卡库
-        </button>
-      </div>
 
       {activeTab === 'backup' && (
         <div className="space-y-6">

@@ -656,33 +656,34 @@ export async function migrateDatabase(
   }
 
   // Second pass: retroactively categorize tool cards into designated tool folders and refresh char_meta
-  // 一次性迁移: 逐条用独立事务读/写(不跨任务持有事务), 需要改文件夹的先收集, 最后统一写回。
-  // 注意不要在事务还开着的时候 await 定时器 —— 事务会被浏览器自动提交, 之后继续读写会抛
-  // TransactionInactiveError, 迁移就会中途失败。
-  const scanKeys = await db.getAllKeys("characters");
-  const changedChars: CharacterCard[] = [];
+  const scanTx = db.transaction("characters", "readonly");
+  let cursorScan = await scanTx.objectStore("characters").openCursor();
+  let countProcessed = 0;
 
-  for (const scanKey of scanKeys) {
-    const char = (await db.get("characters", scanKey)) as CharacterCard | undefined;
-    if (!char) continue;
+  while (cursorScan) {
+    const char = cursorScan.value;
+    let changed = false;
     const category = getCharacterCategoryPrefix(char);
     if (category !== "未归类" && (!char.folderId || char.folderId === "all")) {
       const folderName = category === "脚本" ? "工具区" : category;
       const targetFolderId = await getOrCreateNestedFolder([folderName]);
       if (targetFolderId && char.folderId !== targetFolderId) {
         char.folderId = targetFolderId;
-        changedChars.push(char);
+        changed = true;
       }
     }
-    await db.put("char_meta", buildCharMeta(char));
-  }
 
-  if (changedChars.length > 0) {
-    const writeTx = db.transaction("characters", "readwrite");
-    for (const char of changedChars) {
-      await writeTx.store.put(char);
+    const writeTx = db.transaction(["characters", "char_meta"], "readwrite");
+    if (changed) {
+      await writeTx.objectStore("characters").put(char);
     }
+    await writeTx.objectStore("char_meta").put(buildCharMeta(char));
     await writeTx.done;
+
+    if (++countProcessed % 50 === 0) {
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    cursorScan = await cursorScan.continue();
   }
 
   if (typeof localStorage !== 'undefined') {
@@ -1260,20 +1261,19 @@ async function buildMetaCache(): Promise<CharMeta[]> {
     }
 
     newMeta = [];
-    // 一次性重建: 逐条用独立事务读(不跨任务持有事务), 需要修分类的先收集, 最后统一写回。
-    // 不能在事务还开着的时候 await 定时器 —— 事务会被自动提交, 之后继续写会抛
-    // TransactionInactiveError, 整个重建会中途失败。
-    const repairKeys = await db.getAllKeys("characters");
-    const repairChanged: CharacterCard[] = [];
+    let processed = 0;
+    const tx = db.transaction("characters", "readonly");
+    let cursor = await tx.store.openCursor();
 
-    for (const repairKey of repairKeys) {
-      const char = (await db.get("characters", repairKey)) as CharacterCard | undefined;
-      if (!char) continue;
+    while (cursor) {
+      const char = cursor.value;
+      if (++processed % 50 === 0) await new Promise((r) => setTimeout(r, 0));
 
       const data = char.data?.data || char.data || {};
       const charName = char.name || data.name || data.char_name;
       const hasContent = !!(data.description || data.first_mes || data.scenario || data.creator_notes || Object.keys(data).length > 0);
       if (!charName && !hasContent) {
+        cursor = await cursor.continue();
         continue;
       }
 
@@ -1310,18 +1310,15 @@ async function buildMetaCache(): Promise<CharMeta[]> {
       }
 
       if (changed) {
-        repairChanged.push(char);
+        const writeTx = db.transaction("characters", "readwrite");
+        await writeTx.store.put(char);
+        await writeTx.done;
       }
 
       newMeta.push(buildCharMeta(char, folderMap));
+      cursor = await cursor.continue();
     }
-    if (repairChanged.length > 0) {
-      const writeTx = db.transaction("characters", "readwrite");
-      for (const char of repairChanged) {
-        await writeTx.store.put(char);
-      }
-      await writeTx.done;
-    }
+    await tx.done;
 
     if (newMeta.length > 0) {
       const CHUNK = 200;
@@ -1535,30 +1532,21 @@ export async function getCharacters(
   }
 
   // Now fetch full objects ONLY for the paginated slice
-  // 每 50 个一批, 每批用一个新事务读完就关; 让出主线程必须放在事务之外, 否则事务会被
-  // 浏览器自动提交, 之后继续读会抛 TransactionInactiveError(详见 findDuplicates 的说明)。
+  const fetchTx = db.transaction("characters", "readonly");
+  const fetchStore = fetchTx.store;
   const characters: CharacterCard[] = [];
-  const FETCH_CHUNK = 50;
+  let fetchCount = 0;
 
-  for (let chunkStart = 0; chunkStart < paginatedMeta.length; chunkStart += FETCH_CHUNK) {
-    const chunk = paginatedMeta.slice(chunkStart, chunkStart + FETCH_CHUNK);
-    const fetchTx = db.transaction("characters", "readonly");
-    const fetched = (await Promise.all(
-      chunk.map((meta) => fetchTx.store.get(meta.id)),
-    )) as (CharacterCard | undefined)[];
-    await fetchTx.done;
-
-    for (const fullChar of fetched) {
-      if (fullChar && !fullChar.deletedAt) {
-        delete (fullChar as any)._isExplicitAvatarUpdate;
-        delete (fullChar as any)._oldFolderId;
-        delete (fullChar as any)._wasDeleted;
-        delete (fullChar as any)._previousFilePath;
-        characters.push(fullChar);
-      }
+  for (const meta of paginatedMeta) {
+    const fullChar = await fetchStore.get(meta.id);
+    if (fullChar && !fullChar.deletedAt) {
+      delete (fullChar as any)._isExplicitAvatarUpdate;
+      delete (fullChar as any)._oldFolderId;
+      delete (fullChar as any)._wasDeleted;
+      delete (fullChar as any)._previousFilePath;
+      characters.push(fullChar);
     }
-
-    if (chunkStart + FETCH_CHUNK < paginatedMeta.length) {
+    if (++fetchCount % 50 === 0) {
       await new Promise((r) => setTimeout(r, 0));
     }
   }
@@ -1583,26 +1571,19 @@ export async function getCharacters(
 export async function getAllCharacters(includeBlobs = false): Promise<CharacterCard[]> {
   const db = await initDB();
   const valid: CharacterCard[] = [];
-  const allKeys = await db.getAllKeys("characters");
-  const SCAN_CHUNK = 50;
+  const tx = db.transaction("characters", "readonly");
+  let cursor = await tx.store.openCursor();
+  let count = 0;
 
-  for (let chunkStart = 0; chunkStart < allKeys.length; chunkStart += SCAN_CHUNK) {
-    const chunk = allKeys.slice(chunkStart, chunkStart + SCAN_CHUNK);
-    const tx = db.transaction("characters", "readonly");
-    const rows = (await Promise.all(
-      chunk.map((key) => tx.store.get(key)),
-    )) as (CharacterCard | undefined)[];
-    await tx.done;
-
-    for (const char of rows) {
-      if (char && !char.deletedAt) {
-        valid.push(char);
-      }
+  while (cursor) {
+    const char = cursor.value;
+    if (!char.deletedAt) {
+      valid.push(char);
     }
-
-    if (chunkStart + SCAN_CHUNK < allKeys.length) {
+    if (++count % 50 === 0) {
       await new Promise((r) => setTimeout(r, 0));
     }
+    cursor = await cursor.continue();
   }
 
   if (includeBlobs) {
@@ -2261,12 +2242,8 @@ export async function deleteCharactersBulk(
   const toHardDelete: CharacterCard[] = [];
   const toSoftDelete: CharacterCard[] = [];
 
-  const readTx = db.transaction("characters", "readonly");
-  const store = readTx.objectStore("characters");
-  const chars = await Promise.all(ids.map((id) => store.get(id)));
-  await readTx.done;
-
-  for (const char of chars) {
+  for (const id of ids) {
+    const char = await db.get("characters", id);
     if (!char) continue;
     if (char.deletedAt) {
       toHardDelete.push(char);
@@ -2545,93 +2522,6 @@ export async function restoreCharacter(id: string): Promise<void> {
   }
 }
 
-export async function restoreCharactersBulk(ids: string[]): Promise<void> {
-  if (!ids || ids.length === 0) return;
-  invalidateCache();
-  const db = await initDB();
-
-  const readTx = db.transaction("characters", "readonly");
-  const store = readTx.objectStore("characters");
-  const chars = await Promise.all(ids.map((id) => store.get(id)));
-  await readTx.done;
-
-  const validChars = chars.filter((c): c is CharacterCard => !!c && !!c.deletedAt);
-  if (validChars.length === 0) return;
-
-  const writeTx = db.transaction(["characters", "char_meta", "folders"], "readwrite");
-  const charStore = writeTx.objectStore("characters");
-  const metaStore = writeTx.objectStore("char_meta");
-  const folderStore = writeTx.objectStore("folders");
-
-  const restoredChars: CharacterCard[] = [];
-
-  for (const char of validChars) {
-    delete char.deletedAt;
-    if (char.folderId) {
-      const folder = await folderStore.get(char.folderId);
-      if (!folder) {
-        delete char.folderId;
-      } else {
-        let currentFolderId: string | undefined = char.folderId;
-        while (currentFolderId) {
-          const f = await folderStore.get(currentFolderId);
-          if (f) {
-            if (f.deletedAt) {
-              delete f.deletedAt;
-              await folderStore.put(f);
-            }
-            currentFolderId = f.parentId;
-          } else {
-            break;
-          }
-        }
-      }
-    }
-    await charStore.put(char);
-    await metaStore.put(buildCharMeta(char));
-    restoredChars.push(char);
-  }
-
-  await writeTx.done;
-
-  if (ENABLE_ANDROID_FILE_SYNC && isAndroid()) {
-    import("./androidSync").then(async ({ fastMoveCharacterOnAndroid, syncCharacterToAndroid }) => {
-      const dbRef = await initDB();
-      for (const char of restoredChars) {
-        try {
-          const fastPaths = await fastMoveCharacterOnAndroid(char);
-          if (fastPaths && fastPaths.length > 0) {
-            if (fastPaths[0].match(/\.(png|jpe?g|webp|gif|bmp)$/i)) {
-              char.localFilePath = fastPaths[0];
-            } else {
-              delete char.localFilePath;
-              (char as any)._androidSyncPath = fastPaths[0];
-            }
-            await dbRef.put("characters", char);
-          } else {
-            const blobs = await dbRef.get("blobs", char.id);
-            const syncPaths = await syncCharacterToAndroid(char, blobs || null);
-            if (syncPaths && syncPaths.length > 0) {
-              if (syncPaths[0].match(/\.(png|jpe?g|webp|gif|bmp)$/i)) {
-                char.localFilePath = syncPaths[0];
-              } else {
-                delete char.localFilePath;
-                (char as any)._androidSyncPath = syncPaths[0];
-              }
-              await dbRef.put("characters", char);
-            }
-          }
-        } catch (e) {}
-      }
-    });
-  }
-
-  invalidateCache();
-  if (typeof window !== "undefined") {
-    notifyCharactersUpdated();
-  }
-}
-
 export async function getTrashedCharacters(
   includeBlobs: boolean = false,
 ): Promise<CharacterCard[]> {
@@ -2782,22 +2672,13 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
   // 流式扫描: 逐条读到就地把正文压成短指纹, 不在内存里留下一整张卡的完整对象
   // (旧写法 getAll() 会把整张表连同历史版本一起拉进内存, 大卡库下直接卡死)。
   const precomputed: DuplicateScanEntry[] = [];
-  // 逐批扫描: 每 50 张用一个新事务读完就关掉, 批与批之间才让出主线程。
-  // 不能在事务还开着的时候 await 定时器 —— 事务会被浏览器自动提交, 之后任何继续读写的
-  // 请求都会抛 TransactionInactiveError, 整个查重扫描会中途中断(表现就是重复卡列表永远
-  // 是空的), 所以让出主线程必须放在事务之外。
-  const scanKeys = await db.getAllKeys("characters");
-  const SCAN_CHUNK = 50;
+  const scanTx = db.transaction("characters", "readonly");
+  let cursor = await scanTx.store.openCursor();
+  let scanCount = 0;
 
-  for (let chunkStart = 0; chunkStart < scanKeys.length; chunkStart += SCAN_CHUNK) {
-    const chunkKeys = scanKeys.slice(chunkStart, chunkStart + SCAN_CHUNK);
-    const scanTx = db.transaction("characters", "readonly");
-    const chunkRows = (await Promise.all(
-      chunkKeys.map((key) => scanTx.store.get(key)),
-    )) as (CharacterCard | undefined)[];
-    await scanTx.done;
-
-    for (const char of chunkRows.filter((c): c is CharacterCard => !!c && !c.deletedAt)) {
+  while (cursor) {
+    const char = cursor.value as CharacterCard;
+    if (!char.deletedAt) {
       const data = char.data?.data || char.data || {};
       const firstMes = String(data.first_mes || "");
       const desc = String(data.description || "");
@@ -2831,10 +2712,12 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
         firstLen: firstClean.length,
       });
     }
-    if (chunkStart + SCAN_CHUNK < scanKeys.length) {
+    if (++scanCount % 50 === 0) {
       await new Promise((r) => setTimeout(r, 0));
     }
+    cursor = await cursor.continue();
   }
+  await scanTx.done;
 
   const entryById = new Map<string, DuplicateScanEntry>();
   for (const item of precomputed) entryById.set(item.id, item);
