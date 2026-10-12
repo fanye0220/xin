@@ -773,11 +773,15 @@ export async function getFolderPreviews(
             );
           } else if (meta.hasBlobsSeparated) {
             const blobs = await db.get("blobs", meta.id);
-            if (blobs?.avatarBlob) url = safeCreateObjectURL(blobs.avatarBlob);
+            if (blobs?.avatarBlob) {
+              const { putCachedBlobUrl } = await import("./thumbCache");
+              url = putCachedBlobUrl(`folder_preview_${meta.id}`, blobs.avatarBlob);
+            }
           } else {
             const legacyChar = await db.get("characters", meta.id);
             if (legacyChar?.avatarBlob) {
-              url = safeCreateObjectURL(legacyChar.avatarBlob);
+              const { putCachedBlobUrl } = await import("./thumbCache");
+              url = putCachedBlobUrl(`folder_preview_${meta.id}`, legacyChar.avatarBlob);
             }
           }
           let fallbackUrlStr = meta.avatarUrlFallback;
@@ -1531,6 +1535,7 @@ export async function getCharacters(
   const fetchTx = db.transaction("characters", "readonly");
   const fetchStore = fetchTx.store;
   const characters: CharacterCard[] = [];
+  let fetchCount = 0;
 
   for (const meta of paginatedMeta) {
     const fullChar = await fetchStore.get(meta.id);
@@ -1540,6 +1545,9 @@ export async function getCharacters(
       delete (fullChar as any)._wasDeleted;
       delete (fullChar as any)._previousFilePath;
       characters.push(fullChar);
+    }
+    if (++fetchCount % 50 === 0) {
+      await new Promise((r) => setTimeout(r, 0));
     }
   }
 
@@ -1560,7 +1568,7 @@ export async function getCharacters(
   return { characters, total };
 }
 
-export async function getAllCharacters(includeBlobs = true): Promise<CharacterCard[]> {
+export async function getAllCharacters(includeBlobs = false): Promise<CharacterCard[]> {
   const db = await initDB();
   const valid: CharacterCard[] = [];
   const tx = db.transaction("characters", "readonly");
@@ -1572,7 +1580,7 @@ export async function getAllCharacters(includeBlobs = true): Promise<CharacterCa
     if (!char.deletedAt) {
       valid.push(char);
     }
-    if (++count % 100 === 0) {
+    if (++count % 50 === 0) {
       await new Promise((r) => setTimeout(r, 0));
     }
     cursor = await cursor.continue();
@@ -2506,21 +2514,21 @@ export async function restoreCharacter(id: string): Promise<void> {
 export async function getTrashedCharacters(
   includeBlobs: boolean = false,
 ): Promise<CharacterCard[]> {
+  const meta = await getCachedMeta();
+  const trashedMeta = meta.filter((m) => m.deletedAt);
+  trashedMeta.sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0));
+
   const db = await initDB();
   const trashed: CharacterCard[] = [];
-  const tx = db.transaction("characters", "readonly");
-  const store = tx.store;
-  let cursor = await store.openCursor();
+  const fetchTx = db.transaction("characters", "readonly");
+  const store = fetchTx.store;
 
-  while (cursor) {
-    const char = cursor.value;
-    if (char.deletedAt) {
-      trashed.push(char);
+  for (const m of trashedMeta) {
+    const fullChar = await store.get(m.id);
+    if (fullChar) {
+      trashed.push(fullChar);
     }
-    cursor = await cursor.continue();
   }
-
-  trashed.sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0));
 
   if (includeBlobs) {
     for (const char of trashed) {
@@ -2538,69 +2546,25 @@ export async function getTrashedCharacters(
 }
 
 export async function emptyTrash(): Promise<void> {
-  const db = await initDB();
-  const tx1 = db.transaction("characters", "readonly");
-  const store = tx1.store;
-  let cursor = await store.openCursor();
-
-  const toDelete: string[] = [];
-  while (cursor) {
-    const char = cursor.value;
-    if (char.deletedAt) {
-      toDelete.push(char.id);
-    }
-    cursor = await cursor.continue();
+  const meta = await getCachedMeta();
+  const toDelete = meta.filter((m) => m.deletedAt).map((m) => m.id);
+  if (toDelete.length > 0) {
+    await deleteCharactersBulk(toDelete);
   }
-  await tx1.done;
-
-  // 直接复用 deleteCharactersBulk 的批量硬删除逻辑(只查一次全部角色、
-  // 只调一次原生批量接口、数据库一个事务删完), 不再自己另起一套
-  // "一个个删、每个之间还睡50ms"的循环。
-  await deleteCharactersBulk(toDelete);
 }
 
 export async function cleanupOldTrash(): Promise<void> {
   invalidateCache();
-  const db = await initDB();
-  const tx1 = db.transaction("characters", "readonly");
-  const store = tx1.store;
-  let cursor = await store.openCursor();
-
   const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
   const now = Date.now();
+  const meta = await getCachedMeta();
+  const toDelete = meta
+    .filter((m) => m.deletedAt && now - m.deletedAt > SEVEN_DAYS_MS)
+    .map((m) => m.id);
 
-  const toDelete: CharacterCard[] = [];
-  while (cursor) {
-    const char = cursor.value;
-    if (char.deletedAt && now - char.deletedAt > SEVEN_DAYS_MS) {
-      toDelete.push(char);
-    }
-    cursor = await cursor.continue();
+  if (toDelete.length > 0) {
+    await deleteCharactersBulk(toDelete);
   }
-  await tx1.done;
-
-  if (ENABLE_ANDROID_FILE_SYNC && isAndroid()) {
-    try {
-      const { deleteCharacterFromAndroid } = await import("./androidSync");
-      for (const char of toDelete) {
-        await deleteCharacterFromAndroid(char);
-        await new Promise((r) => setTimeout(r, 50));
-      }
-    } catch (e) {
-      console.error("Failed to async clean up old trash on Android", e);
-    }
-  }
-
-  const tx2 = db.transaction(["characters", "blobs", "char_meta"], "readwrite");
-  const store2 = tx2.objectStore("characters");
-  const blobStore = tx2.objectStore("blobs");
-  const charMetaStore2 = tx2.objectStore("char_meta");
-  for (const char of toDelete) {
-    await store2.delete(char.id);
-    await blobStore.delete(char.id);
-    await charMetaStore2.delete(char.id);
-  }
-  await tx2.done;
 }
 
 export interface DuplicateCharacter {
@@ -2699,6 +2663,8 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
   const precomputed: DuplicateScanEntry[] = [];
   const scanTx = db.transaction("characters", "readonly");
   let cursor = await scanTx.store.openCursor();
+  let scanCount = 0;
+
   while (cursor) {
     const char = cursor.value as CharacterCard;
     if (!char.deletedAt) {
@@ -2734,6 +2700,9 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
         descLen: descClean.length,
         firstLen: firstClean.length,
       });
+    }
+    if (++scanCount % 50 === 0) {
+      await new Promise((r) => setTimeout(r, 0));
     }
     cursor = await cursor.continue();
   }

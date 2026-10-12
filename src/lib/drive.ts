@@ -468,6 +468,10 @@ export async function exportAllDataForBackup(onProgress: (msg: string) => void):
   onProgress(`正在导出角色文件 (总数: ${chars.length})...`);
   
   for (let i = 0; i < chars.length; i++) {
+    if (i % 25 === 0) {
+      onProgress(`正在打包角色文件 (${i + 1}/${chars.length})...`);
+      await new Promise((r) => setTimeout(r, 15));
+    }
     const char = await getCharacter(chars[i].id);
     if (!char || char.deletedAt) continue;
     
@@ -563,6 +567,10 @@ export async function exportAllDataForBackup(onProgress: (msg: string) => void):
   const allChats = await getAllChatsMetadata();
   onProgress(`正在导出聊天记录 (总数: ${allChats.length})...`);
   for (let i = 0; i < allChats.length; i++) {
+    if (i % 25 === 0) {
+      onProgress(`正在打包聊天记录 (${i + 1}/${allChats.length})...`);
+      await new Promise((r) => setTimeout(r, 15));
+    }
     const chatInfo = allChats[i] as any;
     if (chatInfo.deletedAt) continue;
     
