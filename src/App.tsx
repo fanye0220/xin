@@ -398,19 +398,12 @@ export default function App() {
       setIsMigrating(false);
       // Run background maintenance asynchronously without blocking app startup
       setTimeout(() => {
-        import('./lib/db').then(({ cleanupEmptyFolders, cleanupGhostCards, dedupeStoredBlobCopies }) => {
+        import('./lib/db').then(({ cleanupEmptyFolders, cleanupGhostCards }) => {
           cleanupEmptyFolders();
           cleanupGhostCards().then(({ cleanedCount }) => {
             if (cleanedCount > 0) {
               console.log(`[Startup] Cleaned ${cleanedCount} ghost card entries from database.`);
             }
-            // 回收老版本重复存了好几遍的图片字节(只在升级后第一次运行):
-            // 同一张图以前可能被 avatarBlob / originalFile / thumbBlob 各存了一份。
-            dedupeStoredBlobCopies().then(({ checked, freed }) => {
-              if (freed > 0) {
-                console.log(`[Startup] Deduped blob copies: ${freed}/${checked} entries cleaned.`);
-              }
-            }).catch(() => {});
           });
         });
       }, 500);

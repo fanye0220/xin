@@ -9,10 +9,6 @@ import { useBackHandler } from '../lib/useBackHandler';
 import { CURRENT_APP_VERSION } from '../config/version';
 import { openExternalUrl } from '../lib/appBridge';
 
-declare const __BUILD_TIME__: string;
-// 打包时注入的构建时间, 用来一眼确认"手上这份页面是不是最新构建"
-const BUILD_TIME = typeof __BUILD_TIME__ === 'string' ? __BUILD_TIME__ : '';
-
 interface Props {
   isOpen: boolean;
   onClose: () => void;
@@ -65,10 +61,6 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [apiStatus, setApiStatus] = useState<'idle' | 'success' | 'error'>('idle');
-  const [storageInfo, setStorageInfo] = useState<{ usage: number; quota: number } | null>(null);
-  const [dedupeStats, setDedupeStats] = useState<{ at: number; checked: number; freed: number; failed: number } | null>(null);
-  const [storageBusy, setStorageBusy] = useState(false);
-  const [storageMsg, setStorageMsg] = useState<string | null>(null);
 
   useBackHandler(isOpen, () => {
     onClose();
@@ -85,54 +77,6 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
       setAvailableModels([]);
     }
   }, [isOpen, initialTab]);
-
-  // 「关于与更新」里展示本地存储占用 / 上次回收结果, 方便确认新版本是否已经生效
-  useEffect(() => {
-    if (!isOpen || activeTab !== 'about') return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const est = await navigator.storage?.estimate?.();
-        if (!cancelled && est) setStorageInfo({ usage: est.usage || 0, quota: est.quota || 0 });
-      } catch {}
-      try {
-        const { getBlobDedupeStats } = await import('../lib/db');
-        if (!cancelled) setDedupeStats(getBlobDedupeStats());
-      } catch {}
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, activeTab]);
-
-  const formatBytes = (n: number) => {
-    if (!n) return '0MB';
-    if (n >= 1024 * 1024 * 1024) return `${(n / 1024 / 1024 / 1024).toFixed(2)}GB`;
-    return `${Math.round(n / 1024 / 1024)}MB`;
-  };
-
-  const handleDedupeNow = async () => {
-    setStorageBusy(true);
-    setStorageMsg(null);
-    try {
-      const { dedupeStoredBlobCopies, getBlobDedupeStats } = await import('../lib/db');
-      const res = await dedupeStoredBlobCopies({ force: true });
-      setDedupeStats(getBlobDedupeStats());
-      try {
-        const est = await navigator.storage?.estimate?.();
-        if (est) setStorageInfo({ usage: est.usage || 0, quota: est.quota || 0 });
-      } catch {}
-      setStorageMsg(
-        res.freed > 0
-          ? `回收完成: 清理了 ${res.freed} 张卡的重复图片副本(共扫描 ${res.checked} 项)`
-          : `扫描完成: 没有需要回收的重复副本(共扫描 ${res.checked} 项)`,
-      );
-    } catch (e: any) {
-      setStorageMsg('回收失败: ' + (e?.message || e));
-    } finally {
-      setStorageBusy(false);
-    }
-  };
 
   const activeEndpoint = settings.customEndpoints.find(e => e.id === settings.activeCustomId) || settings.customEndpoints[0];
 
@@ -752,52 +696,6 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
                   <p className="text-xs max-w-xs mt-2.5 leading-relaxed text-white/50 [.light-theme_&]:!text-[#64748b]">
                     专为酒馆与 AI 角色卡打造的高效角色与资源管理工具。
                   </p>
-                </div>
-
-                <div className="border rounded-2xl p-4 space-y-3 bg-white/5 border-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0]">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <h4 className="text-sm font-medium text-white [.light-theme_&]:!text-[#0f172a]">本地存储</h4>
-                      <p className="text-xs text-white/50 [.light-theme_&]:!text-[#64748b]">
-                        {storageInfo
-                          ? `已用 ${formatBytes(storageInfo.usage)}${storageInfo.quota ? ` / 上限约 ${formatBytes(storageInfo.quota)}` : ''}`
-                          : '读取中…'}
-                      </p>
-                    </div>
-                    <button
-                      onClick={handleDedupeNow}
-                      disabled={storageBusy}
-                      className="px-3.5 py-1.5 active:scale-95 text-xs font-semibold transition disabled:opacity-50 flex items-center gap-1.5 shrink-0 shadow-sm cursor-pointer rounded-full bg-white text-black hover:bg-white/90 [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-[#1e293b]"
-                    >
-                      {storageBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                      <span>回收重复图片</span>
-                    </button>
-                  </div>
-
-                  {dedupeStats && (
-                    <p className="text-xs leading-relaxed text-white/40 [.light-theme_&]:!text-[#64748b]">
-                      上次回收: 释放了 {dedupeStats.freed} 张卡的重复副本(扫描 {dedupeStats.checked} 项
-                      {dedupeStats.failed ? `, ${dedupeStats.failed} 项写入失败` : ''}), {new Date(dedupeStats.at).toLocaleString()}
-                    </p>
-                  )}
-
-                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0]">
-                    <p className="text-xs leading-relaxed text-white/40 [.light-theme_&]:!text-[#64748b]">
-                      {BUILD_TIME ? `当前页面构建于 ${new Date(BUILD_TIME).toLocaleString()}。` : ''}
-                      加在主屏或用书签打开时没有系统的刷新按钮, 点右边这个就能重新加载取到最新版。
-                    </p>
-                    <button
-                      onClick={() => window.location.reload()}
-                      className="px-3.5 py-1.5 active:scale-95 text-xs font-semibold transition flex items-center gap-1.5 shrink-0 shadow-sm cursor-pointer rounded-full border border-white/20 text-white hover:bg-white/10 [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e2e8f0]"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>重新加载</span>
-                    </button>
-                  </div>
-
-                  {storageMsg && (
-                    <p className="text-xs leading-relaxed text-white/60 [.light-theme_&]:!text-[#334155]">{storageMsg}</p>
-                  )}
                 </div>
 
                 <div className="border rounded-2xl p-4 space-y-3 bg-white/5 border-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0]">

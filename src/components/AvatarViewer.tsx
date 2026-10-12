@@ -7,6 +7,26 @@ import { X, Upload, Check, Trash2, Download, Share2, Image as ImageIcon, FolderO
 import { CharacterCard, saveCharacter, resolveFolderPath } from '../lib/db';
 import { isAndroid, getLocalImageUrl, getDownloadTooltip } from '../lib/appBridge';
 
+// 把 IndexedDB / 存储层的失败翻译成用户能看懂的原因（存储满、被占用、其它）
+async function describeSaveFailure(err: any): Promise<string> {
+  const raw = `${err?.name || ''} ${err?.message || err || ''}`.trim();
+  let hint = '';
+  if (/quota|exceed/i.test(raw)) {
+    hint = '存储空间已满，浏览器拒绝了这次写入。';
+  } else if (/blocked|abort/i.test(raw)) {
+    hint = '数据库写入被中断（可能 MIU 同时开在别的标签页/窗口里）。';
+  }
+  try {
+    const est: any = await (navigator as any)?.storage?.estimate?.();
+    if (est && est.quota) {
+      const usedMb = Math.round((est.usage || 0) / 1048576);
+      const quotaMb = Math.round(est.quota / 1048576);
+      hint += `${hint ? ' ' : ''}当前占用约 ${usedMb}MB / 上限约 ${quotaMb}MB。`;
+    }
+  } catch {}
+  return hint || raw || '未知错误';
+}
+
 interface Props {
   isOpen: boolean;
   character: CharacterCard;
@@ -28,6 +48,35 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
   const [miuFiles, setMiuFiles] = useState<string[]>([]);
   const [isLoadingMiu, setIsLoadingMiu] = useState(false);
   const [miuSearch, setMiuSearch] = useState('');
+
+  // 看门狗: 头像写入/解码一旦长时间不返回(IndexedDB 写入被阻塞、存储写满、图片解码
+  // 事件丢失等), 也要把"正在读取并设置新头像..."的转圈收掉并说明原因, 不能永远卡住。
+  const processingWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const PROCESSING_TIMEOUT_MS = 30000;
+
+  const stopProcessing = () => {
+    if (processingWatchdogRef.current) {
+      clearTimeout(processingWatchdogRef.current);
+      processingWatchdogRef.current = null;
+    }
+    setIsProcessing(false);
+  };
+
+  const startProcessing = () => {
+    if (processingWatchdogRef.current) clearTimeout(processingWatchdogRef.current);
+    setIsProcessing(true);
+    processingWatchdogRef.current = setTimeout(() => {
+      processingWatchdogRef.current = null;
+      setIsProcessing(false);
+      alert('设置头像超时了：写入被浏览器/系统长时间阻塞（常见原因是存储空间已满，或 MIU 还开在另一个标签页/窗口里）。\n本次操作已取消，可先清理一些卡片或历史版本后重试。');
+    }, PROCESSING_TIMEOUT_MS);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (processingWatchdogRef.current) clearTimeout(processingWatchdogRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     let objectUrl: string | null = null;
@@ -128,7 +177,7 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
   };
 
   const processAndSetAvatar = async (file: Blob | File, originalName?: string) => {
-    setIsProcessing(true);
+    startProcessing();
     try {
       const fileName = originalName || (file as File).name || 'avatar.png';
       const isImg = file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|svg|avif)$/i.test(fileName);
@@ -214,14 +263,20 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
       };
       
       delete updatedCharacter.localFilePath;
-      await saveCharacter(updatedCharacter);
+      try {
+        await saveCharacter(updatedCharacter);
+      } catch (err) {
+        console.error('保存新头像失败:', err);
+        alert(`保存新头像失败：${await describeSaveFailure(err)}\n头像没有被改动，请重试。`);
+        return;
+      }
       import('../lib/thumbCache').then(({ evictCharacterThumb }) => {
         evictCharacterThumb(character.id);
       }).catch(() => {});
       window.dispatchEvent(new CustomEvent('charactersUpdated'));
       onUpdate(updatedCharacter);
     } finally {
-      setIsProcessing(false);
+      stopProcessing();
     }
   };
 
@@ -251,7 +306,7 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
 
   const handleSelectMiuFile = async (filePath: string) => {
     setShowMiuPicker(false);
-    setIsProcessing(true);
+    startProcessing();
     try {
       const { readLocalFileBuffer } = await import('../lib/appBridge');
       const buffer = await readLocalFileBuffer(filePath);
@@ -270,7 +325,7 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
     } catch (e) {
       alert('处理本地文件失败');
     } finally {
-      setIsProcessing(false);
+      stopProcessing();
     }
   };
 
@@ -280,7 +335,7 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
 
   const handleSetAsAvatar = async () => {
     if (!previewBlob || previewBlob === character.avatarBlob) return;
-    setIsProcessing(true);
+    startProcessing();
 
     // 确保把正在被替换的原头像安全放进历史列表, 防止原头像永久丢失
     let newHistory = character.avatarHistory ? [...character.avatarHistory] : [];
@@ -357,7 +412,7 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
     } catch (err) {
       console.error("Failed to inject data into history avatar", err);
       alert("处理头像失败，可能该头像已损坏。");
-      setIsProcessing(false);
+      stopProcessing();
       return;
     }
 
@@ -380,14 +435,21 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
     };
     
     delete updatedCharacter.localFilePath;
-    await saveCharacter(updatedCharacter);
+    try {
+      await saveCharacter(updatedCharacter);
+    } catch (err) {
+      console.error('保存新头像失败:', err);
+      alert(`保存新头像失败：${await describeSaveFailure(err)}\n头像没有被改动，请重试。`);
+      stopProcessing();
+      return;
+    }
     import('../lib/thumbCache').then(({ evictCharacterThumb }) => {
       evictCharacterThumb(character.id);
     }).catch(() => {});
     window.dispatchEvent(new CustomEvent('charactersUpdated'));
     onUpdate(updatedCharacter);
     setPreviewBlob(null); // Reset preview so it matches current
-    setIsProcessing(false);
+    stopProcessing();
   };
 
   const handleDeleteHistory = async (e: React.MouseEvent, blobToDelete: Blob) => {

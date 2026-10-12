@@ -112,22 +112,17 @@ export function safeCreateObjectURL(blob: any): string | null {
 }
 
 /**
- * 把一张原图压成缩略图, 专门给列表/卡片展示场景用。
- *
- * 关键点: 即便原图本身已经不超过 maxSize, 这里也**不会**原样返回原图。
- * 之前那个分支会让缩略图变成"整张原图的又一份副本"(酒馆卡大多是 512×768 的 PNG,
- * 动辄几百 KB), 本地库白占一份空间 —— iOS 上很容易把站点存储配额撑爆。
- * 现在改成: 像素尺寸保持原样(绝不放大), 只重新编码成 WebP, 所以肉眼清晰度不变、
- * 体积小一个量级。
+ * 把一张原图压成高清缩略图, 专门给列表/卡片展示场景用,
+ * 既保证 2K/3K 视网膜屏极致清澈无损画质，又避免列表解码多张大尺寸原图 (仅 ~30-50KB)。
  *
  * @param blob 原图
  * @param maxSize 缩略图长边最大像素, 默认 800(高分屏/瀑布流超高清)
- * @param quality 编码质量, 默认 0.82
+ * @param quality JPEG 压缩质量, 默认 0.90
  */
 export async function generateThumbnail(
   blob: Blob,
   maxSize: number = 800,
-  quality: number = 0.82,
+  quality: number = 0.90,
 ): Promise<Blob> {
   const objectUrl = safeCreateObjectURL(blob);
   if (!objectUrl) return blob;
@@ -140,17 +135,16 @@ export async function generateThumbnail(
     });
 
     let { width, height } = img;
-    // 只在超出上限时缩小, 绝不放大
-    if (width > maxSize || height > maxSize) {
-      if (width > height) {
-        height = Math.round((height * maxSize) / width);
-        width = maxSize;
-      } else {
-        width = Math.round((width * maxSize) / height);
-        height = maxSize;
-      }
+    if (width <= maxSize && height <= maxSize) {
+      return blob;
     }
-    if (!width || !height) return blob;
+    if (width > height) {
+      height = Math.round((height * maxSize) / width);
+      width = maxSize;
+    } else {
+      width = Math.round((width * maxSize) / height);
+      height = maxSize;
+    }
 
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -159,20 +153,10 @@ export async function generateThumbnail(
     if (!ctx) return blob;
     ctx.drawImage(img, 0, 0, width, height);
 
-    // 优先 WebP(支持透明通道, iOS 14+ 可用); 不支持时会退回 PNG, 这时再转一次 JPEG
-    const encoded = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob((b) => resolve(b), 'image/webp', quality);
+    const thumbBlob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', quality);
     });
-    const thumbBlob =
-      encoded && encoded.type === 'image/webp'
-        ? encoded
-        : await new Promise<Blob | null>((resolve) => {
-            canvas.toBlob((b) => resolve(b), 'image/jpeg', quality);
-          });
-
-    // 万一重编码后反而更大(比如原图本来就是压得很好的小图), 就留原图, 不白占空间
-    if (thumbBlob && thumbBlob.size < blob.size) return thumbBlob;
-    return blob;
+    return thumbBlob || blob;
   } catch {
     return blob;
   } finally {

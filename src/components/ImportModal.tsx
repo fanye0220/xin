@@ -746,9 +746,10 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             const rootFolderName = "";
 
             const zipFiles: File[] = [];
-            const BATCH_SIZE = 15;
-            for (let b = 0; b < fileEntries.length; b += BATCH_SIZE) {
-              const chunk = fileEntries.slice(b, b + BATCH_SIZE);
+            const STREAM_BATCH = 25;
+            for (let b = 0; b < fileEntries.length; b += STREAM_BATCH) {
+              const chunk = fileEntries.slice(b, b + STREAM_BATCH);
+              const chunkFiles: File[] = [];
               await Promise.all(
                 chunk.map(async ([relativePath, zipEntry]) => {
                   let cleanPath = relativePath.replace(/\\/g, "/");
@@ -793,29 +794,28 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     writable: false,
                   });
 
-                  zipFiles.push(extractedFile);
+                  chunkFiles.push(extractedFile);
                 })
               );
 
-              const doneCount = Math.min(b + BATCH_SIZE, fileEntries.length);
-              setProgress({
-                current: doneCount,
-                total: fileEntries.length,
-                message: `正在解压归档卡片文件 (${doneCount}/${fileEntries.length})...`,
-              });
-              await new Promise((resolve) => setTimeout(resolve, 0));
-            }
-
-            if (zipFiles.length > 0) {
-              progressTracker.total = zipFiles.length;
-              progressTracker.current = 0;
-
+              // 逐批解析并清空 Blob 引用，避免 2500 张卡片在内存中同时堆积导致 iOS 浏览器 OOM 崩溃
               await parseFiles(
-                zipFiles,
+                chunkFiles,
                 accumulatedParsed,
                 accumulatedErrors,
                 extractedRootsMap,
               );
+
+              // 及时清空本批解压文件的内存指针并给 WebKit 主线程 GC 让出时间片
+              chunkFiles.length = 0;
+
+              const doneCount = Math.min(b + STREAM_BATCH, fileEntries.length);
+              setProgress({
+                current: doneCount,
+                total: fileEntries.length,
+                message: `正在流式解压并解析卡片 (${doneCount}/${fileEntries.length})...`,
+              });
+              await new Promise((resolve) => setTimeout(resolve, 15));
             }
             continue;
           }
@@ -1590,9 +1590,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             if (isAndroid() && (file as any).androidAbsPath) {
               localFilePath = (file as any).androidAbsPath;
             } else if (item.isImage) {
-              // 直接用和 originalFile 同一个 File 对象: 它们本来就是同一份字节,
-              // 存库时会被去重成一份(显示效果完全一样), 不再白占一倍空间。
-              avatarBlob = refreshedFile;
+              avatarBlob = file;
             }
             const originalFile: File = refreshedFile;
 
@@ -1709,21 +1707,44 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                 breakdown: cardTokens,
               });
             }
+
+            // 流式落盘：每攒够 25 张卡片立即写入数据库并擦除内存 Blob 引用，防 iOS 爆内存
+            if (charsToSave.length >= 25 || mIdx === mainItems.length - 1) {
+              setProgress({
+                current: mIdx + 1,
+                total: mainItems.length,
+                message: `正在写入数据库并释放内存 (${mIdx + 1}/${mainItems.length})...`,
+              });
+              beginBulkCharacterUpdates();
+              try {
+                await saveCharacters(charsToSave);
+                for (const savedCard of charsToSave) {
+                  const srcItem: ParsedItem | undefined = (savedCard as any).__srcItem;
+                  if (srcItem) {
+                    srcItem.file = undefined as any;
+                    srcItem.data = undefined;
+                    delete (savedCard as any).__srcItem;
+                  }
+                  delete (savedCard as any).avatarBlob;
+                  delete (savedCard as any).originalFile;
+                  delete (savedCard as any).avatarHistory;
+                  delete (savedCard as any).versionHistory;
+                  (savedCard as any).data = undefined;
+                }
+              } finally {
+                endBulkCharacterUpdates();
+              }
+              charsToSave.length = 0;
+              await new Promise((resolve) => setTimeout(resolve, 15));
+            }
           } catch (err: any) {
             errors.push({ file: item.file.name, error: err.message || "未知错误" });
-          }
-
-          if (mIdx % 10 === 0 || mIdx === mainItems.length - 1) {
-            setProgress({
-              current: charsToSave.length,
-              total: mainItems.length + toolItems.length,
-              message: "正在解析数据...",
-            });
           }
         }
 
         // ---------- 工具类文件（世界书 / 预设 / 快速回复 / 美化 / 脚本） ----------
-        for (const item of toolItems) {
+        for (let tIdx = 0; tIdx < toolItems.length; tIdx++) {
+          const item = toolItems[tIdx];
           try {
             const data = item.data;
             const file = item.file;
@@ -1784,48 +1805,24 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               attachedAvatarsCount: 0,
               isTool: true,
             });
+
+            if (charsToSave.length >= 25 || tIdx === toolItems.length - 1) {
+              beginBulkCharacterUpdates();
+              try {
+                await saveCharacters(charsToSave);
+                for (const savedCard of charsToSave) {
+                  delete (savedCard as any).avatarBlob;
+                  delete (savedCard as any).originalFile;
+                  (savedCard as any).data = undefined;
+                }
+              } finally {
+                endBulkCharacterUpdates();
+              }
+              charsToSave.length = 0;
+              await new Promise((resolve) => setTimeout(resolve, 15));
+            }
           } catch (err: any) {
             errors.push({ file: item.file.name, error: err.message || "未知错误" });
-          }
-        }
-
-        if (charsToSave.length > 0) {
-          setProgress({
-            current: 0,
-            total: charsToSave.length,
-            message: "正在保存到数据库...",
-          });
-          const BATCH_SIZE = 50;
-          // 批量写入期间先不逐条通知首页刷新（否则几千张卡会触发上百次整表重载），
-          // 同时每存完一批就把这批卡身上的大对象释放掉，避免全程把几千张卡的图片留在内存里。
-          beginBulkCharacterUpdates();
-          try {
-            for (let bIdx = 0; bIdx < charsToSave.length; bIdx += BATCH_SIZE) {
-              const batch = charsToSave.slice(bIdx, bIdx + BATCH_SIZE);
-              const currentSaved = Math.min(bIdx + batch.length, charsToSave.length);
-              setProgress({
-                current: currentSaved,
-                total: charsToSave.length,
-                message: `正在写入本地数据库 (${currentSaved}/${charsToSave.length})...`,
-              });
-              await saveCharacters(batch);
-              for (const savedCard of batch) {
-                const srcItem: ParsedItem | undefined = (savedCard as any).__srcItem;
-                if (srcItem) {
-                  srcItem.file = undefined as any;
-                  srcItem.data = undefined;
-                  delete (savedCard as any).__srcItem;
-                }
-                delete (savedCard as any).avatarBlob;
-                delete (savedCard as any).originalFile;
-                delete (savedCard as any).avatarHistory;
-                delete (savedCard as any).versionHistory;
-                (savedCard as any).data = undefined;
-              }
-              await new Promise((resolve) => setTimeout(resolve, 0));
-            }
-          } finally {
-            endBulkCharacterUpdates();
           }
         }
 
