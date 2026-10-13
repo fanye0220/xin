@@ -572,19 +572,25 @@ export async function downloadOrShareFile(
   if (isAndroid()) {
     try {
       const savedPath = await exportFileToMIU(filename, buffer, detectedMime, share);
-      return { success: true, path: savedPath };
+      if (savedPath) {
+        return { success: true, path: savedPath };
+      }
     } catch (err) {
-      console.error("downloadOrShareFile: exportFileToMIU error, falling back to shareFileOnAndroid:", err);
-      await shareFileOnAndroid(filename, buffer, detectedMime);
-      return { success: true };
+      console.error("downloadOrShareFile: exportFileToMIU error, falling back:", err);
+    }
+
+    try {
+      const shared = await shareFileOnAndroid(filename, buffer, detectedMime);
+      if (shared) return { success: true };
+    } catch (err) {
+      console.error("downloadOrShareFile: shareFileOnAndroid error, falling back to web download:", err);
     }
   }
 
-  // 非 Android 原生容器（网页端）
+  // 非 Android 原生容器，或原生写盘/分享失败时，退回到通用网页端 Blob 下载流程
   const blob = data instanceof Blob ? data : new Blob([buffer], { type: detectedMime });
 
-  // 仅在移动端浏览器环境（手机网页端）且 share 为 true 时，才尝试唤起手机系统的分享面板
-  // PC / 桌面端测试时（!isMobileDevice()），直接跳过系统分享，直接执行标准的浏览器文件下载
+  // 仅在移动端浏览器环境且 share 为 true 时，才尝试唤起手机系统的分享面板
   if (share && isMobileDevice() && typeof navigator !== "undefined" && navigator.share && navigator.canShare) {
     try {
       const file = new File([blob], filename, { type: detectedMime });
@@ -597,23 +603,27 @@ export async function downloadOrShareFile(
       }
     } catch (e: any) {
       if (e.name === "AbortError") {
-        // 手机端用户主动取消了系统分享面板，直接返回，不再二次弹出网页下载打扰用户
         return { success: true };
       }
     }
   }
 
-  // 常规浏览器直接下载（PC 桌面端测试，或不支持 Web Share 的浏览器环境）
-  const url = safeCreateObjectURL(blob);
-  if (!url) return { success: false };
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-  return { success: true };
+  // 常规浏览器直接触发 Blob 文件下载
+  try {
+    const url = safeCreateObjectURL(blob);
+    if (!url) return { success: false };
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    return { success: true };
+  } catch (err) {
+    console.error("downloadOrShareFile: web download fallback failed:", err);
+    return { success: false };
+  }
 }
 
 /**

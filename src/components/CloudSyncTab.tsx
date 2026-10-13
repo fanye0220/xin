@@ -695,8 +695,8 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                       }}
                       className={`px-2.5 py-1.5 rounded-xl text-xs font-medium border text-left transition cursor-pointer ${
                         autoBackupMode === 'cloud_library'
-                          ? 'bg-blue-600/20 text-blue-400 border-blue-500/40 [.light-theme_&]:bg-blue-50 [.light-theme_&]:text-blue-600 [.light-theme_&]:border-blue-200'
-                          : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10 [.light-theme_&]:bg-slate-50 [.light-theme_&]:text-slate-600 [.light-theme_&]:border-slate-200'
+                          ? 'bg-blue-600/20 text-blue-400 border-transparent [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!text-[#007aff] [.light-theme_&]:!border-transparent'
+                          : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!text-[#64748b] [.light-theme_&]:!border-transparent [.light-theme_&]:hover:!bg-[#f1f5f9]'
                       }`}
                     >
                       <div className="font-semibold">云端卡库 (直连)</div>
@@ -710,8 +710,8 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                       }}
                       className={`px-2.5 py-1.5 rounded-xl text-xs font-medium border text-left transition cursor-pointer ${
                         autoBackupMode === 'zip'
-                          ? 'bg-blue-600/20 text-blue-400 border-blue-500/40 [.light-theme_&]:bg-blue-50 [.light-theme_&]:text-blue-600 [.light-theme_&]:border-blue-200'
-                          : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10 [.light-theme_&]:bg-slate-50 [.light-theme_&]:text-slate-600 [.light-theme_&]:border-slate-200'
+                          ? 'bg-blue-600/20 text-blue-400 border-transparent [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!text-[#007aff] [.light-theme_&]:!border-transparent'
+                          : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!text-[#64748b] [.light-theme_&]:!border-transparent [.light-theme_&]:hover:!bg-[#f1f5f9]'
                       }`}
                     >
                       <div className="font-semibold">打包 ZIP (旧版)</div>

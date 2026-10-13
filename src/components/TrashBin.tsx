@@ -142,8 +142,8 @@ const TrashedCharacterCard = ({
         selectionMode ? 'cursor-pointer' : 'cursor-default'
       } ${
         isSelected
-          ? 'bg-[#141822] [.light-theme_&]:!bg-[#e2e8f0]'
-          : 'bg-[#1c202b] hover:bg-[#222735] [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc]'
+          ? 'bg-white/20 [.light-theme_&]:!bg-[#e2e8f0]'
+          : 'bg-white/[0.09] hover:bg-white/[0.13] [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc]'
       } [.light-theme_&]:!shadow-[0_1px_4px_rgba(0,0,0,0.03)]`}
     >
       {/* Full-card dark dimming overlay on selection */}
