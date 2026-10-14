@@ -115,25 +115,35 @@ export function getCharacterTokenBreakdown(rawCardData: any): CharacterTokenBrea
   const parsed = parseTavernCard(rawCardData);
   const data = parsed.data;
 
-  const descText = String(data.description || "").trim();
-  const personalityText = String(data.personality || "").trim();
-  const scenarioText = String(data.scenario || "").trim();
-  const firstMesText = String(data.first_mes || "").trim();
-  const mesExampleText = String(data.mes_example || "").trim();
-  const systemPromptText = String(data.system_prompt || "").trim();
-  const postHistoryText = String(data.post_history_instructions || "").trim();
+  const cleanText = (s: any) => String(s || "").replace(/\r\n/g, "\n").trim();
 
-  // 备用开场白与问候语
-  const altGreetings = Array.isArray(data.alternate_greetings) ? data.alternate_greetings : [];
-  const validAltGreetings = altGreetings.filter((g: any) => typeof g === "string" && g.trim().length > 0);
+  const descText = cleanText(data.description);
+  const personalityText = cleanText(data.personality);
+  const scenarioText = cleanText(data.scenario);
+  const firstMesText = cleanText(data.first_mes);
+  const mesExampleText = cleanText(data.mes_example);
+  const systemPromptText = cleanText(data.system_prompt);
+  const postHistoryText = cleanText(data.post_history_instructions);
+
+  // 备用开场白与问候语（兼容数组或对象格式）
+  const rawAltGreetings = data.alternate_greetings || data.extensions?.alternate_greetings || [];
+  const altGreetings = Array.isArray(rawAltGreetings)
+    ? rawAltGreetings
+    : (rawAltGreetings && typeof rawAltGreetings === "object" ? Object.values(rawAltGreetings) : []);
+  const validAltGreetings = altGreetings
+    .map((g: any) => cleanText(typeof g === "string" ? g : g?.content || g?.message || ""))
+    .filter((g: string) => g.length > 0);
   const altGreetingsCount = validAltGreetings.length;
   const altGreetingsText = validAltGreetings.join("\n\n");
 
-  // 嵌入世界书 / 设定集 / Worldbook Entries
+  // 嵌入世界书 / 设定集 / Worldbook Entries（兼容数组或字典对象）
   let worldbookText = "";
   let worldbookEntriesCount = 0;
-  const book = data.character_book || rawCardData.character_book || rawCardData.worldbook || rawCardData.data?.character_book;
-  const entries = book?.entries || rawCardData.entries || (Array.isArray(rawCardData) ? rawCardData : null);
+  const book = data.character_book || rawCardData.character_book || rawCardData.worldbook || rawCardData.data?.character_book || data.extensions?.character_book;
+  const rawBookEntries = book?.entries || rawCardData.entries || (Array.isArray(rawCardData) ? rawCardData : null);
+  const entries = Array.isArray(rawBookEntries)
+    ? rawBookEntries
+    : (rawBookEntries && typeof rawBookEntries === "object" ? Object.values(rawBookEntries) : null);
 
   if (Array.isArray(entries)) {
     worldbookEntriesCount = entries.length;
@@ -142,7 +152,7 @@ export function getCharacterTokenBreakdown(rawCardData: any): CharacterTokenBrea
         if (!e) return "";
         const keys = e.keys ? (Array.isArray(e.keys) ? e.keys.join(", ") : String(e.keys)) : (e.key ? String(e.key) : "");
         const comment = e.comment || e.name || "";
-        const content = e.content || e.value || "";
+        const content = cleanText(e.content || e.value || "");
         return `${comment ? `[${comment}]\n` : ""}${keys ? `[触发词: ${keys}]\n` : ""}${content}`;
       })
       .filter(Boolean)

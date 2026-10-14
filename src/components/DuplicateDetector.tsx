@@ -93,45 +93,47 @@ export function computeCompletenessScore(char: CharacterCard, resType: ResourceT
   }
 
   // 4. 普通角色卡 (Character)
-  const desc = (data.description || data.char_persona || '').trim();
-  const personality = (data.personality || '').trim();
-  const scenario = (data.scenario || '').trim();
-  const firstMes = (data.first_mes || data.greeting || '').trim();
-  const mesExample = (data.mes_example || '').trim();
-  const systemPrompt = (data.system_prompt || '').trim();
+  // 统一换行符 \r\n -> \n 并去除首尾空白，避免 Windows/Unix 换行符差异或隐式回车导致字数微妙偏差
+  const cleanStr = (s: any) => String(s || '').replace(/\r\n/g, '\n').trim();
+
+  const desc = cleanStr(data.description || data.char_persona);
+  const personality = cleanStr(data.personality);
+  const scenario = cleanStr(data.scenario);
+  const firstMes = cleanStr(data.first_mes || data.greeting);
+  const mesExample = cleanStr(data.mes_example);
+  const systemPrompt = cleanStr(data.system_prompt);
+  const postHistory = cleanStr(data.post_history_instructions);
 
   // 核心人设设定或预设/工具提示词字数
   let extraContent = '';
   if (data.prompts && Array.isArray(data.prompts)) {
-    extraContent = data.prompts.map((p: any) => p.content || p.text || '').join('');
+    extraContent = data.prompts.map((p: any) => cleanStr(p.content || p.text)).join('');
   } else if (data.content && typeof data.content === 'string') {
-    extraContent = data.content;
+    extraContent = cleanStr(data.content);
   }
-  const coreText = desc + personality + scenario + firstMes + mesExample + systemPrompt + extraContent;
+  const coreText = desc + personality + scenario + firstMes + mesExample + systemPrompt + postHistory + extraContent;
   const wordCount = coreText.length;
 
-  // 世界书条目数与世界书内容总字数
-  const entries = data.character_book?.entries || data.extensions?.character_book?.entries || (Array.isArray(data.entries) ? data.entries : []);
-  const worldbookCount = Array.isArray(entries) ? entries.length : 0;
+  // 世界书条目数与世界书内容总字数（兼容数组与对象键值对字典格式）
+  const rawEntries = data.character_book?.entries || data.extensions?.character_book?.entries || data.entries || [];
+  const entriesList: any[] = Array.isArray(rawEntries) ? rawEntries : (rawEntries && typeof rawEntries === 'object' ? Object.values(rawEntries) : []);
+  const worldbookCount = entriesList.length;
   let worldbookTextLength = 0;
-  if (Array.isArray(entries)) {
-    entries.forEach((e: any) => {
-      worldbookTextLength += (e.content || e.text || e.comment || '').length;
-    });
-  }
+  entriesList.forEach((e: any) => {
+    worldbookTextLength += cleanStr(e?.content || e?.text || e?.comment).length;
+  });
 
-  // 备选开场白数量与总字数
-  const altGreetings = data.alternate_greetings || [];
-  const greetingsCount = (firstMes ? 1 : 0) + (Array.isArray(altGreetings) ? altGreetings.length : 0);
+  // 备选开场白数量与总字数（兼容标准与拓展字段）
+  const rawAltGreetings = data.alternate_greetings || data.extensions?.alternate_greetings || [];
+  const altGreetingsList: any[] = Array.isArray(rawAltGreetings) ? rawAltGreetings : (rawAltGreetings && typeof rawAltGreetings === 'object' ? Object.values(rawAltGreetings) : []);
+  const greetingsCount = (firstMes ? 1 : 0) + altGreetingsList.length;
   let altGreetingsLength = 0;
-  if (Array.isArray(altGreetings)) {
-    altGreetings.forEach((g: any) => {
-      altGreetingsLength += (typeof g === 'string' ? g : '').length;
-    });
-  }
+  altGreetingsList.forEach((g: any) => {
+    altGreetingsLength += cleanStr(typeof g === 'string' ? g : g?.content || g?.message || '').length;
+  });
 
   // AI 简介
-  const summary = (char.aiSummary || data.aiSummary || (char as any).data?.aiSummary || '').trim();
+  const summary = cleanStr(char.aiSummary || data.aiSummary || (char as any).data?.aiSummary);
   const summaryBonus = summary ? 200 + Math.min(summary.length, 300) : 0;
 
   // 综合权重打分: 字数基础分 + 每条世界书奖励 500 分 + 每个开场白奖励 300 分 + 每个标签 20 分 + AI简介加分
@@ -1376,7 +1378,7 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
                                     <div className="flex items-center justify-between text-[11px]">
                                       <span className="text-slate-400 [.light-theme_&]:!text-[#64748b]">设定 / 总字数</span>
                                       <span className="font-mono font-medium text-slate-200 [.light-theme_&]:!text-[#0f172a]">
-                                        {(targetData.description || '').length} 字 (总计 {completeness.wordCount} 字)
+                                        {String(targetData.description || '').replace(/\r\n/g, '\n').trim().length} 字 (总计 {completeness.wordCount} 字)
                                       </span>
                                     </div>
                                     <div className="flex items-center justify-between text-[11px]">
