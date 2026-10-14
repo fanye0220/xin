@@ -1,4 +1,4 @@
-import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
+import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -7,8 +7,9 @@ import {
   Sparkles, Filter, ShieldCheck, Info, RotateCcw, History, Check, CheckCircle2,
   Database, Archive, ArchiveRestore, BookmarkCheck, ArrowRightLeft, Layers
 } from 'lucide-react';
-import { CharacterCard, DuplicateGroup, ResourceType, findDuplicates, deleteCharacter, saveCharacter, getResourceType } from '../lib/db';
+import { CharacterCard, DuplicateGroup, ResourceType, findDuplicates, deleteCharacter, saveCharacter, getResourceType, getCharacterThumb } from '../lib/db';
 import { getLocalImageUrl } from '../lib/appBridge';
+import { peekCachedUrl, putCachedBlobUrl } from '../lib/thumbCache';
 
 // 便宜的"数据变更指纹"：只读轻量的 char_meta 索引（不含卡片正文），
 // 用来判断这次刷新到底有没有必要重跑昂贵的全量查重扫描。
@@ -30,6 +31,9 @@ async function computeMetaSignature(): Promise<string> {
   }
 }
 
+// 缓存每张卡片对象的完整度评分，避免每次重绘或翻页时在几百张卡上反复重算字符串字数
+const completenessCache = new WeakMap<CharacterCard, { score: number; wordCount: number; worldbookCount: number; greetingsCount: number }>();
+
 // 综合字数、世界书、开场白、拓展条目的完整度评分算法（支持角色卡、世界书、QR等独立类型评分）
 export function computeCompletenessScore(char: CharacterCard, resType: ResourceType = 'character'): {
   score: number;
@@ -37,6 +41,9 @@ export function computeCompletenessScore(char: CharacterCard, resType: ResourceT
   worldbookCount: number;
   greetingsCount: number;
 } {
+  const cached = completenessCache.get(char);
+  if (cached) return cached;
+
   const data = char.data?.data || char.data || {};
   const tagsCount = Array.isArray(data.tags) ? data.tags.length : (Array.isArray(char.tags) ? char.tags.length : 0);
 
@@ -51,12 +58,14 @@ export function computeCompletenessScore(char: CharacterCard, resType: ResourceT
       });
     }
     const score = count * 1000 + textLen + tagsCount * 20;
-    return {
+    const res = {
       score,
       wordCount: textLen,
       worldbookCount: 0,
       greetingsCount: count
     };
+    completenessCache.set(char, res);
+    return res;
   }
 
   // 2. 世界书 (Worldbook): 根据条目数与条目详细字数打分
@@ -68,12 +77,14 @@ export function computeCompletenessScore(char: CharacterCard, resType: ResourceT
       textLen += String(e.content || e.text || e.comment || '').length;
     });
     const score = entList.length * 1000 + textLen + tagsCount * 20;
-    return {
+    const res = {
       score,
       wordCount: textLen,
       worldbookCount: entList.length,
       greetingsCount: 0
     };
+    completenessCache.set(char, res);
+    return res;
   }
 
   // 3. 预设 (Preset): 根据提示词条目数打分
@@ -84,16 +95,17 @@ export function computeCompletenessScore(char: CharacterCard, resType: ResourceT
       pLen += String(p.content || p.text || '').length;
     });
     const score = prompts.length * 1000 + pLen;
-    return {
+    const res = {
       score,
       wordCount: pLen,
       worldbookCount: 0,
       greetingsCount: prompts.length
     };
+    completenessCache.set(char, res);
+    return res;
   }
 
   // 4. 普通角色卡 (Character)
-  // 统一换行符 \r\n -> \n 并去除首尾空白，避免 Windows/Unix 换行符差异或隐式回车导致字数微妙偏差
   const cleanStr = (s: any) => String(s || '').replace(/\r\n/g, '\n').trim();
 
   const desc = cleanStr(data.description || data.char_persona);
@@ -104,7 +116,6 @@ export function computeCompletenessScore(char: CharacterCard, resType: ResourceT
   const systemPrompt = cleanStr(data.system_prompt);
   const postHistory = cleanStr(data.post_history_instructions);
 
-  // 核心人设设定或预设/工具提示词字数
   let extraContent = '';
   if (data.prompts && Array.isArray(data.prompts)) {
     extraContent = data.prompts.map((p: any) => cleanStr(p.content || p.text)).join('');
@@ -114,7 +125,6 @@ export function computeCompletenessScore(char: CharacterCard, resType: ResourceT
   const coreText = desc + personality + scenario + firstMes + mesExample + systemPrompt + postHistory + extraContent;
   const wordCount = coreText.length;
 
-  // 世界书条目数与世界书内容总字数（兼容数组与对象键值对字典格式）
   const rawEntries = data.character_book?.entries || data.extensions?.character_book?.entries || data.entries || [];
   const entriesList: any[] = Array.isArray(rawEntries) ? rawEntries : (rawEntries && typeof rawEntries === 'object' ? Object.values(rawEntries) : []);
   const worldbookCount = entriesList.length;
@@ -123,7 +133,6 @@ export function computeCompletenessScore(char: CharacterCard, resType: ResourceT
     worldbookTextLength += cleanStr(e?.content || e?.text || e?.comment).length;
   });
 
-  // 备选开场白数量与总字数（兼容标准与拓展字段）
   const rawAltGreetings = data.alternate_greetings || data.extensions?.alternate_greetings || [];
   const altGreetingsList: any[] = Array.isArray(rawAltGreetings) ? rawAltGreetings : (rawAltGreetings && typeof rawAltGreetings === 'object' ? Object.values(rawAltGreetings) : []);
   const greetingsCount = (firstMes ? 1 : 0) + altGreetingsList.length;
@@ -132,113 +141,129 @@ export function computeCompletenessScore(char: CharacterCard, resType: ResourceT
     altGreetingsLength += cleanStr(typeof g === 'string' ? g : g?.content || g?.message || '').length;
   });
 
-  // AI 简介
   const summary = cleanStr(char.aiSummary || data.aiSummary || (char as any).data?.aiSummary);
   const summaryBonus = summary ? 200 + Math.min(summary.length, 300) : 0;
 
-  // 综合权重打分: 字数基础分 + 每条世界书奖励 500 分 + 每个开场白奖励 300 分 + 每个标签 20 分 + AI简介加分
   const score = wordCount 
     + (worldbookCount * 500 + worldbookTextLength) 
     + (greetingsCount * 300 + altGreetingsLength) 
     + (tagsCount * 20)
     + summaryBonus;
 
-  return {
+  const result = {
     score,
     wordCount: wordCount + worldbookTextLength + altGreetingsLength,
     worldbookCount,
     greetingsCount
   };
+  completenessCache.set(char, result);
+  return result;
 }
+
+// 缓存每张卡片对象的指纹，避免重复字符串拼接
+const signatureCache = new WeakMap<CharacterCard, string>();
 
 /**
  * 提取卡片的核心内容指纹（用于判断是否为实质完全相同的同一版本）
- * 角色卡对比：设定、开场白、人格、场景、示例、世界书条目等核心字段
- * 世界书对比：全部条目内容
- * QR/快速回复对比：全部动作按钮与消息内容
  */
 export function getCardContentSignature(char: CharacterCard, resType?: ResourceType): string {
+  const cached = signatureCache.get(char);
+  if (cached) return cached;
+
   const data = char.data?.data || char.data || {};
   const effectiveType = resType || getResourceType(char);
   const cleanStr = (s: any) => String(s || '').replace(/\r\n/g, '\n').trim();
 
+  let signature = '';
   if (effectiveType === 'qr' || char.isQR) {
     const list = Array.isArray(data.qrList) ? data.qrList : (Array.isArray(data) ? data : (data.buttons || data.quick_replies || []));
     const items = (Array.isArray(list) ? list : []).map((q: any) => 
       `${cleanStr(q.message || q.label || q.text)}::${cleanStr(q.execute)}`
     ).sort().join(';;');
-    return `qr:${items || JSON.stringify(list)}`;
-  }
-
-  if (effectiveType === 'worldbook') {
+    signature = `qr:${items || JSON.stringify(list)}`;
+  } else if (effectiveType === 'worldbook') {
     const entries = data.entries || data.character_book?.entries || (Array.isArray(data) ? data : {});
     const entList = Array.isArray(entries) ? entries : Object.values(entries || {});
     const items = entList.map((e: any) => 
       `${Array.isArray(e.keys) ? e.keys.map(cleanStr).join(',') : cleanStr(e.keys || e.key)}::${cleanStr(e.content || e.text || e.comment)}`
     ).sort().join(';;');
-    return `wb:${items || JSON.stringify(entries)}`;
-  }
-
-  if (effectiveType === 'preset') {
+    signature = `wb:${items || JSON.stringify(entries)}`;
+  } else if (effectiveType === 'preset') {
     const prompts = data.prompts || [];
     const pStr = Array.isArray(prompts) ? prompts.map((p: any) => cleanStr(p.content || p.text)).join(';;') : '';
-    return `preset:${pStr}|${data.temperature || ''}|${data.top_p || ''}`;
+    signature = `preset:${pStr}|${data.temperature || ''}|${data.top_p || ''}`;
+  } else {
+    // 角色卡 (Character card)
+    const desc = cleanStr(data.description);
+    const first = cleanStr(data.first_mes);
+    const personality = cleanStr(data.personality);
+    const scenario = cleanStr(data.scenario);
+    const mesExample = cleanStr(data.mes_example);
+    const systemPrompt = cleanStr(data.system_prompt);
+    const creatorNotes = cleanStr(data.creator_notes);
+
+    const altGreetings = Array.isArray(data.alternate_greetings) 
+      ? data.alternate_greetings.map(cleanStr).sort().join(';;') 
+      : '';
+
+    const entries = data.character_book?.entries || data.extensions?.character_book?.entries || [];
+    const entList = Array.isArray(entries) ? entries : Object.values(entries || {});
+    const wbStr = entList.map((e: any) => 
+      `${Array.isArray(e.keys) ? e.keys.map(cleanStr).join(',') : cleanStr(e.keys || e.key)}::${cleanStr(e.content || e.text)}`
+    ).sort().join(';;');
+
+    signature = `char:${desc}###${first}###${personality}###${scenario}###${mesExample}###${systemPrompt}###${creatorNotes}###${altGreetings}###${wbStr}`;
   }
 
-  // 角色卡 (Character card)
-  const desc = cleanStr(data.description);
-  const first = cleanStr(data.first_mes);
-  const personality = cleanStr(data.personality);
-  const scenario = cleanStr(data.scenario);
-  const mesExample = cleanStr(data.mes_example);
-  const systemPrompt = cleanStr(data.system_prompt);
-  const creatorNotes = cleanStr(data.creator_notes);
-
-  const altGreetings = Array.isArray(data.alternate_greetings) 
-    ? data.alternate_greetings.map(cleanStr).sort().join(';;') 
-    : '';
-
-  const entries = data.character_book?.entries || data.extensions?.character_book?.entries || [];
-  const entList = Array.isArray(entries) ? entries : Object.values(entries || {});
-  const wbStr = entList.map((e: any) => 
-    `${Array.isArray(e.keys) ? e.keys.map(cleanStr).join(',') : cleanStr(e.keys || e.key)}::${cleanStr(e.content || e.text)}`
-  ).sort().join(';;');
-
-  return `char:${desc}###${first}###${personality}###${scenario}###${mesExample}###${systemPrompt}###${creatorNotes}###${altGreetings}###${wbStr}`;
+  signatureCache.set(char, signature);
+  return signature;
 }
 
-// Helper for simple avatar image retrieval with robust fallback
+// 轻量级头像渲染：对接主页相同的有界 LRU 缓存与 10KB 缩略图系统，彻底杜绝拉取全量大图造成的爆内存卡顿
 function CharAvatarImg({ char, className }: { char: CharacterCard, className: string }) {
   const defaultFallback = getFallbackAvatar(char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
   const [url, setUrl] = useState<string | undefined>(resolveAvatarUrl(char.avatarUrlFallback, char.name || char.id));
   
   useEffect(() => {
-    let objectUrl: string | null = null;
     let isMounted = true;
     if (char.localFilePath) {
       setUrl(getLocalImageUrl(char.localFilePath, char.updatedAt || char.createdAt));
-    } else if (char.avatarBlob) {
-      objectUrl = safeCreateObjectURL(char.avatarBlob);
-      if (objectUrl) setUrl(objectUrl);
-    } else if (char.hasBlobsSeparated) {
-      import('../lib/db').then(({ getCharacter }) => {
-        if (!isMounted) return;
-        getCharacter(char.id).then(fullChar => {
-          if (fullChar && fullChar.avatarBlob && isMounted) {
-            objectUrl = safeCreateObjectURL(fullChar.avatarBlob);
-            if (objectUrl) setUrl(objectUrl);
-          }
-        });
-      });
+      return;
     }
-    return () => { isMounted = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [char]);
+
+    // 1. 优先查 LRU 缩略图缓存（0ms 命中，无 DOM / GC 压力）
+    const thumbCacheKey = `${char.id}:${char.updatedAt || 0}`;
+    const cached = peekCachedUrl(thumbCacheKey);
+    if (cached) {
+      setUrl(cached);
+      return;
+    }
+
+    // 2. 如果卡片本身带了 avatarBlob，写入缓存并显示
+    if (char.avatarBlob) {
+      const blobUrl = putCachedBlobUrl(thumbCacheKey, char.avatarBlob);
+      if (blobUrl) setUrl(blobUrl);
+      return;
+    }
+
+    // 3. 走轻量缩略图库加载（仅读 10KB 缩略图，绝不读数十兆的全量卡片和历史大图）
+    getCharacterThumb(char.id).then((thumbBlob) => {
+      if (!isMounted) return;
+      if (thumbBlob) {
+        setUrl(putCachedBlobUrl(thumbCacheKey, thumbBlob));
+      }
+    }).catch(() => {});
+
+    return () => { isMounted = false; };
+  }, [char.id, char.updatedAt, char.localFilePath, char.avatarBlob]);
 
   return (
     <img 
       src={url || undefined} 
       alt={char.name} 
       className={className} 
+      loading="lazy"
+      decoding="async"
       referrerPolicy="no-referrer" 
       onError={(e) => { if (e.currentTarget.src !== defaultFallback) e.currentTarget.src = defaultFallback; }} 
     />
@@ -380,6 +405,55 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
   const refreshTriggerRef = useRef(refreshTrigger);
   const lastSignatureRef = useRef<string | null>(null);
 
+  // 实时响应核心：乐观直接清除已删除 / 已绑定的卡片，组内<=1张时立即消除该重复组，0秒延迟、不转圈！
+  const removeCardsOptimistically = useCallback((idsToRemove: string | string[]) => {
+    const removeSet = new Set(Array.isArray(idsToRemove) ? idsToRemove : [idsToRemove]);
+    if (removeSet.size === 0) return;
+
+    setDuplicateGroups(prevGroups => {
+      const nextGroups: DuplicateGroup[] = [];
+      for (const group of prevGroups) {
+        const remainingChars = group.characters.filter(c => !removeSet.has(c.char.id));
+        // 组内剩余多于1张卡时仍为重复组；若只剩1张或0张，说明重复已解决，整组立即消除！
+        if (remainingChars.length > 1) {
+          nextGroups.push({
+            ...group,
+            characters: remainingChars,
+          });
+        }
+      }
+      return nextGroups;
+    });
+
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      removeSet.forEach(id => next.delete(id));
+      return next;
+    });
+  }, []);
+
+  // 实时响应：监听卡片绑定、QR绑定、回收站删除等全局删除事件，立即在查重列表中清除，0秒延迟！
+  useEffect(() => {
+    const handleSingleDelete = (e: any) => {
+      const id = e.detail?.id;
+      if (id) {
+        removeCardsOptimistically(id);
+      }
+    };
+    const handleBulkDelete = (e: any) => {
+      const ids = e.detail?.ids;
+      if (Array.isArray(ids) && ids.length > 0) {
+        removeCardsOptimistically(ids);
+      }
+    };
+    window.addEventListener('characterDeleted', handleSingleDelete);
+    window.addEventListener('charactersDeleted', handleBulkDelete);
+    return () => {
+      window.removeEventListener('characterDeleted', handleSingleDelete);
+      window.removeEventListener('charactersDeleted', handleBulkDelete);
+    };
+  }, [removeCardsOptimistically]);
+
   const loadDuplicates = useCallback(async (showSpinner: boolean = true) => {
     if (showSpinner) setLoading(true);
     lastScanAtRef.current = Date.now();
@@ -394,24 +468,34 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
       setDuplicateGroups(filteredGroups);
       setLoading(false);
 
-      // 文件夹路径只是展示用的附加信息, 放到列表渲染之后再补, 不要拖着首屏转圈。
+      // 文件夹路径：一次性读取文件夹并在内存中构建映射，极大节省 IndexedDB 往返开销
       try {
-        const { resolveFolderPath } = await import('../lib/db');
+        const { getFolders } = await import('../lib/db');
+        const folders = await getFolders();
+        const fMap = new Map<string, any>();
+        folders.forEach(f => fMap.set(f.id, f));
+        
         const pathCache = new Map<string, string>();
+        const getPath = (fId?: string | null) => {
+          if (!fId) return "主页 未分类";
+          if (pathCache.has(fId)) return pathCache.get(fId)!;
+          const parts: string[] = [];
+          let cur: string | undefined | null = fId;
+          while (cur) {
+            const f = fMap.get(cur);
+            if (!f) break;
+            parts.unshift(f.name);
+            cur = f.parentId;
+          }
+          const res = parts.length > 0 ? parts.join('/') : "主页 未分类";
+          pathCache.set(fId, res);
+          return res;
+        };
+
         const pathMap: Record<string, string> = {};
         for (const group of filteredGroups) {
           for (const item of group.characters) {
-            const folderId = item.char.folderId;
-            if (!folderId) {
-              pathMap[item.char.id] = "主页 未分类";
-              continue;
-            }
-            let path = pathCache.get(folderId);
-            if (path === undefined) {
-              path = await resolveFolderPath(folderId);
-              pathCache.set(folderId, path);
-            }
-            pathMap[item.char.id] = path;
+            pathMap[item.char.id] = getPath(item.char.folderId);
           }
         }
         setFolderPathMap(pathMap);
@@ -430,20 +514,16 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
     loadDuplicates();
   }, [loadDuplicates]);
 
-  // App 里的 refreshKey 会在"卡片数据变化 / 详情页关闭"时变化。查重面板在详情页
-  // 打开时不会卸载，所以这里必须跟着重新扫描一次；否则刚被移进回收站或归档成历史
-  // 版本的卡片会一直留在重复卡列表里（看起来像"已经放进回收站却还在 app 里"）。
+  // App 里的 refreshKey 会在"卡片数据变化 / 详情页关闭"时变化。
+  // 面板内部或详情页绑定的删除已经通过实时事件在界面上消除了，这里仅做后台静默防抖更新，绝不弹出阻塞大转圈
   useEffect(() => {
     if (refreshTrigger === undefined || refreshTriggerRef.current === refreshTrigger) return;
     refreshTriggerRef.current = refreshTrigger;
     const timer = setTimeout(async () => {
-      // 面板自己的删除 / 合并已经立即重新扫过一遍了，这里不再重复扫
-      if (Date.now() - lastScanAtRef.current < 600) return;
-      // 卡片数据其实没变（例如只是关掉详情页、切了下文件夹）就直接跳过，
-      // 一次扫描都不跑，大卡库下也不会反复卡顿。
+      if (Date.now() - lastScanAtRef.current < 1000) return;
       if ((await computeMetaSignature()) === lastSignatureRef.current) return;
       loadDuplicates(false);
-    }, 400);
+    }, 600);
     return () => clearTimeout(timer);
   }, [refreshTrigger, loadDuplicates]);
 
@@ -453,8 +533,13 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
       return;
     }
     if (confirm('确定要删除此重复角色吗？')) {
-      await deleteCharacter(id);
-      loadDuplicates();
+      // 实时响应：立即在界面上消除该卡及已解决的组，零等待！
+      removeCardsOptimistically(id);
+      try {
+        await deleteCharacter(id);
+      } catch (err) {
+        console.error("删除失败:", err);
+      }
     }
   };
 
@@ -600,19 +685,25 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
 
     if (!confirm(`确定要保留此卡，合并其他未锁定卡片的快捷回复(QR)、替换头像、AI简介、来源链接和标签，并删除其他卡片吗？${lockNotice}${folderNotice}`)) return;
 
-    await mergeAndSave(keptChar, otherChars);
+    const delIds = otherChars.map(c => c.id);
+    // 实时响应：立即将组内已合并的副版本卡片从界面清除，当前组直接标记已解决并消除！
+    removeCardsOptimistically(delIds);
 
-    const { deleteCharactersBulk, getChatsForCharacter, saveChat } = await import('../lib/db');
-    for (const charToDel of otherChars) {
-       const chats = await getChatsForCharacter(charToDel.id);
-       for (const chat of chats) {
-          chat.characterId = keptChar.id;
-          await saveChat(chat);
-       }
+    try {
+      await mergeAndSave(keptChar, otherChars);
+
+      const { deleteCharactersBulk, getChatsForCharacter, saveChat } = await import('../lib/db');
+      for (const charToDel of otherChars) {
+         const chats = await getChatsForCharacter(charToDel.id);
+         for (const chat of chats) {
+            chat.characterId = keptChar.id;
+            await saveChat(chat);
+         }
+      }
+      await deleteCharactersBulk(delIds);
+    } catch (e) {
+      console.error("合并删除出错:", e);
     }
-    await deleteCharactersBulk(otherChars.map(c => c.id));
-
-    loadDuplicates();
   };
 
   const toggleSelection = (id: string) => {
@@ -692,54 +783,56 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
     const validSelectedSet = new Set(validIds);
 
     if (confirm(`确定要删除选中的 ${validIds.length} 张重复副本吗？\n（已自动跳过并保护锁定的卡片；相同副本的聊天与拓展配置将自动合并至其对应的保留卡片）`)) {
-      setLoading(true);
-
-      for (const group of duplicateGroups) {
-        const charsToDelete = group.characters.map(c => c.char).filter(c => validSelectedSet.has(c.id));
-        const charsToKeep = group.characters.map(c => c.char).filter(c => !validSelectedSet.has(c.id));
-
-        if (charsToDelete.length > 0) {
-          const { deleteCharactersBulk, getChatsForCharacter, saveChat } = await import('../lib/db');
-
-          if (charsToKeep.length > 0) {
-            // 对待删除卡片进行智能归属匹配：
-            // 如果有多张卡片被保留（例如新版本 1A 和旧版本 2A 同时被保留）：
-            // 待删副本 1B 归并至 1A；待删副本 2B 归并至 2A！
-            // 聊天记录和元数据对应迁移，互不混淆！
-            const deleteBuckets = new Map<string, CharacterCard[]>();
-            for (const delChar of charsToDelete) {
-              const delSig = getCardContentSignature(delChar, group.resourceType);
-              let matchedKept = charsToKeep.find(k => getCardContentSignature(k, group.resourceType) === delSig);
-              if (!matchedKept) {
-                matchedKept = charsToKeep[0];
-              }
-              const list = deleteBuckets.get(matchedKept.id) || [];
-              list.push(delChar);
-              deleteBuckets.set(matchedKept.id, list);
-            }
-
-            for (const [keptId, bucketDelChars] of deleteBuckets.entries()) {
-              const keptChar = charsToKeep.find(k => k.id === keptId);
-              if (keptChar) {
-                await mergeAndSave(keptChar, bucketDelChars);
-              }
-              for (const delChar of bucketDelChars) {
-                const chats = await getChatsForCharacter(delChar.id);
-                for (const chat of chats) {
-                  chat.characterId = keptId;
-                  await saveChat(chat);
-                }
-              }
-            }
-          }
-
-          await deleteCharactersBulk(charsToDelete.map(c => c.id));
-        }
-      }
-
+      // 实时响应：立即将界面上所有被选中的卡片及其对应的重复组清除，零等待、不转圈！
+      removeCardsOptimistically(validIds);
       setSelectedIds(new Set());
       setSelectionMode(false);
-      await loadDuplicates();
+
+      // 后台异步执行合并与彻底删除，绝不出现卡死或大转圈
+      (async () => {
+        try {
+          for (const group of duplicateGroups) {
+            const charsToDelete = group.characters.map(c => c.char).filter(c => validSelectedSet.has(c.id));
+            const charsToKeep = group.characters.map(c => c.char).filter(c => !validSelectedSet.has(c.id));
+
+            if (charsToDelete.length > 0) {
+              const { deleteCharactersBulk, getChatsForCharacter, saveChat } = await import('../lib/db');
+
+              if (charsToKeep.length > 0) {
+                const deleteBuckets = new Map<string, CharacterCard[]>();
+                for (const delChar of charsToDelete) {
+                  const delSig = getCardContentSignature(delChar, group.resourceType);
+                  let matchedKept = charsToKeep.find(k => getCardContentSignature(k, group.resourceType) === delSig);
+                  if (!matchedKept) {
+                    matchedKept = charsToKeep[0];
+                  }
+                  const list = deleteBuckets.get(matchedKept.id) || [];
+                  list.push(delChar);
+                  deleteBuckets.set(matchedKept.id, list);
+                }
+
+                for (const [keptId, bucketDelChars] of deleteBuckets.entries()) {
+                  const keptChar = charsToKeep.find(k => k.id === keptId);
+                  if (keptChar) {
+                    await mergeAndSave(keptChar, bucketDelChars);
+                  }
+                  for (const delChar of bucketDelChars) {
+                    const chats = await getChatsForCharacter(delChar.id);
+                    for (const chat of chats) {
+                      chat.characterId = keptId;
+                      await saveChat(chat);
+                    }
+                  }
+                }
+              }
+
+              await deleteCharactersBulk(charsToDelete.map(c => c.id));
+            }
+          }
+        } catch (e) {
+          console.error("批量删除失败:", e);
+        }
+      })();
     }
   };
 
@@ -782,6 +875,13 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
   }, [currentTabGroups, typeFilter]);
 
   const totalPages = Math.ceil(currentGroups.length / pageSize) || 1;
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
   const paginatedGroups = React.useMemo(
     () => currentGroups.slice((page - 1) * pageSize, page * pageSize),
     [currentGroups, page]

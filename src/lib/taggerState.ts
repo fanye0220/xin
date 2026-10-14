@@ -57,51 +57,58 @@ class TaggerState {
   }
 
   async loadCharacters() {
-    const response = await getCharacters(1, 10000, 'all', '', [], 'newest_import', false, true);
-    const allChars = response.characters;
+    const { getCachedMeta } = await import('./db');
+    const allMeta = await getCachedMeta();
     
     this.untaggedCharacters = [];
     this.taggedCharacters = [];
     this.unsummarizedCharacters = [];
     this.summarizedCharacters = [];
 
-    allChars.forEach(c => {
+    allMeta.forEach(m => {
       // 1. Skip soft-deleted / trash characters
-      if (c.deletedAt) return;
+      if (m.deletedAt) return;
 
       // 2. Skip tool / QR / non-character cards
-      if (c.isTool || c.isQR || (c.category && c.category !== '未归类')) return;
-
-      const data = c.data?.data || c.data || {};
-      const rawData = c.data || {};
+      if (m.isTool || m.isQR || (m.category && m.category !== '未归类')) return;
 
       // 3. Skip empty ghost cards without character content
-      const charName = c.name || data.name || data.char_name;
-      if (!charName || (!data.description && !data.scenario && !data.first_mes && !data.creator_notes && Object.keys(rawData).length === 0)) {
-        return;
-      }
+      const charName = m.name;
+      if (!charName) return;
 
-      const isPreset = !!(rawData.prompts || rawData.temperature !== undefined || rawData.top_p !== undefined);
-      const isStandaloneWorldbook = rawData.entries !== undefined;
-      const isTheme = rawData.blur_strength !== undefined || rawData.main_text_color !== undefined || rawData.chat_display !== undefined;
-      const isQR = Array.isArray(rawData) ? rawData.length > 0 && rawData[0]?.label !== undefined : (rawData.quick_replies !== undefined || rawData.qrList !== undefined);
-      const isScript = rawData.type === 'script' && rawData.content !== undefined && rawData.name !== undefined;
-      const tags = (Array.isArray(data.tags) ? data.tags : c.tags) || [];
+      const tags = m.tags || [];
       const isBeautify = tags.some((t: string) => t.includes('美化') || t.includes('预设') || t.includes('UI') || t.includes('主题') || t.includes('工具') || t.includes('插件') || t.includes('正则') || t.includes('组件') || t.includes('工作流'));
-      
-      if (isPreset || isBeautify || isStandaloneWorldbook || isTheme || isQR || isScript) return;
-      
+      if (isBeautify) return;
+
+      const lightweightChar: any = {
+        id: m.id,
+        name: m.name,
+        tags: m.tags || [],
+        aiSummary: m.aiSummary,
+        category: m.category,
+        avatarUrlFallback: m.avatarUrlFallback,
+        localFilePath: m.localFilePath,
+        hasBlobsSeparated: m.hasBlobsSeparated,
+        updatedAt: m.updatedAt,
+        createdAt: m.createdAt,
+        data: {
+          name: m.name,
+          tags: m.tags || [],
+          aiSummary: m.aiSummary
+        }
+      };
+
       if (!tags || tags.length === 0) {
-        this.untaggedCharacters.push(c);
+        this.untaggedCharacters.push(lightweightChar);
       } else {
-        this.taggedCharacters.push(c);
+        this.taggedCharacters.push(lightweightChar);
       }
 
-      const summary = c.aiSummary || data.aiSummary || rawData.aiSummary;
+      const summary = m.aiSummary;
       if (!summary) {
-        this.unsummarizedCharacters.push(c);
+        this.unsummarizedCharacters.push(lightweightChar);
       } else {
-        this.summarizedCharacters.push(c);
+        this.summarizedCharacters.push(lightweightChar);
       }
     });
 
@@ -184,12 +191,19 @@ class TaggerState {
       if (this.stopRequested) break;
 
       const batch = charsToProcess.slice(i, i + API_BATCH_SIZE);
+      const fullBatch = await Promise.all(
+        batch.map(async (c) => {
+          if (c.data?.description || c.data?.first_mes) return c;
+          const full = await getCharacter(c.id);
+          return full || c;
+        })
+      );
       
       try {
-        const tagsList = await generateTagsForCharacters(batch);
+        const tagsList = await generateTagsForCharacters(fullBatch);
 
-        for (let j = 0; j < batch.length; j++) {
-          const char = batch[j];
+        for (let j = 0; j < fullBatch.length; j++) {
+          const char = fullBatch[j];
           const tags = tagsList[j];
 
           if (tags && tags.length > 0) {
@@ -348,19 +362,26 @@ class TaggerState {
       if (this.stopRequested) break;
 
       const batch = charsToProcess.slice(i, i + API_BATCH_SIZE);
+      const fullBatch = await Promise.all(
+        batch.map(async (c) => {
+          if (c.data?.description || c.data?.first_mes) return c;
+          const full = await getCharacter(c.id);
+          return full || c;
+        })
+      );
       
       try {
-        const tagsList = await generateTagsForCharacters(batch);
+        const tagsList = await generateTagsForCharacters(fullBatch);
 
-        for (let j = 0; j < batch.length; j++) {
-          const char = batch[j];
+        for (let j = 0; j < fullBatch.length; j++) {
+          const char = fullBatch[j];
           const tags = tagsList[j];
 
           if (tags && tags.length > 0) {
             const updatedChar = { ...char };
-            if (updatedChar.data.data) {
+            if (updatedChar.data?.data) {
               updatedChar.data.data.tags = tags;
-            } else {
+            } else if (updatedChar.data) {
               updatedChar.data.tags = tags;
             }
             await saveCharacter(updatedChar);

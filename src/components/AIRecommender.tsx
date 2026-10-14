@@ -145,26 +145,17 @@ export function AIRecommender({ onClose, onSelectChar, onOpenSettings }: { onClo
 
     try {
       addLog('开始分析您的需求...');
-      const { getCachedMeta } = await import('../lib/db');
-      const allowedMeta = (await getCachedMeta()).filter(c => !c.deletedAt && !c.isTool && !c.isQR);
-      const allowedIds = new Set(allowedMeta.map(c => c.id));
+      const { getCachedMeta, getCharacter } = await import('../lib/db');
+      const allowedMeta = (await getCachedMeta()).filter(
+        c => !c.deletedAt && !c.isTool && !c.isQR && (!c.category || c.category === '未归类')
+      );
 
-      const response = await getCharacters(1, 10000, 'all', '', [], 'newest_import', false);
-      let allChars = response.characters;
-
-      // 先用 char_meta 的分类标记排除工具/美化/预设/世界书/快捷回复等非角色卡，
-      // 避免这些卡因为也带有 name + description + tags 而被下面的角色结构判断漏掉。
-      allChars = allChars.filter(c => allowedIds.has(c.id));
-
-      // 过滤掉非角色卡
-      allChars = allChars.filter(c => isActualCharacterCard(c.data));
-
-      if (allChars.length === 0) {
+      if (allowedMeta.length === 0) {
         addLog('本地角色库为空或没有符合条件的角色，无法进行推荐。', 'error');
         setIsSearching(false);
         return;
       }
-      addLog(`已加载本地角色库，共 ${allChars.length} 个角色。`);
+      addLog(`已加载本地角色库，共 ${allowedMeta.length} 个角色。`);
 
       // 1. Extract keywords from user prompt
       addLog('正在向 AI 请求提取核心关键词...');
@@ -173,49 +164,48 @@ export function AIRecommender({ onClose, onSelectChar, onOpenSettings }: { onClo
       addLog(`提取到关键词: [${keywords.join(', ')}]`, 'success');
 
       // 2. Score characters based on keywords with priority for tags & AI summary
-      const taggedCount = allChars.filter(c => {
-        const d = c.data?.data || c.data || {};
-        const tags = d.tags || c.tags;
-        const summary = c.aiSummary || d.aiSummary;
-        return (Array.isArray(tags) && tags.length > 0) || (typeof summary === 'string' && summary.trim().length > 0);
-      }).length;
+      const taggedCount = allowedMeta.filter(m => (m.tags && m.tags.length > 0) || (typeof m.aiSummary === 'string' && m.aiSummary.trim().length > 0)).length;
 
       if (taggedCount > 0) {
-        addLog(`检测到 ${taggedCount} 个角色包含标签或 AI 简介，优先极速读取标签与简介匹配（未打标角色扫描完整人设）...`);
+        addLog(`检测到 ${taggedCount} 个角色包含标签或 AI 简介，优先极速读取标签与简介匹配...`);
       } else {
         addLog('正在本地角色库中匹配相关角色设定...');
       }
 
-      const scored = allChars.map(c => {
-        const d = c.data?.data || c.data || {};
-        const name = (c.name || d.name || d.char_name || '').toLowerCase();
-        const tags = (Array.isArray(d.tags) ? d.tags : Array.isArray(c.tags) ? c.tags : []).join(' ').toLowerCase();
-        const summary = (c.aiSummary || d.aiSummary || '').toLowerCase();
+      const scored = allowedMeta.map(m => {
+        const name = (m.name || '').toLowerCase();
+        const tags = (m.tags || []).join(' ').toLowerCase();
+        const summary = (m.aiSummary || '').toLowerCase();
         
         let score = 0;
-        const hasTagOrSummary = tags.length > 0 || summary.length > 0;
+        keywords.forEach(k => {
+          const kLow = k.toLowerCase();
+          if (name.includes(kLow)) score += 5;
+          if (tags.includes(kLow)) score += 4;
+          if (summary.includes(kLow)) score += 3;
+        });
         
-        if (hasTagOrSummary) {
-          // 优先极速匹配标签与 AI 简介（提炼精华，匹配更快且权重更高）
-          keywords.forEach(k => {
-            const kLow = k.toLowerCase();
-            if (name.includes(kLow)) score += 5;
-            if (tags.includes(kLow)) score += 4;
-            if (summary.includes(kLow)) score += 3;
-          });
-        } else {
-          // 未打标角色：按原来的扫描完整设定、性格、场景与开场白
-          const fullText = `${name} ${d.description || d.char_persona || ''} ${d.personality || ''} ${d.scenario || ''} ${d.first_mes || ''}`.toLowerCase();
-          keywords.forEach(k => {
-            const kLow = k.toLowerCase();
-            if (fullText.includes(kLow)) score += 2;
-          });
-        }
-        
-        return { char: c, score };
+        return { meta: m, score };
       }).sort((a, b) => b.score - a.score).slice(0, 30);
 
-      const candidates = scored.length > 0 ? scored.map(s => s.char) : allChars.slice(0, 30);
+      const topMetas = (scored.length > 0 ? scored.map(s => s.meta) : allowedMeta.slice(0, 30));
+
+      // 按需仅调取前 30 个候选角色的完整人设数据，彻底杜绝拉取全库几万张大卡爆内存
+      const candidateList = await Promise.all(
+        topMetas.map(async m => {
+          const full = await getCharacter(m.id);
+          return full || ({
+            id: m.id,
+            name: m.name,
+            tags: m.tags || [],
+            aiSummary: m.aiSummary,
+            avatarUrlFallback: m.avatarUrlFallback,
+            data: { name: m.name, tags: m.tags || [], aiSummary: m.aiSummary }
+          } as any);
+        })
+      );
+
+      const candidates = candidateList.filter(c => isActualCharacterCard(c.data));
       addLog(`初步筛选出 ${candidates.length} 个候选角色，正在请求 AI 进行深度评估...`);
 
       // 3. Ask AI to recommend from the candidates

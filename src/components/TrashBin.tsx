@@ -1,8 +1,17 @@
-import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
-import React, { useState, useEffect, useRef } from 'react';
+import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Trash2, RotateCcw, X, AlertTriangle, CheckCircle2, CheckCircle, Check, CheckSquare } from 'lucide-react';
-import { CharacterCard, getTrashedCharacters, restoreCharacter, deleteCharacter, emptyTrash, cleanupOldTrash } from '../lib/db';
+import { Trash2, RotateCcw, X, AlertTriangle, CheckCircle2, Check } from 'lucide-react';
+import { 
+  CharacterCard, 
+  getTrashedCharacters, 
+  restoreCharacter, 
+  deleteCharactersBulk, 
+  cleanupOldTrash, 
+  getCharacterThumb 
+} from '../lib/db';
+import { peekCachedUrl, putCachedBlobUrl } from '../lib/thumbCache';
+import { getLocalImageUrl } from '../lib/appBridge';
 
 interface Props {
   onClose: () => void;
@@ -13,47 +22,52 @@ const TrashedCharacterCard = ({
   selectionMode, 
   isSelected, 
   onToggleSelect,
-  index = 0,
 }: { 
   key?: React.Key, 
   char: CharacterCard, 
   selectionMode: boolean,
   isSelected: boolean,
   onToggleSelect: (id: string) => void,
-  index?: number,
 }) => {
   const defaultFallback = getFallbackAvatar(char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
-  const [avatarUrl, setAvatarUrl] = useState<string>(resolveAvatarUrl(char.avatarUrlFallback, char.name || char.id));
+  const [avatarUrl, setAvatarUrl] = useState<string>(() => resolveAvatarUrl(char.avatarUrlFallback, char.name || char.id));
 
+  // 高性能轻量缩略图加载：对接 LRU 缓存与 10KB 缩略图库，杜绝拉取全量大卡片造成爆内存
   useEffect(() => {
-    let url: string | undefined;
     let isMounted = true;
     
     if (char.localFilePath) {
-      import('../lib/appBridge').then(({ getLocalImageUrl }) => {
-         if (isMounted) setAvatarUrl(getLocalImageUrl(char.localFilePath!, char.updatedAt || char.createdAt));
-      });
-    } else if (char.avatarBlob) {
-      url = safeCreateObjectURL(char.avatarBlob);
-      if (url) setAvatarUrl(url);
-    } else if (char.hasBlobsSeparated) {
-      import('../lib/db').then(({ getCharacter }) => {
-        getCharacter(char.id).then(fullChar => {
-          if (fullChar && fullChar.avatarBlob && isMounted) {
-             const objectUrl = safeCreateObjectURL(fullChar.avatarBlob);
-             if (objectUrl) setAvatarUrl(objectUrl);
-          }
-        });
-      });
+      setAvatarUrl(getLocalImageUrl(char.localFilePath, char.updatedAt || char.createdAt));
+      return;
     }
-    
+
+    const thumbCacheKey = `${char.id}:${char.updatedAt || 0}`;
+    const cached = peekCachedUrl(thumbCacheKey);
+    if (cached) {
+      setAvatarUrl(cached);
+      return;
+    }
+
+    if (char.avatarBlob) {
+      const blobUrl = putCachedBlobUrl(thumbCacheKey, char.avatarBlob);
+      if (blobUrl) setAvatarUrl(blobUrl);
+      return;
+    }
+
+    // 走 10KB 缩略图库加载
+    getCharacterThumb(char.id).then((thumbBlob) => {
+      if (!isMounted) return;
+      if (thumbBlob) {
+        setAvatarUrl(putCachedBlobUrl(thumbCacheKey, thumbBlob));
+      }
+    }).catch(() => {});
+
     return () => {
       isMounted = false;
-      if (url) URL.revokeObjectURL(url);
     };
-  }, [char.avatarBlob, char.id, char.hasBlobsSeparated, char.localFilePath]);
+  }, [char.id, char.updatedAt, char.localFilePath, char.avatarBlob]);
 
-  const daysLeft = Math.ceil((7 * 24 * 60 * 60 * 1000 - (Date.now() - (char.deletedAt || 0))) / (1000 * 60 * 60 * 24));
+  const daysLeft = Math.max(1, Math.ceil((7 * 24 * 60 * 60 * 1000 - (Date.now() - (char.deletedAt || 0))) / (1000 * 60 * 60 * 24)));
 
   const longPressRef = useRef<{
     timer: NodeJS.Timeout | null;
@@ -100,6 +114,8 @@ const TrashedCharacterCard = ({
 
   return (
     <motion.div 
+      layout
+      transition={{ duration: 0.18, ease: "easeOut" }}
       onClick={(e) => {
         if (longPressRef.current.triggered || Date.now() - (longPressRef.current.lastTriggerTime || 0) < 600) {
           e.preventDefault();
@@ -138,22 +154,23 @@ const TrashedCharacterCard = ({
         if (Date.now() - (longPressRef.current.lastTriggerTime || 0) < 800) return;
         onToggleSelect(char.id);
       }}
-      className={`relative flex items-center gap-3 sm:gap-4 p-3.5 sm:p-4 rounded-2xl transition-all duration-200 group active:scale-[0.98] select-none border-none outline-none ${
-        selectionMode ? 'cursor-pointer' : 'cursor-default'
+      className={`relative flex items-center gap-3 sm:gap-4 p-3 sm:p-3.5 rounded-2xl transition-all duration-150 group select-none border-none outline-none ${
+        selectionMode ? 'cursor-pointer active:scale-[0.98]' : 'cursor-default'
       } ${
         isSelected
           ? 'bg-white/20 [.light-theme_&]:!bg-[#e2e8f0]'
-          : 'bg-white/[0.09] hover:bg-white/[0.13] [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc]'
+          : 'bg-white/[0.08] hover:bg-white/[0.12] [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc]'
       } [.light-theme_&]:!shadow-[0_1px_4px_rgba(0,0,0,0.03)]`}
     >
       {/* Full-card dark dimming overlay on selection */}
       {isSelected && (
-        <div className="absolute inset-0 rounded-2xl z-20 pointer-events-none transition-all bg-black/65 [.light-theme_&]:!bg-slate-900/35" />
+        <div className="absolute inset-0 rounded-2xl z-20 pointer-events-none transition-all bg-black/60 [.light-theme_&]:!bg-slate-900/35" />
       )}
 
+      {/* 头像 */}
       <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden shrink-0 bg-black/30 [.light-theme_&]:!bg-[#f1f5f9] border-none shadow-none relative">
         <img 
-          src={avatarUrl || undefined} 
+          src={avatarUrl || defaultFallback} 
           alt={char.name} 
           className="w-full h-full object-cover pointer-events-none" 
           referrerPolicy="no-referrer"
@@ -164,14 +181,19 @@ const TrashedCharacterCard = ({
           }}
         />
       </div>
+
+      {/* 卡片信息 */}
       <div className="flex-1 min-w-0 pr-1">
-        <h3 className="font-semibold text-white [.light-theme_&]:!text-[#0f172a] truncate text-sm sm:text-base leading-snug">{char.name}</h3>
+        <h3 className="font-semibold text-white [.light-theme_&]:!text-[#0f172a] truncate text-sm sm:text-base leading-snug">
+          {char.name}
+        </h3>
         <p className="text-[11px] sm:text-xs text-red-400/90 [.light-theme_&]:!text-[#dc2626] mt-0.5 sm:mt-1 flex items-center gap-1 font-medium">
           <AlertTriangle className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
           <span className="truncate">{daysLeft} 天后永久删除</span>
         </p>
       </div>
 
+      {/* 选择模式单选框 */}
       {selectionMode && (
         <div className="shrink-0 z-30 ml-2">
           {isSelected ? (
@@ -190,43 +212,60 @@ const TrashedCharacterCard = ({
 export function TrashBin({ onClose }: Props) {
   const [trashedCharacters, setTrashedCharacters] = useState<CharacterCard[]>([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
+  const [displayLimit, setDisplayLimit] = useState(30);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [isLightMode, setIsLightMode] = useState(() => 
-    typeof document !== 'undefined' && document.documentElement.classList.contains('light-theme')
-  );
 
-  useEffect(() => {
-    const checkTheme = () => {
-      setIsLightMode(document.documentElement.classList.contains('light-theme'));
-    };
-    checkTheme();
-    const observer = new MutationObserver(checkTheme);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-    return () => observer.disconnect();
-  }, []);
-  const pageSize = 20;
-
-  const loadTrash = async () => {
-    setLoading(true);
-    await cleanupOldTrash();
-    const data = await getTrashedCharacters();
-    setTrashedCharacters(data);
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    loadTrash();
-  }, []);
-
-  const handleEmptyTrash = async () => {
-    if (confirm('确定要清空回收站吗？所有角色将被永久删除。')) {
-      await emptyTrash();
-      loadTrash();
+  // 极速加载：使用元数据快照，0ms 响应，告别卡死与转圈
+  const loadTrash = useCallback(async (showSpinner: boolean = true) => {
+    if (showSpinner) setLoading(true);
+    try {
+      await cleanupOldTrash();
+      const data = await getTrashedCharacters(false);
+      setTrashedCharacters(data);
+    } catch (e) {
+      console.error("加载回收站失败:", e);
+    } finally {
+      if (showSpinner) setLoading(false);
     }
-  };
+  }, []);
 
+  useEffect(() => {
+    loadTrash(true);
+  }, [loadTrash]);
+
+  // 实时响应核心：乐观直接清除，0秒延迟、不转圈！
+  const removeCardsOptimistically = useCallback((idsToRemove: string | string[]) => {
+    const removeSet = new Set(Array.isArray(idsToRemove) ? idsToRemove : [idsToRemove]);
+    if (removeSet.size === 0) return;
+
+    setTrashedCharacters(prev => prev.filter(c => !removeSet.has(c.id)));
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      removeSet.forEach(id => next.delete(id));
+      if (next.size === 0) {
+        setSelectionMode(false);
+      }
+      return next;
+    });
+  }, []);
+
+  // 实时响应：监听外部删除/恢复事件
+  useEffect(() => {
+    const handleCharacterChange = () => {
+      // 外部有变动时后台静默刷新
+      loadTrash(false);
+    };
+
+    window.addEventListener('characterRestored', handleCharacterChange);
+    window.addEventListener('charactersUpdated', handleCharacterChange);
+    return () => {
+      window.removeEventListener('characterRestored', handleCharacterChange);
+      window.removeEventListener('charactersUpdated', handleCharacterChange);
+    };
+  }, [loadTrash]);
+
+  // 选择切换
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -241,6 +280,7 @@ export function TrashBin({ onClose }: Props) {
     });
   };
 
+  // 全选/取消全选
   const handleSelectAll = () => {
     if (selectedIds.size === trashedCharacters.length) {
       setSelectedIds(new Set());
@@ -251,36 +291,49 @@ export function TrashBin({ onClose }: Props) {
     }
   };
 
+  // 批量恢复：实时响应，立即剔除选中的卡片，后台异步执行
   const handleBatchRestore = async () => {
     if (selectedIds.size === 0) return;
-    if (confirm(`确定要恢复选中的 ${selectedIds.size} 个角色吗？`)) {
-      setLoading(true);
-      for (const id of selectedIds) {
-        await restoreCharacter(id);
-      }
-      setSelectedIds(new Set());
+    const targetIds = Array.from(selectedIds);
+    if (confirm(`确定要恢复选中的 ${targetIds.length} 个角色吗？`)) {
+      removeCardsOptimistically(targetIds);
       setSelectionMode(false);
-      await loadTrash();
+      setSelectedIds(new Set());
+
+      (async () => {
+        try {
+          for (const id of targetIds) {
+            await restoreCharacter(id);
+          }
+        } catch (e) {
+          console.error("批量恢复角色出错:", e);
+          loadTrash(false);
+        }
+      })();
     }
   };
 
+  // 批量永久删除：实时响应，立即剔除选中的卡片，后台异步执行
   const handleBatchHardDelete = async () => {
     if (selectedIds.size === 0) return;
-    if (confirm(`确定要将选中的 ${selectedIds.size} 个角色永久删除吗？此操作不可撤销！`)) {
-      setLoading(true);
-      // 批量操作保留 miu 这边的批量原生接口(只查一次全部角色、只调一次
-      // 原生批量接口, 而不是安卓那边一个个 deleteCharacter(id) 循环删),
-      // 但不再"乐观更新": 老实等它真正删完, 用数据库真实结果刷新列表。
-      const { deleteCharactersBulk } = await import('../lib/db');
-      await deleteCharactersBulk(Array.from(selectedIds));
-      setSelectedIds(new Set());
+    const targetIds = Array.from(selectedIds);
+    if (confirm(`确定要将选中的 ${targetIds.length} 个角色永久删除吗？此操作不可撤销！`)) {
+      removeCardsOptimistically(targetIds);
       setSelectionMode(false);
-      await loadTrash();
+      setSelectedIds(new Set());
+
+      (async () => {
+        try {
+          await deleteCharactersBulk(targetIds);
+        } catch (e) {
+          console.error("批量彻底删除出错:", e);
+          loadTrash(false);
+        }
+      })();
     }
   };
 
-  const totalPages = Math.ceil(trashedCharacters.length / pageSize);
-  const paginatedChars = trashedCharacters.slice((page - 1) * pageSize, page * pageSize);
+  const visibleChars = trashedCharacters.slice(0, displayLimit);
 
   return (
     <motion.div
@@ -311,14 +364,22 @@ export function TrashBin({ onClose }: Props) {
               {selectionMode ? `已选择 ${selectedIds.size} 项` : '回收站'}
             </h2>
             <p className="text-xs text-white/50 [.light-theme_&]:!text-[#64748b] truncate">
-              {selectionMode ? '请确认对选中项的操作' : '已删除的角色将在此保留7天'}
+              {selectionMode ? '请确认对选中项的操作' : `共 ${trashedCharacters.length} 个角色 · 保留7天后彻底清除`}
             </p>
           </div>
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <div className={`flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar max-w-5xl w-full mx-auto ${selectionMode ? 'pb-28 sm:pb-32' : 'pb-8 sm:pb-12'}`}>
+      {/* Main Content Area - 流畅自然滚动，杜绝生硬分页按钮 */}
+      <div 
+        onScroll={(e) => {
+          const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+          if (scrollHeight - scrollTop - clientHeight < 120) {
+            setDisplayLimit(prev => Math.min(trashedCharacters.length, prev + 30));
+          }
+        }}
+        className={`flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar max-w-5xl w-full mx-auto ${selectionMode ? 'pb-28 sm:pb-32' : 'pb-8 sm:pb-12'}`}
+      >
         {loading ? (
           <div className="flex flex-col items-center justify-center h-64 text-white/40 [.light-theme_&]:!text-[#64748b]">
             <div className="w-8 h-8 border-2 border-white/40 border-t-white [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!border-t-[#0f172a] rounded-full animate-spin mb-4" />
@@ -331,12 +392,11 @@ export function TrashBin({ onClose }: Props) {
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {paginatedChars.map((char, index) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+              {visibleChars.map((char) => (
                 <TrashedCharacterCard 
                   key={char.id} 
                   char={char}
-                  index={index}
                   selectionMode={selectionMode}
                   isSelected={selectedIds.has(char.id)}
                   onToggleSelect={toggleSelect}
@@ -344,25 +404,9 @@ export function TrashBin({ onClose }: Props) {
               ))}
             </div>
             
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-3 pt-6 border-none">
-                <button 
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="px-3.5 py-1.5 bg-white/10 hover:bg-white/15 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f1f5f9] disabled:opacity-40 rounded-full text-xs font-semibold text-white [.light-theme_&]:!text-[#0f172a] transition cursor-pointer border-none shadow-xs"
-                >
-                  上一页
-                </button>
-                <span className="text-xs text-white/60 [.light-theme_&]:!text-[#64748b] font-medium">
-                  {page} / {totalPages}
-                </span>
-                <button 
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="px-3.5 py-1.5 bg-white/10 hover:bg-white/15 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f1f5f9] disabled:opacity-40 rounded-full text-xs font-semibold text-white [.light-theme_&]:!text-[#0f172a] transition cursor-pointer border-none shadow-xs"
-                >
-                  下一页
-                </button>
+            {visibleChars.length < trashedCharacters.length && (
+              <div className="py-4 text-center text-xs text-white/40 [.light-theme_&]:!text-slate-400 font-medium">
+                向下滚动显示更多 ({visibleChars.length} / {trashedCharacters.length})
               </div>
             )}
           </div>
@@ -414,7 +458,7 @@ export function TrashBin({ onClose }: Props) {
               >
                 <Trash2 className="w-5 h-5 stroke-[1.8]" />
                 <span className="font-medium text-[10px] leading-none tracking-tight whitespace-nowrap">
-                  删除{selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
+                  彻底删除{selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
                 </span>
               </button>
 

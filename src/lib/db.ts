@@ -811,16 +811,16 @@ export async function getFolderItemCounts(
   folderIds: string[],
 ): Promise<Record<string, number>> {
   if (folderIds.length === 0) return {};
-  const db = await initDB();
-  const tx = db.transaction("char_meta", "readonly");
-  const index = tx.store.index("by-folder");
+  const meta = await getCachedMeta();
   const counts: Record<string, number> = {};
-  await Promise.all(
-    folderIds.map(async (folderId) => {
-      const metas = await index.getAll(folderId);
-      counts[folderId] = metas.filter((m) => !m.deletedAt).length;
-    }),
-  );
+  for (const id of folderIds) {
+    counts[id] = 0;
+  }
+  for (const m of meta) {
+    if (!m.deletedAt && m.folderId && counts[m.folderId] !== undefined) {
+      counts[m.folderId]++;
+    }
+  }
   return counts;
 }
 
@@ -1113,6 +1113,7 @@ export interface CharMeta {
   tags?: string[];
   isTool?: boolean;
   category?: string;
+  aiSummary?: string;
 
   tokenCount?: number;
   permanentTokens?: number;
@@ -1132,6 +1133,9 @@ function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
     val.data?.isFavorite ||
     val.data?.favorite
   );
+
+  const summary = val.aiSummary || val.data?.aiSummary || val.data?.data?.aiSummary;
+  const aiSummary = typeof summary === "string" ? summary : undefined;
 
   let tokenCount = val.tokenCount;
   let permanentTokens = val.permanentTokens;
@@ -1158,6 +1162,7 @@ function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
     isTool,
     isQR,
     category: cat,
+    aiSummary,
     localFilePath: val.localFilePath,
     hasBlobsSeparated: val.hasBlobsSeparated,
     avatarUrlFallback: fallbackAvatar,
@@ -2261,14 +2266,27 @@ export async function deleteCharactersBulk(
   const toHardDelete: CharacterCard[] = [];
   const toSoftDelete: CharacterCard[] = [];
 
-  for (const id of ids) {
-    const char = await db.get("characters", id);
-    if (!char) continue;
-    if (char.deletedAt) {
-      toHardDelete.push(char);
-    } else {
-      char.deletedAt = Date.now();
-      toSoftDelete.push(char);
+  const READ_CHUNK = 50;
+  for (let i = 0; i < ids.length; i += READ_CHUNK) {
+    const chunkIds = ids.slice(i, i + READ_CHUNK);
+    const tx = db.transaction("characters", "readonly");
+    const chunkRows = (await Promise.all(
+      chunkIds.map((id) => tx.store.get(id)),
+    )) as (CharacterCard | undefined)[];
+    await tx.done;
+
+    for (const char of chunkRows) {
+      if (!char) continue;
+      if (char.deletedAt) {
+        toHardDelete.push(char);
+      } else {
+        char.deletedAt = Date.now();
+        toSoftDelete.push(char);
+      }
+    }
+
+    if (i + READ_CHUNK < ids.length) {
+      await new Promise((r) => setTimeout(r, 0));
     }
   }
 
@@ -2384,6 +2402,7 @@ export async function deleteCharactersBulk(
   }
   invalidateCache();
   if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("charactersDeleted", { detail: { ids } }));
     notifyCharactersUpdated();
   }
 }
@@ -2398,6 +2417,9 @@ export async function deleteCharacter(id: string): Promise<void> {
     await tx.objectStore("char_meta").delete(id);
     await tx.objectStore("blobs").delete(id);
     await tx.done;
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("characterDeleted", { detail: { id } }));
+    }
     return;
   }
 
@@ -2461,6 +2483,7 @@ export async function deleteCharacter(id: string): Promise<void> {
     }
   invalidateCache();
   if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("characterDeleted", { detail: { id } }));
     notifyCharactersUpdated();
   }
 }
@@ -2537,6 +2560,7 @@ export async function restoreCharacter(id: string): Promise<void> {
   }
   invalidateCache();
   if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("characterRestored", { detail: { id } }));
     notifyCharactersUpdated();
   }
 }
@@ -2547,6 +2571,28 @@ export async function getTrashedCharacters(
   const meta = await getCachedMeta();
   const trashedMeta = meta.filter((m) => m.deletedAt);
   trashedMeta.sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0));
+
+  // 极速构建轻量角色元数据对象：0ms 极速响应，无需拉取数十兆的全量卡片字段与历史记录，杜绝内存飙升与转圈卡顿
+  if (!includeBlobs) {
+    return trashedMeta.map((m) => ({
+      id: m.id,
+      name: m.name,
+      createdAt: m.createdAt,
+      updatedAt: m.updatedAt,
+      fileModifiedAt: m.fileModifiedAt,
+      deletedAt: m.deletedAt,
+      folderId: m.folderId,
+      isFavorite: m.isFavorite,
+      avatarUrlFallback: m.avatarUrlFallback,
+      localFilePath: m.localFilePath,
+      hasBlobsSeparated: m.hasBlobsSeparated,
+      isQR: m.isQR,
+      tags: m.tags || [],
+      isTool: m.isTool,
+      category: m.category,
+      data: {} as any,
+    }));
+  }
 
   const db = await initDB();
   const trashed: CharacterCard[] = [];
@@ -2560,15 +2606,13 @@ export async function getTrashedCharacters(
     }
   }
 
-  if (includeBlobs) {
-    for (const char of trashed) {
-      if (char.hasBlobsSeparated) {
-        const blobs = await db.get("blobs", char.id);
-        if (blobs) {
-          char.avatarBlob = blobs.avatarBlob;
-          char.originalFile = blobs.originalFile;
-          char.avatarHistory = blobs.avatarHistory;
-        }
+  for (const char of trashed) {
+    if (char.hasBlobsSeparated) {
+      const blobs = await db.get("blobs", char.id);
+      if (blobs) {
+        char.avatarBlob = blobs.avatarBlob;
+        char.originalFile = blobs.originalFile;
+        char.avatarHistory = blobs.avatarHistory;
       }
     }
   }
@@ -2851,14 +2895,34 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
     }
   }
 
+  const allNeededIds = Array.from(new Set(strictlySeparatedGroups.flat()));
+  const cardById = new Map<string, CharacterCard>();
+  const FETCH_CHUNK = 50;
+
+  for (let i = 0; i < allNeededIds.length; i += FETCH_CHUNK) {
+    const chunkIds = allNeededIds.slice(i, i + FETCH_CHUNK);
+    const tx = db.transaction("characters", "readonly");
+    const rows = (await Promise.all(
+      chunkIds.map((id) => tx.store.get(id)),
+    )) as (CharacterCard | undefined)[];
+    await tx.done;
+
+    for (const char of rows) {
+      if (char && !char.deletedAt) {
+        cardById.set(char.id, char);
+      }
+    }
+    if (i + FETCH_CHUNK < allNeededIds.length) {
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+
   const finalGroups: DuplicateGroup[] = [];
-  const fetchTx = db.transaction("characters", "readonly");
-  const fetchStore = fetchTx.store;
 
   for (const groupIds of strictlySeparatedGroups) {
     const groupChars: CharacterCard[] = [];
     for (const id of groupIds) {
-      const char = await fetchStore.get(id);
+      const char = cardById.get(id);
       if (char && !char.deletedAt) groupChars.push(char);
     }
 
@@ -3010,7 +3074,6 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
     });
   }
 
-  await fetchTx.done;
   return finalGroups;
 }
 

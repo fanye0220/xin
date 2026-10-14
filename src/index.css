@@ -246,74 +246,52 @@ html, body {
   -webkit-overflow-scrolling: touch;
 }
 
-.hide-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-.hide-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+/* Global Scrollbar Suppression - Hide visual scrollbars everywhere while keeping smooth scrolling fully intact */
+::-webkit-scrollbar,
+*::-webkit-scrollbar,
+.custom-scrollbar::-webkit-scrollbar,
+.hide-scrollbar::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar,
+#character-detail-scroll-container::-webkit-scrollbar,
+#main-scroll-container::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
 }
 
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
+::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track,
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
+  background: transparent !important;
+  display: none !important;
 }
+
+::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb,
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.2);
-  border-radius: 9999px;
-  transition: background-color 0.2s ease;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.4);
+  background: transparent !important;
+  display: none !important;
 }
 
-.light-theme .custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.15);
-}
-.light-theme .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 0, 0, 0.3);
-}
-
-/* Global scrollbars */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.2);
-  border-radius: 9999px;
-  transition: background-color 0.2s ease;
-}
-::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.4);
+*,
+html,
+body,
+.custom-scrollbar,
+.hide-scrollbar,
+.no-scrollbar,
+#character-detail-scroll-container,
+#main-scroll-container {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
 }
 
-.light-theme ::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.15);
-}
-.light-theme ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 0, 0, 0.3);
-}
-
-* {
-  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
-}
-.light-theme * {
-  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+#character-detail-scroll-container {
+  overflow-x: hidden !important;
+  overscroll-behavior-x: none !important;
+  touch-action: pan-y !important;
+  max-width: 100vw !important;
+  width: 100% !important;
 }
 
 /* Force details block styling inside markdown across the board, but preserve native backgrounds */

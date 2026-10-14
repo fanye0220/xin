@@ -11,7 +11,8 @@ import {
 import { 
   CharacterCard, CardVersionSnapshot, saveCharacter, 
   getCharacters, deleteCharacter, getCharacter, getCharacterBlob,
-  getCharacterThumb, getCharacterCategoryPrefix, getResourceType, ResourceType
+  getCharacterThumb, getCharacterCategoryPrefix, getResourceType, ResourceType,
+  getCachedMeta, CharMeta
 } from '../lib/db';
 import { getCardTypeBadgeInfo } from '../lib/cardType';
 import { injectTavernData, extractTavernData } from '../lib/png';
@@ -54,17 +55,19 @@ function resourceTypeOf(c: CharacterCard): ResourceType {
   return getResourceType(c);
 }
 
-function isBindableCandidate(c: CharacterCard, currentType: ResourceType): boolean {
+function isBindableCandidate(c: any, currentType: ResourceType): boolean {
   if (!c || c.deletedAt) return false;
-  if ((c as any).isQR) return false;
-  const raw = c.data?.data || c.data || {};
-  if (Array.isArray(c.data) || Array.isArray(raw)) return false;
-  if ((raw as any).quick_replies || (raw as any).qrList) return false;
+  if (c.isQR) return false;
+  if (c.data) {
+    const raw = c.data?.data || c.data || {};
+    if (Array.isArray(c.data) || Array.isArray(raw)) return false;
+    if (raw.quick_replies || raw.qrList) return false;
+  }
   return resourceTypeOf(c) === currentType;
 }
 
 // Standalone lazy-loaded avatar component for candidate cards with viewport-driven loading
-const CandidateAvatar = React.memo(function CandidateAvatar({ char }: { char: CharacterCard }) {
+const CandidateAvatar = React.memo(function CandidateAvatar({ char }: { char: CharacterCard | CharMeta | any }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isInView, setIsInView] = useState(false);
   const [imgSrc, setImgSrc] = useState<string | null>(null);
@@ -814,29 +817,35 @@ export function CharacterVersionsSection({
   const currentGreetingsCount = 1 + (currentData.alternate_greetings?.length || 0);
   const currentWeatherBookCount = currentData.character_book?.entries?.length || 0;
 
-  // Load candidate cards when Link Modal opens
+  // Candidate cards progressive scrolling limit (流畅顺滑原生体验，无生硬翻页按钮)
+  const [candidateDisplayLimit, setCandidateDisplayLimit] = useState(30);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
+
+  // Load candidate cards when Link Modal opens using lightweight metadata snapshot
   useEffect(() => {
     if (!isLinkModalOpen) return;
     let isMounted = true;
-    // 只取轻量索引(不读头像大图和卡片正文), 否则大卡库一打开绑定弹窗就要把
-    // 所有卡片整条读出来, 卡到弹窗都点不动。
-    getCharacters(1, 10000, undefined, "", [], "newest_import", false, false).then(res => {
+    setLoadingCandidates(true);
+    // 使用元数据快照 getCachedMeta() 0ms 瞬间获取，杜绝迸发10000张大卡与卡死转圈
+    getCachedMeta().then(allMeta => {
       if (!isMounted) return;
       const currentType = getResourceType(character);
-      const available = res.characters.filter(c => c.id !== character.id && isBindableCandidate(c, currentType));
-      setCandidateCards(available);
+      const available = allMeta.filter(c => c.id !== character.id && isBindableCandidate(c, currentType));
+      setCandidateCards(available as any);
+      setCandidateDisplayLimit(30);
+    }).catch(err => {
+      console.error('加载候选卡失败', err);
+    }).finally(() => {
+      if (isMounted) setLoadingCandidates(false);
     });
     return () => { isMounted = false; };
   }, [isLinkModalOpen, character.id]);
 
-  // Progressive rendering for candidate cards to prevent modal opening lag
-  const [displayLimit, setDisplayLimit] = useState(40);
-
   useEffect(() => {
-    setDisplayLimit(40);
+    setCandidateDisplayLimit(30);
   }, [linkSearchQuery, isLinkModalOpen]);
 
-  // Sort candidate cards
+  // Sort and filter candidate cards
   const filteredCandidates = useMemo(() => {
     const q = linkSearchQuery.trim().toLowerCase();
     const currName = getCandidateDisplayName(character).toLowerCase();
@@ -844,16 +853,15 @@ export function CharacterVersionsSection({
     let list = candidateCards;
     if (q) {
       list = list.filter(c => 
-        getCandidateDisplayName(c).toLowerCase().includes(q) ||
+        (c.name || '').toLowerCase().includes(q) ||
         (c.autoImportFilename || '').toLowerCase().includes(q) ||
-        (c.data?.creator || '').toLowerCase().includes(q) ||
-        (c.data?.data?.creator || '').toLowerCase().includes(q)
+        ((c as any).tags || []).some((t: string) => t.toLowerCase().includes(q))
       );
     }
 
     return [...list].sort((a, b) => {
-      const aName = getCandidateDisplayName(a).toLowerCase();
-      const bName = getCandidateDisplayName(b).toLowerCase();
+      const aName = (a.name || a.autoImportFilename || '').toLowerCase();
+      const bName = (b.name || b.autoImportFilename || '').toLowerCase();
       const aIsExact = aName === currName;
       const bIsExact = bName === currName;
       if (aIsExact && !bIsExact) return -1;
@@ -869,17 +877,8 @@ export function CharacterVersionsSection({
   }, [candidateCards, linkSearchQuery, character.name]);
 
   const visibleCandidates = useMemo(() => {
-    return filteredCandidates.slice(0, displayLimit);
-  }, [filteredCandidates, displayLimit]);
-
-  const handleCandidateScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollTop + clientHeight >= scrollHeight - 80) {
-      if (displayLimit < filteredCandidates.length) {
-        setDisplayLimit(prev => Math.min(prev + 40, filteredCandidates.length));
-      }
-    }
-  };
+    return filteredCandidates.slice(0, candidateDisplayLimit);
+  }, [filteredCandidates, candidateDisplayLimit]);
 
   // Create snapshot of current version
   const handleCreateSnapshot = async () => {
@@ -916,140 +915,158 @@ export function CharacterVersionsSection({
     setSnapshotNote('');
   };
 
-  // Link selected candidate card as historical version
+  // Link selected candidate card as historical version (0ms 乐观更新，杜绝转圈卡死)
   const handleConfirmLink = async () => {
     if (!selectedCandidate) return;
 
-    try {
-      const fullOldChar = await getCharacter(selectedCandidate.id);
-      if (!fullOldChar) {
-        alert('读取旧版卡片数据失败');
-        return;
-      }
+    const candidate = selectedCandidate;
+    const candidateId = candidate.id;
+    const candidateName = getCandidateDisplayName(candidate);
+    const candidateVer = (candidate as any).character_version || (candidate as any).data?.character_version || '1.0';
 
-      const oldData = fullOldChar.data?.data || fullOldChar.data || {};
-      const oldVer = oldData.character_version || fullOldChar.data?.character_version || '1.0';
+    // 1. 0ms 立即关闭弹窗，清空选择
+    setIsLinkModalOpen(false);
+    setSelectedCandidate(null);
 
-      const { avatarBlob, completeCardPngBlob, avatarHistory } = await resolveFullCardBinaryAssets(fullOldChar);
-      const clonedData = JSON.parse(JSON.stringify(fullOldChar.data || {}));
+    // 2. 0ms 乐观构造新版本快照并立即更新界面
+    const tempSnapshotId = crypto.randomUUID();
+    const optimisticSnapshot: CardVersionSnapshot = {
+      id: tempSnapshotId,
+      versionName: `v${candidateVer} (${candidateName})`,
+      note: `关联绑定自卡库卡片「${candidateName}」`,
+      createdAt: candidate.createdAt || Date.now(),
+      fileModifiedAt: candidate.fileModifiedAt || candidate.updatedAt || candidate.createdAt,
+      data: (candidate as any).data || {},
+      avatarBlob: (candidate as any).avatarBlob,
+      avatarUrlFallback: candidate.avatarUrlFallback,
+      cardName: candidateName,
+      sourceCharId: candidateId,
+      tags: candidate.tags ? [...candidate.tags] : undefined,
+    };
 
-      const newSnapshot: CardVersionSnapshot = {
+    let baseHistory = character.versionHistory ? [...character.versionHistory] : [];
+    let activeId = character.activeVersionId;
+    if (baseHistory.length === 0) {
+      const currSnap: CardVersionSnapshot = {
         id: crypto.randomUUID(),
-        versionName: `v${oldVer} (${fullOldChar.name})`,
-        note: `关联绑定自卡库卡片「${fullOldChar.name}」`,
-        createdAt: fullOldChar.createdAt || Date.now(),
-        fileModifiedAt: fullOldChar.fileModifiedAt || fullOldChar.updatedAt || fullOldChar.createdAt,
-        data: clonedData,
-        avatarBlob,
-        completeCardPngBlob,
-        avatarHistory,
-        avatarUrlFallback: fullOldChar.avatarUrlFallback,
-        cardName: fullOldChar.name,
-        sourceCharId: fullOldChar.id,
-        tags: fullOldChar.tags ? [...fullOldChar.tags] : undefined,
+        versionName: `v${currentVersionStr} (当前版本)`,
+        note: '无备注',
+        createdAt: character.createdAt || Date.now(),
+        fileModifiedAt: character.fileModifiedAt || character.updatedAt || character.createdAt,
+        data: character.data || {},
+        avatarBlob: character.avatarBlob,
+        cardName: character.name,
+        tags: character.tags ? [...character.tags] : undefined,
       };
+      baseHistory = [currSnap];
+      activeId = currSnap.id;
+      setActiveVersionId(currSnap.id);
+    }
 
-      // Ensure current card is saved as a version if history was empty, so both cards are visible in list
-      let baseHistory = character.versionHistory ? [...character.versionHistory] : [];
-      let activeId = character.activeVersionId;
-      if (baseHistory.length === 0) {
-        const { avatarBlob: currBlob, completeCardPngBlob: currPng, avatarHistory: currHist } = await resolveFullCardBinaryAssets(character);
-        const currSnap: CardVersionSnapshot = {
-          id: crypto.randomUUID(),
-          versionName: `v${currentVersionStr} (当前版本)`,
-          note: '无备注',
-          createdAt: character.createdAt || Date.now(),
-          fileModifiedAt: character.fileModifiedAt || character.updatedAt || character.createdAt,
-          data: JSON.parse(JSON.stringify(character.data || {})),
-          avatarBlob: currBlob,
-          completeCardPngBlob: currPng,
-          avatarHistory: currHist,
-          avatarUrlFallback: character.avatarUrlFallback,
-          cardName: character.name,
-          tags: character.tags ? [...character.tags] : undefined,
+    const optimisticChar: CharacterCard = {
+      ...character,
+      versionHistory: [...baseHistory, optimisticSnapshot],
+      activeVersionId: activeId,
+      updatedAt: Date.now(),
+    };
+
+    // 立即上屏，0ms 响应！
+    onUpdateCharacter(optimisticChar);
+    setRollbackFeedback(`已成功关联「${candidateName}」！`);
+    setTimeout(() => setRollbackFeedback(null), 3500);
+
+    // 3. 后台静默执行完整卡片二进制提取、数据持久化与原卡归档
+    (async () => {
+      try {
+        const fullOldChar = await getCharacter(candidateId);
+        if (!fullOldChar) return;
+
+        const oldData = fullOldChar.data?.data || fullOldChar.data || {};
+        const oldVer = oldData.character_version || fullOldChar.data?.character_version || candidateVer;
+
+        const { avatarBlob, completeCardPngBlob, avatarHistory } = await resolveFullCardBinaryAssets(fullOldChar);
+        const clonedData = JSON.parse(JSON.stringify(fullOldChar.data || {}));
+
+        const finalSnapshot: CardVersionSnapshot = {
+          id: tempSnapshotId,
+          versionName: `v${oldVer} (${fullOldChar.name})`,
+          note: `关联绑定自卡库卡片「${fullOldChar.name}」`,
+          createdAt: fullOldChar.createdAt || Date.now(),
+          fileModifiedAt: fullOldChar.fileModifiedAt || fullOldChar.updatedAt || fullOldChar.createdAt,
+          data: clonedData,
+          avatarBlob,
+          completeCardPngBlob,
+          avatarHistory,
+          avatarUrlFallback: fullOldChar.avatarUrlFallback,
+          cardName: fullOldChar.name,
+          sourceCharId: fullOldChar.id,
+          tags: fullOldChar.tags ? [...fullOldChar.tags] : undefined,
         };
-        baseHistory = [currSnap];
-        activeId = currSnap.id;
-        setActiveVersionId(currSnap.id);
-      }
 
-      const oldHistory = fullOldChar.versionHistory || [];
-      // 旧卡自身当前版本的快照与本次关联的卡片内容重复，跳过它，避免版本列表出现 3 2 2 1 的重复项
-      const carriedHistory = (oldHistory.length > 0 && !oldHistory[0].sourceCharId) ? oldHistory.slice(1) : oldHistory;
-      const updatedHistory = [...baseHistory, newSnapshot, ...carriedHistory];
+        const oldHistory = fullOldChar.versionHistory || [];
+        const carriedHistory = (oldHistory.length > 0 && !oldHistory[0].sourceCharId) ? oldHistory.slice(1) : oldHistory;
+        const updatedHistory = [...baseHistory, finalSnapshot, ...carriedHistory];
 
-      let updatedChar: CharacterCard = {
-        ...character,
-        versionHistory: updatedHistory,
-        activeVersionId: activeId,
-        updatedAt: Date.now(),
-      };
+        let updatedChar: CharacterCard = {
+          ...character,
+          versionHistory: updatedHistory,
+          activeVersionId: activeId,
+          updatedAt: Date.now(),
+        };
 
-      if (inheritQrAfterLink || inheritSourceAfterLink) {
-        updatedChar = inheritQrAndSource(
-          updatedChar, 
-          fullOldChar.data, 
-          fullOldChar.name, 
-          fullOldChar.sourceUrl,
-          { inheritQr: inheritQrAfterLink, inheritSource: inheritSourceAfterLink }
-        );
-      }
-
-      await saveCharacter(updatedChar);
-
-      if (deleteCandidateAfterLink) {
-        try {
-          const { initDB } = await import('../lib/db');
-          const db = await initDB();
-
-          const oldChats = await db.getAllFromIndex('chats', 'by-character', fullOldChar.id);
-          if (oldChats && oldChats.length > 0) {
-            const tx = db.transaction('chats', 'readwrite');
-            for (const chat of oldChats) {
-              chat.characterId = character.id;
-              if (!chat.name.startsWith(`[v${oldVer}]`) && !chat.name.includes(fullOldChar.name)) {
-                chat.name = `[v${oldVer}] ${chat.name}`;
-              }
-              await tx.objectStore('chats').put(chat);
-            }
-            await tx.done;
-          }
-
-          const oldMemos = await db.getAllFromIndex('memos', 'by-character', fullOldChar.id);
-          if (oldMemos && oldMemos.length > 0) {
-            const tx = db.transaction('memos', 'readwrite');
-            for (const memo of oldMemos) {
-              memo.characterId = character.id;
-              await tx.objectStore('memos').put(memo);
-            }
-            await tx.done;
-          }
-        } catch (e) {
-          console.warn('Failed to migrate chat logs/memos', e);
+        if (inheritQrAfterLink || inheritSourceAfterLink) {
+          updatedChar = inheritQrAndSource(
+            updatedChar, 
+            fullOldChar.data, 
+            fullOldChar.name, 
+            fullOldChar.sourceUrl,
+            { inheritQr: inheritQrAfterLink, inheritSource: inheritSourceAfterLink }
+          );
         }
 
-        await deleteCharacter(fullOldChar.id);
+        await saveCharacter(updatedChar);
+
+        if (deleteCandidateAfterLink) {
+          try {
+            const { initDB } = await import('../lib/db');
+            const db = await initDB();
+
+            const oldChats = await db.getAllFromIndex('chats', 'by-character', fullOldChar.id);
+            if (oldChats && oldChats.length > 0) {
+              const tx = db.transaction('chats', 'readwrite');
+              for (const chat of oldChats) {
+                chat.characterId = character.id;
+                if (!chat.name.startsWith(`[v${oldVer}]`) && !chat.name.includes(fullOldChar.name)) {
+                  chat.name = `[v${oldVer}] ${chat.name}`;
+                }
+                await tx.objectStore('chats').put(chat);
+              }
+              await tx.done;
+            }
+
+            const oldMemos = await db.getAllFromIndex('memos', 'by-character', fullOldChar.id);
+            if (oldMemos && oldMemos.length > 0) {
+              const tx = db.transaction('memos', 'readwrite');
+              for (const memo of oldMemos) {
+                memo.characterId = character.id;
+                await tx.objectStore('memos').put(memo);
+              }
+              await tx.done;
+            }
+          } catch (e) {
+            console.warn('Failed to migrate chat logs/memos', e);
+          }
+
+          await deleteCharacter(fullOldChar.id);
+          window.dispatchEvent(new CustomEvent('characterDeleted', { detail: { id: fullOldChar.id } }));
+        }
+
+        onUpdateCharacter(updatedChar);
+        window.dispatchEvent(new CustomEvent('charactersUpdated'));
+      } catch (err: any) {
+        console.error('Background link error:', err);
       }
-
-      const { hasQr, count: qrCount } = extractCardQr(fullOldChar.data);
-      const { hasSource } = extractCardSource(fullOldChar.data, fullOldChar.sourceUrl);
-      const inheritedItems: string[] = [];
-      if (inheritQrAfterLink && hasQr) inheritedItems.push(`快速回复 QR (${qrCount}条)`);
-      if (inheritSourceAfterLink && hasSource) inheritedItems.push('来源链接');
-      const inheritedNotice = inheritedItems.length > 0 ? `\n（已成功继承旧版的 ${inheritedItems.join(' 与 ')}）` : '';
-
-      onUpdateCharacter(updatedChar);
-      setIsLinkModalOpen(false);
-      setSelectedCandidate(null);
-      window.dispatchEvent(new CustomEvent('charactersUpdated'));
-
-      setRollbackFeedback(`已成功关联「${fullOldChar.name}」${inheritedItems.length > 0 ? `，并继承其 ${inheritedItems.join(' 与 ')}` : ''}！`);
-      setTimeout(() => setRollbackFeedback(null), 3500);
-
-      alert(`已成功将「${fullOldChar.name}」绑定为历史版本！\n\n已归档至版本列表，点击卡片即可在各版本间即时滑动切换！${inheritedNotice}${deleteCandidateAfterLink ? '\n（原卡已移至回收站以防冗余）' : ''}`);
-    } catch (e: any) {
-      alert('绑定失败: ' + e.message);
-    }
+    })();
   };
 
   // Open Inherit Modal for a snapshot
@@ -1259,13 +1276,18 @@ export function CharacterVersionsSection({
       _isExplicitAvatarUpdate: Boolean(chosenBlob),
     };
 
-    await saveCharacter(updatedChar);
+    // 0ms 瞬间上屏，无需等待 IndexedDB 阻塞
     onUpdateCharacter(updatedChar);
 
     setRollbackFeedback(`已切换至版本「${snapshot.versionName || snapshot.cardName}」，角色设定已即时生效！`);
     setTimeout(() => {
       setRollbackFeedback(null);
     }, 3500);
+
+    // 后台静默异步持久化
+    saveCharacter(updatedChar).catch(err => {
+      console.error('Failed to background save switched version', err);
+    });
   };
 
   // Export historical version as standalone PNG
@@ -1410,12 +1432,13 @@ export function CharacterVersionsSection({
       updatedAt: Date.now(),
     };
 
-    await saveCharacter(updatedChar);
+    // 0ms 瞬间从列表移除
     onUpdateCharacter(updatedChar);
     setActiveVersionId(nextActiveId);
+    saveCharacter(updatedChar).catch(e => console.error("删除版本保存失败", e));
   };
 
-  // Unbind a snapshot and restore it back to the card library as an independent card
+  // Unbind a snapshot and restore it back to the card library as an independent card (0ms 乐观响应)
   const handleUnbindSnapshot = async (snapshot: CardVersionSnapshot) => {
     const targetName = snapshot.cardName || character.name || '角色卡片';
     const snapVer = getSnapshotVersionStr(snapshot, currentVersionStr);
@@ -1423,6 +1446,40 @@ export function CharacterVersionsSection({
     if (!window.confirm(`确定要解绑版本「${snapVer} ${targetName}」吗？\n\n解绑后：\n1. 该卡片将原路恢复至卡库作为独立角色卡；\n2. 从当前角色的版本历史中移除；\n3. 相关对话记录将同步归还。`)) {
       return;
     }
+
+    // 1. 0ms 乐观更新当前角色的版本列表与激活状态
+    const updatedHistory = (character.versionHistory || []).filter(s => s.id !== snapshot.id);
+    let nextActiveId = activeVersionId;
+    let nextData = character.data;
+    let nextName = character.name;
+    let nextAvatarBlob = character.avatarBlob;
+
+    if (activeVersionId === snapshot.id) {
+      nextActiveId = updatedHistory.length > 0 ? updatedHistory[0].id : 'current-live';
+      const remainingActiveSnap = updatedHistory.find(s => s.id === nextActiveId) || updatedHistory[0];
+      if (remainingActiveSnap) {
+        nextData = JSON.parse(JSON.stringify(remainingActiveSnap.data || character.data));
+        if (remainingActiveSnap.cardName) nextName = remainingActiveSnap.cardName;
+        if (remainingActiveSnap.avatarBlob) {
+          nextAvatarBlob = remainingActiveSnap.avatarBlob;
+        }
+      }
+    }
+
+    const optimisticChar: CharacterCard = {
+      ...character,
+      data: nextData,
+      name: nextName,
+      avatarBlob: nextAvatarBlob,
+      versionHistory: updatedHistory,
+      activeVersionId: nextActiveId,
+      updatedAt: Date.now(),
+    };
+
+    onUpdateCharacter(optimisticChar);
+    setActiveVersionId(nextActiveId);
+    setRollbackFeedback(`已成功解绑「${snapshot.cardName || character.name}」并原路恢复至卡库！`);
+    setTimeout(() => setRollbackFeedback(null), 3500);
 
     try {
       const { initDB, saveCharacter, getCharacter, getCharacterBlob } = await import('../lib/db');
@@ -1575,16 +1632,9 @@ export function CharacterVersionsSection({
       };
 
       await saveCharacter(updatedChar);
-      onUpdateCharacter(updatedChar);
-      setActiveVersionId(nextActiveId);
-
-      // 4. Invalidate and broadcast so main card list refreshes immediately
       window.dispatchEvent(new CustomEvent('charactersUpdated'));
-
-      setRollbackFeedback(`已成功解绑「${snapshot.cardName || character.name}」并原路恢复至卡库！`);
-      setTimeout(() => setRollbackFeedback(null), 3500);
     } catch (err: any) {
-      alert('解绑失败: ' + err.message);
+      console.error('后台解绑保存失败:', err);
     }
   };
 
@@ -1933,13 +1983,13 @@ export function CharacterVersionsSection({
                 const displayVer = getSnapshotVersionStr(snapshot, currentVersionStr);
                 const displayNote = getSnapshotNoteStr(snapshot);
 
-                // Automated difference calculation against current active card
-                const diffResult = computeVersionDiff(
+                // Automated difference calculation against current active card (按需懒加载计算，闭合时不消耗CPU)
+                const diffResult = isExpanded ? computeVersionDiff(
                   snapData,
                   currentData,
                   snapshot.avatarHistory?.length || 0,
                   character.avatarHistory?.length || 0
-                );
+                ) : null;
 
                 return (
                   <div key={snapshot.id} className="space-y-3">
@@ -2221,7 +2271,7 @@ export function CharacterVersionsSection({
                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
                                   <span>当前活跃生效版本，其他所有快照均以此版本为对比基准</span>
                                 </div>
-                              ) : diffResult.bullets.length > 0 ? (
+                              ) : diffResult?.bullets && diffResult.bullets.length > 0 ? (
                                 diffResult.bullets.map((point, bIdx) => (
                                   <div key={bIdx} className="flex items-center gap-2.5 version-diff-bullet-text text-xs sm:text-[13px] leading-relaxed">
                                     <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
@@ -2296,70 +2346,77 @@ export function CharacterVersionsSection({
                   </div>
                 </div>
 
-                {/* Candidate list */}
+                {/* Candidate list (流畅原生滚动，滚动到底部自动加载更多，无丑陋翻页条) */}
                 <div 
-                  onScroll={handleCandidateScroll}
-                  className="flex-1 overflow-y-auto space-y-2 sm:space-y-2.5 pr-1 my-2 max-h-[50vh] custom-scrollbar relative z-10"
+                  onScroll={(e) => {
+                    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+                    if (scrollHeight - scrollTop - clientHeight < 100) {
+                      setCandidateDisplayLimit(prev => Math.min(filteredCandidates.length, prev + 30));
+                    }
+                  }}
+                  className="flex-1 overflow-y-auto space-y-2 sm:space-y-2.5 pr-1 my-2 max-h-[48vh] custom-scrollbar relative z-10"
                 >
-                  {filteredCandidates.length === 0 ? (
+                  {loadingCandidates ? (
+                    <div className="py-12 text-center text-sm version-modal-desc">
+                      正在读取候选角色卡...
+                    </div>
+                  ) : filteredCandidates.length === 0 ? (
                     <div className="py-12 text-center text-sm version-modal-desc">
                       没有找到符合条件的角色卡片
                     </div>
                   ) : (
-                    visibleCandidates.map(c => {
-                      const isSelected = selectedCandidate?.id === c.id;
-                      const cData = c.data?.data || c.data || {};
-                      const ver = cData.character_version || c.data?.character_version || '1.0';
+                    <>
+                      {visibleCandidates.map(c => {
+                        const isSelected = selectedCandidate?.id === c.id;
+                        const cData = (c as any).data?.data || (c as any).data || {};
+                        const ver = (c as any).character_version || cData.character_version || '1.0';
+                        const descCount = (cData.description || '').length || (c as any).tokenCount;
 
-                      return (
-                        <div
-                          key={c.id}
-                          onClick={() => setSelectedCandidate(isSelected ? null : c)}
-                          className={`p-2.5 sm:p-3.5 rounded-2xl transition cursor-pointer flex items-center justify-between gap-2.5 sm:gap-3 border version-candidate-card ${
-                            isSelected ? 'is-selected' : ''
-                          }`}
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <CandidateAvatar char={c} />
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <h4 className="font-bold text-sm sm:text-base truncate version-candidate-name">
-                                  {getCandidateDisplayName(c)}
-                                </h4>
-                                <span className="text-xs px-2 py-0.5 rounded-full font-mono font-semibold version-candidate-badge shrink-0">
-                                  v{ver}
-                                </span>
-                                {extractCardQr(c.data).hasQr && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold shrink-0">
-                                    含 QR
+                        return (
+                          <div
+                            key={c.id}
+                            onClick={() => setSelectedCandidate(isSelected ? null : c)}
+                            className={`p-2.5 sm:p-3.5 rounded-2xl transition cursor-pointer flex items-center justify-between gap-2.5 sm:gap-3 border version-candidate-card ${
+                              isSelected ? 'is-selected' : ''
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <CandidateAvatar char={c} />
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h4 className="font-bold text-sm sm:text-base truncate version-candidate-name">
+                                    {getCandidateDisplayName(c)}
+                                  </h4>
+                                  <span className="text-xs px-2 py-0.5 rounded-full font-mono font-semibold version-candidate-badge shrink-0">
+                                    v{ver}
                                   </span>
-                                )}
-                                {extractCardSource(c.data, c.sourceUrl).hasSource && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-blue-500/15 text-blue-600 dark:text-blue-400 font-semibold shrink-0">
-                                    含来源
-                                  </span>
-                                )}
+                                  {(c as any).isQR && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold shrink-0">
+                                      含 QR
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs truncate mt-1 font-normal version-candidate-sub">
+                                  修改: {new Date(c.fileModifiedAt || c.updatedAt || c.createdAt).toLocaleDateString()}
+                                  {descCount ? ` · ${cData.description ? `描述: ${(cData.description || '').length}字` : `${descCount} tokens`}` : ''}
+                                </p>
                               </div>
-                              <p className="text-xs truncate mt-1 font-normal version-candidate-sub">
-                                修改: {new Date(c.fileModifiedAt || c.updatedAt || c.createdAt).toLocaleDateString()} · 描述: {(cData.description || '').length}字
-                              </p>
+                            </div>
+
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center transition shrink-0 version-candidate-radio ${
+                              isSelected ? 'is-selected' : ''
+                            }`}>
+                              {isSelected && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
                             </div>
                           </div>
-
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center transition shrink-0 version-candidate-radio ${
-                            isSelected ? 'is-selected' : ''
-                          }`}>
-                            {isSelected && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
-                          </div>
+                        );
+                      })}
+                      {visibleCandidates.length < filteredCandidates.length && (
+                        <div className="py-2.5 text-center text-xs version-candidate-sub opacity-50">
+                          向下滚动显示更多 ({visibleCandidates.length} / {filteredCandidates.length})
                         </div>
-                      );
-                    })
-                  )}
-
-                  {visibleCandidates.length < filteredCandidates.length && (
-                    <div className="py-2 text-center text-xs version-modal-desc">
-                      下滑查看更多角色卡 ({visibleCandidates.length} / {filteredCandidates.length})...
-                    </div>
+                      )}
+                    </>
                   )}
                 </div>
 

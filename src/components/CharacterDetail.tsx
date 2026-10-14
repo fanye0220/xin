@@ -714,7 +714,8 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
       id="character-detail-scroll-container"
       onTouchStart={handleDetailTouchStart}
       onTouchEnd={handleDetailTouchEnd}
-      className="fixed inset-0 bg-black [.light-theme_&]:bg-[#eef4fe] text-white [.light-theme_&]:text-[#1c1c1e] overflow-y-auto z-50"
+      className="fixed inset-0 bg-black [.light-theme_&]:bg-[#eef4fe] text-white [.light-theme_&]:text-[#1c1c1e] overflow-y-auto overflow-x-hidden touch-pan-y overscroll-x-none hide-scrollbar z-50 w-full max-w-full"
+      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', touchAction: 'pan-y', overscrollBehaviorX: 'none' }}
     >
       {/* Blurred Background - Beautifully adapted for both dark and light themes */}
       <div 
@@ -725,7 +726,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         className="fixed inset-0 pointer-events-none bg-gradient-to-b from-black/20 via-transparent to-black/80 [.light-theme_&]:from-[#e8f1fd]/60 [.light-theme_&]:via-[#eef4fe]/40 [.light-theme_&]:to-[#e2eeff]/80"
       />
       
-      <div className="relative z-10 min-h-screen flex flex-col">
+      <div className="relative z-10 min-h-screen flex flex-col w-full max-w-full overflow-x-hidden">
         {/* Header - Real Pure White translucency glass in light theme and 20% in dark theme */}
         <header className="sticky top-0 p-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] flex items-center justify-between bg-black/20 [.light-theme_&]:bg-white/70 backdrop-blur-xl border-b border-white/10 [.light-theme_&]:border-blue-100/70 z-20">
           <div className="flex items-center gap-2 min-w-0">
@@ -1309,7 +1310,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         </div>
 
         {/* Tabs */}
-        <div className="sticky top-[72px] z-20 -mx-4 px-4 py-2 mb-4 bg-transparent [.light-theme_&]:!bg-transparent [.light-theme_&]:!backdrop-blur-none backdrop-blur-md">
+        <div className="sticky top-[72px] z-20 px-2 sm:px-4 py-2 mb-4 bg-transparent [.light-theme_&]:!bg-transparent [.light-theme_&]:!backdrop-blur-none backdrop-blur-md max-w-full overflow-hidden">
           <div className="flex gap-2 overflow-x-auto hide-scrollbar scroll-smooth px-1 py-1 pr-8">
           {(isSpecialData ? [
              { id: 'data_viewer', icon: User, label: isTheme ? '美化配置' : '数据详情' },

@@ -1502,31 +1502,45 @@ export function CharacterList({
   };
 
   const handleSelectAll = async () => {
-    const { characters: allChars } = await getCharacters(
-      1,
-      100000,
-      folderId,
-      debouncedSearchQuery,
-      selectedTags,
-      sortBy,
-      false,
-      false,
-      0,
-      100000,
-    );
+    const { getCachedMeta } = await import("../lib/db");
+    let allMeta = await getCachedMeta();
+    allMeta = allMeta.filter((c) => !c.deletedAt);
+    if (debouncedSearchQuery) {
+      const query = debouncedSearchQuery.toLowerCase();
+      allMeta = allMeta.filter(
+        (c) =>
+          c.name.toLowerCase().includes(query) ||
+          c.tags.some((t) => t.toLowerCase().includes(query))
+      );
+    }
+    if (selectedTags.length > 0) {
+      allMeta = allMeta.filter((c) =>
+        selectedTags.every((t) => c.tags.includes(t))
+      );
+    }
+    if (folderId === "favorites") {
+      allMeta = allMeta.filter((c) => c.isFavorite);
+    } else if (folderId === null) {
+      if (!debouncedSearchQuery && selectedTags.length === 0) {
+        allMeta = allMeta.filter((c) => !c.folderId);
+      }
+    } else if (folderId && folderId !== "all") {
+      allMeta = allMeta.filter((c) => c.folderId === folderId);
+    }
+
     const visibleFolders = debouncedSearchQuery
       ? folders.filter((f) =>
           f.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()),
         )
       : (selectedTags.length > 0 ? [] : folders);
 
-    const totalSelectable = allChars.length + visibleFolders.length;
+    const totalSelectable = allMeta.length + visibleFolders.length;
 
     if (selectedIds.size === totalSelectable) {
       setSelectedIds(new Set());
     } else {
       const newSet = new Set<string>();
-      allChars.forEach((c) => newSet.add(c.id));
+      allMeta.forEach((c) => newSet.add(c.id));
       visibleFolders.forEach((f) => newSet.add(f.id));
       setSelectedIds(newSet);
     }
@@ -1994,18 +2008,22 @@ export function CharacterList({
       const allFolders = await getFolders();
       const charIdsToExport = new Set<string>();
 
+      const { getCachedMeta } = await import("../lib/db");
+      const allMeta = await getCachedMeta();
+
       for (const id of idsToProcess) {
         const folder = allFolders.find((f) => f.id === id);
         if (folder) {
-          const addFolderChars = async (fId: string) => {
-            const { characters: fc } = await getCharacters(1, 10000, fId, "", [], "newest_import", false, false);
-            fc.forEach((c) => charIdsToExport.add(c.id));
+          const addFolderChars = (fId: string) => {
+            allMeta.forEach((c) => {
+              if (!c.deletedAt && c.folderId === fId) charIdsToExport.add(c.id);
+            });
             const subs = allFolders.filter((f) => f.parentId === fId);
             for (const sub of subs) {
-              await addFolderChars(sub.id);
+              addFolderChars(sub.id);
             }
           };
-          await addFolderChars(folder.id);
+          addFolderChars(folder.id);
         } else {
           charIdsToExport.add(id);
         }
@@ -2374,32 +2392,33 @@ export function CharacterList({
         });
       };
 
+      const { getCachedMeta } = await import("../lib/db");
+      const allMeta = await getCachedMeta();
+
       for (const id of Array.from(idsToProcess)) {
         const folder = allFolders.find((f) => f.id === id);
         if (folder) {
-          const collectFolderRecursive = async (
+          const collectFolderRecursive = (
             currentFolderId: string,
             currentPath: string[],
           ) => {
-            const { characters: folderChars } = await getCharacters(
-              1,
-              10000,
-              currentFolderId,
+            const folderChars = allMeta.filter(
+              (c) => !c.deletedAt && c.folderId === currentFolderId
             );
             for (const char of folderChars) {
-              await pushCharTask(char.id, currentPath);
+              pushCharTask(char.id, currentPath);
             }
             const subFolders = allFolders.filter(
               (f) => f.parentId === currentFolderId,
             );
             for (const subFolder of subFolders) {
-              await collectFolderRecursive(subFolder.id, [
+              collectFolderRecursive(subFolder.id, [
                 ...currentPath,
                 subFolder.name,
               ]);
             }
           };
-          await collectFolderRecursive(folder.id, [folder.name]);
+          collectFolderRecursive(folder.id, [folder.name]);
         } else {
           const char = await getCharacter(id);
           if (!char) continue;

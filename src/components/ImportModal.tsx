@@ -1,5 +1,5 @@
 import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from "../lib/avatar";
-import React, { useState, useRef, useEffect, memo, useMemo } from "react";
+import React, { useState, useRef, useEffect, memo, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
@@ -283,6 +283,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
   >(null);
   const [importTokenSummary, setImportTokenSummary] = useState<{
     totalTokens: number;
+    totalCardsCount?: number;
     items: Array<{
       cardId: string;
       charName: string;
@@ -298,6 +299,18 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
   } | null>(null);
   const [tokenSearchQuery, setTokenSearchQuery] = useState("");
   const [displayLimit, setDisplayLimit] = useState(30);
+  const [tavernDisplayLimit, setTavernDisplayLimit] = useState(36);
+  const hasImportedSomethingRef = useRef(false);
+
+  const handleSafeClose = useCallback(() => {
+    if (hasImportedSomethingRef.current) {
+      hasImportedSomethingRef.current = false;
+      onImported();
+      window.dispatchEvent(new CustomEvent("charactersUpdated"));
+    }
+    onClose();
+  }, [onClose, onImported]);
+
   const [selectedTokenBreakdown, setSelectedTokenBreakdown] = useState<{
     name: string;
     breakdown: CharacterTokenBreakdown;
@@ -341,6 +354,10 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
   const [tavernSearchQuery, setTavernSearchQuery] = useState("");
   const [pullLogs, setPullLogs] = useState<string[]>([]);
   const [currentPullChar, setCurrentPullChar] = useState<{ name: string; avatar: any } | null>(null);
+
+  useEffect(() => {
+    setTavernDisplayLimit(36);
+  }, [tavernMode, tavernSearchQuery]);
 
   const addPullLog = (msg: string) => {
     const time = new Date().toLocaleTimeString();
@@ -1933,20 +1950,27 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
         // 如果部分辅助文件有轻微错误，但在已导入成功卡片时不阻断主结算界面
         if (importedCardsTokens.length > 0) {
           const totalTokens = importedCardsTokens.reduce((sum, item) => sum + item.breakdown.totalTokens, 0);
+          const totalCardsCount = importedCardsTokens.length;
+          // 安卓端防 OOM 闪退保护：当批量导入卡片超量时，弹窗仅保留前 60 张供结算预览，避免 React 状态持有数千个大对象撑爆内存
+          const previewItems = totalCardsCount > 60 ? importedCardsTokens.slice(0, 60) : importedCardsTokens;
           setImportTokenSummary({
             totalTokens,
-            items: importedCardsTokens,
+            totalCardsCount,
+            items: previewItems,
           });
           if (sameNameAutoSummary.length > 0) {
-            setAutoCategorizedSummary(sameNameAutoSummary);
+            setAutoCategorizedSummary(sameNameAutoSummary.length > 60 ? sameNameAutoSummary.slice(0, 60) : sameNameAutoSummary);
           }
-          onImported();
+          hasImportedSomethingRef.current = true;
+          // 注意：不要在弹窗打开状态下立即调用 onImported()！
+          // 否则主页在后台并发重载数千张卡，与弹窗渲染叠加会导致安卓 WebView 瞬间 OOM 闪退。
+          // 改为在用户关闭弹窗或点击「完成并进入卡库」时统一触发刷新。
         } else if (sameNameAutoSummary.length > 0) {
-          setAutoCategorizedSummary(sameNameAutoSummary);
-          onImported();
+          setAutoCategorizedSummary(sameNameAutoSummary.length > 60 ? sameNameAutoSummary.slice(0, 60) : sameNameAutoSummary);
+          hasImportedSomethingRef.current = true;
         } else {
-          onImported();
-          onClose();
+          hasImportedSomethingRef.current = true;
+          handleSafeClose();
         }
       } catch (err: any) {
         setProgress(null);
@@ -2039,7 +2063,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={(progress || isPulling) ? undefined : onClose}
+            onClick={(progress || isPulling) ? undefined : handleSafeClose}
             className="fixed inset-0 bg-black/60 [.light-theme_&]:!bg-black/25 backdrop-blur-sm z-[70]"
           />
           <motion.div
@@ -2080,7 +2104,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               <div className="flex items-center gap-2 shrink-0">
                 {(!progress || tavernMode) && (
                   <button
-                    onClick={onClose}
+                    onClick={handleSafeClose}
                     className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center transition cursor-pointer bg-white/10 hover:bg-white/20 text-white/90 hover:text-white border border-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:active:!bg-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!shadow-2xs"
                     title="关闭"
                   >
@@ -2136,7 +2160,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                             onClick={() => {
                               onNavigateFolder(item.folderId);
                               setAutoCategorizedSummary(null);
-                              onClose();
+                              handleSafeClose();
                             }}
                             className="px-3 py-1.5 text-xs bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 rounded-xl shrink-0 font-semibold transition flex items-center gap-1 active:scale-95 cursor-pointer [.light-theme_&]:!bg-[#007aff]/10 [.light-theme_&]:hover:!bg-[#007aff]/20 [.light-theme_&]:!text-[#007aff]"
                           >
@@ -2173,14 +2197,13 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                         if (charsToRevert.length > 0) {
                           await saveCharacters(charsToRevert);
                         }
-                        onImported();
                         window.dispatchEvent(new CustomEvent("charactersUpdated"));
                       } catch (e) {
                         console.error("Revert folder failed", e);
                       } finally {
                         setIsReverting(false);
                         setAutoCategorizedSummary(null);
-                        onClose();
+                        handleSafeClose();
                       }
                     }}
                     className="flex-1 py-3 px-3 rounded-2xl text-xs sm:text-sm font-semibold transition disabled:opacity-50 bg-white/10 hover:bg-white/15 text-white/80 [.light-theme_&]:!bg-white [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:active:!bg-[#e2e8f0] [.light-theme_&]:!border [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] cursor-pointer"
@@ -2191,7 +2214,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     type="button"
                     onClick={() => {
                       setAutoCategorizedSummary(null);
-                      onClose();
+                      handleSafeClose();
                     }}
                     className="flex-1 py-3 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-xs sm:text-sm font-bold transition shadow-sm cursor-pointer"
                   >
@@ -2217,7 +2240,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                       </span>
                     </div>
                     <p className="text-xs text-slate-100/60 [.light-theme_&]:!text-slate-500 mt-0.5">
-                      共成功导入 {importTokenSummary.items.length} 项卡片/数据，以下为归类与存储信息：
+                      共成功导入 {importTokenSummary.totalCardsCount || importTokenSummary.items.length} 项卡片/数据，以下为归类与存储信息：
                     </p>
                   </div>
                 </div>
@@ -2297,7 +2320,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                             onClick={() => {
                               onNavigateFolder(item.folderId!);
                               setImportTokenSummary(null);
-                              onClose();
+                              handleSafeClose();
                             }}
                             className="px-3.5 py-1.5 text-xs bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 rounded-xl shrink-0 font-semibold transition flex items-center gap-1 active:scale-95 cursor-pointer [.light-theme_&]:!bg-[#007aff]/10 [.light-theme_&]:hover:!bg-[#007aff]/20 [.light-theme_&]:!text-[#007aff]"
                             title="前往目标文件夹"
@@ -2309,6 +2332,12 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                       </div>
                     </div>
                   ))}
+
+                  {importTokenSummary.totalCardsCount && importTokenSummary.totalCardsCount > importTokenSummary.items.length && (
+                    <div className="py-2.5 px-3 rounded-2xl bg-blue-500/15 text-blue-400 border border-transparent [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!border-transparent [.light-theme_&]:!text-[#007aff] text-xs text-center font-medium leading-relaxed">
+                      已成功导入 {importTokenSummary.totalCardsCount} 项卡片，为保证流畅仅展示前 {importTokenSummary.items.length} 张。
+                    </div>
+                  )}
 
                   {displayLimit < filteredTokenItems.length && (
                     <button
@@ -2328,7 +2357,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     onClick={() => {
                       setImportTokenSummary(null);
                       setAutoCategorizedSummary(null);
-                      onClose();
+                      handleSafeClose();
                     }}
                     className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-xs sm:text-sm font-bold transition shadow-md shadow-blue-500/20 cursor-pointer text-center [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:hover:!bg-[#0062cc] [.light-theme_&]:!text-white"
                   >
@@ -2342,6 +2371,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                 (char.creator_notes && char.creator_notes.toLowerCase().includes(tavernSearchQuery.toLowerCase())) ||
                 (char.description && char.description.toLowerCase().includes(tavernSearchQuery.toLowerCase()))
               );
+              const visibleTavernChars = filteredTavernChars.slice(0, tavernDisplayLimit);
 
               return (
                 <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -2445,7 +2475,17 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   </div>
 
                   {/* Character Grid */}
-                  <div className="flex-1 overflow-y-auto custom-scrollbar p-1 min-h-0">
+                  <div 
+                    onScroll={(e) => {
+                      const target = e.currentTarget;
+                      if (target.scrollHeight - target.scrollTop - target.clientHeight < 280) {
+                        if (tavernDisplayLimit < filteredTavernChars.length) {
+                          setTavernDisplayLimit(prev => Math.min(prev + 36, filteredTavernChars.length));
+                        }
+                      }
+                    }}
+                    className="flex-1 overflow-y-auto custom-scrollbar p-1 min-h-0"
+                  >
                     {tavernChars.length === 0 && !isPulling && (
                       <div className="flex flex-col items-center justify-center py-16 text-center text-white/40 [.light-theme_&]:!text-slate-500 space-y-3">
                         <Cloud className="w-12 h-12 opacity-30 text-blue-400" />
@@ -2466,7 +2506,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     )}
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5 pb-2">
-                      {filteredTavernChars.map(char => {
+                      {visibleTavernChars.map(char => {
                         const isSelected = selectedTavernChars.has(char.avatar);
                         return (
                           <div
@@ -2504,6 +2544,18 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                         );
                       })}
                     </div>
+
+                    {tavernDisplayLimit < filteredTavernChars.length && (
+                      <div className="py-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setTavernDisplayLimit(prev => Math.min(prev + 48, filteredTavernChars.length))}
+                          className="w-full py-2.5 text-center text-xs font-semibold rounded-xl border transition bg-white/5 border-white/10 hover:bg-white/10 text-white/80 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#334155] [.light-theme_&]:hover:!bg-[#e2e8f0] cursor-pointer"
+                        >
+                          加载更多酒馆角色... (已显示 {visibleTavernChars.length} / {filteredTavernChars.length} 项)
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Bottom Actions */}
