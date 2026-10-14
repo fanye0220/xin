@@ -85,7 +85,8 @@ function extendGroup(src: string, end: number, allowElements: boolean): number {
 /** 处理不含代码围栏的普通文本 */
 function splitPlain(text: string, out: Segment[]) {
   const pushMd = (s: string) => {
-    if (s.trim()) out.push({ type: 'md', content: s });
+    const cleaned = s.replace(/^[ \t]*`{3,}[a-zA-Z0-9_-]*[ \t]*$/gm, '').trim();
+    if (cleaned) out.push({ type: 'md', content: cleaned });
   };
 
   const openRe = new RegExp(
@@ -131,24 +132,35 @@ function splitPlain(text: string, out: Segment[]) {
 
 export function splitHtmlSegments(content: string): Segment[] {
   if (!content) return [];
+
+  // Normalize CRLF to LF, and unescape literal "\r\n" or "\n" sequences from raw JSON/cards
+  let cleanContent = content
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\r/g, '\n');
+  if (cleanContent.includes('\\n') && !cleanContent.includes('\n')) {
+    cleanContent = cleanContent.replace(/\\n/g, '\n');
+  }
+
   const out: Segment[] = [];
 
-  // 第一遍：代码围栏。```html 里含组件标记的 → iframe；其它围栏保持为 Markdown 代码块
-  const fenceRe = /^[ \t]*(`{3,}|~{3,})[ \t]*([\w-]*)[ \t]*\n([\s\S]*?)\n[ \t]*\1[ \t]*$/gm;
+  // 第一遍：代码围栏。```html 或 ``` 里含组件标记的 → iframe；其它围栏保持为 Markdown 代码块
+  const fenceRe = /(?:^|\n)[ \t]*(`{3,}|~{3,})[ \t]*([\w-]*)[ \t]*\n([\s\S]*?)\n?[ \t]*\1[ \t]*(?=\n|$)/g;
   let last = 0;
   let m: RegExpExecArray | null;
-  while ((m = fenceRe.exec(content))) {
-    if (m.index > last) splitPlain(content.slice(last, m.index), out);
+  while ((m = fenceRe.exec(cleanContent))) {
+    if (m.index > last) splitPlain(cleanContent.slice(last, m.index), out);
     const lang = (m[2] || '').toLowerCase();
     const inner = m[3];
-    if (['', 'html', 'htm', 'xml'].includes(lang) && FENCE_WIDGET_HINT.test(inner)) {
+    if (['html', 'htm', 'xml'].includes(lang) || (lang === '' && FENCE_WIDGET_HINT.test(inner))) {
       out.push({ type: 'html', content: inner });
     } else {
       out.push({ type: 'md', content: m[0] });
     }
     last = fenceRe.lastIndex;
   }
-  if (last < content.length) splitPlain(content.slice(last), out);
+  if (last < cleanContent.length) splitPlain(cleanContent.slice(last), out);
 
-  return out.length > 0 ? out : [{ type: 'md', content }];
+  return out.length > 0 ? out : [{ type: 'md', content: cleanContent }];
 }

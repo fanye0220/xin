@@ -41,9 +41,17 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
     return () => window.removeEventListener('message', handleMessage);
   }, [iframeId]);
 
-  // Clean and prepare HTML content - unwrap code fences like ```html or ```
-  let cleanHtml = htmlContent.trim();
+  // Clean and prepare HTML content - unwrap code fences like ```html or ``` and unescape literal \r\n
+  let cleanHtml = htmlContent
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\r/g, '\n')
+    .trim();
   cleanHtml = cleanHtml.replace(/^```[a-zA-Z0-9_-]*\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+  if (cleanHtml.includes('\\n') && !cleanHtml.includes('\n')) {
+    cleanHtml = cleanHtml.replace(/\\n/g, '\n');
+  }
 
   const isLight = themeMode === 'light';
   const defaultTextColor = isLight ? '#0f172a' : '#f8fafc';
@@ -67,6 +75,7 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
         padding: 0 !important;
         width: 100% !important;
         overflow-x: hidden !important;
+        overflow-anchor: none !important;
       }
       body {
         background: transparent !important;
@@ -75,10 +84,20 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
         box-sizing: border-box !important;
         width: 100% !important;
         overflow-x: hidden !important;
+        overflow-anchor: none !important;
         color: ${defaultTextColor};
         font-size: 16px !important;
         line-height: 1.65 !important;
         font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+      }
+
+      /* Prevent min-height: 100vh / height: 100vh in card HTML templates from forcing vertical centering or huge scroll offset */
+      html, body, .opening-selector-body, .card-container-sayo, [class*="card-container"], [class*="story-card"] {
+        min-height: 0 !important;
+        height: auto !important;
+      }
+      .card-container-sayo, [class*="card-container"], [class*="story-card"] {
+        align-items: flex-start !important;
       }
       
       /* SillyTavern / TavernHelper Choice & Branching Card Defaults */
@@ -351,7 +370,9 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
   `;
 
   let finalHtml = cleanHtml;
-  if (/<head[^>]*>/i.test(finalHtml)) {
+  if (/<\/head>/i.test(finalHtml)) {
+    finalHtml = finalHtml.replace(/<\/head>/i, `${scriptContent}</head>`);
+  } else if (/<head[^>]*>/i.test(finalHtml)) {
     finalHtml = finalHtml.replace(/<head[^>]*>/i, `$&${scriptContent}`);
   } else if (/<\/body>/i.test(finalHtml)) {
     finalHtml = finalHtml.replace(/<\/body>/i, `${scriptContent}</body>`);

@@ -676,6 +676,7 @@ export function GreetingFullScreenModal({
           {/* 2. 主阅读内容区 (重点：曲面屏两边留白安全距离 px-8 sm:px-14 md:px-16，字不贴边) */}
           <main
             ref={scrollContainerRef}
+            style={{ overflowAnchor: 'none' }}
             onClick={handleContentClick}
             onTouchStart={onTouchStart}
             onTouchEnd={onTouchEnd}

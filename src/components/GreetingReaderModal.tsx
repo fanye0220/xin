@@ -132,8 +132,8 @@ function parseParagraphTokens(text: string): TextSegment[] {
  */
 function applySafeDialogueHighlight(text: string, highlightClass: string): string {
   if (!highlightClass || !text) return text;
-  // Split by HTML tags and code blocks so we NEVER touch HTML attributes, styles or scripts
-  const parts = text.split(/(<script[\s\S]*?<\/script\s*>|<style[\s\S]*?<\/style\s*>|<!--[\s\S]*?-->|<[^>]+>|```[\s\S]*?```|`[^`]+`)/gi);
+  // Split by code blocks and full HTML blocks FIRST so we NEVER touch inside ```html ... ``` or HTML tags, styles or scripts
+  const parts = text.split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`|<!DOCTYPE[\s\S]*?<\/html\s*>|<html[\s\S]*?<\/html\s*>|<script[\s\S]*?<\/script\s*>|<style[\s\S]*?<\/style\s*>|<!--[\s\S]*?-->|<[^>]+>)/gi);
   
   // All SillyTavern / Tavern dialogue quote markers:
   // 1. English double quotes: "..."
@@ -146,7 +146,8 @@ function applySafeDialogueHighlight(text: string, highlightClass: string): strin
 
   return parts.map((part) => {
     if (!part) return '';
-    if (part.startsWith('<') || part.startsWith('`')) {
+    const trimmedPart = part.trimStart();
+    if (trimmedPart.startsWith('<') || trimmedPart.startsWith('`') || trimmedPart.startsWith('~')) {
       return part; // keep HTML tags and code blocks completely untouched!
     }
     return part.replace(dialogueRegex, `<span class="${highlightClass}">$1</span>`);
@@ -352,12 +353,12 @@ export function GreetingReaderModal({
     return () => window.removeEventListener('message', handleJumpMessage);
   }, [greetingsList]);
 
-  // Scroll to top when switching greetings
+  // Scroll to top when switching greetings or opening modal
   useEffect(() => {
     if (containerRef.current) {
-      containerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      containerRef.current.scrollTop = 0;
     }
-  }, [safeIndex]);
+  }, [safeIndex, isOpen]);
 
   // Handle hardware / gesture back button
   useBackHandler(isOpen, () => {
@@ -1465,6 +1466,7 @@ export function GreetingReaderModal({
         {/* Main Content Area */}
         <div
           ref={containerRef}
+          style={{ overflowAnchor: 'none' }}
           className={`flex-1 overflow-y-auto pb-28 sm:pb-32 px-4 sm:px-8 md:px-12 custom-scrollbar flex flex-col items-center cursor-default ${
             isEditing 
               ? 'pt-[max(7.5rem,calc(env(safe-area-inset-top)+6.25rem))] sm:pt-[max(8rem,calc(env(safe-area-inset-top)+6.75rem))]' 

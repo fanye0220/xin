@@ -70,7 +70,10 @@ export function applyRegexToText(
   userName: string = "User",
   opts: { depth?: number } = {}
 ): string {
-  let result = text || "";
+  let result = (text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\\r\\n/g, "\n");
   if (!result) return "";
 
   const charName = char?.name || (char?.data?.name) || (char?.data?.data?.name) || "Character";
@@ -119,7 +122,7 @@ export function applyRegexToText(
     if (!(s.regex || s.findRegex)) return false;
     if (s.replacementString === undefined && s.replaceString === undefined) return false;
     if (s.promptOnly) return false;
-    if (Array.isArray(s.placement) && s.placement.length > 0 && !s.placement.includes(2)) return false;
+    if (Array.isArray(s.placement) && s.placement.length > 0 && !s.placement.includes(2) && !s.markdownOnly) return false;
     if (typeof s.minDepth === "number" && s.minDepth >= -1 && depth < s.minDepth) return false;
     if (typeof s.maxDepth === "number" && s.maxDepth >= 0 && depth > s.maxDepth) return false;
     return true;
