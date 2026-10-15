@@ -509,7 +509,8 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
 
   const formatSize = (bytes: string | number) => {
     const b = Number(bytes);
-    if (!b || isNaN(b)) return '未知大小';
+    if (isNaN(b) || bytes === undefined || bytes === null) return '未知大小';
+    if (b === 0) return '0 B (中断损坏，重新同步将自动修复)';
     if (b < 1024) return `${b} B`;
     if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
     if (b < 1024 * 1024 * 1024) return `${(b / 1024 / 1024).toFixed(2)} MB`;

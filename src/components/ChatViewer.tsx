@@ -1364,6 +1364,70 @@ export function ChatViewer({
     }
   };
 
+  const handleExportChatListAsZip = async (chatList: { id: string }[], zipFileName: string, share: boolean = true) => {
+    if (chatList.length === 0) return;
+    if (chatList.length === 1) {
+      await handleExportSingleChat(chatList[0].id);
+      return;
+    }
+    const { default: JSZip } = await import("jszip");
+    const zip = new JSZip();
+    const { getChatById } = await import("../lib/db");
+
+    await Promise.all(
+      chatList.map(async (chatMeta) => {
+        const fullChat = await getChatById(chatMeta.id);
+        if (!fullChat) return;
+
+        const matchedChar = fullChat.characterId
+          ? characters.find((c) => c.id === fullChat.characterId)
+          : null;
+        let aiName = "";
+        const aiMsg = fullChat.messages?.find((m: any) => !m.is_user && m.name);
+        if (aiMsg) aiName = aiMsg.name;
+
+        let folderName = matchedChar?.name || aiName || "未归类聊天";
+        folderName = folderName.replace(/[/\\?%*:|"<>]/g, "-");
+
+        const jsonlString = (fullChat.messages || [])
+          .map((m) =>
+            JSON.stringify({
+              name: m.name,
+              is_user: m.is_user,
+              is_name: m.is_name,
+              send_date: m.send_date,
+              mes: m.mes,
+              extra: m.extra,
+            }),
+          )
+          .join("\n");
+
+        let safeChatName = (fullChat.name || "chat").replace(/[/\\?%*:|"<>]/g, "-");
+        if (!safeChatName.endsWith(".jsonl")) safeChatName += ".jsonl";
+
+        zip.file(`${folderName}/聊天记录/${safeChatName}`, jsonlString);
+      }),
+    );
+
+    const content = await zip.generateAsync({ type: "blob" });
+    const { downloadOrShareFile } = await import("../lib/appBridge");
+    await downloadOrShareFile(zipFileName, content, "application/zip", share);
+  };
+
+  const handleExportAllChats = async () => {
+    if (savedChats.length === 0) return;
+    const zipName = `全部聊天记录_${new Date().toISOString().slice(0, 10)}.zip`;
+    await handleExportChatListAsZip(savedChats, zipName, true);
+  };
+
+  const handleExportGroupChats = async (groupName: string, groupChats: { id: string }[], e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!groupChats || groupChats.length === 0) return;
+    const safeGroup = (groupName || "Character").replace(/[/\\?%*:|"<>]/g, "-");
+    const zipName = `${safeGroup}_聊天记录_${new Date().toISOString().slice(0, 10)}.zip`;
+    await handleExportChatListAsZip(groupChats, zipName, true);
+  };
+
   const handleBatchExport = async (share: boolean = true) => {
     if (selectedChatIds.size === 1) {
       const chatId = Array.from(selectedChatIds)[0];
@@ -1611,6 +1675,15 @@ export function ChatViewer({
               </div>
 
               <div className="relative flex items-center gap-1 shrink-0">
+                {/* 快捷导出当前聊天记录 */}
+                <button
+                  onClick={() => activeChat && handleExportSingleChat(activeChat.id)}
+                  className="w-10 h-10 flex items-center justify-center rounded-full chat-header-btn transition hover:scale-105 active:scale-95 cursor-pointer hover:!text-green-400 [.light-theme_&]:hover:!text-green-600"
+                  title="导出此聊天记录 (.jsonl)"
+                >
+                  <Download className="w-4.5 h-4.5" />
+                </button>
+
                 {/* 切换 卡片阅读模式 / 对话气泡模式 */}
                 <button
                   onClick={() => {
@@ -1871,6 +1944,29 @@ export function ChatViewer({
                 />
               </div>
               <button
+                onClick={() => {
+                  setIsBatchMode((prev) => !prev);
+                  if (isBatchMode) setSelectedChatIds(new Set());
+                }}
+                disabled={savedChats.length === 0}
+                className={`w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-full transition shrink-0 flex items-center justify-center border-0 border-none outline-none cursor-pointer active:scale-95 disabled:opacity-40 disabled:pointer-events-none ${
+                  isBatchMode
+                    ? "bg-blue-500 text-white hover:bg-blue-600 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:!text-white"
+                    : "bg-white/10 hover:bg-white/20 text-white/80 hover:text-white [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a]"
+                }`}
+                title={isBatchMode ? "退出批量多选" : "批量多选 / 选择导出"}
+              >
+                <CheckSquare className="w-4 h-4 stroke-[1.75]" />
+              </button>
+              <button
+                onClick={handleExportAllChats}
+                disabled={savedChats.length === 0}
+                className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-full transition shrink-0 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white/80 hover:!text-green-400 border-0 border-none outline-none [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-green-600 cursor-pointer active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
+                title="一键导出全部聊天记录 (.zip)"
+              >
+                <Download className="w-4 h-4 stroke-[1.75]" />
+              </button>
+              <button
                 onClick={() => setIsCleanerOpen(true)}
                 className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-full transition shrink-0 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white/80 hover:text-white border-0 border-none outline-none [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a] cursor-pointer active:scale-95"
                 title="清理记录和分支"
@@ -2013,7 +2109,7 @@ export function ChatViewer({
                               </p>
                             </div>
                           </div>
-                          <div className="text-white/40 shrink-0 z-30 [.light-theme_&]:!text-[#64748b]">
+                          <div className="flex items-center gap-1.5 text-white/40 shrink-0 z-30 [.light-theme_&]:!text-[#64748b]">
                             {isBatchMode ? (
                               allSelected ? (
                                 <div className="w-6 h-6 rounded-full bg-white text-slate-950 flex items-center justify-center shadow-md [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-[#ffffff]">
@@ -2022,10 +2118,21 @@ export function ChatViewer({
                               ) : (
                                 <div className="w-6 h-6 rounded-full border-2 border-white/30 group-hover:border-white/60 [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:group-hover:!border-[#94a3b8]" />
                               )
-                            ) : isExpanded ? (
-                              <ChevronUp className="w-5 h-5" />
                             ) : (
-                              <ChevronDown className="w-5 h-5" />
+                              <>
+                                <button
+                                  onClick={(e) => handleExportGroupChats(groupName, group.chats, e)}
+                                  className="p-1.5 rounded-lg text-white/35 hover:text-green-400 hover:bg-green-500/15 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-green-600 [.light-theme_&]:hover:!bg-green-50 transition cursor-pointer border-none"
+                                  title={`导出 ${groupName} 的全部记录 (${group.chats.length}条)`}
+                                >
+                                  <Download className="w-4 h-4" />
+                                </button>
+                                {isExpanded ? (
+                                  <ChevronUp className="w-5 h-5" />
+                                ) : (
+                                  <ChevronDown className="w-5 h-5" />
+                                )}
+                              </>
                             )}
                           </div>
                         </div>

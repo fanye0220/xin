@@ -1042,7 +1042,7 @@ export async function uploadCharacterToCloud(
   }
 
   const q = `appProperties has { key='charId' and value='${char.id}' } and trashed=false`;
-  const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive&fields=files(id,name,appProperties,parents)`, {
+  const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive&fields=files(id,name,appProperties,parents,size)`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   if (!searchRes.ok) {
@@ -1060,7 +1060,7 @@ export async function uploadCharacterToCloud(
     // 如果根据 charId 没查到，在整个云盘中根据 contentHash 全局查找（可能之前传在根目录或其他旧目录）
     const qHash = `(appProperties has { key='isChar' and value='true' } or appProperties has { key='cardType' }) and appProperties has { key='contentHash' and value='${contentHash}' } and trashed=false`;
     try {
-      const searchResHash = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qHash)}&spaces=drive&fields=files(id,name,appProperties,parents)`, {
+      const searchResHash = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qHash)}&spaces=drive&fields=files(id,name,appProperties,parents,size)`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (searchResHash.ok) {
@@ -1079,7 +1079,10 @@ export async function uploadCharacterToCloud(
     const currentCloudFolder = existingFile.appProperties?.folderPath || '';
     const folderChanged = currentCloudFolder !== folderPath || existingParents.length !== 1 || existingParents[0] !== targetParentId;
 
-    if (!forceOverwrite && existingFile.appProperties?.contentHash === contentHash) {
+    const existingSize = existingFile.size != null ? Number(existingFile.size) : 0;
+    const isCorruptedOrEmpty = existingSize <= 10; // 上次上传被打断留下的 0 字节损坏占位文件，强制重新上传修补
+
+    if (!forceOverwrite && !isCorruptedOrEmpty && existingFile.appProperties?.contentHash === contentHash) {
       if (folderChanged) {
         if (onProgress) onProgress("内容一致，正在同步移动并更新云端文件夹嵌套...");
         await moveCloudFileToParent(existingFile.id, existingParents);
@@ -1111,7 +1114,7 @@ export async function uploadCharacterToCloud(
     finalCharName = existingFile.appProperties?.charName || finalCharName;
     metadata.appProperties.charName = finalCharName;
     
-    if (onProgress) onProgress("更新云端文件信息与分类...");
+    if (onProgress) onProgress(isCorruptedOrEmpty ? "检测到云端文件损坏/0字节(此前中断)，正在重新补充上传..." : "更新云端文件信息与分类...");
     await fetch(`https://www.googleapis.com/drive/v3/files/${targetFileId}`, {
       method: 'POST',
       headers: {
@@ -1126,7 +1129,7 @@ export async function uploadCharacterToCloud(
     if (onProgress) onProgress("检查同名卡片...");
     const safeQueryName = finalCharName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const qName = `name contains '${safeQueryName}' and '${targetParentId}' in parents and trashed=false`;
-    const searchResName = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qName)}&spaces=drive&fields=files(id,name,appProperties,parents)`, {
+    const searchResName = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qName)}&spaces=drive&fields=files(id,name,appProperties,parents,size)`, {
       headers: { Authorization: `Bearer ${token}` }
     });
     if (!searchResName.ok) {
@@ -1138,7 +1141,10 @@ export async function uploadCharacterToCloud(
        const exactMatches = searchDataName.files.filter((f:any) => f.appProperties?.charName === finalCharName || f.appProperties?.charName?.startsWith(finalCharName + '_'));
        if (exactMatches.length > 0) {
           const identical = exactMatches.find((f:any) => f.appProperties?.contentHash === contentHash);
-          if (!forceOverwrite && identical) {
+          const idSize = identical?.size != null ? Number(identical.size) : 0;
+          const isIdenticalCorrupted = idSize <= 10;
+
+          if (!forceOverwrite && identical && !isIdenticalCorrupted) {
              const idParents = Array.isArray(identical.parents) ? identical.parents : [];
              const idFolder = identical.appProperties?.folderPath || '';
              const idFolderChanged = idFolder !== folderPath || idParents.length !== 1 || idParents[0] !== targetParentId;
@@ -1202,6 +1208,14 @@ export async function uploadCharacterToCloud(
   const uploadRes = await uploadBlobToDrive(token, targetFileId, finalBlob, mimeType);
 
   if (!uploadRes.ok) {
+    if (targetFileId) {
+      try {
+        await fetch(`https://www.googleapis.com/drive/v3/files/${targetFileId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      } catch {}
+    }
     throw new Error("上传失败: " + uploadRes.statusText);
   }
   
