@@ -201,6 +201,7 @@ export function CharacterChatsSection({
   };
 
   const handleChatClick = async (chatMeta: any) => {
+    if (Date.now() - lastLongPressTriggerRef.current < 600) return;
     if (onOpenChat) {
       onOpenChat(chatMeta.id);
     } else {
@@ -210,6 +211,65 @@ export function CharacterChatsSection({
   };
 
   const [deleteChatId, setDeleteChatId] = useState<string | null>(null);
+
+  const longPressTimerRef = useRef<any>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const lastLongPressTriggerRef = useRef<number>(0);
+  const touchHandledRef = useRef<boolean>(false);
+
+  const handleChatTouchStart = (e: React.TouchEvent | React.MouseEvent, chatId: string) => {
+    if ("touches" in e) {
+      touchHandledRef.current = true;
+    } else if (touchHandledRef.current || (e as React.MouseEvent).button !== 0) {
+      return;
+    }
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+    touchStartPosRef.current = { x: clientX, y: clientY };
+
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      lastLongPressTriggerRef.current = Date.now();
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        try { navigator.vibrate(40); } catch (err) {}
+      }
+      setDeleteChatId(chatId);
+    }, 300);
+  };
+
+  const handleChatTouchMove = (e: React.TouchEvent | React.MouseEvent) => {
+    if (!touchStartPosRef.current) return;
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+    const dx = Math.abs(clientX - touchStartPosRef.current.x);
+    const dy = Math.abs(clientY - touchStartPosRef.current.y);
+    if (dx > 25 || dy > 25) {
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handleChatTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    setTimeout(() => {
+      touchHandledRef.current = false;
+    }, 300);
+  };
+
+  const handleChatContextMenu = (e: React.MouseEvent, chatId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    if (Date.now() - lastLongPressTriggerRef.current < 800) return;
+    lastLongPressTriggerRef.current = Date.now();
+    setDeleteChatId(chatId);
+  };
 
   const confirmDeleteChat = async () => {
     if (!deleteChatId) return;
@@ -587,6 +647,16 @@ export function CharacterChatsSection({
                 <div
                   key={chat.id}
                   onClick={() => handleChatClick(chat)}
+                  style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none", touchAction: "pan-y" }}
+                  onTouchStart={(e) => handleChatTouchStart(e, chat.id)}
+                  onTouchMove={handleChatTouchMove}
+                  onTouchEnd={handleChatTouchEnd}
+                  onTouchCancel={handleChatTouchEnd}
+                  onMouseDown={(e) => handleChatTouchStart(e, chat.id)}
+                  onMouseMove={handleChatTouchMove}
+                  onMouseUp={handleChatTouchEnd}
+                  onMouseLeave={handleChatTouchEnd}
+                  onContextMenu={(e) => handleChatContextMenu(e, chat.id)}
                   className="group cursor-pointer bg-white/[0.05] hover:bg-white/[0.08] active:scale-[0.99] rounded-2xl p-3.5 transition-all shadow-xs relative flex flex-col justify-between gap-2.5 border-none outline-none select-none [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!shadow-xs"
                 >
                   {/* Row 1: Title + Note + Delete */}
@@ -851,7 +921,7 @@ export function CharacterChatsSection({
 
                   <button
                     onClick={(e) => handleDelete(selectedChat.id, e)}
-                    className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition shrink-0"
+                    className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 [.light-theme_&]:!bg-red-50 [.light-theme_&]:!text-red-600 [.light-theme_&]:hover:!bg-red-100 rounded-lg transition shrink-0 cursor-pointer"
                     title="删除此记录"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -1114,13 +1184,14 @@ export function CharacterChatsSection({
               <div className="space-y-2.5">
                 <button
                   onClick={confirmDeleteChat}
-                  className="w-full py-3.5 rounded-2xl bg-[#FE2C55] hover:bg-[#E02447] active:bg-[#D41C3E] text-white font-bold text-sm sm:text-base transition-all shadow-md shadow-[#FE2C55]/25 cursor-pointer active:scale-[0.98]"
+                  className="w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 bg-[#FE2C55] hover:bg-[#E02447] active:bg-[#D41C3E] text-white shadow-md shadow-[#FE2C55]/25 [.light-theme_&]:!bg-[#fff0f2] [.light-theme_&]:hover:!bg-[#ffe4e6] [.light-theme_&]:active:!bg-[#fecdd3] [.light-theme_&]:!text-[#e11d48] [.light-theme_&]:!shadow-none"
                 >
-                  删除聊天记录
+                  <Trash2 className="w-4 h-4" />
+                  <span>删除聊天记录</span>
                 </button>
                 <button
                   onClick={() => setDeleteChatId(null)}
-                  className="w-full py-3.5 rounded-2xl bg-white/10 hover:bg-white/15 active:bg-white/5 text-white/90 [.light-theme_&]:!bg-[#f2f3f5] [.light-theme_&]:hover:!bg-[#e5e6eb] [.light-theme_&]:!text-[#0f172a] font-semibold text-sm sm:text-base transition-all cursor-pointer active:scale-[0.98]"
+                  className="w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center bg-white/10 hover:bg-white/15 active:bg-white/5 text-white/90 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:active:!bg-[#cbd5e1] [.light-theme_&]:!text-[#334155] [.light-theme_&]:!shadow-none"
                 >
                   取消
                 </button>

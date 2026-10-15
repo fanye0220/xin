@@ -81,6 +81,8 @@ const TrashedCharacterCard = ({
     lastTriggerTime: 0
   });
 
+  const touchHandledRef = useRef(false);
+
   const startLongPress = (clientX?: number, clientY?: number) => {
     longPressRef.current.triggered = false;
     longPressRef.current.startX = clientX;
@@ -92,7 +94,7 @@ const TrashedCharacterCard = ({
       longPressRef.current.triggered = true;
       longPressRef.current.lastTriggerTime = Date.now();
       onToggleSelect(char.id);
-    }, 320);
+    }, 280);
   };
 
   const cancelLongPress = () => {
@@ -106,7 +108,7 @@ const TrashedCharacterCard = ({
     if (longPressRef.current.timer) {
       const dx = Math.abs(clientX - (longPressRef.current.startX || 0));
       const dy = Math.abs(clientY - (longPressRef.current.startY || 0));
-      if (dx > 20 || dy > 20) {
+      if (dx > 28 || dy > 28) {
         cancelLongPress();
       }
     }
@@ -115,6 +117,7 @@ const TrashedCharacterCard = ({
   return (
     <motion.div 
       layout
+      style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none", touchAction: "pan-y" }}
       transition={{ duration: 0.18, ease: "easeOut" }}
       onClick={(e) => {
         if (longPressRef.current.triggered || Date.now() - (longPressRef.current.lastTriggerTime || 0) < 600) {
@@ -128,6 +131,7 @@ const TrashedCharacterCard = ({
         }
       }}
       onTouchStart={(e) => {
+        touchHandledRef.current = true;
         if (!selectionMode && e.touches && e.touches[0]) {
           startLongPress(e.touches[0].clientX, e.touches[0].clientY);
         }
@@ -137,12 +141,17 @@ const TrashedCharacterCard = ({
           checkMove(e.touches[0].clientX, e.touches[0].clientY);
         }
       }}
-      onTouchEnd={cancelLongPress}
-      onTouchCancel={cancelLongPress}
+      onTouchEnd={() => {
+        cancelLongPress();
+        setTimeout(() => { touchHandledRef.current = false; }, 300);
+      }}
+      onTouchCancel={() => {
+        cancelLongPress();
+        setTimeout(() => { touchHandledRef.current = false; }, 300);
+      }}
       onMouseDown={(e) => {
-        if (e.button === 0 && !selectionMode) {
-          startLongPress(e.clientX, e.clientY);
-        }
+        if (touchHandledRef.current || e.button !== 0 || selectionMode) return;
+        startLongPress(e.clientX, e.clientY);
       }}
       onMouseMove={(e) => {
         checkMove(e.clientX, e.clientY);
@@ -151,7 +160,11 @@ const TrashedCharacterCard = ({
       onMouseLeave={cancelLongPress}
       onContextMenu={(e) => {
         e.preventDefault();
+        e.stopPropagation();
+        cancelLongPress();
         if (Date.now() - (longPressRef.current.lastTriggerTime || 0) < 800) return;
+        longPressRef.current.triggered = true;
+        longPressRef.current.lastTriggerTime = Date.now();
         onToggleSelect(char.id);
       }}
       className={`relative flex items-center gap-3 sm:gap-4 p-3 sm:p-3.5 rounded-2xl transition-all duration-150 group select-none border-none outline-none ${

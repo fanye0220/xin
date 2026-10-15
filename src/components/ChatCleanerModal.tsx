@@ -362,7 +362,7 @@ export function ChatCleanerModal({ isOpen, onClose, characterId, onDeleted }: Ch
                 <button
                   onClick={confirmDelete}
                   disabled={selectedToDelete.size === 0}
-                  className="flex-1 sm:flex-none justify-center px-4 py-2.5 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:hover:bg-rose-600 transition flex items-center gap-1.5 cursor-pointer shadow-md whitespace-nowrap"
+                  className="flex-1 sm:flex-none justify-center px-4 py-2.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium text-white bg-[#FE2C55] hover:bg-[#E02447] active:bg-[#D41C3E] disabled:opacity-40 disabled:pointer-events-none transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-[#FE2C55]/20 [.light-theme_&]:!bg-[#fff0f2] [.light-theme_&]:hover:!bg-[#ffe4e6] [.light-theme_&]:active:!bg-[#fecdd3] [.light-theme_&]:!text-[#e11d48] [.light-theme_&]:!shadow-none whitespace-nowrap"
                 >
                   <Trash2 className="w-4 h-4 shrink-0" />
                   <span>清理选中项</span>

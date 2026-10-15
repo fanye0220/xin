@@ -1258,7 +1258,9 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
                                     ? 'bg-white/20 [.light-theme_&]:!bg-[#e2e8f0]'
                                     : 'bg-white/[0.09] [.light-theme_&]:!bg-white [.light-theme_&]:!shadow-[0_2px_12px_rgba(0,0,0,0.04)]'
                               }`}
+                              style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none", touchAction: "pan-y" }}
                               onTouchStart={(e) => {
+                                (longPressRef.current as any).touchHandled = true;
                                 longPressRef.current.triggered = false;
                                 if (e.touches && e.touches[0]) {
                                   longPressRef.current.startX = e.touches[0].clientX;
@@ -1272,13 +1274,13 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
                                     setSelectionMode(true);
                                     setSelectedIds(prev => new Set(prev).add(char.id));
                                   }
-                                }, 320);
+                                }, 280);
                               }}
                               onTouchMove={(e) => {
                                 if (longPressRef.current.timer && e.touches && e.touches[0]) {
                                   const dx = Math.abs(e.touches[0].clientX - (longPressRef.current.startX || 0));
                                   const dy = Math.abs(e.touches[0].clientY - (longPressRef.current.startY || 0));
-                                  if (dx > 20 || dy > 20) {
+                                  if (dx > 28 || dy > 28) {
                                     clearTimeout(longPressRef.current.timer);
                                     longPressRef.current.timer = null;
                                   }
@@ -1289,15 +1291,17 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
                                   clearTimeout(longPressRef.current.timer);
                                   longPressRef.current.timer = null;
                                 }
+                                setTimeout(() => { (longPressRef.current as any).touchHandled = false; }, 300);
                               }}
                               onTouchCancel={() => {
                                 if (longPressRef.current.timer) {
                                   clearTimeout(longPressRef.current.timer);
                                   longPressRef.current.timer = null;
                                 }
+                                setTimeout(() => { (longPressRef.current as any).touchHandled = false; }, 300);
                               }}
                               onMouseDown={(e) => {
-                                if (e.button !== 0) return;
+                                if (e.button !== 0 || (longPressRef.current as any).touchHandled) return;
                                 longPressRef.current.triggered = false;
                                 longPressRef.current.startX = e.clientX;
                                 longPressRef.current.startY = e.clientY;
@@ -1309,13 +1313,13 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
                                     setSelectionMode(true);
                                     setSelectedIds(prev => new Set(prev).add(char.id));
                                   }
-                                }, 320);
+                                }, 280);
                               }}
                               onMouseMove={(e) => {
                                 if (longPressRef.current.timer) {
                                   const dx = Math.abs(e.clientX - (longPressRef.current.startX || 0));
                                   const dy = Math.abs(e.clientY - (longPressRef.current.startY || 0));
-                                  if (dx > 20 || dy > 20) {
+                                  if (dx > 28 || dy > 28) {
                                     clearTimeout(longPressRef.current.timer);
                                     longPressRef.current.timer = null;
                                   }
@@ -1335,7 +1339,14 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
                               }}
                               onContextMenu={(e) => {
                                 e.preventDefault();
+                                e.stopPropagation();
+                                if (longPressRef.current.timer) {
+                                  clearTimeout(longPressRef.current.timer);
+                                  longPressRef.current.timer = null;
+                                }
                                 if (Date.now() - (longPressRef.current.lastTriggerTime || 0) < 800) return;
+                                longPressRef.current.triggered = true;
+                                longPressRef.current.lastTriggerTime = Date.now();
                                 if (!isLocked) {
                                   setSelectionMode(true);
                                   toggleSelection(char.id);

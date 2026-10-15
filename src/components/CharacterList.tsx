@@ -523,13 +523,14 @@ export function CharacterList({
 
   const handleTagTouchStart = (tag: string) => {
     tagLongPressTriggeredRef.current = false;
+    if (tagLongPressTimerRef.current) clearTimeout(tagLongPressTimerRef.current);
     tagLongPressTimerRef.current = setTimeout(() => {
       tagLongPressTriggeredRef.current = true;
       if (typeof navigator !== "undefined" && navigator.vibrate) {
         try { navigator.vibrate(40); } catch (e) {}
       }
       setTagActionModal(tag);
-    }, 500);
+    }, 280);
   };
 
   const handleTagTouchEnd = () => {
@@ -2948,12 +2949,21 @@ export function CharacterList({
                               return (
                                 <button
                                   key={tag}
+                                  style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none" }}
                                   onTouchStart={() => handleTagTouchStart(tag)}
                                   onTouchEnd={handleTagTouchEnd}
+                                  onTouchCancel={handleTagTouchEnd}
                                   onTouchMove={handleTagTouchEnd}
                                   onMouseDown={() => handleTagTouchStart(tag)}
                                   onMouseUp={handleTagTouchEnd}
                                   onMouseLeave={handleTagTouchEnd}
+                                  onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    if (tagLongPressTriggeredRef.current) return;
+                                    handleTagTouchEnd();
+                                    setTagActionModal(tag);
+                                  }}
                                   onClick={() => {
                                     if (tagLongPressTriggeredRef.current) return;
                                     if (isSelected) {
@@ -3053,8 +3063,10 @@ export function CharacterList({
                           transition={{ duration: 0.12, ease: "easeOut" }}
                           whileHover={selectionMode ? undefined : { scale: 1.03 }}
                           whileTap={{ scale: 0.92 }}
+                          style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none", touchAction: "pan-y" }}
                           onTouchStart={(e) => {
                             if (selectionMode || isDraggingRef.current) return;
+                            (longPressRef.current as any).touchHandled = true;
                             longPressRef.current.triggered = false;
                             longPressRef.current.startX = e.touches[0].clientX;
                             longPressRef.current.startY = e.touches[0].clientY;
@@ -3067,13 +3079,13 @@ export function CharacterList({
                                 setSelectedIds(new Set([folder.id]));
                                 setIsHeaderVisible(true);
                               }
-                            }, 320);
+                            }, 280);
                           }}
                           onTouchMove={(e) => {
                             if (longPressRef.current.timer && e.touches[0]) {
                               const dx = Math.abs(e.touches[0].clientX - (longPressRef.current.startX || 0));
                               const dy = Math.abs(e.touches[0].clientY - (longPressRef.current.startY || 0));
-                              if (dx > 20 || dy > 20 || isDraggingRef.current) {
+                              if (dx > 28 || dy > 28 || isDraggingRef.current) {
                                 clearTimeout(longPressRef.current.timer);
                                 longPressRef.current.timer = null;
                               }
@@ -3084,15 +3096,17 @@ export function CharacterList({
                               clearTimeout(longPressRef.current.timer);
                               longPressRef.current.timer = null;
                             }
+                            setTimeout(() => { (longPressRef.current as any).touchHandled = false; }, 300);
                           }}
                           onTouchCancel={() => {
                             if (longPressRef.current.timer) {
                               clearTimeout(longPressRef.current.timer);
                               longPressRef.current.timer = null;
                             }
+                            setTimeout(() => { (longPressRef.current as any).touchHandled = false; }, 300);
                           }}
                           onMouseDown={(e) => {
-                            if (selectionMode || isDraggingRef.current || e.button !== 0) return;
+                            if (selectionMode || isDraggingRef.current || e.button !== 0 || (longPressRef.current as any).touchHandled) return;
                             longPressRef.current.triggered = false;
                             longPressRef.current.startX = e.clientX;
                             longPressRef.current.startY = e.clientY;
@@ -3105,13 +3119,13 @@ export function CharacterList({
                                 setSelectedIds(new Set([folder.id]));
                                 setIsHeaderVisible(true);
                               }
-                            }, 320);
+                            }, 280);
                           }}
                           onMouseMove={(e) => {
                             if (longPressRef.current.timer) {
                               const dx = Math.abs(e.clientX - (longPressRef.current.startX || 0));
                               const dy = Math.abs(e.clientY - (longPressRef.current.startY || 0));
-                              if (dx > 20 || dy > 20 || isDraggingRef.current) {
+                              if (dx > 28 || dy > 28 || isDraggingRef.current) {
                                 clearTimeout(longPressRef.current.timer);
                                 longPressRef.current.timer = null;
                               }
@@ -3131,6 +3145,13 @@ export function CharacterList({
                           }}
                           onContextMenu={(e) => {
                             e.preventDefault();
+                            e.stopPropagation();
+                            if (longPressRef.current.triggered) return;
+                            if (longPressRef.current.timer) {
+                              clearTimeout(longPressRef.current.timer);
+                              longPressRef.current.timer = null;
+                            }
+                            longPressRef.current.triggered = true;
                             if (!selectionMode) {
                               setSelectionMode(true);
                               setSelectedIds(new Set([folder.id]));
@@ -3968,7 +3989,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
       isLongPress.current = true;
       lastLongPressTimeRef.current = Date.now();
       onLongPress();
-    }, 320);
+    }, 280);
   };
 
   const handlePointerMove = (e: React.SyntheticEvent) => {
@@ -3984,7 +4005,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
     }
     const dx = Math.abs(clientX - touchStartXRef.current);
     const dy = Math.abs(clientY - touchStartYRef.current);
-    if (dx > 20 || dy > 20) {
+    if (dx > 28 || dy > 28) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
@@ -4018,6 +4039,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
     return (
       <motion.div
         ref={cardRef}
+        style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none", touchAction: "pan-y" }}
         animate={{ scale: isSelected ? 0.97 : 1 }}
         transition={{ duration: 0.12, ease: "easeOut" }}
         whileHover={selectionMode ? undefined : { scale: 1.02 }}
@@ -4025,7 +4047,16 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
         onClick={handleClick}
         onContextMenu={(e) => {
           e.preventDefault();
-          if (Date.now() - lastLongPressTimeRef.current < 800) return;
+          e.stopPropagation();
+          if (isLongPress.current || Date.now() - lastLongPressTimeRef.current < 800) {
+            return;
+          }
+          if (timerRef.current) {
+            clearTimeout(timerRef.current);
+            timerRef.current = null;
+          }
+          isLongPress.current = true;
+          lastLongPressTimeRef.current = Date.now();
           onLongPress();
         }}
         onTouchStart={handlePointerStart}
@@ -4141,6 +4172,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   return (
     <motion.div
       ref={cardRef}
+      style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none", touchAction: "pan-y" }}
       animate={{ scale: isSelected ? 0.93 : 1 }}
       transition={{ duration: 0.12, ease: "easeOut" }}
       whileHover={selectionMode ? undefined : { scale: 1.05 }}
@@ -4148,7 +4180,16 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
       onClick={handleClick}
       onContextMenu={(e) => {
         e.preventDefault();
-        if (Date.now() - lastLongPressTimeRef.current < 800) return;
+        e.stopPropagation();
+        if (isLongPress.current || Date.now() - lastLongPressTimeRef.current < 800) {
+          return;
+        }
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+        isLongPress.current = true;
+        lastLongPressTimeRef.current = Date.now();
         onLongPress();
       }}
       onTouchStart={handlePointerStart}

@@ -365,29 +365,45 @@ export function ChatViewer({
     message: string;
   }>({ show: false, current: 0, total: 0, message: "" });
 
+  const lastLongPressTriggerRef = useRef(0);
+  const touchHandledRef = useRef(false);
+
+  const triggerLongPressAction = (chatOrGroupId: string, isGroup: boolean) => {
+    lastLongPressTriggerRef.current = Date.now();
+    setIsBatchMode(true);
+    if (!isGroup) {
+      setSelectedChatIds(new Set([chatOrGroupId]));
+    } else {
+      const group = groupedChats.find(
+        (g) => g.characterName === chatOrGroupId,
+      );
+      if (group) {
+        setSelectedChatIds(new Set(group.chats.map((c) => c.id)));
+      }
+    }
+  };
+
   const handleTouchStart = (
     e: React.TouchEvent | React.MouseEvent,
     chatOrGroupId: string,
     isGroup: boolean,
   ) => {
     if (isBatchMode) return;
+
+    if ("touches" in e) {
+      touchHandledRef.current = true;
+    } else if (touchHandledRef.current || (e as React.MouseEvent).button !== 0) {
+      return;
+    }
+
     const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
     const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
     touchStartPos.current = { x: clientX, y: clientY };
 
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
     longPressTimer.current = setTimeout(() => {
-      setIsBatchMode(true);
-      if (!isGroup) {
-        setSelectedChatIds(new Set([chatOrGroupId]));
-      } else {
-        const group = groupedChats.find(
-          (g) => g.characterName === chatOrGroupId,
-        );
-        if (group) {
-          setSelectedChatIds(new Set(group.chats.map((c) => c.id)));
-        }
-      }
-    }, 500);
+      triggerLongPressAction(chatOrGroupId, isGroup);
+    }, 280);
   };
 
   const handleTouchMove = (e: React.TouchEvent | React.MouseEvent) => {
@@ -397,15 +413,37 @@ export function ChatViewer({
 
     const dx = clientX - touchStartPos.current.x;
     const dy = clientY - touchStartPos.current.y;
-    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+    if (Math.abs(dx) > 28 || Math.abs(dy) > 28) {
       if (longPressTimer.current) clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
       touchStartPos.current = null;
     }
   };
 
   const handleTouchEnd = () => {
-    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
     touchStartPos.current = null;
+    setTimeout(() => {
+      touchHandledRef.current = false;
+    }, 300);
+  };
+
+  const handleContextMenu = (
+    e: React.MouseEvent,
+    chatOrGroupId: string,
+    isGroup: boolean,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    if (Date.now() - lastLongPressTriggerRef.current < 600) return;
+    triggerLongPressAction(chatOrGroupId, isGroup);
   };
 
   const groupedChats = useMemo(() => {
@@ -1880,18 +1918,21 @@ export function ChatViewer({
 
                     return (
                       <div
-                        className="pb-4"
+                        className="pb-4 select-none"
+                        style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none", touchAction: "pan-y" }}
                         onTouchStart={(e) =>
                           handleTouchStart(e, groupName, true)
                         }
                         onTouchMove={handleTouchMove}
                         onTouchEnd={handleTouchEnd}
+                        onTouchCancel={handleTouchEnd}
                         onMouseDown={(e) =>
                           handleTouchStart(e, groupName, true)
                         }
                         onMouseMove={handleTouchMove}
                         onMouseUp={handleTouchEnd}
                         onMouseLeave={handleTouchEnd}
+                        onContextMenu={(e) => handleContextMenu(e, groupName, true)}
                       >
                         <div
                           onClick={(e) => {
@@ -1992,14 +2033,17 @@ export function ChatViewer({
                   const isSelected = selectedChatIds.has(chat.id);
                   return (
                     <div
-                      className="pb-2.5 pl-3 sm:pl-6"
+                      className="pb-2.5 pl-3 sm:pl-6 select-none"
+                      style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none", touchAction: "pan-y" }}
                       onTouchStart={(e) => handleTouchStart(e, chat.id, false)}
                       onTouchMove={handleTouchMove}
                       onTouchEnd={handleTouchEnd}
+                      onTouchCancel={handleTouchEnd}
                       onMouseDown={(e) => handleTouchStart(e, chat.id, false)}
                       onMouseMove={handleTouchMove}
                       onMouseUp={handleTouchEnd}
                       onMouseLeave={handleTouchEnd}
+                      onContextMenu={(e) => handleContextMenu(e, chat.id, false)}
                     >
                       <div
                         onClick={(e) => {
@@ -2665,13 +2709,14 @@ export function ChatViewer({
               <div className="space-y-2.5">
                 <button
                   onClick={confirmDeleteChat}
-                  className="w-full py-3.5 rounded-2xl bg-[#FE2C55] hover:bg-[#E02447] active:bg-[#D41C3E] text-white font-bold text-sm sm:text-base transition-all shadow-md shadow-[#FE2C55]/25 cursor-pointer active:scale-[0.98]"
+                  className="w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 bg-[#FE2C55] hover:bg-[#E02447] active:bg-[#D41C3E] text-white shadow-md shadow-[#FE2C55]/25 [.light-theme_&]:!bg-[#fff0f2] [.light-theme_&]:hover:!bg-[#ffe4e6] [.light-theme_&]:active:!bg-[#fecdd3] [.light-theme_&]:!text-[#e11d48] [.light-theme_&]:!shadow-none"
                 >
-                  删除聊天记录
+                  <Trash2 className="w-4 h-4" />
+                  <span>删除聊天记录</span>
                 </button>
                 <button
                   onClick={() => setDeleteChatId(null)}
-                  className="w-full py-3.5 rounded-2xl bg-white/10 hover:bg-white/15 active:bg-white/5 text-white/90 [.light-theme_&]:!bg-[#f2f3f5] [.light-theme_&]:hover:!bg-[#e5e6eb] [.light-theme_&]:!text-[#0f172a] font-semibold text-sm sm:text-base transition-all cursor-pointer active:scale-[0.98]"
+                  className="w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center bg-white/10 hover:bg-white/15 active:bg-white/5 text-white/90 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:active:!bg-[#cbd5e1] [.light-theme_&]:!text-[#334155] [.light-theme_&]:!shadow-none"
                 >
                   取消
                 </button>
