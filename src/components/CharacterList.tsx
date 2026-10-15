@@ -2207,7 +2207,8 @@ export function CharacterList({
                     const newBuffer = injectTavernData(buffer, exportData);
                     const exportFileName = `${safeName}.png`;
                     const { downloadOrShareFile } = await import("../lib/appBridge");
-                    await downloadOrShareFile(exportFileName, newBuffer, 'image/png', true);
+                    // 单卡导出（只选中了一张卡）：额外往系统相册放一份，方便在相册里直接找到
+                    await downloadOrShareFile(exportFileName, newBuffer, 'image/png', true, { toAlbum: true });
                     return; // Done
                 } catch (e) {
                     console.error("Failed to inject PNG in single export", e);

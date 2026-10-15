@@ -486,7 +486,8 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
 
     try {
         const { downloadOrShareFile } = await import('../lib/appBridge');
-        await downloadOrShareFile(exportName, buffer, mime, share);
+        // 头像导出也往系统相册放一份（原路径 Download/MIU/Export/ 照旧保留）
+        await downloadOrShareFile(exportName, buffer, mime, share, { toAlbum: true });
     } catch(e) {
         alert('导出图片失败');
     }

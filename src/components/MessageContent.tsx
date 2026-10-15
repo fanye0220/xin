@@ -59,7 +59,13 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
   const cardBorder = isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.1)';
   const cardHoverBg = isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.09)';
 
-  const swipesJson = JSON.stringify(swipes || []);
+  // 这段内容会被塞进 iframe 的内联 <script> 里，必须把 "<" 转义成 \u003c：
+  // 否则卡片正文里只要出现 </script>，就会提前闭合我们注入的脚本，
+  // 后面那一大段 JSON 会被浏览器当成正文渲染出来（就是「开场白渲染不出来」的根因）。
+  const safeForInlineScript = (json: string) =>
+    json.replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+
+  const swipesJson = safeForInlineScript(JSON.stringify(swipes || []));
 
   const scriptContent = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -136,9 +142,14 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
       (function() {
         const frameId = "${iframeId}";
         const charSwipes = ${swipesJson};
-        const cName = ${JSON.stringify(characterName)};
+        const cName = ${safeForInlineScript(JSON.stringify(characterName))};
         let lastHeight = 0;
         let resizeTimer = null;
+        let lastViewportH = 0;
+        let lastMeasured = -1;
+        // 卡片内容跟着 iframe 视口一起缩放（vh / 百分比写的高度）时锁死高度，
+        // 否则「改高度 → 视口变 → 内容变 → 再改高度」会一路涨到几千 px。
+        let vpLocked = false;
 
         // Local variable store for TavernHelper / STscript
         const varStoreKey = 'tavern_vars_' + encodeURIComponent(cName || 'default');
@@ -301,25 +312,60 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
           }
         }, true);
 
-        function reportHeight() {
+        function reportHeight(force) {
           if (!document.body) return;
-          
+
+          const viewportH = window.innerHeight || document.documentElement.clientHeight || 0;
+
           let maxBottom = 0;
           const children = document.body.children;
           for (let i = 0; i < children.length; i++) {
             const el = children[i];
             if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'META') continue;
+            // fixed 元素贴的是 iframe 视口底，不代表文档内容高度，会把高度一直顶大
+            let elPos = '';
+            try { elPos = window.getComputedStyle(el).position; } catch (e) {}
+            if (elPos === 'fixed') continue;
             const rect = el.getBoundingClientRect();
             const bottom = rect.bottom + window.scrollY;
             if (bottom > maxBottom) {
               maxBottom = bottom;
             }
           }
-          
-          const scrollH = document.documentElement.scrollHeight || document.body.scrollHeight || 0;
-          const offsetH = document.documentElement.offsetHeight || document.body.offsetHeight || 0;
-          let calculated = Math.max(maxBottom > 0 ? maxBottom + 20 : 0, scrollH, offsetH);
-          calculated = Math.ceil(calculated);
+
+          // 只量「正文自身高度」。
+          // 不能用 documentElement.scrollHeight / offsetHeight：标准模式下它们至少等于 iframe 视口高度，
+          // 于是内容不足一屏时永远缩不回去，底部留一大片空白（短状态栏最明显）。
+          const bodyRect = document.body.getBoundingClientRect();
+          const contentH = Math.max(bodyRect.height, document.body.scrollHeight || 0);
+          const measured = Math.max(maxBottom, contentH, 0);
+
+          // force：这次测量是内容真的变了（DOM 变更、点击展开、加载完成）触发的，
+          // 不是我们自己改高度把视口带偏后的回响，这种才允许解锁重算。
+          if (force) vpLocked = false;
+
+          // 视口一变、measured 就按同一比例跟着变 → 内容是 vh / 百分比撑出来的（例如 height:100vh）。
+          // 这种情况必须锁死：改高度 → 视口变 → 内容变 → 再改高度，会一路涨到几千 px。
+          if (!vpLocked && lastViewportH > 0 && viewportH !== lastViewportH && lastMeasured > 0) {
+            const ratioBefore = lastMeasured / lastViewportH;
+            const ratioNow = measured / viewportH;
+            if (Math.abs(ratioBefore - ratioNow) <= 0.02) vpLocked = true;
+          }
+          lastViewportH = viewportH;
+          lastMeasured = measured;
+
+          if (vpLocked) return;
+
+          // 内容和视口几乎一样高：多半是 vh 撑出来的，维持现状，别再互相追着变。
+          // 阈值要把 body 上下 padding 算进去（bodyRect 是 border-box，含 padding）。
+          let padV = 0;
+          try {
+            const bodyStyle = window.getComputedStyle(document.body);
+            padV = (parseFloat(bodyStyle.paddingTop) || 0) + (parseFloat(bodyStyle.paddingBottom) || 0);
+          } catch (e) {}
+          if (!force && viewportH > 0 && Math.abs(measured - viewportH) <= padV + 4) return;
+
+          const calculated = Math.min(Math.ceil(measured + 16), 30000);
 
           if (calculated > 20 && Math.abs(calculated - lastHeight) >= 2) {
             lastHeight = calculated;
@@ -327,21 +373,22 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
           }
         }
 
-        function debouncedReport() {
+        // force=true 表示源头是内容变化；resize / 定时器只是我们改完高度后的回响，不能解锁。
+        function debouncedReport(force) {
           if (resizeTimer) clearTimeout(resizeTimer);
-          resizeTimer = setTimeout(reportHeight, 30);
+          resizeTimer = setTimeout(function() { reportHeight(force); }, 30);
         }
 
-        window.addEventListener('load', reportHeight);
-        window.addEventListener('resize', debouncedReport);
-        document.addEventListener('DOMContentLoaded', reportHeight);
-        document.addEventListener('click', debouncedReport);
-        document.addEventListener('transitionend', debouncedReport);
-        document.addEventListener('animationend', debouncedReport);
-        document.addEventListener('toggle', reportHeight, true);
+        window.addEventListener('load', function() { reportHeight(true); });
+        window.addEventListener('resize', function() { debouncedReport(false); });
+        document.addEventListener('DOMContentLoaded', function() { reportHeight(true); });
+        document.addEventListener('click', function() { debouncedReport(true); });
+        document.addEventListener('transitionend', function() { debouncedReport(true); });
+        document.addEventListener('animationend', function() { debouncedReport(true); });
+        document.addEventListener('toggle', function() { reportHeight(true); }, true);
 
         if (window.MutationObserver) {
-          const obs = new MutationObserver(debouncedReport);
+          const obs = new MutationObserver(function() { debouncedReport(true); });
           if (document.body) {
             obs.observe(document.body, { childList: true, subtree: true, attributes: true, characterData: true });
           } else {
@@ -352,19 +399,19 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
         }
 
         if (window.ResizeObserver && document.body) {
-          const ro = new ResizeObserver(debouncedReport);
+          const ro = new ResizeObserver(function() { debouncedReport(false); });
           ro.observe(document.body);
         }
 
         // Periodic check for dynamic async rendering
         let checks = 0;
         const interval = setInterval(() => {
-          reportHeight();
+          reportHeight(false);
           checks++;
           if (checks > 20) clearInterval(interval);
         }, 150);
 
-        reportHeight();
+        reportHeight(true);
       })();
     </script>
   `;

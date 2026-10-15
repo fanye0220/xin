@@ -566,7 +566,8 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         
         const safeName = await getExportBaseName();
         const exportFileName = `${safeName}.png`;
-        await downloadOrShareFile(exportFileName, newBuffer, 'image/png', share);
+        // 单卡导出：额外往系统相册放一份，方便分享时直接在相册里找到这张卡
+        await downloadOrShareFile(exportFileName, newBuffer, 'image/png', share, { toAlbum: true });
       } catch (e) {
         console.error("Failed to export PNG", e);
         if (!isPreset && !isStandaloneWorldbook) setShowExportAlert(true);

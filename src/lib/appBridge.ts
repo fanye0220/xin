@@ -502,6 +502,37 @@ export async function exportFileToMIU(
   }
 }
 
+/**
+ * 把已经导出落盘的图片再复制一份进系统相册（在相册里显示为一个叫 "MIU" 的相册）。
+ *
+ * 为什么需要：导出目录 Download/MIU 里放了 .nomedia，是有意不让相册扫描到卡片库的，
+ * 结果就是单卡导出后在相册里根本找不到，只能去文件管理器翻，分享起来很麻烦。
+ * 这里额外放一份到 Pictures/MIU，相册/图库就能直接看到、直接分享。
+ *
+ * 需要 APK 里带 saveImageToAlbum 这个原生方法；老 APK 没有就静默跳过，不影响导出本身。
+ *
+ * @param absolutePath 已落盘的源文件绝对路径（通常来自 exportFileToMIU）
+ * @param displayName  相册里显示的文件名，例如 "筱原冬弥.png"
+ * @param mimeType     图片 MIME，默认 image/png
+ * @returns            是否成功放进相册
+ */
+export async function saveExportedImageToAlbum(
+  absolutePath: string,
+  displayName: string,
+  mimeType: string = "image/png"
+): Promise<boolean> {
+  if (!isAndroid()) return false;
+  const android = (window as any).Android;
+  if (!android?.saveImageToAlbum) return false;
+  try {
+    const result = await android.saveImageToAlbum(absolutePath, displayName, mimeType);
+    return !!result;
+  } catch (e) {
+    console.warn("saveExportedImageToAlbum failed:", e);
+    return false;
+  }
+}
+
 export async function shareLocalFileOnAndroid(absolutePath: string, mimeType: string = "*/*"): Promise<boolean> {
   if (!isAndroid()) return false;
   if ((window as any).Android && (window as any).Android.shareLocalFile) {
@@ -541,12 +572,14 @@ export async function shareLocalFileOnAndroid(absolutePath: string, mimeType: st
  * @param data 文件二进制数据，可为 ArrayBuffer 或 Blob
  * @param mimeType MIME 类型，默认根据扩展名推断
  * @param share 是否拉起分享面板，默认 true
+ * @param options.toAlbum 是否额外把图片复制一份到系统相册（仅 Android、仅图片类型生效）
  */
 export async function downloadOrShareFile(
   filename: string,
   data: ArrayBuffer | Blob,
   mimeType?: string,
-  share: boolean = true
+  share: boolean = true,
+  options: { toAlbum?: boolean } = {}
 ): Promise<{ success: boolean; path?: string | null }> {
   const ext = filename.split(".").pop()?.toLowerCase() || "";
   const detectedMime =
@@ -571,8 +604,17 @@ export async function downloadOrShareFile(
 
   if (isAndroid()) {
     try {
-      const savedPath = await exportFileToMIU(filename, buffer, detectedMime, share);
+      const wantAlbum = !!options.toAlbum && detectedMime.indexOf("image/") === 0;
+      // 要放相册时先只落盘、不弹分享面板：这样相册里那份一定在分享面板出现之前就写好，
+      // 用户就算把分享取消了，相册里也已经能看到了。
+      const savedPath = await exportFileToMIU(filename, buffer, detectedMime, share && !wantAlbum);
       if (savedPath) {
+        if (wantAlbum) {
+          await saveExportedImageToAlbum(savedPath, filename, detectedMime);
+          if (share) {
+            await shareLocalFileOnAndroid(savedPath, detectedMime);
+          }
+        }
         return { success: true, path: savedPath };
       }
     } catch (err) {

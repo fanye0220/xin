@@ -1409,7 +1409,8 @@ export function CharacterVersionsSection({
       const safeName = (snapshot.cardName || character.name || 'Character').replace(/[\\/:*?"<>|]/g, '_');
       const filename = `${safeName}_${snapshot.versionName || 'snapshot'}.png`;
 
-      await downloadOrShareFile(filename, injected, 'image/png', false);
+      // 历史版本导出的卡图也往系统相册放一份（原路径 Download/MIU/Export/ 照旧保留）
+      await downloadOrShareFile(filename, injected, 'image/png', false, { toAlbum: true });
     } catch (e: any) {
       alert('导出失败: ' + (e.message || String(e)));
     }
