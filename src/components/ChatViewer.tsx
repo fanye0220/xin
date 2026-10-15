@@ -1337,36 +1337,41 @@ export function ChatViewer({
     setDeleteChatId(id);
   };
 
+  const handleExportSingleChat = async (chatId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const { getChatById } = await import("../lib/db");
+    const fullChat = await getChatById(chatId);
+    if (fullChat) {
+      const jsonlString = (fullChat.messages || [])
+        .map((m) =>
+          JSON.stringify({
+            name: m.name,
+            is_user: m.is_user,
+            is_name: m.is_name,
+            send_date: m.send_date,
+            mes: m.mes,
+            extra: m.extra,
+          }),
+        )
+        .join("\n");
+
+      let safeChatName = fullChat.name.replace(/[/\\?%*:|"<>]/g, "-");
+      if (!safeChatName.endsWith(".jsonl")) safeChatName += ".jsonl";
+
+      const { downloadOrShareFile } = await import("../lib/appBridge");
+      const bytes = new TextEncoder().encode(jsonlString);
+      await downloadOrShareFile(safeChatName, bytes.buffer, "text/plain", true);
+    }
+  };
+
   const handleBatchExport = async (share: boolean = true) => {
     if (selectedChatIds.size === 1) {
       const chatId = Array.from(selectedChatIds)[0];
-      const { getChatById } = await import("../lib/db");
-      const fullChat = await getChatById(chatId);
-      if (fullChat) {
-        const jsonlString = fullChat.messages
-          .map((m) =>
-            JSON.stringify({
-              name: m.name,
-              is_user: m.is_user,
-              is_name: m.is_name,
-              send_date: m.send_date,
-              mes: m.mes,
-              extra: m.extra,
-            }),
-          )
-          .join("\n");
-
-        let safeChatName = fullChat.name.replace(/[/\\?%*:|"<>]/g, "-");
-        if (!safeChatName.endsWith(".jsonl")) safeChatName += ".jsonl";
-
-        const { downloadOrShareFile } = await import("../lib/appBridge");
-        const bytes = new TextEncoder().encode(jsonlString);
-        await downloadOrShareFile(safeChatName, bytes.buffer, "application/jsonl", share);
-        setIsBatchMode(false);
-        setShowDuplicatesOnly(false);
-        setSelectedChatIds(new Set());
-        return;
-      }
+      await handleExportSingleChat(chatId);
+      setIsBatchMode(false);
+      setShowDuplicatesOnly(false);
+      setSelectedChatIds(new Set());
+      return;
     }
 
     const { default: JSZip } = await import("jszip");
@@ -1796,7 +1801,19 @@ export function ChatViewer({
                             </span>
                           </div>
                         )}
-                        <div className="pt-2 mt-2 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0]">
+                        <div className="pt-2 mt-2 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0] space-y-1">
+                          <button
+                            onClick={() => {
+                              setIsHeaderExpanded(false);
+                              if (activeChat) {
+                                handleExportSingleChat(activeChat.id);
+                              }
+                            }}
+                            className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-white/5 [.light-theme_&]:hover:!bg-[#f1f5f9] rounded-lg text-sm text-green-400 [.light-theme_&]:!text-green-600 transition cursor-pointer"
+                          >
+                            <span>导出此聊天记录 (.jsonl)</span>
+                            <Download className="w-4 h-4" />
+                          </button>
                           <button
                             onClick={() => {
                               setIsHeaderExpanded(false);
@@ -2149,13 +2166,22 @@ export function ChatViewer({
                                 )}
                               </div>
                             ) : (
-                              <button
-                                onClick={(e) => handleRemoveChat(e, chat.id)}
-                                className="p-1 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/15 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-red-600 [.light-theme_&]:hover:!bg-red-50 transition z-10 shrink-0 cursor-pointer border-none"
-                                title="删除记录"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <div className="flex items-center gap-1 shrink-0 z-10">
+                                <button
+                                  onClick={(e) => handleExportSingleChat(chat.id, e)}
+                                  className="p-1 rounded-lg text-white/30 hover:text-green-400 hover:bg-green-500/15 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-green-600 [.light-theme_&]:hover:!bg-green-50 transition cursor-pointer border-none"
+                                  title="导出此记录 (.jsonl)"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={(e) => handleRemoveChat(e, chat.id)}
+                                  className="p-1 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/15 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-red-600 [.light-theme_&]:hover:!bg-red-50 transition cursor-pointer border-none"
+                                  title="删除记录"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             )}
                           </div>
                         </div>

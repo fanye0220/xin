@@ -16,6 +16,7 @@ import {
   Calendar,
   FileJson,
   UploadCloud,
+  Download,
   Edit2,
   Plus,
   ArrowLeft,
@@ -25,6 +26,9 @@ import {
   Type,
   CheckCircle2,
   Sparkles,
+  Check,
+  CheckSquare,
+  X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageContent } from "./MessageContent";
@@ -200,6 +204,71 @@ export function CharacterChatsSection({
     loadChats();
   };
 
+  const handleExportSingleChat = async (chatId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const fullChat = await getChatById(chatId);
+    if (!fullChat) return;
+
+    const jsonlString = (fullChat.messages || [])
+      .map((m) =>
+        JSON.stringify({
+          name: m.name,
+          is_user: m.is_user,
+          is_name: m.is_name,
+          send_date: m.send_date,
+          mes: m.mes,
+          extra: m.extra,
+        }),
+      )
+      .join("\n");
+
+    let safeChatName = (fullChat.name || "chat").replace(/[/\\?%*:|"<>]/g, "-");
+    if (!safeChatName.endsWith(".jsonl")) safeChatName += ".jsonl";
+
+    const { downloadOrShareFile } = await import("../lib/appBridge");
+    const bytes = new TextEncoder().encode(jsonlString);
+    await downloadOrShareFile(safeChatName, bytes.buffer, "text/plain", true);
+  };
+
+  const handleExportAllChats = async () => {
+    if (chats.length === 0) return;
+    const { default: JSZip } = await import("jszip");
+    const zip = new JSZip();
+
+    let safeCharName = (characterName || "Character").replace(/[/\\?%*:|"<>]/g, "-");
+
+    await Promise.all(
+      chats.map(async (chatMeta) => {
+        const fullChat = await getChatById(chatMeta.id);
+        if (!fullChat) return;
+
+        const jsonlString = (fullChat.messages || [])
+          .map((m) =>
+            JSON.stringify({
+              name: m.name,
+              is_user: m.is_user,
+              is_name: m.is_name,
+              send_date: m.send_date,
+              mes: m.mes,
+              extra: m.extra,
+            }),
+          )
+          .join("\n");
+
+        let safeChatName = (fullChat.name || "chat").replace(/[/\\?%*:|"<>]/g, "-");
+        if (!safeChatName.endsWith(".jsonl")) safeChatName += ".jsonl";
+
+        zip.file(`${safeCharName}/聊天记录/${safeChatName}`, jsonlString);
+      }),
+    );
+
+    const content = await zip.generateAsync({ type: "blob" });
+    const zipName = `${safeCharName}_全部聊天记录_${new Date().toISOString().slice(0, 10)}.zip`;
+
+    const { downloadOrShareFile } = await import("../lib/appBridge");
+    await downloadOrShareFile(zipName, content, "application/zip", true);
+  };
+
   const handleChatClick = async (chatMeta: any) => {
     if (Date.now() - lastLongPressTriggerRef.current < 600) return;
     if (onOpenChat) {
@@ -211,11 +280,28 @@ export function CharacterChatsSection({
   };
 
   const [deleteChatId, setDeleteChatId] = useState<string | null>(null);
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
+  const [isBatchDeleteConfirmOpen, setIsBatchDeleteConfirmOpen] = useState(false);
 
   const longPressTimerRef = useRef<any>(null);
   const touchStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const lastLongPressTriggerRef = useRef<number>(0);
   const touchHandledRef = useRef<boolean>(false);
+
+  const triggerLongPressAction = (chatId: string) => {
+    if (typeof navigator !== "undefined" && navigator.vibrate) {
+      try {
+        navigator.vibrate(40);
+      } catch (err) {}
+    }
+    setIsBatchMode(true);
+    setSelectedChatIds((prev) => {
+      const next = new Set(prev);
+      next.add(chatId);
+      return next;
+    });
+  };
 
   const handleChatTouchStart = (e: React.TouchEvent | React.MouseEvent, chatId: string) => {
     if ("touches" in e) {
@@ -230,10 +316,7 @@ export function CharacterChatsSection({
     if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
     longPressTimerRef.current = setTimeout(() => {
       lastLongPressTriggerRef.current = Date.now();
-      if (typeof navigator !== "undefined" && navigator.vibrate) {
-        try { navigator.vibrate(40); } catch (err) {}
-      }
-      setDeleteChatId(chatId);
+      triggerLongPressAction(chatId);
     }, 300);
   };
 
@@ -268,7 +351,7 @@ export function CharacterChatsSection({
     }
     if (Date.now() - lastLongPressTriggerRef.current < 800) return;
     lastLongPressTriggerRef.current = Date.now();
-    setDeleteChatId(chatId);
+    triggerLongPressAction(chatId);
   };
 
   const confirmDeleteChat = async () => {
@@ -286,6 +369,68 @@ export function CharacterChatsSection({
       }
     }
     await deleteChat(idToDelete);
+  };
+
+  const confirmBatchDelete = async () => {
+    if (selectedChatIds.size === 0) return;
+    const idsToDelete = Array.from(selectedChatIds);
+    setIsBatchDeleteConfirmOpen(false);
+
+    setChats((prev) => prev.filter((c) => !selectedChatIds.has(c.id)));
+    if (selectedChat && selectedChatIds.has(selectedChat.id)) {
+      setSelectedChat(null);
+    }
+
+    for (const id of idsToDelete) {
+      await deleteChat(id);
+    }
+
+    setSelectedChatIds(new Set());
+    setIsBatchMode(false);
+  };
+
+  const handleExportSelectedChats = async () => {
+    if (selectedChatIds.size === 0) return;
+    if (selectedChatIds.size === 1) {
+      const singleId = Array.from(selectedChatIds)[0];
+      await handleExportSingleChat(singleId);
+      return;
+    }
+    const { default: JSZip } = await import("jszip");
+    const zip = new JSZip();
+    let safeCharName = (characterName || "Character").replace(/[/\\?%*:|"<>]/g, "-");
+
+    const selectedList = chats.filter((c) => selectedChatIds.has(c.id));
+    await Promise.all(
+      selectedList.map(async (chatMeta) => {
+        const fullChat = await getChatById(chatMeta.id);
+        if (!fullChat) return;
+
+        const jsonlString = (fullChat.messages || [])
+          .map((m) =>
+            JSON.stringify({
+              name: m.name,
+              is_user: m.is_user,
+              is_name: m.is_name,
+              send_date: m.send_date,
+              mes: m.mes,
+              extra: m.extra,
+            }),
+          )
+          .join("\n");
+
+        let safeChatName = (fullChat.name || "chat").replace(/[/\\?%*:|"<>]/g, "-");
+        if (!safeChatName.endsWith(".jsonl")) safeChatName += ".jsonl";
+
+        zip.file(`${safeCharName}/聊天记录/${safeChatName}`, jsonlString);
+      }),
+    );
+
+    const content = await zip.generateAsync({ type: "blob" });
+    const zipName = `${safeCharName}_选中聊天记录(${selectedChatIds.size}条)_${new Date().toISOString().slice(0, 10)}.zip`;
+
+    const { downloadOrShareFile } = await import("../lib/appBridge");
+    await downloadOrShareFile(zipName, content, "application/zip", true);
   };
 
   const handleDelete = (id: string, e: React.MouseEvent) => {
@@ -593,7 +738,7 @@ export function CharacterChatsSection({
               )}
             </AnimatePresence>
           </div>
-          <div className="grid grid-cols-2 sm:flex sm:items-center sm:gap-2 w-full sm:w-auto gap-1.5 mt-2 sm:mt-0">
+          <div className="flex flex-wrap sm:flex-nowrap items-center sm:gap-2 w-full sm:w-auto gap-1.5 mt-2 sm:mt-0">
             <button
               onClick={() => {
                 if (onOpenImport) {
@@ -602,19 +747,35 @@ export function CharacterChatsSection({
                   fileInputRef.current?.click();
                 }
               }}
-              className="soft-pill px-2.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs whitespace-nowrap"
+              className="soft-pill flex-1 sm:flex-none px-2.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs whitespace-nowrap"
               title="导入聊天记录"
             >
               <UploadCloud className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-70 shrink-0" />
               <span>导入记录</span>
             </button>
             <button
-              onClick={() => setIsCleanerOpen(true)}
-              className="soft-pill px-2.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs hover:!text-red-400 whitespace-nowrap"
-              title="清理记录和分支"
+              onClick={handleExportAllChats}
+              disabled={chats.length === 0}
+              className="soft-pill flex-1 sm:flex-none px-2.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs hover:!text-green-500 disabled:opacity-40 disabled:pointer-events-none whitespace-nowrap"
+              title="导出当前角色全部聊天记录为 ZIP 包"
+            >
+              <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-70 shrink-0" />
+              <span>导出记录</span>
+            </button>
+            <button
+              onClick={() => {
+                setIsBatchMode((prev) => !prev);
+                if (isBatchMode) setSelectedChatIds(new Set());
+              }}
+              className={`soft-pill flex-1 sm:flex-none px-2.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs whitespace-nowrap ${
+                isBatchMode
+                  ? "bg-blue-500 text-white hover:bg-blue-600 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:!text-white"
+                  : "hover:!text-red-400"
+              }`}
+              title="批量清理与选择记录"
             >
               <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-70 shrink-0" />
-              <span>清理记录</span>
+              <span>{isBatchMode ? "退出多选" : "批量清理"}</span>
             </button>
           </div>
           <input
@@ -643,104 +804,150 @@ export function CharacterChatsSection({
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {chats.slice(0, visibleCount).map((chat) => (
-                <div
-                  key={chat.id}
-                  onClick={() => handleChatClick(chat)}
-                  style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none", touchAction: "pan-y" }}
-                  onTouchStart={(e) => handleChatTouchStart(e, chat.id)}
-                  onTouchMove={handleChatTouchMove}
-                  onTouchEnd={handleChatTouchEnd}
-                  onTouchCancel={handleChatTouchEnd}
-                  onMouseDown={(e) => handleChatTouchStart(e, chat.id)}
-                  onMouseMove={handleChatTouchMove}
-                  onMouseUp={handleChatTouchEnd}
-                  onMouseLeave={handleChatTouchEnd}
-                  onContextMenu={(e) => handleChatContextMenu(e, chat.id)}
-                  className="group cursor-pointer bg-white/[0.05] hover:bg-white/[0.08] active:scale-[0.99] rounded-2xl p-3.5 transition-all shadow-xs relative flex flex-col justify-between gap-2.5 border-none outline-none select-none [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!shadow-xs"
-                >
-                  {/* Row 1: Title + Note + Delete */}
-                  <div className="flex items-center justify-between gap-2 min-w-0">
-                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                      {editingNoteFor === chat.id ? (
-                        <div
-                          className="w-full min-w-0"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <input
-                            autoFocus
-                            className="w-full bg-black/40 border-none outline-none rounded-lg px-2.5 py-1 text-xs text-blue-300 focus:ring-1 focus:ring-blue-500 placeholder-blue-300/30 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-blue-600 [.light-theme_&]:placeholder:!text-blue-400/50"
-                            value={editNoteContent}
-                            onChange={(e) => setEditNoteContent(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleSaveNote(chat);
-                            }}
-                            onBlur={() => handleSaveNote(chat)}
-                            placeholder="输入备注内容..."
-                          />
-                        </div>
-                      ) : (
-                        <>
-                          <h4
-                            className="font-semibold text-white/90 text-sm truncate leading-snug [.light-theme_&]:!text-[#0f172a]"
-                            title={chat.name}
+              {chats.slice(0, visibleCount).map((chat) => {
+                const isSelected = selectedChatIds.has(chat.id);
+                return (
+                  <div
+                    key={chat.id}
+                    onClick={(e) => {
+                      if (Date.now() - lastLongPressTriggerRef.current < 600) return;
+                      if (isBatchMode) {
+                        e.stopPropagation();
+                        setSelectedChatIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(chat.id)) next.delete(chat.id);
+                          else next.add(chat.id);
+                          return next;
+                        });
+                      } else {
+                        handleChatClick(chat);
+                      }
+                    }}
+                    style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none", touchAction: "pan-y" }}
+                    onTouchStart={(e) => handleChatTouchStart(e, chat.id)}
+                    onTouchMove={handleChatTouchMove}
+                    onTouchEnd={handleChatTouchEnd}
+                    onTouchCancel={handleChatTouchEnd}
+                    onMouseDown={(e) => handleChatTouchStart(e, chat.id)}
+                    onMouseMove={handleChatTouchMove}
+                    onMouseUp={handleChatTouchEnd}
+                    onMouseLeave={handleChatTouchEnd}
+                    onContextMenu={(e) => handleChatContextMenu(e, chat.id)}
+                    className={`group cursor-pointer rounded-2xl p-3.5 transition-all shadow-xs relative flex flex-col justify-between gap-2.5 border-none outline-none select-none overflow-hidden ${
+                      isSelected && isBatchMode
+                        ? "bg-slate-950/90 [.light-theme_&]:!bg-[#e2e8f0]"
+                        : "bg-white/[0.05] hover:bg-white/[0.08] active:scale-[0.99] [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:hover:!bg-[#f8fafc]"
+                    } [.light-theme_&]:!shadow-xs`}
+                  >
+                    {/* Dark overlay tint for selected card in batch mode */}
+                    {isSelected && isBatchMode && (
+                      <div className="absolute inset-0 rounded-2xl z-20 pointer-events-none transition-all bg-black/60 [.light-theme_&]:!bg-slate-900/30" />
+                    )}
+
+                    {/* Row 1: Title + Note + Selection Checkbox / Single Actions */}
+                    <div className="flex items-center justify-between gap-2 min-w-0 z-30">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        {editingNoteFor === chat.id ? (
+                          <div
+                            className="w-full min-w-0"
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            {chat.name}
-                          </h4>
-
-                          {chat.note ? (
-                            <span
-                              className="text-[11px] px-2 py-0.5 rounded-full font-medium shrink-0 max-w-[100px] truncate flex items-center gap-1 cursor-pointer bg-blue-500/15 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 hover:opacity-80 transition border-none"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingNoteFor(chat.id);
-                                setEditNoteContent(chat.note || "");
+                            <input
+                              autoFocus
+                              className="w-full bg-black/40 border-none outline-none rounded-lg px-2.5 py-1 text-xs text-blue-300 focus:ring-1 focus:ring-blue-500 placeholder-blue-300/30 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-blue-600 [.light-theme_&]:placeholder:!text-blue-400/50"
+                              value={editNoteContent}
+                              onChange={(e) => setEditNoteContent(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSaveNote(chat);
                               }}
-                              title={`备注：${chat.note}（点击编辑）`}
+                              onBlur={() => handleSaveNote(chat)}
+                              placeholder="输入备注内容..."
+                            />
+                          </div>
+                        ) : (
+                          <>
+                            <h4
+                              className="font-semibold text-white/90 text-sm truncate leading-snug [.light-theme_&]:!text-[#0f172a]"
+                              title={chat.name}
                             >
-                              <span className="truncate">{chat.note}</span>
-                              <Edit2 className="w-2.5 h-2.5 shrink-0 opacity-70" />
-                            </span>
+                              {chat.name}
+                            </h4>
+
+                            {chat.note ? (
+                              <span
+                                className="text-[11px] px-2 py-0.5 rounded-full font-medium shrink-0 max-w-[100px] truncate flex items-center gap-1 cursor-pointer bg-blue-500/15 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 hover:opacity-80 transition border-none"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingNoteFor(chat.id);
+                                  setEditNoteContent(chat.note || "");
+                                }}
+                                title={`备注：${chat.note}（点击编辑）`}
+                              >
+                                <span className="truncate">{chat.note}</span>
+                                <Edit2 className="w-2.5 h-2.5 shrink-0 opacity-70" />
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingNoteFor(chat.id);
+                                  setEditNoteContent("");
+                                }}
+                                className="text-[11px] px-1.5 py-0.5 rounded text-blue-400/80 hover:text-blue-300 hover:bg-blue-500/10 [.light-theme_&]:!text-blue-600 [.light-theme_&]:hover:!bg-blue-50 flex items-center gap-0.5 transition shrink-0 cursor-pointer border-none"
+                                title="添加备注"
+                              >
+                                <Plus className="w-3 h-3 stroke-[2.5]" />
+                                <span>备注</span>
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0 z-30">
+                        {isBatchMode ? (
+                          isSelected ? (
+                            <div className="w-6 h-6 rounded-full bg-white text-slate-950 flex items-center justify-center shadow-md [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-[#ffffff]">
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            </div>
                           ) : (
+                            <div className="w-6 h-6 rounded-full border-2 border-white/30 group-hover:border-white/60 [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:group-hover:!border-[#94a3b8]" />
+                          )
+                        ) : (
+                          <>
                             <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingNoteFor(chat.id);
-                                setEditNoteContent("");
-                              }}
-                              className="text-[11px] px-1.5 py-0.5 rounded text-blue-400/80 hover:text-blue-300 hover:bg-blue-500/10 [.light-theme_&]:!text-blue-600 [.light-theme_&]:hover:!bg-blue-50 flex items-center gap-0.5 transition shrink-0 cursor-pointer border-none"
-                              title="添加备注"
+                              onClick={(e) => handleExportSingleChat(chat.id, e)}
+                              className="p-1 rounded-lg text-white/30 hover:text-green-400 hover:bg-green-500/15 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-green-600 [.light-theme_&]:hover:!bg-green-50 transition border-none cursor-pointer"
+                              title="导出此聊天记录 (.jsonl)"
                             >
-                              <Plus className="w-3 h-3 stroke-[2.5]" />
-                              <span>备注</span>
+                              <Download className="w-3.5 h-3.5" />
                             </button>
-                          )}
-                        </>
-                      )}
+                            <button
+                              onClick={(e) => handleDelete(chat.id, e)}
+                              className="p-1 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/15 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-red-600 [.light-theme_&]:hover:!bg-red-50 transition border-none cursor-pointer"
+                              title="删除记录"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <button
-                      onClick={(e) => handleDelete(chat.id, e)}
-                      className="p-1 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/15 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-red-600 [.light-theme_&]:hover:!bg-red-50 transition shrink-0 border-none cursor-pointer"
-                      title="删除记录"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
 
-                  {/* Row 2: Date + Message Count */}
-                  <div className="flex items-center justify-between text-xs min-w-0">
-                    <span className="text-[11px] text-white/40 [.light-theme_&]:!text-[#8e8e93] font-mono flex items-center gap-1">
-                      <Calendar className="w-3 h-3 opacity-60" />
-                      {new Date(chat.createdAt).toLocaleDateString()}
-                    </span>
-                    <span className="text-[11px] text-white/45 [.light-theme_&]:!text-[#64748b] font-medium shrink-0 whitespace-nowrap flex items-center gap-1 bg-white/5 [.light-theme_&]:!bg-[#f1f5f9] px-2 py-0.5 rounded-full border-none">
-                      <MessageSquare className="w-3 h-3 text-blue-400 [.light-theme_&]:!text-blue-600" />
-                      {chat.messageCount} 条消息
-                    </span>
+                    {/* Row 2: Date + Message Count */}
+                    <div className="flex items-center justify-between text-xs min-w-0 z-30">
+                      <span className="text-[11px] text-white/40 [.light-theme_&]:!text-[#8e8e93] font-mono flex items-center gap-1">
+                        <Calendar className="w-3 h-3 opacity-60" />
+                        {new Date(chat.createdAt).toLocaleDateString()}
+                      </span>
+                      <span className="text-[11px] text-white/45 [.light-theme_&]:!text-[#64748b] font-medium shrink-0 whitespace-nowrap flex items-center gap-1 bg-white/5 [.light-theme_&]:!bg-[#f1f5f9] px-2 py-0.5 rounded-full border-none">
+                        <MessageSquare className="w-3 h-3 text-blue-400 [.light-theme_&]:!text-blue-600" />
+                        {chat.messageCount} 条消息
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             {visibleCount < chats.length && (
               <div ref={observerTarget} className="h-10 w-full" />
@@ -918,6 +1125,15 @@ export function CharacterChatsSection({
                       }}
                     />
                   </label>
+
+                  <button
+                    onClick={(e) => handleExportSingleChat(selectedChat.id, e)}
+                    className="p-1.5 bg-green-500/10 hover:bg-green-500/20 text-green-400 [.light-theme_&]:!bg-green-50 [.light-theme_&]:!text-green-600 [.light-theme_&]:hover:!bg-green-100 rounded-lg transition shrink-0 cursor-pointer flex items-center gap-1"
+                    title="导出此记录 (.jsonl)"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span className="hidden md:inline text-xs font-medium">导出记录</span>
+                  </button>
 
                   <button
                     onClick={(e) => handleDelete(selectedChat.id, e)}
@@ -1191,6 +1407,125 @@ export function CharacterChatsSection({
                 </button>
                 <button
                   onClick={() => setDeleteChatId(null)}
+                  className="w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center bg-white/10 hover:bg-white/15 active:bg-white/5 text-white/90 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:active:!bg-[#cbd5e1] [.light-theme_&]:!text-[#334155] [.light-theme_&]:!shadow-none"
+                >
+                  取消
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {/* Floating Batch Actions Bar */}
+      <AnimatePresence>
+        {isBatchMode && (
+          <motion.div
+            initial={{ y: 24, opacity: 0, scale: 0.92, x: "-50%" }}
+            animate={{ y: 0, opacity: 1, scale: 1, x: "-50%" }}
+            exit={{ y: 20, opacity: 0, scale: 0.95, x: "-50%" }}
+            transition={{ type: "spring", stiffness: 450, damping: 28 }}
+            className="floating-pill-dock fixed bottom-6 left-1/2 z-[100] max-w-[95vw] sm:max-w-max rounded-full px-3 py-1.5 transition-all overflow-hidden shadow-2xl"
+          >
+            <div className="flex items-center gap-1 sm:gap-2 px-1 overflow-x-auto hide-scrollbar">
+              <button
+                onClick={() => {
+                  if (selectedChatIds.size === chats.length) {
+                    setSelectedChatIds(new Set());
+                  } else {
+                    setSelectedChatIds(new Set(chats.map((c) => c.id)));
+                  }
+                }}
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 cursor-pointer"
+              >
+                <CheckSquare className="w-5 h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight">
+                  {selectedChatIds.size === chats.length ? "全不选" : "全选"}
+                </span>
+              </button>
+
+              <button
+                onClick={handleExportSelectedChats}
+                disabled={selectedChatIds.size === 0}
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3.5 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-green-500 disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+              >
+                <Download className="w-5 h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight">
+                  导出{selectedChatIds.size > 0 ? ` (${selectedChatIds.size})` : ""}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setIsBatchDeleteConfirmOpen(true)}
+                disabled={selectedChatIds.size === 0}
+                className="floating-pill-item is-danger flex flex-col items-center justify-center gap-0.5 px-3.5 py-1.5 rounded-full transition active:scale-90 shrink-0 cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+              >
+                <Trash2 className="w-5 h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight">
+                  删除{selectedChatIds.size > 0 ? ` (${selectedChatIds.size})` : ""}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setIsCleanerOpen(true)}
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 cursor-pointer hover:!text-amber-400"
+                title="查重与分支清理"
+              >
+                <GitBranch className="w-5 h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight">高级清理</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsBatchMode(false);
+                  setSelectedChatIds(new Set());
+                }}
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 cursor-pointer opacity-80 hover:opacity-100"
+              >
+                <X className="w-5 h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight">完成</span>
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Batch Delete Confirmation Modal */}
+      <AnimatePresence>
+        {isBatchDeleteConfirmOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setIsBatchDeleteConfirmOpen(false)}
+          >
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 28, stiffness: 300 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-black/5 rounded-t-3xl p-5 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
+            >
+              <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-black/10 rounded-full mx-auto mb-4" />
+
+              <h3 className="text-base sm:text-lg font-bold text-center text-white [.light-theme_&]:!text-[#0f172a] mb-1.5">
+                删除 {selectedChatIds.size} 条聊天记录？
+              </h3>
+              <p className="text-xs sm:text-sm text-center text-white/70 [.light-theme_&]:!text-slate-600 mb-6 px-2 leading-relaxed">
+                此操作无法撤销，确定要永久删除选中的 {selectedChatIds.size} 条聊天记录吗？
+              </p>
+
+              <div className="space-y-2.5">
+                <button
+                  onClick={confirmBatchDelete}
+                  className="w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 bg-[#FE2C55] hover:bg-[#E02447] active:bg-[#D41C3E] text-white shadow-md shadow-[#FE2C55]/25 [.light-theme_&]:!bg-[#fff0f2] [.light-theme_&]:hover:!bg-[#ffe4e6] [.light-theme_&]:active:!bg-[#fecdd3] [.light-theme_&]:!text-[#e11d48] [.light-theme_&]:!shadow-none"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>确定删除 ({selectedChatIds.size})</span>
+                </button>
+                <button
+                  onClick={() => setIsBatchDeleteConfirmOpen(false)}
                   className="w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center bg-white/10 hover:bg-white/15 active:bg-white/5 text-white/90 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:active:!bg-[#cbd5e1] [.light-theme_&]:!text-[#334155] [.light-theme_&]:!shadow-none"
                 >
                   取消

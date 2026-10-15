@@ -560,7 +560,7 @@ export async function downloadOrShareFile(
       : ext === "json"
       ? "application/json"
       : ext === "jsonl"
-      ? "application/jsonl"
+      ? "text/plain"
       : ext === "zip"
       ? "application/zip"
       : ext === "txt"
