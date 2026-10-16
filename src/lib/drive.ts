@@ -5,6 +5,7 @@ import { getFolders, getCachedMeta, getCharacter, getAllChatsMetadata, getChatBy
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { resumableUploadToDrive } from './driveUpload';
+import { CURRENT_APP_VERSION } from '../config/version';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -215,16 +216,36 @@ function startAutoSyncRunner() {
   autoSyncInterval = setInterval(async () => {
     const isEnabled = localStorage.getItem('miu_auto_backup') === '1';
     if (!isEnabled || !currentAccessToken || syncState.isActive) return;
-    
+
+    // 挂机时 token 很可能已经过期（约 1 小时）。先用 ensureValidAccessToken
+    // 静默刷新，拿不到有效 token 就明确停下来报警，而不是带着坏 token
+    // 空跑 30 分钟、每张卡都 401 却还报"同步完成"。
+    const validToken = await ensureValidAccessToken();
+    // 网页端没有静默刷新，ensureValidAccessToken 过期时会把旧 token 原样返回，
+    // 于是挂机会拿着坏 token 白跑一轮（全部 401）。这里显式判一次过期时间，
+    // 直接停下来提示重新登录，不要静默空跑。
+    const expStr = localStorage.getItem('google_drive_token_expiration');
+    const exp = expStr ? Number(expStr) : 0;
+    const tokenExpiredOnWeb = !Capacitor.isNativePlatform() && exp > 0 && exp <= Date.now();
+    if (!validToken || tokenExpiredOnWeb) {
+      updateSyncState({ isActive: false, completed: false, isError: true, taskName: '自动备份', message: '自动备份已停止：Google 登录已过期，请重新登录后再开启' });
+      return;
+    }
+    currentAccessToken = validToken;
+
     const syncMode = localStorage.getItem('miu_auto_backup_mode') || 'cloud_library';
 
     if (syncMode === 'zip') {
       updateSyncState({ isActive: true, taskName: '自动备份(ZIP)', message: '准备打包备份...', isError: false, completed: false });
       try {
-        await uploadBackupToDrive(currentAccessToken, (msg) => {
+        const stats = await uploadBackupToDrive(validToken, (msg) => {
           updateSyncState({ message: msg });
         }, true);
-        updateSyncState({ isActive: false, completed: true, message: '自动打包备份完成' });
+        if (stats.skippedCharacters > 0 || stats.skippedChats > 0 || stats.missingCardFiles > 0) {
+          updateSyncState({ isActive: false, completed: false, isError: true, taskName: '自动备份(ZIP)', message: `自动打包备份完成，但有内容被跳过：角色 ${stats.skippedCharacters} 个 / 聊天 ${stats.skippedChats} 条 / 原卡文件 ${stats.missingCardFiles} 个` });
+        } else {
+          updateSyncState({ isActive: false, completed: true, message: '自动打包备份完成' });
+        }
       } catch (e: any) {
         console.error("[AutoSync] Scheduled ZIP backup failed:", e);
         updateSyncState({ isActive: false, isError: true, message: `自动备份失败: ${e.message}` });
@@ -233,10 +254,14 @@ function startAutoSyncRunner() {
       updateSyncState({ isActive: true, taskName: '云端卡库同步', message: '准备同步卡片到云端卡库...', isError: false, completed: false });
       try {
         const { syncLibraryToCloud } = await import('./cloudDrive');
-        await syncLibraryToCloud(currentAccessToken, (msg) => {
+        const result = await syncLibraryToCloud(validToken, (msg) => {
           updateSyncState({ message: msg });
         });
-        updateSyncState({ isActive: false, completed: true, message: '云端卡库自动同步完成' });
+        if (result.failed > 0) {
+          updateSyncState({ isActive: false, completed: false, isError: true, taskName: '云端卡库同步', message: `云端卡库同步完成，但有 ${result.failed}/${result.total} 个失败：${result.failedSamples.join('；')}` });
+        } else {
+          updateSyncState({ isActive: false, completed: true, message: `云端卡库自动同步完成（上传 ${result.success}，移动 ${result.moved}，跳过 ${result.skipped}）` });
+        }
       } catch (e: any) {
         console.error("[AutoSync] Scheduled cloud library sync failed:", e);
         updateSyncState({ isActive: false, isError: true, message: `云端卡库同步失败: ${e.message}` });
@@ -429,11 +454,39 @@ function getOrCreateBackupFolder(accessToken: string): Promise<string> {
   return promise;
 }
 
-export async function exportAllDataForBackup(onProgress: (msg: string) => void): Promise<Blob> {
+export type BackupExportStats = {
+  characters: number;
+  chats: number;
+  memos: number;
+  skippedCharacters: number;
+  skippedChats: number;
+  missingCardFiles: number;
+  issues: string[];
+};
+
+export type BackupExportResult = {
+  blob: Blob;
+  stats: BackupExportStats;
+};
+
+export async function exportAllDataForBackup(onProgress: (msg: string) => void): Promise<BackupExportResult> {
   const { default: JSZip } = await import("jszip");
   const zip = new JSZip();
 
   const db = await initDB();
+
+  const stats: BackupExportStats = {
+    characters: 0,
+    chats: 0,
+    memos: 0,
+    skippedCharacters: 0,
+    skippedChats: 0,
+    missingCardFiles: 0,
+    issues: [],
+  };
+  const noteIssue = (msg: string) => {
+    if (stats.issues.length < 20) stats.issues.push(msg);
+  };
 
   // Export folders and memos explicitly
   onProgress("正在打包应用数据...");
@@ -451,6 +504,7 @@ export async function exportAllDataForBackup(onProgress: (msg: string) => void):
       return m;
   });
   zip.file("memos.json", JSON.stringify(processedMemos));
+  stats.memos = processedMemos.length;
 
   // Settings
   onProgress("正在导出系统配置...");
@@ -473,7 +527,12 @@ export async function exportAllDataForBackup(onProgress: (msg: string) => void):
       await new Promise((r) => setTimeout(r, 15));
     }
     const char = await getCharacter(chars[i].id);
-    if (!char || char.deletedAt) continue;
+    if (!char) {
+      stats.skippedCharacters++;
+      noteIssue(`角色数据读取失败，已跳过: ${chars[i].name || chars[i].id}`);
+      continue;
+    }
+    if (char.deletedAt) continue;
     
     const safeCharName = char.name.replace(/[/\\?%*:|"<>]/g, '_');
     const folderPath = `Characters/${safeCharName}_${char.id}`;
@@ -494,7 +553,10 @@ export async function exportAllDataForBackup(onProgress: (msg: string) => void):
                 charOriginalFile = new File([buf], `original.${ext}`, { type: mime });
                 charAvatarBlob = new Blob([buf], { type: mime });
             }
-        } catch(e) {}
+        } catch(e: any) {
+            stats.missingCardFiles++;
+            noteIssue(`读取本地原卡文件失败: ${char.name || char.id} (${e?.message || e})`);
+        }
     }
 
     if (charOriginalFile) {
@@ -562,6 +624,8 @@ export async function exportAllDataForBackup(onProgress: (msg: string) => void):
     if (charAvatarBlob && !charOriginalFile) {
        zip.file(`${folderPath}/avatar.png`, new Blob([charAvatarBlob], { type: charAvatarBlob.type || 'image/png' }), { compression: "STORE" });
     }
+
+    stats.characters++;
   }
 
   const allChats = await getAllChatsMetadata();
@@ -575,7 +639,11 @@ export async function exportAllDataForBackup(onProgress: (msg: string) => void):
     if (chatInfo.deletedAt) continue;
     
     const chat = await getChatById(chatInfo.id);
-    if (!chat) continue;
+    if (!chat) {
+      stats.skippedChats++;
+      noteIssue(`聊天记录读取失败，已跳过: ${chatInfo.name || chatInfo.id}`);
+      continue;
+    }
     
     const charMeta = chars.find(c => c.id === chat.characterId);
     const charName = charMeta ? charMeta.name : "Unknown";
@@ -587,24 +655,68 @@ export async function exportAllDataForBackup(onProgress: (msg: string) => void):
     
     const jsonlString = chat.messages.map((m: any) => JSON.stringify(m)).join('\n');
     zip.file(`Chats/${safeCharName}/${filename}`, jsonlString);
+
+    stats.chats++;
   }
 
   // Handle memos correctly, avoid stringifying Blobs by skipping them or converting?
   // Wait, the current logic already just does JSON.stringify(memos). It's flawed for images but that's what it was.
   
   onProgress("打包中，请稍候...");
-  return await zip.generateAsync({ 
+
+  // 备份清单：记录这次到底打包了哪些东西、跳过了什么。
+  // 备份体积/条数异常时，用户和自己都能一眼看出来是不是"假成功"。
+  const manifest = {
+    app: 'MIU',
+    version: CURRENT_APP_VERSION,
+    exportedAt: new Date().toISOString(),
+    counts: { characters: stats.characters, chats: stats.chats, memos: stats.memos },
+    skipped: {
+      characters: stats.skippedCharacters,
+      chats: stats.skippedChats,
+      missingCardFiles: stats.missingCardFiles,
+    },
+    issues: stats.issues,
+  };
+  zip.file("_manifest.json", JSON.stringify(manifest, null, 2));
+
+  const blob = await zip.generateAsync({ 
     type: "blob", 
     compression: "DEFLATE",
     compressionOptions: {
       level: 6
     }
   });
+  return { blob, stats };
+
 }
 
-export async function uploadBackupToDrive(accessToken: string, onProgress: (msg: string) => void, isAutoBackup: boolean = false): Promise<void> {
+export type BackupRecord = {
+  at: number;
+  ok: boolean;
+  size?: number;
+  fileName?: string;
+  note?: string;
+};
+
+export function recordBackupResult(record: BackupRecord) {
+  try {
+    localStorage.setItem('miu_last_backup_record', JSON.stringify(record));
+  } catch {}
+}
+
+export function getLastBackupRecord(): BackupRecord | null {
+  try {
+    const raw = localStorage.getItem('miu_last_backup_record');
+    return raw ? (JSON.parse(raw) as BackupRecord) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function uploadBackupToDrive(accessToken: string, onProgress: (msg: string) => void, isAutoBackup: boolean = false): Promise<BackupExportStats> {
   onProgress("正在打包完整备份...");
-  const zipBlob = await exportAllDataForBackup(onProgress);
+  const { blob: zipBlob, stats } = await exportAllDataForBackup(onProgress);
 
   const folderId = await getOrCreateBackupFolder(accessToken);
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -625,10 +737,59 @@ export async function uploadBackupToDrive(accessToken: string, onProgress: (msg:
   );
   if (!uploadRes.ok) {
     const errText = await uploadRes.text().catch(() => "");
+    recordBackupResult({ at: Date.now(), ok: false, size: zipBlob.size, fileName: filename, note: `上传失败 HTTP ${uploadRes.status}` });
     throw new Error(`备份上传失败: ${uploadRes.status} ${errText}`);
   }
 
-  onProgress("完整备份上传完成");
+  // 上传返回 200 只代表"传完了"，不代表"云端存对了"。
+  // 这里再回读一次云端文件大小，跟本地 zip 对不上就判失败，避免"假备份成功"。
+  let uploadedFileId: string | null = null;
+  let remoteSize: number | null = null;
+  try {
+    const meta: any = await uploadRes.json();
+    if (meta && meta.id) uploadedFileId = String(meta.id);
+    if (meta && meta.size !== undefined && meta.size !== null && meta.size !== "") {
+      const n = Number(meta.size);
+      if (!Number.isNaN(n)) remoteSize = n;
+    }
+  } catch {}
+
+  if (uploadedFileId && remoteSize === null) {
+    try {
+      const verifyRes = await fetch(`https://www.googleapis.com/drive/v3/files/${uploadedFileId}?fields=size`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (verifyRes.ok) {
+        const vMeta: any = await verifyRes.json();
+        if (vMeta && vMeta.size !== undefined && vMeta.size !== null) {
+          const n = Number(vMeta.size);
+          if (!Number.isNaN(n)) remoteSize = n;
+        }
+      }
+    } catch {}
+  }
+
+  const skippedParts: string[] = [];
+  if (stats.skippedCharacters > 0) skippedParts.push(`跳过角色 ${stats.skippedCharacters} 个`);
+  if (stats.skippedChats > 0) skippedParts.push(`跳过聊天 ${stats.skippedChats} 条`);
+  if (stats.missingCardFiles > 0) skippedParts.push(`原卡文件缺失 ${stats.missingCardFiles} 个`);
+  const skippedNote = skippedParts.length > 0 ? `（注意：${skippedParts.join('，')}）` : '';
+
+  if (remoteSize !== null && remoteSize !== zipBlob.size) {
+    recordBackupResult({ at: Date.now(), ok: false, size: zipBlob.size, fileName: filename, note: `云端大小 ${remoteSize} 与本地 ${zipBlob.size} 不一致` });
+    throw new Error(`备份校验失败：云端文件 ${remoteSize} 字节，本地 ${zipBlob.size} 字节，备份可能不完整`);
+  }
+
+  recordBackupResult({
+    at: Date.now(),
+    ok: true,
+    size: zipBlob.size,
+    fileName: filename,
+    note: [skippedNote, remoteSize === null ? '（未回读到云端大小，未做大小校验）' : ''].filter(Boolean).join(' '),
+  });
+
+  onProgress(`完整备份上传完成${skippedNote}${remoteSize === null ? '（未回读到云端大小，未做校验）' : ''}`);
+  return stats;
 }
 
 export async function listBackupsFromDrive(accessToken: string) {
@@ -649,11 +810,34 @@ export async function downloadBackupFromDrive(accessToken: string, fileId: strin
   return res.blob();
 }
 
-export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string) => void): Promise<void> {
+export type BackupRestoreResult = {
+  failedFolders: number;
+  failedMemos: number;
+  failedSettings: number;
+  failedCharacters: number;
+  failedChatFiles: number;
+  issues: string[];
+  mode: 'lossless' | 'compat';
+};
+
+export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string) => void): Promise<BackupRestoreResult> {
   const { default: JSZip } = await import("jszip");
   const zip = new JSZip();
   onProgress("正在解压备份文件...");
   const loadedZip = await zip.loadAsync(blob);
+
+  const restoreResult: BackupRestoreResult = {
+    failedFolders: 0,
+    failedMemos: 0,
+    failedSettings: 0,
+    failedCharacters: 0,
+    failedChatFiles: 0,
+    issues: [],
+    mode: 'compat',
+  };
+  const noteRestoreIssue = (msg: string) => {
+    if (restoreResult.issues.length < 20) restoreResult.issues.push(msg);
+  };
 
   // Check if it's the NEW lossless backup format
   const sysDbEntry = loadedZip.file("aitavern_sys_db.json");
@@ -753,8 +937,9 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
       }
 
       invalidateCache();
+      restoreResult.mode = 'lossless';
       onProgress("无损完整备份恢复成功！");
-      return;
+      return restoreResult;
     } catch (err: any) {
        console.error("Failed to restore lossless backup", err);
        onProgress("无损恢复报错，将尝试以兼容模式解析...");
@@ -776,8 +961,10 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
         await os.put(f);
       }
       await tx.done;
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to restore folders", e);
+      restoreResult.failedFolders++;
+      noteRestoreIssue(`分类数据恢复失败: ${e?.message || e}`);
     }
   }
 
@@ -803,8 +990,10 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
         await os.put(m);
       }
       await tx.done;
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to restore memos", e);
+      restoreResult.failedMemos++;
+      noteRestoreIssue(`备忘录恢复失败: ${e?.message || e}`);
     }
   }
 
@@ -819,8 +1008,10 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
             localStorage.setItem(key, String(val));
          }
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to restore settings compat", e);
+      restoreResult.failedSettings++;
+      noteRestoreIssue(`系统配置恢复失败: ${e?.message || e}`);
     }
   }
 
@@ -849,7 +1040,10 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
           const content = await file.async("string");
           try {
             folderEntry.meta = JSON.parse(content);
-          } catch(e) {}
+          } catch(e: any) {
+            restoreResult.failedCharacters++;
+            noteRestoreIssue(`角色元数据解析失败 (${file.name}): ${e?.message || e}`);
+          }
         } else if (fileName === "card.json" || fileName.endsWith(".json")) {
           const content = await file.async("string");
           try {
@@ -858,7 +1052,10 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
              } else if (!folderEntry.meta) {
                 folderEntry.meta = JSON.parse(content);
              }
-          } catch(e) {}
+          } catch(e: any) {
+            restoreResult.failedCharacters++;
+            noteRestoreIssue(`卡片数据解析失败 (${file.name}): ${e?.message || e}`);
+          }
         } else if (fileName === "avatar.png" || fileName.endsWith(".png") || fileName.endsWith(".webp") || fileName.endsWith(".jpg")) {
           const content = await file.async("blob");
           folderEntry.avatar = content;
@@ -945,7 +1142,12 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
       const batch = charsToRestore.slice(b, b + BATCH_SIZE);
       const currentDone = Math.min(b + batch.length, charsToRestore.length);
       onProgress(`正在写入数据库 (${currentDone}/${charsToRestore.length})...`);
-      await saveCharacters(batch);
+      try {
+        await saveCharacters(batch);
+      } catch (e: any) {
+        restoreResult.failedCharacters += batch.length;
+        noteRestoreIssue(`写入角色卡片失败 (${batch.length}个): ${e?.message || e}`);
+      }
       await new Promise(r => setTimeout(r, 0));
     }
   }
@@ -962,10 +1164,17 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
     const content = await file.async("string");
     const lines = content.split('\n').filter(l => l.trim() !== '');
     const messages = [];
+    let badLines = 0;
     for (const line of lines) {
       try {
         messages.push(JSON.parse(line));
-      } catch(e) {}
+      } catch(e: any) {
+        badLines++;
+      }
+    }
+    if (badLines > 0) {
+      restoreResult.failedChatFiles++;
+      noteRestoreIssue(`聊天记录有 ${badLines} 行无法解析 (${file.name})`);
     }
     
     if (messages.length > 0) {
@@ -1023,7 +1232,19 @@ export async function restoreBackupFromBlob(blob: Blob, onProgress: (msg: string
   }
 
   invalidateCache();
-  onProgress("数据恢复成功！");
+  const totalRestoreFailures =
+    restoreResult.failedFolders +
+    restoreResult.failedMemos +
+    restoreResult.failedSettings +
+    restoreResult.failedCharacters +
+    restoreResult.failedChatFiles;
+  if (totalRestoreFailures > 0) {
+    const sample = restoreResult.issues.slice(0, 3).join('；');
+    onProgress(`数据恢复完成，但有 ${totalRestoreFailures} 项失败，其余内容已恢复${sample ? `。${sample}` : ''}`);
+  } else {
+    onProgress("数据恢复成功！");
+  }
+  return restoreResult;
 }
 
 export async function deleteBackupFromDrive(accessToken: string, fileId: string) {
@@ -1041,8 +1262,16 @@ export const triggerManualBackup = (token: string) => {
   
   uploadBackupToDrive(token, (msg) => {
     updateSyncState({ message: msg });
-  }, false).then(() => {
-    updateSyncState({ isActive: false, completed: true, message: '备份完成' });
+  }, false).then((stats) => {
+    const skipped: string[] = [];
+    if (stats.skippedCharacters > 0) skipped.push(`跳过角色 ${stats.skippedCharacters} 个`);
+    if (stats.skippedChats > 0) skipped.push(`跳过聊天 ${stats.skippedChats} 条`);
+    if (stats.missingCardFiles > 0) skipped.push(`原卡文件缺失 ${stats.missingCardFiles} 个`);
+    if (skipped.length > 0) {
+      updateSyncState({ isActive: false, completed: false, isError: true, message: `备份完成，但有内容被跳过：${skipped.join('，')}` });
+    } else {
+      updateSyncState({ isActive: false, completed: true, message: '备份完成' });
+    }
   }).catch((e: any) => {
     updateSyncState({ isActive: false, isError: true, message: `备份失败: ${e.message}` });
   });
@@ -1055,8 +1284,19 @@ export const triggerRestore = (token: string, fileId: string) => {
   (async () => {
     try {
       const blob = await downloadBackupFromDrive(token, fileId);
-      await restoreBackupFromBlob(blob, (msg) => updateSyncState({ message: msg }));
-      updateSyncState({ isActive: false, completed: true, message: '数据恢复成功，即将刷新页面...' });
+      const restoreResult = await restoreBackupFromBlob(blob, (msg) => updateSyncState({ message: msg }));
+      const failed = restoreResult.failedFolders + restoreResult.failedMemos + restoreResult.failedSettings +
+        restoreResult.failedCharacters + restoreResult.failedChatFiles;
+      if (failed > 0) {
+        updateSyncState({
+          isActive: false,
+          completed: false,
+          isError: true,
+          message: `数据恢复完成，但有 ${failed} 项失败（其余已恢复），即将刷新页面...`,
+        });
+      } else {
+        updateSyncState({ isActive: false, completed: true, message: '数据恢复成功，即将刷新页面...' });
+      }
       setTimeout(() => window.location.reload(), 2000);
     } catch (e: any) {
       updateSyncState({ isActive: false, isError: true, message: `恢复失败: ${e.message}` });

@@ -1570,7 +1570,19 @@ export async function downloadCloudCharacter(token: string, fileId: string, file
   if (!jsonData) throw new Error("无效的云端卡片格式或未找到卡片数据");
   return { jsonData, avatarBlob, studioMeta, avatarHistory, chats, versionHistory, memos };
 }
-export async function syncLibraryToCloud(token: string, onProgress?: (msg: string) => void) {
+export type CloudLibrarySyncResult = {
+  success: number;
+  moved: number;
+  skipped: number;
+  failed: number;
+  failedSamples: string[];
+  total: number;
+};
+
+export async function syncLibraryToCloud(
+  token: string,
+  onProgress?: (msg: string) => void
+): Promise<CloudLibrarySyncResult> {
   if (onProgress) onProgress('准备同步到云端卡库...');
   const { getCachedMeta } = await import('./db');
   const allChars = (await getCachedMeta()).filter((c) => !c.deletedAt);
@@ -1579,6 +1591,7 @@ export async function syncLibraryToCloud(token: string, onProgress?: (msg: strin
   let skippedCount = 0;
   let failCount = 0;
   let completedCount = 0;
+  const failedSamples: string[] = [];
 
   const isAndroid = Capacitor.isNativePlatform();
   const CONCURRENCY = isAndroid ? 2 : 4;
@@ -1597,9 +1610,12 @@ export async function syncLibraryToCloud(token: string, onProgress?: (msg: strin
         } else {
           successCount++;
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error("Sync char error", char.id, e);
         failCount++;
+        if (failedSamples.length < 5) {
+          failedSamples.push(`${char.name || char.id}: ${e?.message || String(e)}`);
+        }
       } finally {
         completedCount++;
         if (onProgress) onProgress(`正在同步至云端卡库... (${completedCount}/${allChars.length})`);
@@ -1618,6 +1634,14 @@ export async function syncLibraryToCloud(token: string, onProgress?: (msg: strin
   if (onProgress) {
     onProgress(`云端卡库同步完成! 上传/更新: ${successCount} 个, 移动: ${movedCount} 个, 一致跳过: ${skippedCount} 个${failCount > 0 ? `, 失败: ${failCount} 个` : ''}`);
   }
+  return {
+    success: successCount,
+    moved: movedCount,
+    skipped: skippedCount,
+    failed: failCount,
+    failedSamples,
+    total: allChars.length,
+  };
 }
 
 export async function syncFolderStructureToCloud(
