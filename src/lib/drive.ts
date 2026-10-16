@@ -43,6 +43,11 @@ export function onSyncStateChange(listener: (state: SyncState) => void) {
   return () => syncListeners.delete(listener);
 }
 
+/** 是否有同步/备份任务正在进行中（挂机自动同步也算）。手动任务开跑前先问一下这个，避免两个任务撞在一起。 */
+export function isSyncTaskBusy(): boolean {
+  return syncState.isActive;
+}
+
 export function clearSyncState() {
   if (syncClearTimer) {
     clearTimeout(syncClearTimer);
@@ -228,7 +233,7 @@ function startAutoSyncRunner() {
     const exp = expStr ? Number(expStr) : 0;
     const tokenExpiredOnWeb = !Capacitor.isNativePlatform() && exp > 0 && exp <= Date.now();
     if (!validToken || tokenExpiredOnWeb) {
-      updateSyncState({ isActive: false, completed: false, isError: true, taskName: '自动备份', message: '自动备份已停止：Google 登录已过期，请重新登录后再开启' });
+      updateSyncState({ isActive: false, completed: false, isError: true, taskName: '挂机自动同步', message: '已停止：Google 登录已过期，请重新登录后再开启' });
       return;
     }
     currentAccessToken = validToken;
@@ -236,31 +241,35 @@ function startAutoSyncRunner() {
     const syncMode = localStorage.getItem('miu_auto_backup_mode') || 'cloud_library';
 
     if (syncMode === 'zip') {
-      updateSyncState({ isActive: true, taskName: '自动备份(ZIP)', message: '准备打包备份...', isError: false, completed: false });
+      updateSyncState({ isActive: true, taskName: '挂机自动备份', message: '准备打包备份...', isError: false, completed: false });
       try {
         const stats = await uploadBackupToDrive(validToken, (msg) => {
           updateSyncState({ message: msg });
         }, true);
         if (stats.skippedCharacters > 0 || stats.skippedChats > 0 || stats.missingCardFiles > 0) {
-          updateSyncState({ isActive: false, completed: false, isError: true, taskName: '自动备份(ZIP)', message: `自动打包备份完成，但有内容被跳过：角色 ${stats.skippedCharacters} 个 / 聊天 ${stats.skippedChats} 条 / 原卡文件 ${stats.missingCardFiles} 个` });
+          updateSyncState({ isActive: false, completed: false, isError: true, taskName: '挂机自动备份', message: `已自动备份，但有内容被跳过：角色 ${stats.skippedCharacters} 个 / 聊天 ${stats.skippedChats} 条 / 原卡文件 ${stats.missingCardFiles} 个` });
         } else {
-          updateSyncState({ isActive: false, completed: true, message: '自动打包备份完成' });
+          updateSyncState({ isActive: false, completed: true, taskName: '挂机自动备份', message: '已自动备份完成' });
         }
       } catch (e: any) {
         console.error("[AutoSync] Scheduled ZIP backup failed:", e);
         updateSyncState({ isActive: false, isError: true, message: `自动备份失败: ${e.message}` });
       }
     } else {
-      updateSyncState({ isActive: true, taskName: '云端卡库同步', message: '准备同步卡片到云端卡库...', isError: false, completed: false });
+      updateSyncState({ isActive: true, taskName: '挂机自动同步', message: '准备自动同步卡片到云端卡库...', isError: false, completed: false });
       try {
         const { syncLibraryToCloud } = await import('./cloudDrive');
         const result = await syncLibraryToCloud(validToken, (msg) => {
           updateSyncState({ message: msg });
         });
         if (result.failed > 0) {
-          updateSyncState({ isActive: false, completed: false, isError: true, taskName: '云端卡库同步', message: `云端卡库同步完成，但有 ${result.failed}/${result.total} 个失败：${result.failedSamples.join('；')}` });
+          updateSyncState({ isActive: false, completed: false, isError: true, taskName: '挂机自动同步', message: `已自动同步，但有 ${result.failed}/${result.total} 个失败：${result.failedSamples.join('；')}` });
+        } else if (result.success + result.moved > 0) {
+          updateSyncState({ isActive: false, completed: true, taskName: '挂机自动同步', message: `已自动同步：上传 ${result.success}，移动 ${result.moved}，跳过 ${result.skipped}` });
         } else {
-          updateSyncState({ isActive: false, completed: true, message: `云端卡库自动同步完成（上传 ${result.success}，移动 ${result.moved}，跳过 ${result.skipped}）` });
+          // 这一轮什么都没变（全是"内容一致已跳过"）。不弹悬浮窗，
+          // 免得盖掉用户自己刚点的那次任务的结果，看着像两个说法打架。
+          clearSyncState();
         }
       } catch (e: any) {
         console.error("[AutoSync] Scheduled cloud library sync failed:", e);

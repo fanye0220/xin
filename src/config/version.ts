@@ -1,4 +1,4 @@
-export const CURRENT_APP_VERSION = '3.0.93';
+export const CURRENT_APP_VERSION = '3.0.94';
 
 export interface VersionInfo {
   version: string;

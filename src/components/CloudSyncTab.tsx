@@ -4,7 +4,7 @@ import { Cloud, Download, Upload, Trash2, Github, Loader2, Search, Folder, Chevr
 import { listCloudCharacters, deleteCloudCharacter, syncFolderStructureToCloud } from '../lib/cloudDrive';
 import { getCardBadgeInfo } from '../lib/cardBadge';
 import { normalizeCardBaseName } from '../lib/db';
-import { initAuth, googleSignIn, logout, getAccessToken, listBackupsFromDrive, deleteBackupFromDrive, triggerManualBackup, triggerRestore, onSyncStateChange, SyncState, getStoredUserInfo, ensureValidAccessToken, updateSyncState, getLastBackupRecord, BackupRecord } from '../lib/drive';
+import { initAuth, googleSignIn, logout, getAccessToken, listBackupsFromDrive, deleteBackupFromDrive, triggerManualBackup, triggerRestore, onSyncStateChange, SyncState, getStoredUserInfo, ensureValidAccessToken, updateSyncState, getLastBackupRecord, BackupRecord, isSyncTaskBusy } from '../lib/drive';
 
 const formatCloudName = (name: string) => name.replace(/_[a-f0-9-]{36}$/i, "");
 
@@ -346,6 +346,10 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
   const [syncFolderProgress, setSyncFolderProgress] = useState<{ current: number; total: number; message: string } | null>(null);
 
   const handleSyncFolderStructure = async () => {
+    if (isSyncTaskBusy()) {
+      alert("已有同步或备份任务正在进行中，请等它跑完再点。");
+      return;
+    }
     const activeToken = await getActiveToken();
     if (!activeToken) return;
     try {
@@ -370,7 +374,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
         isActive: false,
         completed: true,
         taskName: '分类整理',
-        message: `分类对齐完成！已同步移动 ${res.moved} 个卡片`,
+        message: `分类对齐完成！移动 ${res.moved} 个，一致保持 ${res.unchanged} 个`,
       });
       alert(`文件夹分类对齐完成！\n已同步移动更新: ${res.moved} 个卡片\n分类一致保持原样: ${res.unchanged} 个`);
       await loadCloudChars(activeToken);
@@ -388,6 +392,10 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
   };
 
   const handleOneClickCloudSync = async () => {
+    if (isSyncTaskBusy()) {
+      alert("已有同步或备份任务正在进行中，请等它跑完再点。");
+      return;
+    }
     const activeToken = await getActiveToken();
     if (!activeToken) return;
     const confirm = window.confirm("确定要将所有本地卡片逐一同步至云端文件夹吗？\n\n如果云端已有相同卡片但分类不同，将自动同步移动到对应的嵌套文件夹中。");
@@ -462,7 +470,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
         taskName: '全量同步',
         message: failed > 0
           ? `全量同步完成，但有 ${failed} 个失败：${failedSamples.join('；')}`
-          : `全量同步完成！新增 ${success}，移动 ${moved}`,
+          : `全量同步完成！新增 ${success}，移动 ${moved}，跳过 ${skipped}`,
       });
       alert(`一键同步完成！\n新上传卡片: ${success}\n更新文件夹嵌套: ${moved}\n内容与分类一致已跳过: ${skipped}${failed > 0 ? `\n\n⚠️ 失败: ${failed} 个\n${failedSamples.join('\n')}` : ''}`);
       if (activeTab === 'cloud_drive') {
