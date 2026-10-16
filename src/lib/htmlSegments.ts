@@ -22,6 +22,22 @@ const WIDGET_BLOCK_TAGS = 'div|section|main|article|table|center|template|body|a
 const FENCE_WIDGET_HINT =
   /<(?:!DOCTYPE\s+html|html|body|style|script|div|section|main|article|template|svg|table|center)\b/i;
 
+// 围栏语言写了 text/txt，但里面其实是整段 HTML 组件（酒馆卡很常见）时的判定：
+// 去掉前导空白/注释后，内容必须「一开头就是」HTML 文档或有属性的块级标签，
+// 这样不会把 ```text 里的代码示例误渲染成组件
+const FENCE_WIDGET_STRONG_HEAD =
+  /^(?:<!DOCTYPE\s+html|<html\b|<body\b|<style\b|<script\b|<svg\b|<(?:div|section|main|article|aside|form|table|center|template)\b[^>]*\b(?:class|style|id)\s*=)/i;
+
+// 这些围栏语言都算「没写语言」，内容像组件就按组件渲染
+const NEUTRAL_FENCE_LANGS = new Set(['', 'text', 'txt', 'plaintext']);
+
+/** 围栏内容像不像 HTML 组件。strict=true 用于 text/txt：要求开头就是组件 */
+function fenceLooksLikeWidget(inner: string, strict: boolean): boolean {
+  if (!strict) return FENCE_WIDGET_HINT.test(inner);
+  const head = inner.replace(/^(?:\s|<!--[\s\S]*?-->)*/, '');
+  return FENCE_WIDGET_STRONG_HEAD.test(head);
+}
+
 /** 找到与 start 处开标签配对的闭标签末尾；找不到返回 -1 */
 function balancedEnd(src: string, start: number, tag: string): number {
   // script/style/注释整体跳过，避免里面的字符串 "<div>" 干扰计数
@@ -145,7 +161,7 @@ export function splitHtmlSegments(content: string): Segment[] {
 
   const out: Segment[] = [];
 
-  // 第一遍：代码围栏。```html 或 ``` 里含组件标记的 → iframe；其它围栏保持为 Markdown 代码块
+  // 第一遍：代码围栏。```html / ``` 或 ```text 里含组件标记的 → iframe；其它围栏保持为 Markdown 代码块
   const fenceRe = /(?:^|\n)[ \t]*(`{3,}|~{3,})[ \t]*([\w-]*)[ \t]*\n([\s\S]*?)\n?[ \t]*\1[ \t]*(?=\n|$)/g;
   let last = 0;
   let m: RegExpExecArray | null;
@@ -153,7 +169,8 @@ export function splitHtmlSegments(content: string): Segment[] {
     if (m.index > last) splitPlain(cleanContent.slice(last, m.index), out);
     const lang = (m[2] || '').toLowerCase();
     const inner = m[3];
-    if (['html', 'htm', 'xml'].includes(lang) || (lang === '' && FENCE_WIDGET_HINT.test(inner))) {
+    const isHtmlLang = ['html', 'htm', 'xml'].includes(lang);
+    if (isHtmlLang || (NEUTRAL_FENCE_LANGS.has(lang) && fenceLooksLikeWidget(inner, lang !== ''))) {
       out.push({ type: 'html', content: inner });
     } else {
       out.push({ type: 'md', content: m[0] });
