@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageContent } from "./MessageContent";
+import { stripTavernMetaBlocks } from "../lib/regexEngine";
 import { ChatCleanerModal } from "./ChatCleanerModal";
 import { Virtuoso } from "react-virtuoso";
 import { useBubbleTheme, ColorSphere } from "../lib/bubbleThemes";
@@ -660,7 +661,7 @@ export function CharacterChatsSection({
         } catch (e) {}
       });
     }
-    return result;
+    return stripTavernMetaBlocks(result);
   };
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -1223,6 +1224,7 @@ export function CharacterChatsSection({
                                   content={formattedText}
                                   characterName={characterName}
                                   themeMode={isLightMode ? 'light' : 'dark'}
+                                  mvuSourceText={rawText}
                                 />
                               </div>
                             </div>
@@ -1244,6 +1246,7 @@ export function CharacterChatsSection({
                               content={formattedText}
                               characterName={characterName}
                               themeMode={isLightMode ? 'light' : 'dark'}
+                              mvuSourceText={rawText}
                             />
                           </div>
                         </div>
@@ -1336,6 +1339,7 @@ export function CharacterChatsSection({
                                   content={formattedText}
                                   characterName={characterName}
                                   themeMode={isLightMode ? 'light' : 'dark'}
+                                  mvuSourceText={msg.mes || msg.message || msg.content || ""}
                                 />
                               </div>
                             </div>

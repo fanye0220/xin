@@ -1,7 +1,7 @@
 import { getFallbackAvatar } from '../lib/avatar';
 import React, { useRef, useState, useEffect } from 'react';
 import { Upload, FileJson, QrCode, Trash2, Download, Library, Share2 } from 'lucide-react';
-import { CharacterCard, saveCharacter, saveCharacters, getOrCreateNestedFolder, resolveFolderPath } from '../lib/db';
+import { CharacterCard, saveCharacter, saveCharacters, getOrCreateNestedFolder, resolveFolderPath, stripToolNameSuffix } from '../lib/db';
 import { SelectQRModal } from './SelectQRModal';
 import { ExportQRModal } from './ExportQRModal';
 import { getDownloadTooltip } from '../lib/appBridge';
@@ -169,7 +169,7 @@ export function QuickRepliesSection({ character, onUpdate, isLightMode: propIsLi
         });
 
         // Also save this to the library!
-        const charName = metadata?.name || file.name.replace(/\.[^/.]+$/, "");
+        const charName = metadata?.name || stripToolNameSuffix(file.name);
         charsToSave.push({
           id: crypto.randomUUID(),
           name: charName,

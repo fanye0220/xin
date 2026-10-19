@@ -10,7 +10,7 @@ interface Props {
   selectedFolderId: string | null;
   onSelectFolder: (id: string | null) => void;
   onClose: () => void;
-  onOpenSettings: (tab?: 'api' | 'st' | 'cloud' | 'wallpaper' | 'about') => void;
+  onOpenSettings: (tab?: 'api' | 'st' | 'tt' | 'cloud' | 'wallpaper' | 'about') => void;
   onFolderChanged?: () => void;
 }
 
@@ -664,6 +664,7 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
             </div>
             <ChevronRight className={`w-4 h-4 shrink-0 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.65)]' : '!text-[#1c1c1e]') : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]'}`} />
           </button>
+
 
           {/* 自动打标 */}
           <button

@@ -250,7 +250,7 @@ export default function App() {
     return () => window.removeEventListener('charactersUpdated', handleCharactersUpdated);
   }, []);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'api' | 'st' | 'cloud' | 'wallpaper' | 'about'>('api');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'api' | 'st' | 'tt' | 'cloud' | 'wallpaper' | 'about'>('api');
   const [refreshKey, setRefreshKey] = useState(0);
   const [isLightMode, setIsLightMode] = useState(() => document.documentElement.classList.contains('light-theme'));
 
@@ -639,6 +639,11 @@ export default function App() {
         initialTab={settingsInitialTab}
         isLightMode={isLightMode}
         onClose={() => { setIsSettingsOpen(false); setRefreshKey(prev => prev + 1); }}
+        onImportFiles={(files) => {
+          // TT 本地接收：先关掉设置页，再把卡片交给导入弹窗（复用现成的导入流程）
+          setIsSettingsOpen(false);
+          handleOpenImportModal(files);
+        }}
       />
 
       <UpdateModal

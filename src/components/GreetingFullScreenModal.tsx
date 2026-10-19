@@ -773,7 +773,7 @@ export function GreetingFullScreenModal({
                   className="reader-prose w-full break-words transition-all text-justify"
                 >
                   {renderedText ? (
-                    <MessageContent content={renderedText} />
+                    <MessageContent content={renderedText} mvuSourceText={currentText} />
                   ) : (
                     <div
                       style={{ color: currentTheme.muted }}

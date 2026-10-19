@@ -1524,6 +1524,7 @@ export function GreetingReaderModal({
                       themeMode={isLight ? 'light' : 'dark'} 
                       swipes={greetingsList.map(g => g.content)}
                       characterName={character.name}
+                      mvuSourceText={editValue}
                     />
                   </div>
                 ) : (
@@ -1643,6 +1644,7 @@ export function GreetingReaderModal({
                         themeMode={isLight ? 'light' : 'dark'} 
                         swipes={greetingsList.map(g => g.content)}
                         characterName={character.name}
+                        mvuSourceText={currentGreeting.content}
                       />
                     </div>
                   ) : (

@@ -2,8 +2,8 @@ import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib
 import { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, ChevronRight, Plus, Edit2, Power, X as XIcon, ChevronDown, ChevronUp, ExternalLink, Check, Upload, Send, Loader2, Share2, Folder as FolderIcon, History, AlertCircle, Maximize2, BookOpen, Sparkles, FileJson, Image as ImageIcon, Save, Heart, RefreshCw, FileText } from 'lucide-react';
-import { getCharacter, deleteCharacter, saveCharacter, toggleCharacterFavorite, CharacterCard, getFolders, resolveFolderPath, getCachedMeta, getCharacterCategoryPrefix, isActualCharacterCard } from '../lib/db';
+import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, ChevronRight, Plus, Edit2, Power, X as XIcon, ChevronDown, ChevronUp, ExternalLink, Check, Upload, Send, Smartphone, Loader2, Share2, Folder as FolderIcon, History, AlertCircle, Maximize2, BookOpen, Sparkles, FileJson, Image as ImageIcon, Save, Heart, RefreshCw, FileText } from 'lucide-react';
+import { getCharacter, deleteCharacter, saveCharacter, toggleCharacterFavorite, CharacterCard, getFolders, resolveFolderPath, getCachedMeta, getCharacterCategoryPrefix, isActualCharacterCard, stripToolNameSuffix } from '../lib/db';
 import { getCardTypeBadgeInfo } from '../lib/cardType';
 import { parseTavernCard } from '../types/tavern';
 import { injectTavernData } from '../lib/png';
@@ -23,9 +23,81 @@ import { getCharacterTokenBreakdown, formatTokenCount } from '../lib/tokens';
 import { FormattedCardContent } from './FormattedCardContent';
 import JSZip from 'jszip';
 import { isAndroid, saveToGallery, shareFileOnAndroid, exportFileToMIU, readLocalFileBuffer, downloadOrShareFile, getDownloadTooltip } from '../lib/appBridge';
+import { isLocalLinkSupported, getLocalReceiverStatus, pushFilesToOutbox } from '../lib/localLink';
 import { multipartPost } from '../lib/multipart';
 import { useBackHandler } from '../lib/useBackHandler';
 
+/** 预设按 apiId 分目录存在酒馆里，这里按内容猜一个（猜偏了也不影响导入，只是落在别的目录）。 */
+function guessPresetApiId(preset: any): string {
+  const hasPrompts = Array.isArray(preset?.prompts) && preset.prompts.length > 0;
+  const hasPromptOrder = Array.isArray(preset?.prompt_order);
+  if (hasPrompts || hasPromptOrder) return 'openai';
+  if (typeof preset?.temp === 'number' || typeof preset?.rep_pen === 'number' || typeof preset?.top_k === 'number') return 'textgenerationwebui';
+  if (typeof preset?.temperature === 'number' && typeof preset?.max_length === 'number') return 'novel';
+  if (preset?.input_sequence !== undefined || preset?.output_sequence !== undefined) return 'instruct';
+  if (typeof preset?.content === 'string') return 'sysprompt';
+  return 'openai';
+}
+
+/** 一条酒馆正则的特征（findRegex / replaceString 那种）。 */
+function isRegexScript(value: any): boolean {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) &&
+    (value.findRegex !== undefined || value.find_regex !== undefined ||
+      value.replaceString !== undefined || value.replace_with !== undefined);
+}
+
+/** 从脚本卡的数据里挑出酒馆正则；挑不到说明它只是普通 JS 脚本，返回空数组。 */
+function extractRegexScripts(raw: any): any[] {
+  const containers = [raw, raw?.regex, raw?.scripts, raw?.regex_scripts, raw?.data?.regex, raw?.data?.regex_scripts];
+  for (const value of containers) {
+    if (Array.isArray(value)) {
+      const hits = value.filter(isRegexScript);
+      if (hits.length > 0) return hits;
+    } else if (isRegexScript(value)) {
+      return [value];
+    }
+  }
+  return [];
+}
+
+/** 合并正则：同 id（或同 findRegex）算同一条，新来的覆盖旧的。 */
+function mergeRegexScripts(current: any[], incoming: any[]): any[] {
+  const keyOf = (script: any) => String(script?.id || script?.findRegex || script?.find_regex || '').trim();
+  const merged = Array.isArray(current) ? current.slice() : [];
+  for (const script of incoming) {
+    const key = keyOf(script);
+    const index = key ? merged.findIndex((item) => keyOf(item) === key) : -1;
+    if (index >= 0) merged[index] = script;
+    else merged.push(script);
+  }
+  return merged;
+}
+
+/** 快捷回复：新的集合格式直接用，老的 quick_replies 数组包成一个集合。 */
+function buildQuickReplySet(raw: any, name: string): any {
+  const source = raw?.set && typeof raw.set === 'object' && !Array.isArray(raw.set) ? raw.set : raw;
+  const list = Array.isArray(source?.qrList)
+    ? source.qrList
+    : Array.isArray(raw?.quick_replies)
+      ? raw.quick_replies
+      : (source && (source.label !== undefined || source.message !== undefined) ? [source] : []);
+
+  const set: any = {
+    version: 2,
+    name,
+    disableSend: false,
+    placeBeforeInput: false,
+    injectInput: false,
+    color: 'transparent',
+    onlyBorderColor: false,
+    idIndex: list.length,
+  };
+  for (const key of ['disableSend', 'placeBeforeInput', 'injectInput', 'color', 'onlyBorderColor']) {
+    if (source && source[key] !== undefined) set[key] = source[key];
+  }
+  set.qrList = list;
+  return set;
+}
 interface Props {
   id: string;
   onBack: () => void;
@@ -76,8 +148,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showDownloadChoice, setShowDownloadChoice] = useState(false);
   const [showExportAlert, setShowExportAlert] = useState(false);
+  const [showSendChoice, setShowSendChoice] = useState(false);
   const [showAvatarViewer, setShowAvatarViewer] = useState(false);
   const [isSendingToST, setIsSendingToST] = useState(false);
+  const [isSendingToTT, setIsSendingToTT] = useState(false);
   const [stFeedback, setStFeedback] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
   const [isMetadataOpen, setIsMetadataOpen] = useState(false);
   const [isEditingTags, setIsEditingTags] = useState(false);
@@ -146,6 +220,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     isMoveFolderOpen ||
     showDeleteConfirm ||
     showDownloadChoice ||
+    showSendChoice ||
     showExportAlert ||
     showAvatarViewer ||
     isAddingAlternate ||
@@ -166,6 +241,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     if (showAvatarViewer) { setShowAvatarViewer(false); return true; }
     if (showDeleteConfirm) { setShowDeleteConfirm(false); return true; }
     if (showDownloadChoice) { setShowDownloadChoice(false); return true; }
+    if (showSendChoice) { setShowSendChoice(false); return true; }
     if (showExportAlert) { setShowExportAlert(false); return true; }
     if (stFeedback) { setStFeedback(null); return true; }
     if (isMetadataOpen) { setIsMetadataOpen(false); return true; }
@@ -537,6 +613,43 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         : baseName;
     };
 
+    /**
+     * 独立世界书导出：酒馆（含 TT）的世界书文件顶层必须直接就是 entries，少一层包装它就不认。
+     * 世界书在 App 里可能被存在这几个位置，这里全部认一遍，再摊平成顶层 entries 送出去。
+     */
+    const getWorldbookExportJson = () => {
+      const raw: any = (character.data as any) || {};
+      const sources = [
+        raw.entries,
+        raw.data?.entries,
+        raw.character_book?.entries,
+        raw.data?.character_book?.entries,
+        raw.extensions?.character_book?.entries,
+        raw.data?.extensions?.character_book?.entries,
+        raw.world_info?.entries,
+        raw.lorebook?.entries,
+      ];
+      const entries = sources.find((value: any) => value && typeof value === 'object') || null;
+      if (!entries) return JSON.stringify(raw, null, 2);
+
+      const bookOwner = raw.character_book
+        || raw.data?.character_book
+        || raw.extensions?.character_book
+        || raw.data?.extensions?.character_book;
+      // V3 世界书的条目就在 data 里，此时把 data 上的名字/描述一并带上，别丢字段
+      const book = bookOwner || (raw.data && entries === raw.data.entries ? raw.data : {});
+      const flat: any = { ...raw, ...book };
+      delete flat.spec;
+      delete flat.spec_version;
+      delete flat.data;
+      delete flat.character_book;
+      delete flat.extensions;
+      delete flat.world_info;
+      delete flat.lorebook;
+      flat.entries = entries;
+      return JSON.stringify(flat, null, 2);
+    };
+
     const handleExportJson = async (share: boolean = true) => {
     const jsonStr = JSON.stringify(getNormalizedExportData(), null, 2);
     const safeName = await getExportBaseName();
@@ -579,10 +692,189 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     }
   };
 
-  const handleSendToST = async () => {
-    if (isPreset || isStandaloneWorldbook || isTheme || isQR || isScript) {
-      setStFeedback({ msg: '此类型数据无法通过API直接发送至酒馆', type: 'error' });
+  /** 点同一个按钮，弹出「送去哪」；环境不支持 TT 联动时直接走原来的酒馆 API。 */
+  const handleOpenSendChoice = () => {
+    if (!isLocalLinkSupported()) {
+      handleSendToST();
+      return;
+    }
+    setShowSendChoice(true);
+  };
+
+  /**
+   * 发送到酒馆（TT 联动）：把这张卡排进 MIU 的「待发送到酒馆」队列，
+   * 切到酒馆后在扩展面板点「接收 MIU 推送」即可导入。
+   */
+  const handleSendToTT = async () => {
+    if (!isLocalLinkSupported()) {
+      setStFeedback({ msg: '当前环境不支持 TT 联动，请在安卓 App 里用', type: 'error' });
       setTimeout(() => setStFeedback(null), 3000);
+      return;
+    }
+
+    setIsSendingToTT(true);
+    setStFeedback(null);
+    try {
+      const safeName = await getExportBaseName();
+      let file: File;
+
+      if (isStandaloneWorldbook) {
+        // 世界书是纯 JSON 数据：原样送出，酒馆侧的扩展会按内容认出它，走世界书导入接口
+        const jsonStr = getWorldbookExportJson();
+        file = new File([new TextEncoder().encode(jsonStr)], `${safeName}.json`, { type: 'application/json' });
+      } else if (isPreset || isTheme || isQR || isScript) {
+        // 预设 / 美化 / 快捷回复 / 脚本：纯 JSON，文件名里带上类型，酒馆侧的扩展直接照单走，不用猜
+        const jsonStr = JSON.stringify(getNormalizedExportData(), null, 2);
+        const kindHint = isPreset ? 'preset' : isTheme ? 'theme' : isQR ? 'qr' : 'regex';
+        file = new File([new TextEncoder().encode(jsonStr)], `${safeName}.${kindHint}.json`, { type: 'application/json' });
+      } else {
+        let baseBlob = character.avatarBlob;
+        let localBuffer: ArrayBuffer | null = null;
+        if (character.localFilePath) {
+          localBuffer = await readLocalFileBuffer(character.localFilePath);
+        } else if (!baseBlob && character.originalFile && (character.originalFile.type === 'image/png' || character.originalFile.name.endsWith('.png'))) {
+          baseBlob = character.originalFile;
+        }
+
+        if (baseBlob || localBuffer) {
+          const buffer = localBuffer || await baseBlob!.arrayBuffer();
+          const newBuffer = injectTavernData(buffer, getNormalizedExportData());
+          file = new File([newBuffer], `${safeName}.png`, { type: 'image/png' });
+        } else {
+          const jsonStr = JSON.stringify(getNormalizedExportData(), null, 2);
+          file = new File([new TextEncoder().encode(jsonStr)], `${safeName}.json`, { type: 'application/json' });
+        }
+      }
+
+      const result = await pushFilesToOutbox([file]);
+      if (result.added > 0) {
+        const running = getLocalReceiverStatus().running;
+        setStFeedback({
+          msg: running
+            ? '已排队，切到酒馆 → 扩展面板 → MIU 联动 → 点「接收 MIU 推送」'
+            : '已排队；记得先去「设置 → TauriTavern」开启接收服务',
+          type: 'success',
+        });
+      } else {
+        setStFeedback({ msg: '发送失败：内容为空或超过 32MB', type: 'error' });
+      }
+      setTimeout(() => setStFeedback(null), 5000);
+    } catch (e: any) {
+      setStFeedback({ msg: `发送失败：${e?.message || e}`, type: 'error' });
+      setTimeout(() => setStFeedback(null), 3000);
+    } finally {
+      setIsSendingToTT(false);
+    }
+  };
+
+  /** 取酒馆的 CSRF 令牌（酒馆的动态接口都要带）。 */
+  const readTavernCsrf = async (stUrl: string, authHeaders: Record<string, string>) => {
+    try {
+      const res = await fetch(`${stUrl}/csrf-token`, { headers: authHeaders });
+      if (!res.ok) return '';
+      const data = await res.json().catch(() => ({}));
+      return data.token || '';
+    } catch {
+      return '';
+    }
+  };
+
+  /**
+   * 预设 / 美化 / 快捷回复 / 脚本这些「工具数据」走酒馆各自的数据接口（和角色卡不是同一个）。
+   * 正则是例外：酒馆没开单条导入的接口，只能把设置文件读出来、改掉里面的 extension_settings.regex 再整体写回去；
+   * 读不到设置文件就直接放弃，绝不拿半份数据去覆盖。
+   */
+  const sendToolDataToST = async () => {
+    const fail = (msg: string) => {
+      setStFeedback({ msg, type: 'error' });
+      setTimeout(() => setStFeedback(null), 4000);
+    };
+
+    const aiSettings = getAISettings();
+    const stUrl = normalizeSillyTavernUrl(aiSettings.sillyTavernUrl);
+    if (!stUrl) {
+      fail('请先在"设置"中配置酒馆 API 地址');
+      return;
+    }
+
+    setIsSendingToST(true);
+    setStFeedback(null);
+    try {
+      const authHeaders = getSillyTavernAuthHeaders(aiSettings);
+      const csrf = await readTavernCsrf(stUrl, authHeaders);
+      const headers: Record<string, string> = { ...authHeaders, 'Content-Type': 'application/json' };
+      if (csrf) headers['X-CSRF-Token'] = csrf;
+
+      const safeName = await getExportBaseName();
+      const raw = JSON.parse(JSON.stringify(character.data || {}));
+
+      if (isScript) {
+        const scripts = extractRegexScripts(raw);
+        if (scripts.length === 0) {
+          fail('这份脚本不是酒馆正则，酒馆那边没有对应的接口');
+          return;
+        }
+        const settingsRes = await fetch(`${stUrl}/api/settings/get`, { method: 'POST', headers });
+        if (!settingsRes.ok) throw new Error(`HTTP ${settingsRes.status}`);
+        const settingsData = await settingsRes.json().catch(() => ({} as any));
+        const fileText = typeof settingsData?.settings === 'string' ? settingsData.settings : '';
+        if (!fileText) throw new Error('没读到酒馆设置文件（可能是版本或权限不对）');
+        const settingsFile = JSON.parse(fileText);
+        if (!settingsFile?.extension_settings || typeof settingsFile.extension_settings !== 'object') {
+          throw new Error('酒馆设置文件里没有 extension_settings，已放弃写入');
+        }
+        const before = Array.isArray(settingsFile.extension_settings.regex) ? settingsFile.extension_settings.regex : [];
+        settingsFile.extension_settings.regex = mergeRegexScripts(before, scripts);
+        const saveRes = await fetch(`${stUrl}/api/settings/save`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(settingsFile),
+          cache: 'no-store',
+        });
+        if (!saveRes.ok) throw new Error(`HTTP ${saveRes.status}: ${await saveRes.text()}`);
+        setStFeedback({ msg: `已写入酒馆的全局正则：${scripts.length} 条（在「扩展 → 正则」里看）`, type: 'success' });
+        setTimeout(() => setStFeedback(null), 6000);
+        return;
+      }
+
+      let path = '';
+      let label = '';
+      let payload: any = null;
+      if (isPreset) {
+        const preset = raw?.preset && typeof raw.preset === 'object' && !Array.isArray(raw.preset) ? raw.preset : raw;
+        path = '/api/presets/save';
+        label = '预设';
+        payload = { name: safeName, apiId: guessPresetApiId(preset), preset };
+      } else if (isTheme) {
+        const theme = raw?.theme && typeof raw.theme === 'object' && !Array.isArray(raw.theme) ? raw.theme : raw;
+        path = '/api/themes/save';
+        label = '美化';
+        payload = { ...theme, name: safeName };
+      } else {
+        path = '/api/quick-replies/save';
+        label = '快速回复';
+        payload = buildQuickReplySet(raw, safeName);
+      }
+
+      const res = await fetch(`${stUrl}${path}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        cache: 'no-store',
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      setStFeedback({ msg: `${label}已送进酒馆：${safeName}`, type: 'success' });
+      setTimeout(() => setStFeedback(null), 5000);
+    } catch (e: any) {
+      setStFeedback({ msg: `发送失败：${e?.message || e}`, type: 'error' });
+      setTimeout(() => setStFeedback(null), 4000);
+    } finally {
+      setIsSendingToST(false);
+    }
+  };
+  const handleSendToST = async () => {
+    if (isPreset || isTheme || isQR || isScript) {
+      await sendToolDataToST();
       return;
     }
 
@@ -627,6 +919,19 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
       const doPush = async () => {
         const headers: Record<string, string> = { ...authHeaders };
         if (csrf) headers['X-CSRF-Token'] = csrf;
+
+        if (isStandaloneWorldbook) {
+          // 世界书是纯 JSON 数据，走酒馆自己的世界书导入接口（角色卡那个接口不收世界书）
+          const jsonBlob = new Blob([getWorldbookExportJson()], { type: 'application/json' });
+          const safeName = await getExportBaseName();
+          return multipartPost(
+            `${stUrl}/api/worldinfo/import`,
+            [],
+            { name: 'avatar', blob: jsonBlob, filename: `${safeName}.json` },
+            headers,
+          );
+        }
+
         if (sendAsJson) {
           const jsonStr = JSON.stringify(getNormalizedExportData(), null, 2);
           const jsonBlob = new Blob([jsonStr], { type: 'application/json' });
@@ -753,16 +1058,14 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               </button>
             )}
 
-            {!isPreset && !isStandaloneWorldbook && !isTheme && (
-              <button 
-                onClick={handleSendToST} 
-                className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 transition relative group" 
-                title="发送到酒馆"
-                disabled={isSendingToST}
-              >
-                {isSendingToST ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5 text-blue-400 group-hover:text-blue-300 [.light-theme_&]:text-[#007aff]" />}
-              </button>
-            )}
+            <button
+              onClick={handleOpenSendChoice}
+              className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 transition relative group"
+              title="发送到酒馆"
+              disabled={isSendingToST || isSendingToTT}
+            >
+              {isSendingToST || isSendingToTT ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5 text-blue-400 group-hover:text-blue-300 [.light-theme_&]:text-[#007aff]" />}
+            </button>
                         
             <button onClick={() => setShowDownloadChoice(true)} className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 text-white [.light-theme_&]:text-[#1c1c1e] transition" title={getDownloadTooltip("下载")}>
               <Download className="w-5 h-5" />
@@ -855,6 +1158,78 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                       isLightMode
                         ? 'bg-[#f1f5f9] hover:bg-[#e2e8f0] active:bg-[#cbd5e1] text-[#334155] shadow-none'
                         : 'bg-white/10 hover:bg-white/15 active:bg-white/5 text-white/90'
+                    }`}
+                  >
+                    取消
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {showSendChoice && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 [.light-theme_&]:bg-black/40 backdrop-blur-sm z-[200] flex items-end justify-center"
+              onClick={() => setShowSendChoice(false)}
+            >
+              <motion.div
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-black/5 rounded-t-3xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
+              >
+                {/* Indicator Handle */}
+                <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-black/10 rounded-full mx-auto mb-3" />
+
+                <h3 className="text-base sm:text-lg font-bold text-center text-white [.light-theme_&]:!text-[#0f172a] mb-1">
+                  发送到酒馆
+                </h3>
+                <p className="text-[11px] sm:text-xs text-center text-white/70 [.light-theme_&]:!text-slate-600 mb-4 px-2 leading-relaxed">
+                  {isStandaloneWorldbook || isPreset || isTheme || isQR || isScript
+                    ? '这类数据两种方式都能直接送进酒馆'
+                    : '选一种方式把这张卡送进酒馆'}
+                </p>
+
+                <div className="space-y-2.5">
+                  <button
+                    onClick={() => {
+                      setShowSendChoice(false);
+                      handleSendToST();
+                    }}
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 ${
+                      isLightMode
+                        ? 'bg-[#eff6ff] hover:bg-[#dbeafe] active:bg-[#bfdbfe] text-[#2563eb] shadow-none'
+                        : 'bg-[#007aff] hover:bg-[#0062cc] active:bg-[#0051a8] text-white shadow-md shadow-[#007aff]/25'
+                    }`}
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>发送到酒馆（酒馆 API）</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowSendChoice(false);
+                      handleSendToTT();
+                    }}
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 ${
+                      isLightMode
+                        ? 'bg-[#f1f5f9] hover:bg-[#e2e8f0] active:bg-[#cbd5e1] text-[#334155] shadow-none'
+                        : 'bg-white/10 hover:bg-white/15 active:bg-white/5 text-white/90'
+                    }`}
+                  >
+                    <Smartphone className="w-4 h-4" />
+                    <span>发送到酒馆（TT 联动）</span>
+                  </button>
+                  <button
+                    onClick={() => setShowSendChoice(false)}
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center ${
+                      isLightMode
+                        ? 'bg-[#f8fafc] hover:bg-[#f1f5f9] active:bg-[#e2e8f0] text-[#64748b] shadow-none'
+                        : 'bg-white/5 hover:bg-white/10 active:bg-white/[0.02] text-white/60'
                     }`}
                   >
                     取消
@@ -1641,7 +2016,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                                     newBook = { ...json, data: { ...json.data, entries: entries } };
                                   } else {
                                     newBook = { 
-                                      name: json.name || file.name.replace('.json', ''), 
+                                      name: json.name || stripToolNameSuffix(file.name), 
                                       description: json.description || '', 
                                       entries: entries 
                                     };

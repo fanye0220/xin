@@ -62,6 +62,29 @@ export function getCharacterRegexScripts(char: CharacterCard | null | undefined)
 }
 
 /**
+ * 酒馆助手 / MVU 的元数据区块（变量更新、分析、状态栏占位符）。
+ * 在酒馆里这些会被 MVU 自己吃掉，不该出现在正文里；卡片自带的正则常常是
+ * 「只发给模型」的，MIU 里就会原样漏出来，正文看着像「渲染了一半」。
+ */
+const TAVERN_META_BLOCK_RES: RegExp[] = [
+  /<UpdateVariable\b[^>]*>[\s\S]*?<\/UpdateVariable\s*>/gi,
+  /<UpdateVariable\b[^>]*\/?>/gi,
+  /<Analysis\b[^>]*>[\s\S]*?<\/Analysis\s*>/gi,
+  /<PhoneAnalysis\b[^>]*>[\s\S]*?<\/PhoneAnalysis\s*>/gi,
+  /<status_current_variables\b[^>]*>[\s\S]*?<\/status_current_variables\s*>/gi,
+  /<StatusPlaceHolderImpl\b[^>]*\/?>/gi,
+  /<StatusPlaceHolder\b[^>]*\/?>/gi,
+];
+
+/** 去掉酒馆助手/MVU 的元数据区块（状态栏占位符若没被正则替换掉，也就没必要显示） */
+export function stripTavernMetaBlocks(text: string): string {
+  if (!text) return text;
+  let out = text;
+  for (const re of TAVERN_META_BLOCK_RES) out = out.replace(re, '');
+  return out;
+}
+
+/**
  * Apply TavernHelper-grade regex scripts and common macros ({{char}}, {{user}}, etc.) to text
  */
 export function applyRegexToText(
@@ -170,6 +193,9 @@ export function applyRegexToText(
     .split(/(```[\s\S]*?```)/g)
     .map((part, i) => (i % 2 ? part : part.replace(/^[ \t]+(<[a-zA-Z!/])/gm, "$1")))
     .join("");
+
+  // 5. 酒馆助手/MVU 的元数据区块不出现在正文里
+  result = stripTavernMetaBlocks(result);
 
   return result;
 }

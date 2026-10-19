@@ -23,6 +23,11 @@ import {
   RotateCcw,
   Sparkles,
   FileText,
+  BookOpen,
+  SlidersHorizontal,
+  Palette,
+  MessageSquare,
+  Braces,
 } from "lucide-react";
 import { extractTavernData, parsePayload } from "../lib/png";
 import {
@@ -39,6 +44,7 @@ import {
   isActualCharacterCard,
   getCharacterCategoryPrefix,
   CardVersionSnapshot,
+  stripToolNameSuffix,
 } from "../lib/db";
 import { normalizeWorldbookEntries } from "../lib/worldbook";
 import { parseTavernCard } from "../types/tavern";
@@ -52,6 +58,59 @@ import { withReadSlot } from "../lib/thumbCache";
 import { describeSaveFailure, describeSaveFailureShort } from "../lib/saveError";
 
 const tavernAvatarCache = new Map<string, string>();
+
+type TavernPullCategory = "character" | "worldbook" | "preset" | "theme" | "qr" | "regex";
+
+const TAVERN_PULL_TABS: { key: TavernPullCategory; label: string }[] = [
+  { key: "character", label: "角色卡" },
+  { key: "worldbook", label: "世界书" },
+  { key: "preset", label: "预设" },
+  { key: "theme", label: "美化" },
+  { key: "qr", label: "快速回复" },
+  { key: "regex", label: "正则" },
+];
+
+const TAVERN_CATEGORY_HINT: Record<TavernPullCategory, string> = {
+  character: "搜索角色名称、描述或标签...",
+  worldbook: "搜索世界书名称...",
+  preset: "搜索预设名称...",
+  theme: "搜索美化主题名称...",
+  qr: "搜索快速回复集合...",
+  regex: "搜索正则脚本名称...",
+};
+
+function TavernKindIcon({ kind, className }: { kind: TavernPullCategory; className?: string }) {
+  if (kind === "worldbook") return <BookOpen className={className} />;
+  if (kind === "preset") return <SlidersHorizontal className={className} />;
+  if (kind === "theme") return <Palette className={className} />;
+  if (kind === "qr") return <MessageSquare className={className} />;
+  if (kind === "regex") return <Braces className={className} />;
+  return <Cloud className={className} />;
+}
+
+function normalizeTavernPresetApi(value: any): string {
+  const api = String(value || "").toLowerCase();
+  if (api === "koboldhorde") return "kobold";
+  if (api === "kobold") return "kobold";
+  if (api === "novel") return "novel";
+  if (api === "textgenerationwebui") return "textgenerationwebui";
+  if (api === "openai") return "openai";
+  return "";
+}
+
+function isRealTavernPreset(preset: any): boolean {
+  if (!preset || typeof preset !== "object" || Array.isArray(preset)) return false;
+  const type = String(preset.type || "").toLowerCase();
+  if (type === "script" || type === "tool") return false;
+  if (Array.isArray(preset.prompts) || Array.isArray(preset.prompt_order) || Array.isArray(preset.promptOrder)) return true;
+  const samplers = ["temperature", "top_p", "top_k", "temp", "rep_pen", "repetition_penalty", "openai_max_tokens", "max_tokens"];
+  return samplers.some((key) => typeof preset[key] === "number");
+}
+
+function tavernToolFileName(name: string, kind: TavernPullCategory): string {
+  const base = String(name || "miu_tool").replace(/[\\/:*?"<>|]/g, "_").trim() || "miu_tool";
+  return base.replace(/\.json$/i, "") + "." + kind + ".json";
+}
 
 const ALT_FOLDERS = ["替换卡面", "替换头像", "avatars", "alt", "alternate"];
 const VERSION_FOLDERS = ["版本历史", "versions", "version_history", "history"];
@@ -353,7 +412,12 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
   const [isPulling, setIsPulling] = useState(false);
   const [tavernSearchQuery, setTavernSearchQuery] = useState("");
   const [pullLogs, setPullLogs] = useState<string[]>([]);
-  const [currentPullChar, setCurrentPullChar] = useState<{ name: string; avatar: any } | null>(null);
+  const [currentPullChar, setCurrentPullChar] = useState<{ name: string; avatar: any; kind?: TavernPullCategory } | null>(null);
+  const [tavernCategory, setTavernCategory] = useState<TavernPullCategory>("character");
+  const [tavernTabCounts, setTavernTabCounts] = useState<Record<string, number>>({});
+  const tavernCategoryRef = useRef<TavernPullCategory>("character");
+  const tavernCacheRef = useRef<Record<string, any[]>>({});
+  const tavernToolPayloadRef = useRef<Map<string, any>>(new Map());
 
   useEffect(() => {
     setTavernDisplayLimit(36);
@@ -374,6 +438,12 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
 
     setIsPulling(true);
     setTavernMode(true);
+    tavernCategoryRef.current = "character";
+    setTavernCategory("character");
+    if (!tavernCacheRef.current.character) {
+      setTavernChars([]);
+      setSelectedTavernChars(new Set());
+    }
     setError(null);
     setPullLogs([]);
     setCurrentPullChar(null);
@@ -399,9 +469,14 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                 ? meta.list.filter((c: any) => c && c.avatar && c.name)
                 : [];
               if (nativeList.length > 0) {
-                setTavernChars(nativeList);
-                setSelectedTavernChars(new Set(nativeList.map((c: any) => c.avatar)));
-                addPullLog(`获取成功！共加载 ${nativeList.length} 个酒馆角色`);
+                const mapped = nativeList.map((c: any) => ({ ...c, id: c.avatar, kind: "character" }));
+                tavernCacheRef.current.character = mapped;
+                tavernCategoryRef.current = "character";
+                setTavernCategory("character");
+                setTavernTabCounts((prev) => ({ ...prev, character: mapped.length }));
+                setTavernChars(mapped);
+                setSelectedTavernChars(new Set(mapped.map((c: any) => c.avatar)));
+                addPullLog(`获取成功！共加载 ${mapped.length} 个酒馆角色`);
                 setProgress(null);
                 return;
               }
@@ -503,9 +578,14 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
         throw new Error(lastError || "未找到可用卡片");
       }
 
-      setTavernChars(validChars);
-      setSelectedTavernChars(new Set(validChars.map((c: any) => c.avatar)));
-      addPullLog(`加载成功！共有 ${validChars.length} 张可用角色卡`);
+      const mapped = validChars.map((c: any) => ({ ...c, id: c.avatar, kind: "character" }));
+      tavernCacheRef.current.character = mapped;
+      tavernCategoryRef.current = "character";
+      setTavernCategory("character");
+      setTavernTabCounts((prev) => ({ ...prev, character: mapped.length }));
+      setTavernChars(mapped);
+      setSelectedTavernChars(new Set(mapped.map((c: any) => c.avatar)));
+      addPullLog(`加载成功！共有 ${mapped.length} 张可用角色卡`);
       setProgress(null);
     } catch (e: any) {
       setError(`获取列表失败: ${e.message}`);
@@ -516,6 +596,212 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
     }
   };
 
+  const tavernAuth = async () => {
+    const settings = getAISettings();
+    const stUrl = normalizeSillyTavernUrl(settings.sillyTavernUrl);
+    if (!stUrl) throw new Error('请先在"设置"中配置酒馆 API 地址。Termux 本地通常是 http://127.0.0.1:8000');
+    const headers: Record<string, string> = { ...getSillyTavernAuthHeaders(settings) };
+    let csrf = '';
+    try {
+      const res = await fetch(`${stUrl}/csrf-token`, { headers, cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        csrf = data.token || '';
+      }
+    } catch {}
+    return { stUrl, headers, csrf };
+  };
+
+  const tavernPostJson = async (path: string, body: any, auth: { stUrl: string; headers: Record<string, string>; csrf: string }, timeoutMs = 30000) => {
+    const run = async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const headers: Record<string, string> = { ...auth.headers, 'Content-Type': 'application/json' };
+      if (auth.csrf) headers['X-CSRF-Token'] = auth.csrf;
+      try {
+        return await fetch(`${auth.stUrl}${path}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body || {}),
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    let res = await run();
+    if (res.status === 403) {
+      try {
+        const csrfRes = await fetch(`${auth.stUrl}/csrf-token`, { headers: auth.headers, cache: 'no-store' });
+        if (csrfRes.ok) {
+          const data = await csrfRes.json().catch(() => ({}));
+          auth.csrf = data.token || '';
+        }
+      } catch {}
+      res = await run();
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res;
+  };
+
+  const buildTavernToolCatalog = (data: any) => {
+    const items: any[] = [];
+    const counts: Record<string, number> = {};
+    const payloads = tavernToolPayloadRef.current;
+    payloads.clear();
+
+    const push = (item: any, payload?: any) => {
+      items.push(item);
+      counts[item.kind] = (counts[item.kind] || 0) + 1;
+      if (payload !== undefined) payloads.set(item.id, payload);
+    };
+
+    const worlds = Array.isArray(data?.world_names) ? data.world_names : [];
+    worlds.forEach((rawName: any, index: number) => {
+      const name = String(rawName || '').trim();
+      if (!name) return;
+      const id = `wb:${index}:${name}`;
+      push({ id, avatar: id, kind: 'worldbook', name, creator_notes: '世界书 · 选中后才取正文' });
+    });
+
+    let settingsObject: any = {};
+    if (typeof data?.settings === 'string') {
+      try { settingsObject = JSON.parse(data.settings); } catch { settingsObject = {}; }
+    } else if (data?.settings && typeof data.settings === 'object') {
+      settingsObject = data.settings;
+    }
+
+    const presetGroups = [
+      { contents: data?.openai_settings, names: data?.openai_setting_names, apiId: 'openai' },
+      { contents: data?.textgenerationwebui_presets, names: data?.textgenerationwebui_preset_names, apiId: 'textgenerationwebui' },
+      { contents: data?.koboldai_settings, names: data?.koboldai_setting_names, apiId: 'kobold' },
+      { contents: data?.novelai_settings, names: data?.novelai_setting_names, apiId: 'novel' },
+    ];
+    const activeApi = normalizeTavernPresetApi(settingsObject?.main_api || settingsObject?.api_server || '');
+    const selectedGroups = activeApi
+      ? presetGroups.filter((group) => group.apiId === activeApi)
+      : presetGroups.filter((group) => group.apiId === 'openai');
+    const groupsToRead = selectedGroups.length > 0 ? selectedGroups : presetGroups.filter((group) => group.apiId === 'openai');
+    groupsToRead.forEach((group) => {
+      if (!Array.isArray(group.contents)) return;
+      group.contents.forEach((rawPreset: any, index: number) => {
+        let preset = rawPreset;
+        if (typeof preset === 'string') {
+          try { preset = JSON.parse(preset); } catch { return; }
+        }
+        if (!isRealTavernPreset(preset)) return;
+        const name = String((Array.isArray(group.names) && group.names[index]) || preset.name || `预设 ${index + 1}`).slice(0, 160);
+        const id = `preset:${group.apiId}:${index}:${name}`;
+        push({ id, avatar: id, kind: 'preset', name, apiId: group.apiId, creator_notes: `预设 · ${group.apiId}` }, preset);
+      });
+    });
+
+    const themes = Array.isArray(data?.themes) ? data.themes : [];
+    themes.forEach((theme: any, index: number) => {
+      if (!theme || typeof theme !== 'object' || Array.isArray(theme)) return;
+      const name = String(theme.name || theme.theme_name || `美化 ${index + 1}`).slice(0, 160);
+      const id = `theme:${index}:${name}`;
+      push({ id, avatar: id, kind: 'theme', name, creator_notes: '美化主题' }, theme);
+    });
+
+    const quickReplies = Array.isArray(data?.quickReplyPresets) ? data.quickReplyPresets : [];
+    quickReplies.forEach((set: any, index: number) => {
+      if (!set || typeof set !== 'object' || Array.isArray(set)) return;
+      const name = String(set.name || set.displayName || `快速回复 ${index + 1}`).slice(0, 160);
+      const id = `qr:${index}:${name}`;
+      const total = Array.isArray(set.qrList) ? set.qrList.length : 0;
+      push({ id, avatar: id, kind: 'qr', name, creator_notes: `快速回复 · ${total} 条` }, set);
+    });
+
+    const regex = Array.isArray(settingsObject?.extension_settings?.regex) ? settingsObject.extension_settings.regex : [];
+    regex.forEach((script: any, index: number) => {
+      if (!script || typeof script !== 'object' || Array.isArray(script)) return;
+      const name = String(script.scriptName || script.name || `正则 ${index + 1}`).slice(0, 160);
+      const id = `regex:${index}:${name}`;
+      push({ id, avatar: id, kind: 'regex', name, creator_notes: '正则脚本' }, script);
+    });
+
+    return { items, counts };
+  };
+
+  const fetchTavernTools = async (category: TavernPullCategory) => {
+    setIsPulling(true);
+    setError(null);
+    setPullLogs([]);
+    setCurrentPullChar(null);
+    addPullLog(`正在读取酒馆的${TAVERN_PULL_TABS.find((item) => item.key === category)?.label || '工具'}目录...`);
+    setProgress({ current: 0, total: 0, message: '正在读取酒馆目录...' });
+    try {
+      const auth = await tavernAuth();
+      const res = await tavernPostJson('/api/settings/get', {}, auth);
+      const data = await res.json();
+      const catalog = buildTavernToolCatalog(data);
+
+      const categories: TavernPullCategory[] = ['worldbook', 'preset', 'theme', 'qr', 'regex'];
+      categories.forEach((key) => {
+        tavernCacheRef.current[key] = catalog.items.filter((item) => item.kind === key);
+      });
+      setTavernTabCounts((prev) => ({
+        character: prev.character || 0,
+        worldbook: 0,
+        preset: 0,
+        theme: 0,
+        qr: 0,
+        regex: 0,
+        ...catalog.counts,
+      }));
+
+      const list = tavernCacheRef.current[category] || [];
+      if (tavernCategoryRef.current === category) {
+        setTavernChars(list);
+        setSelectedTavernChars(new Set(list.map((item) => item.avatar)));
+        addPullLog(`读取完成：${TAVERN_PULL_TABS.find((item) => item.key === category)?.label || category} ${list.length} 项`);
+        setProgress(null);
+      }
+    } catch (e: any) {
+      const message = e?.message || String(e);
+      setError(`读取酒馆工具目录失败: ${message}`);
+      addPullLog(`读取失败: ${message}`);
+      setProgress(null);
+      if (tavernCategoryRef.current === category) {
+        setTavernChars([]);
+        setSelectedTavernChars(new Set());
+      }
+    } finally {
+      setIsPulling(false);
+    }
+  };
+
+  const switchTavernCategory = (category: TavernPullCategory) => {
+    if (isPulling) return;
+    tavernCategoryRef.current = category;
+    setTavernCategory(category);
+    setTavernSearchQuery('');
+    setTavernDisplayLimit(36);
+    setError(null);
+    const cached = tavernCacheRef.current[category];
+    if (cached) {
+      setTavernChars(cached);
+      setSelectedTavernChars(new Set(cached.map((item: any) => item.avatar)));
+      return;
+    }
+    setTavernChars([]);
+    setSelectedTavernChars(new Set());
+    if (category === 'character') void fetchTavernList();
+    else void fetchTavernTools(category);
+  };
+
+  const reloadTavernCategory = (category: TavernPullCategory) => {
+    delete tavernCacheRef.current[category];
+    switchTavernCategory(category);
+  };
+
+  const fetchTavernWorldbook = async (name: string, auth: { stUrl: string; headers: Record<string, string>; csrf: string }) => {
+    const res = await tavernPostJson('/api/worldinfo/get', { name }, auth, 45000);
+    return await res.json();
+  };
+
   const pullSelectedTavernChars = async () => {
     const aiSettings = getAISettings();
     const stUrl = normalizeSillyTavernUrl(aiSettings.sillyTavernUrl);
@@ -524,10 +810,13 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
     const charsToFetch = tavernChars.filter(c => selectedTavernChars.has(c.avatar));
     if (charsToFetch.length === 0) return;
 
+    const hasTools = charsToFetch.some((item) => (item.kind || 'character') !== 'character');
+    const auth = hasTools ? await tavernAuth() : null;
+
     setIsPulling(true);
     setPullLogs([]);
-    addPullLog(`开始批量拉取 ${charsToFetch.length} 张角色卡...`);
-    setProgress({ current: 0, total: charsToFetch.length, message: `正在下载角色卡 (0/${charsToFetch.length})...` });
+    addPullLog(`开始拉取 ${charsToFetch.length} 项...`);
+    setProgress({ current: 0, total: charsToFetch.length, message: `正在拉取 (0/${charsToFetch.length})...` });
 
     const files: File[] = [];
     const headers = getSillyTavernAuthHeaders(aiSettings);
@@ -541,29 +830,39 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
       while (currentIndex < charsToFetch.length) {
         const index = currentIndex++;
         const char = charsToFetch[index];
-        setCurrentPullChar({ name: char.name, avatar: char });
-        addPullLog(`正在下载 [${index + 1}/${charsToFetch.length}]: ${char.name}`);
+        const kind: TavernPullCategory = char.kind || 'character';
+        setCurrentPullChar({ name: char.name, avatar: char, kind });
+        addPullLog(`正在拉取 [${index + 1}/${charsToFetch.length}]: ${char.name}`);
 
         try {
-          const res = await fetch(`${stUrl}/characters/${encodeURIComponent(char.avatar)}`, { headers });
-          if (res.ok) {
+          if (kind === 'character') {
+            const res = await fetch(`${stUrl}/characters/${encodeURIComponent(char.avatar)}`, { headers });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const blob = await res.blob();
-            const file = new File([blob], char.avatar, { type: blob.type || 'image/png' });
-            files[index] = file;
-            addPullLog(`√ 下载完成: ${char.name}`);
+            files[index] = new File([blob], char.avatar, { type: blob.type || 'image/png' });
           } else {
-            lastDownloadError = `HTTP ${res.status}`;
-            addPullLog(`× 下载失败: ${char.name} (HTTP ${res.status})`);
+            let payload: any = null;
+            if (kind === 'worldbook') {
+              if (!auth) throw new Error('酒馆连接信息缺失');
+              payload = await fetchTavernWorldbook(char.name, auth);
+            } else {
+              payload = tavernToolPayloadRef.current.get(char.id);
+            }
+            if (!payload) throw new Error('没有取到内容，重新切换分类再试');
+            const fileName = tavernToolFileName(char.name, kind);
+            const text = JSON.stringify(payload, null, 2);
+            files[index] = new File([text], fileName, { type: 'application/json' });
           }
+          addPullLog(`√ 完成: ${char.name}`);
         } catch (e: any) {
           lastDownloadError = e?.message || String(e);
-          addPullLog(`× 下载出错: ${char.name} (${lastDownloadError})`);
+          addPullLog(`× 失败: ${char.name} (${lastDownloadError})`);
         } finally {
           completed++;
           setProgress({
             current: completed,
             total: charsToFetch.length,
-            message: `已下载 ${completed}/${charsToFetch.length}`,
+            message: `已拉取 ${completed}/${charsToFetch.length}`,
           });
         }
       }
@@ -577,11 +876,11 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
 
     const downloadedFiles = files.filter(Boolean);
     if (downloadedFiles.length > 0) {
-      addPullLog(`数据传输完成！共获取到 ${downloadedFiles.length} 个有效卡片包，正在解析整理保存...`);
-      setProgress({ current: downloadedFiles.length, total: downloadedFiles.length, message: "正在解析并保存角色卡到本地档案库..." });
+      addPullLog(`拉取完成！共获取到 ${downloadedFiles.length} 项，正在解析整理保存...`);
+      setProgress({ current: downloadedFiles.length, total: downloadedFiles.length, message: "正在解析并保存到本地档案库..." });
       await handleFiles(downloadedFiles);
     } else {
-      setError(`下载失败，未获取到任何卡片。${lastDownloadError ? `（${lastDownloadError}）` : ""}`);
+      setError(`拉取失败，未获取到任何内容。${lastDownloadError ? `（${lastDownloadError}）` : ""}`);
     }
     setIsPulling(false);
   };
@@ -1779,9 +2078,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               String(
                 data?.name ||
                   data?.data?.name ||
-                  file.name.replace(/\.[^/.]+$/, "") ||
+                  stripToolNameSuffix(file.name) ||
                   "未命名工具",
-              ).trim() || file.name.replace(/\.[^/.]+$/, "");
+              ).trim() || stripToolNameSuffix(file.name);
 
             const assignFolderId = await resolveFolderForItem(
               item,
@@ -2070,7 +2369,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             initial={{ opacity: 0, scale: 0.95, y: 15 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 15 }}
-            className={`fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 backdrop-blur-2xl border rounded-3xl shadow-2xl z-[80] flex flex-col transition-all duration-300 ${isLightMode ? "bg-white text-slate-900 border-[#e2e8f0]" : "bg-slate-900/95 text-slate-100 border-white/10"} ${
+            className={`fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 backdrop-blur-2xl border rounded-3xl shadow-2xl z-[80] flex flex-col transition-all duration-300 ${
+              isLightMode ? "light-theme bg-white text-slate-900 border-[#e2e8f0]" : "bg-slate-900/95 text-slate-100 border-white/10"
+            } ${
               tavernMode
                 ? "w-[96vw] max-w-6xl h-[92vh] sm:h-[88vh] p-4 sm:p-6"
                 : importTokenSummary ? "w-[94vw] max-w-[540px] max-h-[88vh] p-5 sm:p-6" : (progress ? "w-[92vw] max-w-[340px] sm:max-w-[380px] p-6 sm:p-7" : "w-[92vw] max-w-[420px] sm:max-w-[460px] p-5 sm:p-6")
@@ -2085,12 +2386,14 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   </div>
                   <div className="min-w-0 flex-1">
                     <h2 className="text-base sm:text-lg font-bold text-slate-100 [.light-theme_&]:!text-[#0f172a] truncate">
-                      酒馆角色卡拉取中心
+                      酒馆拉取中心
                     </h2>
-                    <div className="flex items-center gap-2 text-xs text-emerald-400 [.light-theme_&]:!text-emerald-700 mt-0.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                      <span className="font-mono text-[11px] truncate max-w-[220px] sm:max-w-[360px]">
-                        {stUrl || "未在设置中配置 API 地址"}
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 [.light-theme_&]:!bg-emerald-50 [.light-theme_&]:!border-emerald-200/80 [.light-theme_&]:!text-emerald-700">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                        <span className="font-mono truncate max-w-[220px] sm:max-w-[360px]">
+                          {stUrl || "未在设置中配置 API 地址"}
+                        </span>
                       </span>
                     </div>
                   </div>
@@ -2375,32 +2678,78 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
 
               return (
                 <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+                  <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar pb-1 mb-2.5 shrink-0">
+                    {TAVERN_PULL_TABS.map((item) => {
+                      const active = tavernCategory === item.key;
+                      const count = tavernTabCounts[item.key];
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => switchTavernCategory(item.key)}
+                          className={`shrink-0 whitespace-nowrap px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 cursor-pointer border-none outline-none select-none flex items-center justify-center gap-1.5 ${
+                            active
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : isLightMode
+                                ? 'bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0] hover:text-[#0f172a]'
+                                : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          <span>{item.label}</span>
+                          {typeof count === 'number' && count > 0 && (
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                              active 
+                                ? 'bg-white/25 text-white' 
+                                : isLightMode 
+                                  ? 'bg-[#e2e8f0] text-[#475569]'
+                                  : 'bg-white/10 text-white/50'
+                            }`}>
+                              {count}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
                   {/* Pull Progress Live Activity Terminal Banner */}
                   {(isPulling || progress) && (
                     <motion.div 
                       initial={{ opacity: 0, y: -10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="mb-4 p-4 rounded-3xl bg-blue-500/10 border border-blue-500/20 [.light-theme_&]:!bg-blue-50/90 [.light-theme_&]:!border-blue-200 shrink-0 shadow-sm"
+                      className={`mb-4 p-4 rounded-3xl border shrink-0 shadow-sm ${
+                        isLightMode
+                          ? "bg-blue-50/90 border-blue-200"
+                          : "bg-blue-500/10 border-blue-500/20"
+                      }`}
                     >
                       <div className="flex items-center justify-between mb-2.5 gap-2">
                         <div className="flex items-center gap-3 min-w-0">
                           {currentPullChar ? (
-                            <TavernAvatar char={currentPullChar.avatar} aiSettings={aiSettings} className="w-10 h-10 rounded-xl object-cover shrink-0 shadow-xs border border-blue-400/30" />
+                            (currentPullChar.kind && currentPullChar.kind !== 'character') ? (
+                              <div className={`w-10 h-10 rounded-xl shrink-0 flex items-center justify-center ${
+                                isLightMode ? "bg-blue-50 text-blue-600" : "bg-blue-500/15 text-blue-400"
+                              }`}>
+                                <TavernKindIcon kind={currentPullChar.kind} className="w-5 h-5" />
+                              </div>
+                            ) : (
+                              <TavernAvatar char={currentPullChar.avatar} aiSettings={aiSettings} className="w-10 h-10 rounded-xl object-cover shrink-0 shadow-xs border border-blue-400/30" />
+                            )
                           ) : (
                             <Loader2 className="w-5 h-5 animate-spin text-blue-500 shrink-0" />
                           )}
                           <div className="min-w-0">
-                            <div className="text-xs sm:text-sm font-bold text-slate-100 [.light-theme_&]:!text-[#0f172a] truncate">
+                            <div className={`text-xs sm:text-sm font-bold truncate ${isLightMode ? "text-[#0f172a]" : "text-slate-100"}`}>
                               {progress?.message || (isPulling ? "正在通讯与拉取..." : "准备中...")}
                             </div>
-                            <div className="text-[11px] text-blue-400 [.light-theme_&]:!text-blue-600 font-semibold truncate mt-0.5">
+                            <div className={`text-[11px] font-semibold truncate mt-0.5 ${isLightMode ? "text-blue-600" : "text-blue-400"}`}>
                               {currentPullChar ? `正在处理: ${currentPullChar.name}` : `进度: ${progress?.current || 0} / ${progress?.total || tavernChars.length}`}
                             </div>
                           </div>
                         </div>
 
                         {progress && progress.total > 0 && (
-                          <div className="text-right shrink-0 font-mono text-xs font-bold text-blue-400 [.light-theme_&]:!text-blue-600">
+                          <div className={`text-right shrink-0 font-mono text-xs font-bold ${isLightMode ? "text-blue-600" : "text-blue-400"}`}>
                             {Math.round(((progress.current || 0) / progress.total) * 100)}%
                           </div>
                         )}
@@ -2408,7 +2757,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
 
                       {/* Progress bar */}
                       {progress && progress.total > 0 && (
-                        <div className="w-full bg-black/20 [.light-theme_&]:!bg-[#e2e8f0] h-2.5 rounded-full overflow-hidden mb-3">
+                        <div className={`w-full h-2.5 rounded-full overflow-hidden mb-3 ${isLightMode ? "bg-[#e2e8f0]" : "bg-black/20"}`}>
                           <motion.div 
                             className="bg-blue-500 h-full rounded-full transition-all duration-300" 
                             style={{ width: `${Math.min(100, Math.round(((progress.current || 0) / progress.total) * 100))}%` }}
@@ -2418,10 +2767,14 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
 
                       {/* Live Log Terminal Stream */}
                       {pullLogs.length > 0 && (
-                        <div className="bg-black/40 [.light-theme_&]:!bg-slate-900 text-emerald-400 p-2.5 rounded-2xl font-mono text-[11px] max-h-28 overflow-y-auto custom-scrollbar border border-white/5 space-y-1">
+                        <div className={`p-2.5 rounded-2xl font-mono text-[11px] max-h-28 overflow-y-auto custom-scrollbar border space-y-1 ${
+                          isLightMode
+                            ? "bg-blue-50/90 text-blue-900 border-blue-200"
+                            : "bg-slate-950/60 text-emerald-400 border-white/10"
+                        }`}>
                           {pullLogs.map((log, idx) => (
                             <div key={idx} className="leading-relaxed flex items-center gap-1.5 opacity-90">
-                              <Terminal className="w-3 h-3 text-emerald-500 shrink-0" />
+                              <Terminal className={`w-3 h-3 shrink-0 ${isLightMode ? "text-blue-600" : "text-emerald-400"}`} />
                               <span className="truncate">{log}</span>
                             </div>
                           ))}
@@ -2433,18 +2786,24 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   {/* Filter & Toolbar */}
                   <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2.5 mb-3 shrink-0">
                     <div className="relative flex-1 min-w-0">
-                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 [.light-theme_&]:!text-[#64748b]" />
+                      <Search className={`absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 ${isLightMode ? "text-[#64748b]" : "text-white/40"}`} />
                       <input
                         type="text"
-                        placeholder="搜索角色名称、描述或标签..."
+                        placeholder={TAVERN_CATEGORY_HINT[tavernCategory]}
                         value={tavernSearchQuery}
                         onChange={(e) => setTavernSearchQuery(e.target.value)}
-                        className="w-full rounded-2xl py-2 pl-10 pr-8 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition-all border bg-white/5 hover:bg-white/10 focus:bg-white/10 border-white/10 text-white placeholder:text-white/30 [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#94a3b8] [.light-theme_&]:focus:!border-blue-500 [.light-theme_&]:!shadow-2xs"
+                        className={`w-full rounded-2xl py-2 pl-10 pr-8 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all border-none ${
+                          isLightMode
+                            ? "bg-[#f1f5f9] text-[#0f172a] placeholder:text-[#94a3b8] focus:bg-white focus:ring-2 focus:ring-blue-500/20"
+                            : "bg-white/5 text-white placeholder:text-white/30 focus:bg-white/10"
+                        }`}
                       />
                       {tavernSearchQuery && (
                         <button
                           onClick={() => setTavernSearchQuery("")}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-[#334155] text-xs p-1 rounded-full"
+                          className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-xs p-1 rounded-full ${
+                            isLightMode ? "text-slate-400 hover:text-[#334155]" : "text-white/40 hover:text-white"
+                          }`}
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -2452,21 +2811,29 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0 justify-between sm:justify-end">
-                      <span className="text-xs font-semibold text-white/60 [.light-theme_&]:!text-slate-600">
-                        已选中 <strong className="text-blue-400 [.light-theme_&]:!text-blue-600 font-bold">{selectedTavernChars.size}</strong> / {tavernChars.length} 项
+                      <span className={`text-xs font-semibold ${isLightMode ? "text-slate-600" : "text-white/60"}`}>
+                        已选中 <strong className={isLightMode ? "text-blue-600 font-bold" : "text-blue-400 font-bold"}>{selectedTavernChars.size}</strong> / {tavernChars.length} 项
                       </span>
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => setSelectedTavernChars(new Set([...selectedTavernChars, ...filteredTavernChars.map(c => c.avatar)]))}
-                          className="text-xs border px-3 py-1.5 rounded-xl transition cursor-pointer font-medium bg-white/5 hover:bg-white/15 border-white/10 text-white/80 hover:text-white [.light-theme_&]:!bg-white [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:active:!bg-[#e2e8f0] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-2xs"
+                          className={`text-xs px-3 py-1.5 rounded-full transition cursor-pointer font-semibold border-none outline-none select-none ${
+                            isLightMode
+                              ? "bg-[#f1f5f9] text-[#334155] hover:bg-[#e2e8f0] active:bg-[#cbd5e1]"
+                              : "bg-white/5 text-white/80 hover:bg-white/15 active:bg-white/20"
+                          }`}
                         >
                           全选当前 ({filteredTavernChars.length})
                         </button>
                         <button
                           type="button"
                           onClick={() => setSelectedTavernChars(new Set())}
-                          className="text-xs border px-3 py-1.5 rounded-xl transition cursor-pointer font-medium bg-white/5 hover:bg-white/15 border-white/10 text-white/80 hover:text-white [.light-theme_&]:!bg-white [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:active:!bg-[#e2e8f0] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-2xs"
+                          className={`text-xs px-3 py-1.5 rounded-full transition cursor-pointer font-semibold border-none outline-none select-none ${
+                            isLightMode
+                              ? "bg-[#f1f5f9] text-[#334155] hover:bg-[#e2e8f0] active:bg-[#cbd5e1]"
+                              : "bg-white/5 text-white/80 hover:bg-white/15 active:bg-white/20"
+                          }`}
                         >
                           清空
                         </button>
@@ -2489,9 +2856,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     {tavernChars.length === 0 && !isPulling && (
                       <div className="flex flex-col items-center justify-center py-16 text-center text-white/40 [.light-theme_&]:!text-slate-500 space-y-3">
                         <Cloud className="w-12 h-12 opacity-30 text-blue-400" />
-                        <p className="text-sm font-semibold">未加载到角色卡或 API 未连通</p>
+                        <p className="text-sm font-semibold">未加载到{TAVERN_PULL_TABS.find((item) => item.key === tavernCategory)?.label || '内容'}或 API 未连通</p>
                         <button
-                          onClick={fetchTavernList}
+                          onClick={() => reloadTavernCategory(tavernCategory)}
                           className="px-4 py-2 rounded-xl bg-blue-500/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 font-bold text-xs hover:bg-blue-500/30 transition cursor-pointer"
                         >
                           点击试运行连接酒馆
@@ -2501,7 +2868,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
 
                     {tavernChars.length > 0 && filteredTavernChars.length === 0 && (
                       <div className="text-center text-white/40 [.light-theme_&]:!text-slate-500 py-16 text-xs sm:text-sm">
-                        没有符合 "{tavernSearchQuery}" 搜索条件的角色卡
+                        没有符合「{tavernSearchQuery}」的{TAVERN_PULL_TABS.find((item) => item.key === tavernCategory)?.label || "内容"}
                       </div>
                     )}
 
@@ -2517,13 +2884,19 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                               else newSet.add(char.avatar);
                               setSelectedTavernChars(newSet);
                             }}
-                            className={`group relative flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all duration-200 border ${
+                            className={`group relative flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all duration-200 border outline-none focus:outline-none select-none ${
                               isSelected
                                 ? 'bg-blue-500/15 border-blue-500/60 text-white [.light-theme_&]:!bg-blue-50/90 [.light-theme_&]:!border-blue-400 [.light-theme_&]:!text-[#0f172a] shadow-xs scale-[1.01]'
                                 : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10 [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!text-[#0f172a]'
                             }`}
                           >
-                            <TavernAvatar char={char} aiSettings={aiSettings} className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl object-cover shrink-0 shadow-xs border border-white/10 [.light-theme_&]:!border-[#e2e8f0]" />
+                            {char.kind && char.kind !== 'character' ? (
+                              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl shrink-0 bg-blue-500/10 [.light-theme_&]:!bg-blue-50 flex items-center justify-center text-blue-400 [.light-theme_&]:!text-blue-600 border border-blue-500/15">
+                                <TavernKindIcon kind={char.kind} className="w-5 h-5 sm:w-6 sm:h-6" />
+                              </div>
+                            ) : (
+                              <TavernAvatar char={char} aiSettings={aiSettings} className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl object-cover shrink-0 shadow-xs border border-white/10 [.light-theme_&]:!border-[#e2e8f0]" />
+                            )}
                             <div className="flex-1 min-w-0">
                               <div className="font-bold text-xs sm:text-sm truncate text-slate-100 [.light-theme_&]:!text-[#0f172a] group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-600 transition-colors">
                                 {char.name}
@@ -2552,7 +2925,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                           onClick={() => setTavernDisplayLimit(prev => Math.min(prev + 48, filteredTavernChars.length))}
                           className="w-full py-2.5 text-center text-xs font-semibold rounded-xl border transition bg-white/5 border-white/10 hover:bg-white/10 text-white/80 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#334155] [.light-theme_&]:hover:!bg-[#e2e8f0] cursor-pointer"
                         >
-                          加载更多酒馆角色... (已显示 {visibleTavernChars.length} / {filteredTavernChars.length} 项)
+                          加载更多... (已显示 {visibleTavernChars.length} / {filteredTavernChars.length} 项)
                         </button>
                       </div>
                     )}
@@ -2579,7 +2952,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                       ) : (
                         <>
                           <Cloud className="w-4 h-4" />
-                          <span>批量拉取已选角色 ({selectedTavernChars.size})</span>
+                          <span>拉取选中 ({selectedTavernChars.size})</span>
                         </>
                       )}
                     </button>

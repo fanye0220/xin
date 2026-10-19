@@ -1176,6 +1176,13 @@ let isBuildingCache = false;
 const REPAIR_CATEGORY_FLAG = "tavern_category_repair_v10_strict_worldbook_card_distinction";
 const REPAIR_TOKEN_FLAG = "tavern_meta_tokens_v4";
 
+/** 老版拉工具时把 `名字.worldbook.json` 整个当成了名字，展示出来会带 `.worldbook` 这类尾巴，这里统一去掉。 */
+const TOOL_NAME_KIND_SUFFIX = /\.(worldbook|lorebook|preset|theme|qr|regex|script)$/i;
+export function stripToolNameSuffix(name?: string): string {
+  const value = String(name || "").trim();
+  return value.replace(TOOL_NAME_KIND_SUFFIX, "").trim() || value;
+}
+
 export async function cleanupGhostCards(): Promise<{ cleanedCount: number }> {
   try {
     const db = await initDB();
@@ -1248,108 +1255,130 @@ async function buildMetaCache(): Promise<CharMeta[]> {
   // 第一次升级/索引丢失/缺少 category 字段/缺少 token 统计/需要修复历史错误分类时, 从完整角色表重建一次, 并写回轻量索引。
   // 之后所有常用入口都只读 char_meta, 不再触碰大字段 data。
   if (!newMeta || newMeta.length === 0 || newMeta.some((m) => m.category === undefined || m.tokenCount === undefined) || needsRepair) {
-    // Build folder map for folder-based classification
-    const foldersTx = db.transaction("folders", "readonly");
-    const allFolders = await foldersTx.store.getAll();
-    await foldersTx.done;
-    const folderMap = new Map<string, string>();
-    for (const f of allFolders) {
-      folderMap.set(f.id, f.name);
-    }
-
-    const toolFolderIds = new Set<string>();
-    for (const f of allFolders) {
-      if (["世界书", "预设", "工具区", "美化", "快速回复", "脚本"].includes(f.name)) {
-        toolFolderIds.add(f.id);
-      }
-    }
-
-    newMeta = [];
-    // 一次性重建: 逐条用独立事务读(不跨任务持有事务), 需要修分类的先收集, 最后统一写回。
-    // 不能在事务还开着的时候 await 定时器 —— 事务会被自动提交, 之后继续写会抛
-    // TransactionInactiveError, 整个重建会中途失败。
-    const repairKeys = await db.getAllKeys("characters");
-    const repairChanged: CharacterCard[] = [];
-
-    for (const repairKey of repairKeys) {
-      const char = (await db.get("characters", repairKey)) as CharacterCard | undefined;
-      if (!char) continue;
-
-      const data = char.data?.data || char.data || {};
-      const charName = char.name || data.name || data.char_name;
-      const hasContent = !!(data.description || data.first_mes || data.scenario || data.creator_notes || Object.keys(data).length > 0);
-      if (!charName && !hasContent) {
-        continue;
+    const previousMeta = newMeta || [];
+    try {
+      // Build folder map for folder-based classification
+      const foldersTx = db.transaction("folders", "readonly");
+      const allFolders = await foldersTx.store.getAll();
+      await foldersTx.done;
+      const folderMap = new Map<string, string>();
+      for (const f of allFolders) {
+        folderMap.set(f.id, f.name);
       }
 
-      const resType = getResourceType(char, folderMap);
-      const isTool = resType !== 'character';
-      const cat = getCharacterCategoryPrefix(char, folderMap);
-      let changed = false;
-
-      if (isTool) {
-        const expectedCat = cat !== "未归类" ? cat : (
-          resType === 'worldbook' ? '世界书' :
-          resType === 'qr' ? '快速回复' :
-          resType === 'preset' ? '预设' :
-          resType === 'script' ? '脚本' :
-          resType === 'theme' ? '美化' : '工具'
-        );
-        if (char.category !== expectedCat || !char.isTool || (expectedCat === '快速回复' && !char.isQR)) {
-          char.category = expectedCat;
-          char.isTool = true;
-          char.isQR = expectedCat === '快速回复';
-          changed = true;
-        }
-      } else {
-        if (char.category !== "未归类" || char.isTool || char.isQR) {
-          char.category = "未归类";
-          char.isTool = false;
-          char.isQR = false;
-          changed = true;
-        }
-        if (char.folderId && toolFolderIds.has(char.folderId)) {
-          char.folderId = undefined;
-          changed = true;
+      const toolFolderIds = new Set<string>();
+      for (const f of allFolders) {
+        if (["世界书", "预设", "工具区", "美化", "快速回复", "脚本"].includes(f.name)) {
+          toolFolderIds.add(f.id);
         }
       }
 
-      if (changed) {
-        repairChanged.push(char);
-      }
+      // 一次性重建: 逐条用独立事务读(不跨任务持有事务), 需要修分类的先收集, 最后统一写回。
+      // 不能在事务还开着的时候 await 定时器 —— 事务会被自动提交, 之后继续写会抛
+      // TransactionInactiveError, 整个重建会中途失败。
+      const repairKeys = await db.getAllKeys("characters");
+      const repairChanged: CharacterCard[] = [];
+      // 先攒进本地数组, 全部重建成功才换掉 newMeta：中途出问题就不会留下半个空索引。
+      const rebuilt: CharMeta[] = [];
 
-      newMeta.push(buildCharMeta(char, folderMap));
-    }
-    if (repairChanged.length > 0) {
-      const writeTx = db.transaction("characters", "readwrite");
-      for (const char of repairChanged) {
-        await writeTx.store.put(char);
-      }
-      await writeTx.done;
-    }
+      for (const repairKey of repairKeys) {
+        // 单张卡出问题只跳过这一张。以前任何一张卡抛错都会让整个索引重建失败,
+        // 卡库看起来就是"一张卡都没有"（数据其实还在），这里挡住这种情况。
+        try {
+          const char = (await db.get("characters", repairKey)) as CharacterCard | undefined;
+          if (!char) continue;
 
-    if (newMeta.length > 0) {
-      const CHUNK = 200;
-      for (let i = 0; i < newMeta.length; i += CHUNK) {
-        const chunk = newMeta.slice(i, i + CHUNK);
-        const putTx = db.transaction("char_meta", "readwrite");
-        for (const meta of chunk) {
-          await putTx.store.put(meta);
+          const data = char.data?.data || char.data || {};
+          const charName = char.name || data.name || data.char_name;
+          const hasContent = !!(data.description || data.first_mes || data.scenario || data.creator_notes || Object.keys(data).length > 0);
+          if (!charName && !hasContent) {
+            continue;
+          }
+
+          const resType = getResourceType(char, folderMap);
+          const isTool = resType !== 'character';
+          const cat = getCharacterCategoryPrefix(char, folderMap);
+          let changed = false;
+
+          if (isTool) {
+            const expectedCat = cat !== "未归类" ? cat : (
+              resType === 'worldbook' ? '世界书' :
+              resType === 'qr' ? '快速回复' :
+              resType === 'preset' ? '预设' :
+              resType === 'script' ? '脚本' :
+              resType === 'theme' ? '美化' : '工具'
+            );
+            if (char.category !== expectedCat || !char.isTool || (expectedCat === '快速回复' && !char.isQR)) {
+              char.category = expectedCat;
+              char.isTool = true;
+              char.isQR = expectedCat === '快速回复';
+              changed = true;
+            }
+          } else {
+            if (char.category !== "未归类" || char.isTool || char.isQR) {
+              char.category = "未归类";
+              char.isTool = false;
+              char.isQR = false;
+              changed = true;
+            }
+            if (char.folderId && toolFolderIds.has(char.folderId)) {
+              char.folderId = undefined;
+              changed = true;
+            }
+          }
+
+          if (changed) {
+            repairChanged.push(char);
+          }
+
+          rebuilt.push(buildCharMeta(char, folderMap));
+        } catch (err) {
+          console.warn("[MetaCache] 跳过一张索引重建失败的卡：", repairKey, err);
         }
-        await putTx.done;
       }
-    }
 
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(REPAIR_CATEGORY_FLAG, 'true');
-      localStorage.setItem(REPAIR_TOKEN_FLAG, 'true');
+      // 明明有卡却一张都没重建出来：宁可先按重建前的索引显示，也不能让用户看到空卡库
+      // （这里不写标志位，下次打开还会再试一次）。
+      if (rebuilt.length === 0 && repairKeys.length > 0) {
+        console.warn("[MetaCache] 重建结果为空, 保留原索引。characters:", repairKeys.length);
+        return previousMeta;
+      }
+
+      if (repairChanged.length > 0) {
+        const writeTx = db.transaction("characters", "readwrite");
+        for (const char of repairChanged) {
+          await writeTx.store.put(char);
+        }
+        await writeTx.done;
+      }
+
+      newMeta = rebuilt;
+
+      if (newMeta.length > 0) {
+        const CHUNK = 200;
+        for (let i = 0; i < newMeta.length; i += CHUNK) {
+          const chunk = newMeta.slice(i, i + CHUNK);
+          const putTx = db.transaction("char_meta", "readwrite");
+          for (const meta of chunk) {
+            await putTx.store.put(meta);
+          }
+          await putTx.done;
+        }
+      }
+
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(REPAIR_CATEGORY_FLAG, 'true');
+        localStorage.setItem(REPAIR_TOKEN_FLAG, 'true');
+      }
+    } catch (err) {
+      console.warn("[MetaCache] 重建索引失败, 先用重建前的索引顶着：", err);
+      return previousMeta;
     }
   }
 
   cachedMeta = newMeta;
   return cachedMeta;
 }
-
 let _invalidateTimer: ReturnType<typeof setTimeout> | null = null;
 export function invalidateCache() {
   // 立刻清空内存缓存,保证"存盘后马上读"不会读到旧数据(比如移动卡片到文件夹后

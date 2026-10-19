@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import { useBubbleTheme, BubbleThemeId, ColorSphere } from "../lib/bubbleThemes";
 import { MessageContent } from "./MessageContent";
+import { stripTavernMetaBlocks } from "../lib/regexEngine";
 import { ChatCleanerModal } from "./ChatCleanerModal";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -1283,7 +1284,7 @@ export function ChatViewer({
         // invalid regex, skip
       }
     }
-    return result;
+    return stripTavernMetaBlocks(result);
   };
 
   const handleUpdateBinding = async (charId: string) => {
@@ -2332,6 +2333,7 @@ export function ChatViewer({
                                   )}
                                   themeMode={isLightMode ? 'light' : 'dark'}
                                   characterName={activeCharacter?.name}
+                                  mvuSourceText={msg.mes || ""}
                                 />
                               </div>
                             </div>
@@ -2433,6 +2435,7 @@ export function ChatViewer({
                                     )}
                                     themeMode={isLightMode ? 'light' : 'dark'}
                                     characterName={activeCharacter?.name}
+                                    mvuSourceText={msg.mes || ""}
                                   />
                                 </div>
                               </div>

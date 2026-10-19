@@ -4,6 +4,7 @@ import { X, Globe, CheckCircle2, AlertCircle, Loader2, RefreshCw, Plus, Trash2, 
 import { AISettings, CustomEndpoint, getAISettings, saveAISettings, testConnection, fetchCustomModels, COMMUNITY_JAILBREAK_PRESET, MINIMAL_BYPASS_PRESET, IMMERSIVE_FICTION_PRESET } from '../lib/ai';
 import { CloudSyncTab } from './CloudSyncTab';
 import { SidebarWallpaperTab } from './SidebarWallpaperTab';
+import { TtLinkTab } from './TtLinkTab';
 import { useSidebarWallpaper, saveSidebarWallpaperConfig } from '../lib/sidebarWallpaper';
 import { useBackHandler } from '../lib/useBackHandler';
 import { CURRENT_APP_VERSION } from '../config/version';
@@ -12,11 +13,13 @@ import { openExternalUrl } from '../lib/appBridge';
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'api' | 'st' | 'cloud' | 'wallpaper' | 'about';
+  initialTab?: 'api' | 'st' | 'tt' | 'cloud' | 'wallpaper' | 'about';
   isLightMode?: boolean;
+  /** TT 互联：把接收到的卡片交给 App 走正常导入流程 */
+  onImportFiles?: (files: File[]) => void;
 }
 
-export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode: propIsLightMode }: Props) {
+export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode: propIsLightMode, onImportFiles }: Props) {
   const [isLightMode, setIsLightMode] = useState(() => {
     if (typeof propIsLightMode === 'boolean') return propIsLightMode;
     return (
@@ -50,7 +53,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
   }, [propIsLightMode]);
 
   const [settings, setSettings] = useState<AISettings>(getAISettings());
-  const [activeTab, setActiveTab] = useState<'api' | 'st' | 'cloud' | 'wallpaper' | 'about'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'api' | 'st' | 'tt' | 'cloud' | 'wallpaper' | 'about'>(initialTab);
   const [wallpaperConfig, setWallpaperConfig] = useSidebarWallpaper();
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateResult, setUpdateResult] = useState<{ msg: string; isError?: boolean; downloadUrl?: string; versionInfo?: any } | null>(null);
@@ -187,7 +190,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.98, opacity: 0 }}
           className={`w-full h-[100dvh] sm:h-auto sm:max-h-[90vh] ${
-            activeTab === 'cloud' || activeTab === 'wallpaper' ? 'sm:max-w-4xl' : 'sm:max-w-lg'
+            activeTab === 'cloud' || activeTab === 'wallpaper' || activeTab === 'tt' ? 'sm:max-w-4xl' : 'sm:max-w-lg'
           } sm:rounded-3xl overflow-hidden shadow-2xl flex flex-col transition-all duration-200 bg-slate-900 [.light-theme_&]:!bg-[#ffffff] text-slate-100 [.light-theme_&]:!text-[#0f172a] sm:border sm:border-white/10 [.light-theme_&]:sm:!border-[#e2e8f0]`}
         >
           {/* Top Header */}
@@ -209,6 +212,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
             {[
               { id: 'api', label: 'API 设置' },
               { id: 'st', label: '酒馆联动' },
+              { id: 'tt', label: 'TauriTavern' },
               { id: 'cloud', label: '云端同步' },
               { id: 'wallpaper', label: '侧栏壁纸' },
               { id: 'about', label: '关于与更新' },
@@ -664,6 +668,14 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
                   />
                 </div>
               </motion.div>
+            )}
+
+            {activeTab === 'tt' && (
+              <TtLinkTab
+                onImportFiles={(files) => {
+                  onImportFiles?.(files);
+                }}
+              />
             )}
 
             {activeTab === 'cloud' && (

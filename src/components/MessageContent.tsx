@@ -4,23 +4,31 @@ import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import rehypeRaw from 'rehype-raw';
 import { splitHtmlSegments } from '../lib/htmlSegments';
+import { buildTavernRuntimeScript, extractMvuStatData, isRuntimeScriptSafe } from '../lib/tavernRuntime';
 
 interface AutoResizingIframeProps {
   htmlContent: string;
   themeMode?: 'light' | 'dark';
   swipes?: string[];
   characterName?: string;
+  /** 注入 iframe 的酒馆助手/MVU 兼容层脚本 */
+  runtimeScript?: string;
 }
 
 export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({ 
   htmlContent,
   themeMode = 'dark',
   swipes = [],
-  characterName = 'Character'
+  characterName = 'Character',
+  runtimeScript = ''
 }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [iframeHeight, setIframeHeight] = useState<number>(200);
+  const [reportedHeight, setReportedHeight] = useState<number>(200);
   const iframeId = useMemo(() => `th-frame-${Math.random().toString(36).substring(2, 9)}`, []);
+
+  // 高度完全跟着卡片内容走：不封顶、不折叠，内容多高就多高。
+  // 卡片用 vh 写的高度由注入脚本中和掉，所以不会出现高度和视口互相追着涨。
+  const iframeHeight = reportedHeight;
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -29,17 +37,17 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
         event.data?.id === iframeId &&
         typeof event.data?.height === 'number'
       ) {
-        const h = Math.max(60, Math.ceil(event.data.height));
-        setIframeHeight(h);
-        if (iframeRef.current) {
-          iframeRef.current.style.height = `${h}px`;
-        }
+        setReportedHeight(Math.max(60, Math.ceil(event.data.height)));
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, [iframeId]);
+
+  useEffect(() => {
+    if (iframeRef.current) iframeRef.current.style.height = `${iframeHeight}px`;
+  }, [iframeHeight]);
 
   // Clean and prepare HTML content - unwrap code fences like ```html or ``` and unescape literal \r\n
   let cleanHtml = htmlContent
@@ -67,7 +75,13 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
 
   const swipesJson = safeForInlineScript(JSON.stringify(swipes || []));
 
+  // 酒馆助手（JS-Slash-Runner）/ MVU 兼容层：卡片的状态栏、封面、直播间都靠这些全局函数驱动，
+  // 缺了它们卡片自己的 catch 就会渲染出「状态栏加载出错: getChatMessages is not defined」。
+  const runtimeTag =
+    runtimeScript && isRuntimeScriptSafe(runtimeScript) ? `<script>${runtimeScript}</script>` : '';
+
   const scriptContent = `
+    ${runtimeTag}
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
@@ -97,13 +111,14 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
         font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
       }
 
-      /* Prevent min-height: 100vh / height: 100vh in card HTML templates from forcing vertical centering or huge scroll offset */
-      html, body, .opening-selector-body, .card-container-sayo, [class*="card-container"], [class*="story-card"] {
+      /* 注意：这里千万不要按 class 名一刀切去压 height。卡片的固定高度布局
+         （例如 .menu-card-container{height:600px} + background-image，李云昭那张卡就是）
+         被压成 auto 后会整块塌掉，背景图直接看不见。
+         只有卡片自己写了 100vh / 100dvh 的容器才需要放回 auto，
+         这部分交给下面的 relaxViewportSizedBoxes() 精确处理。 */
+      html, body {
         min-height: 0 !important;
         height: auto !important;
-      }
-      .card-container-sayo, [class*="card-container"], [class*="story-card"] {
-        align-items: flex-start !important;
       }
       
       /* SillyTavern / TavernHelper Choice & Branching Card Defaults */
@@ -312,8 +327,93 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
           }
         }, true);
 
+        // 只处理「卡片自己声明了 100vh / 100dvh 高度」的容器：
+        // 这类容器会跟 iframe 高度互相追着长，还会把内容垂直居中成一大片空白。
+        // 判据是卡片的样式表/内联样式里真的写了视口单位，而不是「算出来正好等于视口高度」——
+        // 后者会把 height:600px 这种固定高度误伤成 auto，背景图就没法看了。
+        const VIEWPORT_UNIT_RE = /[0-9.]+(?:vh|dvh|svh|lvh)/;
+
+        // 卡片说的「一屏」按 App 那一层（父窗口）的高度算；拿不到就用 640 兜底。
+        // 故意不用 window.innerHeight —— 那是我们自己设的 iframe 高度，会形成「你追我赶」。
+        function oneScreenPx() {
+          let h = 0;
+          try { h = window.parent && window.parent !== window ? window.parent.innerHeight : 0; } catch (e) { h = 0; }
+          if (!h || h < 200) h = 640;
+          return Math.round(h);
+        }
+
+        // 这个元素的 min-height 是不是「带 vh 的」（内联写的，或命中了样式表里 min-height 写 vh 的规则）。
+        function usesViewportMinHeight(el, selectors) {
+          if (VIEWPORT_UNIT_RE.test(el.style.minHeight || '')) return true;
+          for (let i = 0; i < selectors.length; i++) {
+            try { if (el.matches(selectors[i])) return true; } catch (e) {}
+          }
+          return false;
+        }
+
+        let lastRelaxAt = 0;
+        function relaxViewportSizedBoxes() {
+          try {
+            if (!document.body) return;
+            const nowAt = Date.now();
+            if (nowAt - lastRelaxAt < 150) return;
+            lastRelaxAt = nowAt;
+
+            const viewportSelectors = [];
+            const minHeightSelectors = [];
+            for (let s = 0; s < document.styleSheets.length; s++) {
+              let rules = null;
+              try {
+                rules = document.styleSheets[s].cssRules;
+              } catch (e) {
+                continue;
+              }
+              if (!rules) continue;
+              for (let r = 0; r < rules.length; r++) {
+                const rule = rules[r];
+                if (!rule || !rule.selectorText || !rule.style) continue;
+                const box = (rule.style.height || '') + ' ' + (rule.style.minHeight || '') + ' ' + (rule.style.maxHeight || '');
+                if (VIEWPORT_UNIT_RE.test(box)) viewportSelectors.push(rule.selectorText);
+                if (VIEWPORT_UNIT_RE.test(rule.style.minHeight || '')) minHeightSelectors.push(rule.selectorText);
+              }
+            }
+            // 只中和「自己声明了 vh / dvh / svh / lvh 高度」的元素；
+            // 固定像素高度（.menu-card-container{height:600px} 那种带背景图的卡）一律不碰，
+            // 用百分比的子元素会因为父级变成 auto 自然跟着变 auto，不用单独处理。
+            // 以前这里只认几个写死的类名，卡里换成自己的类名（.my-screen 之类）就漏掉了，
+            // 高度会和 iframe 视口互相追着涨（实测能涨到两千多 px），现在对所有元素逐个匹配规则。
+            const all = document.body.querySelectorAll('*');
+            for (let i = 0; i < all.length; i++) {
+              const el = all[i];
+              const tag = el.tagName;
+              if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'LINK' || tag === 'META') continue;
+              let isViewportSized = VIEWPORT_UNIT_RE.test(el.style.height + ' ' + el.style.minHeight);
+              if (!isViewportSized && viewportSelectors.length) {
+                for (let k = 0; k < viewportSelectors.length; k++) {
+                  try {
+                    if (el.matches(viewportSelectors[k])) {
+                      isViewportSized = true;
+                      break;
+                    }
+                  } catch (e) {}
+                }
+              }
+              if (!isViewportSized) continue;
+              el.style.setProperty('height', 'auto', 'important');
+              el.style.setProperty('align-items', 'flex-start', 'important');
+              // min-height:100vh 这种不是抹掉，而是换成「一屏」的像素值：
+              // 卡要的整屏高度还在（不会像之前那样缩成内容那么矮），又不会跟着 iframe 视口一起涨。
+              if (usesViewportMinHeight(el, minHeightSelectors)) {
+                el.style.setProperty('min-height', oneScreenPx() + 'px', 'important');
+              }
+            }
+          } catch (e) {}
+        }
+
         function reportHeight(force) {
           if (!document.body) return;
+
+          if (force) relaxViewportSizedBoxes();
 
           const viewportH = window.innerHeight || document.documentElement.clientHeight || 0;
 
@@ -376,7 +476,10 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
         // force=true 表示源头是内容变化；resize / 定时器只是我们改完高度后的回响，不能解锁。
         function debouncedReport(force) {
           if (resizeTimer) clearTimeout(resizeTimer);
-          resizeTimer = setTimeout(function() { reportHeight(force); }, 30);
+          resizeTimer = setTimeout(function() {
+            if (force) relaxViewportSizedBoxes();
+            reportHeight(force);
+          }, 30);
         }
 
         window.addEventListener('load', function() { reportHeight(true); });
@@ -435,15 +538,11 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
         ref={iframeRef}
         srcDoc={finalHtml}
         className="w-full border-0 rounded-2xl overflow-hidden bg-transparent block"
-        style={{ 
-          height: `${iframeHeight}px`, 
-          minHeight: '80px', 
-          width: '100%', 
-          display: 'block' 
-        }}
+        style={{ height: `${iframeHeight}px`, minHeight: '80px', width: '100%', display: 'block' }}
         sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
         title="Tavern Widget"
       />
+
     </div>
   );
 };
@@ -453,16 +552,25 @@ interface MessageContentProps {
   themeMode?: 'light' | 'dark';
   swipes?: string[];
   characterName?: string;
+  /** 原始开场白/消息文本：用来解析 MVU 变量初始值，喂给卡片里的状态栏脚本 */
+  mvuSourceText?: string;
 }
 
 export const MessageContent: React.FC<MessageContentProps> = ({ 
   content, 
   themeMode = 'dark',
   swipes = [],
-  characterName = 'Character'
+  characterName = 'Character',
+  mvuSourceText
 }) => {
   // 按标签配对拆成 Markdown 段 / HTML 组件段（状态栏、选项卡等）
   const segments = useMemo(() => splitHtmlSegments(content), [content]);
+
+  // iframe 里的酒馆助手运行时（含开场白里 MVU 的初始变量，状态栏才有数据可显示）
+  const runtimeScript = useMemo(() => {
+    const statData = mvuSourceText ? extractMvuStatData(mvuSourceText) : undefined;
+    return buildTavernRuntimeScript({ statData, characterName });
+  }, [mvuSourceText, characterName]);
 
   return (
     <div className="flex flex-col gap-2.5 w-full max-w-full">
@@ -477,6 +585,7 @@ export const MessageContent: React.FC<MessageContentProps> = ({
               themeMode={themeMode} 
               swipes={swipes}
               characterName={characterName}
+              runtimeScript={runtimeScript}
             />
           );
         }
