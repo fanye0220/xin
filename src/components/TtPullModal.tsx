@@ -57,6 +57,28 @@ const PULL_TABS: { key: PullTab; label: string }[] = [
   { key: 'regex', label: '正则' },
 ];
 
+/** 只有这些字段变了才值得重渲染：状态对象每次都是新的，不能拿它本身比。 */
+function pullStateSignature(s: TavernPullState): string {
+  return [
+    s.phase,
+    s.listAt,
+    s.thumbRev,
+    s.listSize,
+    s.list.length,
+    s.picksCount,
+    s.total,
+    s.done,
+    s.failed,
+    s.requestedAt,
+    s.finishedAt,
+    s.importedIds.length,
+    s.extSeenAt,
+    s.extError,
+    s.thumbError,
+    s.message,
+  ].join('|');
+}
+
 /** 空列表 / 空勾选用同一个常量，省得每次渲染都新建一个。 */
 const EMPTY_ITEMS: TavernCardInfo[] = [];
 const EMPTY_SELECTION: Set<string> = new Set();
@@ -200,9 +222,14 @@ export function TtPullModal({ isOpen, onClose, onImportFiles }: Props) {
   }, [isOpen, requestKind]);
 
   // 每秒看一次原生状态：酒馆回列表、拉取进度、拉完的卡 id 都在里面。
+  // 退到后台就不转了；状态没变也不 setState（省掉每秒一次的无谓重渲染）。
   useEffect(() => {
     if (!isOpen) return;
-    const timer = window.setInterval(() => setState(getTavernPullState()), 1000);
+    const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      const next = getTavernPullState();
+      setState((prev) => (pullStateSignature(prev) === pullStateSignature(next) ? prev : next));
+    }, 1000);
     return () => window.clearInterval(timer);
   }, [isOpen]);
 

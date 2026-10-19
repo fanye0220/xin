@@ -135,7 +135,11 @@ export function TtLinkTab({ onImportFiles }: Props) {
   useEffect(() => {
     if (!supported) return;
     refresh();
-    const timer = window.setInterval(refresh, 2500);
+    // 退到后台就跳过后面的轮询：WebView 的定时器在后台照样跑，白耗电。
+    const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      refresh();
+    }, 2500);
     return () => {
       pullAbortRef.current = true;
       window.clearInterval(timer);

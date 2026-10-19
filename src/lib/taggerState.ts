@@ -39,6 +39,9 @@ class TaggerState {
   retagReviewQueue: RetagReviewItem[] = [];
   batchSize = 10;
   logsExpanded = true;
+  /** 因为是退到后台才自动暂停（不是用户自己按的暂停），回到前台要能接着跑。 */
+  visibilityPaused = false;
+  pauseWaiters: Array<() => void> = [];
   
   listeners: Set<() => void> = new Set();
   errorCallback: ((msg: string) => void) | null = null;
@@ -127,12 +130,48 @@ class TaggerState {
 
   togglePause() {
     this.isPaused = !this.isPaused;
+    this.visibilityPaused = false;
+    if (!this.isPaused) this.releasePauseWaiters();
     this.notify();
+  }
+
+  /** 退到后台就把打标停下来：不然 WebView 里的定时器和 AI 请求会在后台一直跑。 */
+  handleVisibility(visible: boolean) {
+    if (!visible) {
+      if (this.isTagging && !this.isPaused) {
+        this.visibilityPaused = true;
+        this.isPaused = true;
+        this.notify();
+      }
+      return;
+    }
+    if (this.visibilityPaused) {
+      this.visibilityPaused = false;
+      if (this.isTagging) this.isPaused = false;
+      this.releasePauseWaiters();
+      this.notify();
+    }
+  }
+
+  private releasePauseWaiters() {
+    const waiters = this.pauseWaiters;
+    this.pauseWaiters = [];
+    for (const resolve of waiters) resolve();
+  }
+
+  /** 暂停时不靠 500ms 空转轮询，直接挂起等恢复（省电）。 */
+  private waitWhilePaused(): Promise<void> {
+    if (!this.isPaused || this.stopRequested) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.pauseWaiters.push(resolve);
+    });
   }
 
   stopTagging() {
     this.stopRequested = true;
     this.isPaused = false;
+    this.visibilityPaused = false;
+    this.releasePauseWaiters();
     this.isCompleted = false;
     this.notify();
   }
@@ -146,6 +185,8 @@ class TaggerState {
     this.stopRequested = true;
     this.isTagging = false;
     this.isPaused = false;
+    this.visibilityPaused = false;
+    this.releasePauseWaiters();
     this.isCompleted = false;
     this.logs = [];
     this.progress = { current: 0, total: 0, success: 0, failed: 0 };
@@ -164,6 +205,8 @@ class TaggerState {
     this.isTagging = true;
     this.taggingMode = 'tagged';
     this.isPaused = false;
+    this.visibilityPaused = false;
+    this.releasePauseWaiters();
     this.isCompleted = false;
     this.stopRequested = false;
     this.apiKeyMissing = false;
@@ -183,10 +226,7 @@ class TaggerState {
     for (let i = 0; i < charsToProcess.length; i += API_BATCH_SIZE) {
       if (this.stopRequested) break;
       
-      while (this.isPaused) {
-        if (this.stopRequested) break;
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+      await this.waitWhilePaused();
       
       if (this.stopRequested) break;
 
@@ -335,6 +375,8 @@ class TaggerState {
     this.isTagging = true;
     this.taggingMode = 'untagged';
     this.isPaused = false;
+    this.visibilityPaused = false;
+    this.releasePauseWaiters();
     this.isCompleted = false;
     this.stopRequested = false;
     this.apiKeyMissing = false;
@@ -354,10 +396,7 @@ class TaggerState {
     for (let i = 0; i < charsToProcess.length; i += API_BATCH_SIZE) {
       if (this.stopRequested) break;
       
-      while (this.isPaused) {
-        if (this.stopRequested) break;
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+      await this.waitWhilePaused();
       
       if (this.stopRequested) break;
 
@@ -440,6 +479,8 @@ class TaggerState {
     this.isTagging = true;
     this.taggingMode = 'summary';
     this.isPaused = false;
+    this.visibilityPaused = false;
+    this.releasePauseWaiters();
     this.isCompleted = false;
     this.stopRequested = false;
     this.apiKeyMissing = false;
@@ -457,10 +498,7 @@ class TaggerState {
     for (let i = 0; i < charsToProcess.length; i++) {
       if (this.stopRequested) break;
 
-      while (this.isPaused) {
-        if (this.stopRequested) break;
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+      await this.waitWhilePaused();
 
       if (this.stopRequested) break;
 
@@ -526,6 +564,14 @@ class TaggerState {
 }
 
 export const taggerState = new TaggerState();
+
+// 退到后台（页面不可见）就自动暂停打标，回到前台自动接着跑。
+if (typeof document !== 'undefined') {
+  const syncVisibility = () => taggerState.handleVisibility(document.visibilityState === 'visible');
+  document.addEventListener('visibilitychange', syncVisibility);
+  window.addEventListener('pageshow', syncVisibility);
+  window.addEventListener('pagehide', () => taggerState.handleVisibility(false));
+}
 
 export function useTaggerState() {
   const [state, setState] = useState({

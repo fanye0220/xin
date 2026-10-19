@@ -48,12 +48,18 @@ function InboxAvatar({ id, hasThumb }: { id: string; hasThumb?: boolean }) {
       setUrl(ready);
       return;
     }
+    // 最多问 20 次（约 10 秒）就收工：原生那边生成失败会一直返回空，
+    // 不收手的话这个定时器会跟着页面在后台一直转。
+    let tries = 0;
     const interval = window.setInterval(() => {
       const next = getPendingCardThumb(id);
       if (next) {
         setUrl(next);
         window.clearInterval(interval);
+        return;
       }
+      tries += 1;
+      if (tries >= 20) window.clearInterval(interval);
     }, 500);
     return () => window.clearInterval(interval);
   }, [inView, hasThumb, id]);

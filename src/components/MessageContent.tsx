@@ -328,9 +328,12 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
         }, true);
 
         // 只处理「卡片自己声明了 100vh / 100dvh 高度」的容器：
-        // 这类容器会跟 iframe 高度互相追着长，还会把内容垂直居中成一大片空白。
-        // 判据是卡片的样式表/内联样式里真的写了视口单位，而不是「算出来正好等于视口高度」——
-        // 后者会把 height:600px 这种固定高度误伤成 auto，背景图就没法看了。
+        // 这类容器会跟着 iframe 视口一起变高，而 iframe 的高度又是量出来的，于是「你追我赶」：
+        // 既撑不开，又被压成「当前 iframe 高度」那一截。
+        // 卡片里最常见的写法是
+        //   @media (max-width:600px){ .card-container{ height:100vh } }
+        // 所以扫规则时必须钻进 @media / @supports 里面，只看顶层规则会整段漏掉
+        //（阿波菲斯那张卡就是这么被压扁的）。
         const VIEWPORT_UNIT_RE = /[0-9.]+(?:vh|dvh|svh|lvh)/;
 
         // 卡片说的「一屏」按 App 那一层（父窗口）的高度算；拿不到就用 640 兜底。
@@ -342,9 +345,48 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
           return Math.round(h);
         }
 
-        // 这个元素的 min-height 是不是「带 vh 的」（内联写的，或命中了样式表里 min-height 写 vh 的规则）。
-        function usesViewportMinHeight(el, selectors) {
-          if (VIEWPORT_UNIT_RE.test(el.style.minHeight || '')) return true;
+        function ruleName(rule) {
+          try { return (rule.constructor && rule.constructor.name) || ''; } catch (e) { return ''; }
+        }
+
+        // 分组规则（@media / @supports）此刻是不是生效的：没生效的整段跳过，不能按它去改样式。
+        function ruleAppliesNow(rule) {
+          try {
+            const name = ruleName(rule);
+            if (name === 'CSSMediaRule' || (rule.media && rule.conditionText)) {
+              return window.matchMedia(rule.conditionText).matches;
+            }
+            if (name === 'CSSSupportsRule') {
+              return window.CSS && window.CSS.supports ? window.CSS.supports(rule.conditionText) : true;
+            }
+          } catch (e) { return false; }
+          return true;
+        }
+
+        // 递归收集「写死了视口单位」的选择器
+        function collectViewportSelectors(rules, acc, depth) {
+          if (!rules || depth > 4) return;
+          for (let r = 0; r < rules.length; r++) {
+            let rule = null;
+            try { rule = rules[r]; } catch (e) { continue; }
+            if (!rule) continue;
+            if (!rule.selectorText && rule.cssRules && rule.cssRules.length) {
+              if (!ruleAppliesNow(rule)) continue;
+              collectViewportSelectors(rule.cssRules, acc, depth + 1);
+              continue;
+            }
+            if (!rule.selectorText || !rule.style) continue;
+            const h = rule.style.height || '';
+            const mn = rule.style.minHeight || '';
+            const mx = rule.style.maxHeight || '';
+            if (VIEWPORT_UNIT_RE.test(h) || VIEWPORT_UNIT_RE.test(mn)) acc.sized.push(rule.selectorText);
+            if (VIEWPORT_UNIT_RE.test(mn)) acc.minHeight.push(rule.selectorText);
+            if (VIEWPORT_UNIT_RE.test(mx)) acc.maxHeight.push(rule.selectorText);
+          }
+        }
+
+        function matchesAny(el, selectors) {
+          if (!selectors.length) return false;
           for (let i = 0; i < selectors.length; i++) {
             try { if (el.matches(selectors[i])) return true; } catch (e) {}
           }
@@ -356,55 +398,43 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
           try {
             if (!document.body) return;
             const nowAt = Date.now();
-            if (nowAt - lastRelaxAt < 150) return;
+            if (nowAt - lastRelaxAt < 120) return;
             lastRelaxAt = nowAt;
 
-            const viewportSelectors = [];
-            const minHeightSelectors = [];
+            const acc = { sized: [], minHeight: [], maxHeight: [] };
             for (let s = 0; s < document.styleSheets.length; s++) {
               let rules = null;
-              try {
-                rules = document.styleSheets[s].cssRules;
-              } catch (e) {
-                continue;
-              }
-              if (!rules) continue;
-              for (let r = 0; r < rules.length; r++) {
-                const rule = rules[r];
-                if (!rule || !rule.selectorText || !rule.style) continue;
-                const box = (rule.style.height || '') + ' ' + (rule.style.minHeight || '') + ' ' + (rule.style.maxHeight || '');
-                if (VIEWPORT_UNIT_RE.test(box)) viewportSelectors.push(rule.selectorText);
-                if (VIEWPORT_UNIT_RE.test(rule.style.minHeight || '')) minHeightSelectors.push(rule.selectorText);
-              }
+              try { rules = document.styleSheets[s].cssRules; } catch (e) { continue; }
+              collectViewportSelectors(rules, acc, 0);
             }
+
             // 只中和「自己声明了 vh / dvh / svh / lvh 高度」的元素；
             // 固定像素高度（.menu-card-container{height:600px} 那种带背景图的卡）一律不碰，
             // 用百分比的子元素会因为父级变成 auto 自然跟着变 auto，不用单独处理。
-            // 以前这里只认几个写死的类名，卡里换成自己的类名（.my-screen 之类）就漏掉了，
-            // 高度会和 iframe 视口互相追着涨（实测能涨到两千多 px），现在对所有元素逐个匹配规则。
-            const all = document.body.querySelectorAll('*');
-            for (let i = 0; i < all.length; i++) {
-              const el = all[i];
+            const nodes = [document.body];
+            const descendants = document.body.querySelectorAll('*');
+            for (let i = 0; i < descendants.length; i++) nodes.push(descendants[i]);
+
+            for (let i = 0; i < nodes.length; i++) {
+              const el = nodes[i];
               const tag = el.tagName;
               if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'LINK' || tag === 'META') continue;
-              let isViewportSized = VIEWPORT_UNIT_RE.test(el.style.height + ' ' + el.style.minHeight);
-              if (!isViewportSized && viewportSelectors.length) {
-                for (let k = 0; k < viewportSelectors.length; k++) {
-                  try {
-                    if (el.matches(viewportSelectors[k])) {
-                      isViewportSized = true;
-                      break;
-                    }
-                  } catch (e) {}
+
+              const inlineSized = VIEWPORT_UNIT_RE.test(el.style.height || '') || VIEWPORT_UNIT_RE.test(el.style.minHeight || '');
+              if (inlineSized || matchesAny(el, acc.sized)) {
+                el.style.setProperty('height', 'auto', 'important');
+                el.style.setProperty('align-items', 'flex-start', 'important');
+                // min-height:100vh 这种不是抹掉，而是换成「一屏」的像素值：
+                // 卡要的整屏高度还在（不会像之前那样缩成内容那么矮），又不会跟着 iframe 视口一起涨。
+                if (VIEWPORT_UNIT_RE.test(el.style.minHeight || '') || matchesAny(el, acc.minHeight)) {
+                  el.style.setProperty('min-height', oneScreenPx() + 'px', 'important');
                 }
               }
-              if (!isViewportSized) continue;
-              el.style.setProperty('height', 'auto', 'important');
-              el.style.setProperty('align-items', 'flex-start', 'important');
-              // min-height:100vh 这种不是抹掉，而是换成「一屏」的像素值：
-              // 卡要的整屏高度还在（不会像之前那样缩成内容那么矮），又不会跟着 iframe 视口一起涨。
-              if (usesViewportMinHeight(el, minHeightSelectors)) {
-                el.style.setProperty('min-height', oneScreenPx() + 'px', 'important');
+
+              // max-height:100vh 和 height:100vh 一样会把卡片封在「当前 iframe 高度」里，
+              // 内容一多就被裁掉或变成内部滚动，永远撑不开 —— 一起中和掉。
+              if (VIEWPORT_UNIT_RE.test(el.style.maxHeight || '') || matchesAny(el, acc.maxHeight)) {
+                el.style.setProperty('max-height', 'none', 'important');
               }
             }
           } catch (e) {}
@@ -413,9 +443,10 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
         function reportHeight(force) {
           if (!document.body) return;
 
-          if (force) relaxViewportSizedBoxes();
-
           const viewportH = window.innerHeight || document.documentElement.clientHeight || 0;
+
+          // 内容变了、或者视口尺寸变了（横竖屏切换、卡片换了 @media 断点）都重新中和一次 vh 容器
+          if (force || viewportH !== lastViewportH) relaxViewportSizedBoxes();
 
           let maxBottom = 0;
           const children = document.body.children;
@@ -472,6 +503,22 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
             window.parent.postMessage({ type: 'th_resize', id: frameId, height: calculated }, '*');
           }
         }
+
+        // 图床挂掉 / 图片 404 时，浏览器会画出「破图」图标加 alt 文字（卡片里一排 icon 会非常难看）。
+        // 这里把加载失败的图片收干净：清掉 alt、留一个淡淡的占位底色，不再显示破图。
+        document.addEventListener('error', function(e) {
+          const el = e && e.target;
+          if (!el || el.tagName !== 'IMG') return;
+          try {
+            if (el.getAttribute('data-miu-broken') === '1') return;
+            el.setAttribute('data-miu-broken', '1');
+          } catch (err) {}
+          try { el.setAttribute('alt', ''); } catch (err) {}
+          try {
+            el.style.setProperty('visibility', 'hidden', 'important');
+            el.style.setProperty('background', 'rgba(127, 127, 127, 0.12)', 'important');
+          } catch (err) {}
+        }, true);
 
         // force=true 表示源头是内容变化；resize / 定时器只是我们改完高度后的回响，不能解锁。
         function debouncedReport(force) {
