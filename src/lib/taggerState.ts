@@ -26,6 +26,7 @@ export interface RetagReviewItem {
 class TaggerState {
   isTagging = false;
   taggingMode: 'untagged' | 'tagged' | 'summary' | null = null;
+  summarySubMode: 'unsummarized' | 'summarized' = 'unsummarized';
   isPaused = false;
   isCompleted = false;
   stopRequested = false;
@@ -94,6 +95,8 @@ class TaggerState {
         hasBlobsSeparated: m.hasBlobsSeparated,
         updatedAt: m.updatedAt,
         createdAt: m.createdAt,
+        fileModifiedAt: m.fileModifiedAt,
+        tokenCount: m.tokenCount,
         data: {
           name: m.name,
           tags: m.tags || [],
@@ -107,12 +110,25 @@ class TaggerState {
         this.taggedCharacters.push(lightweightChar);
       }
 
-      const summary = m.aiSummary;
+      const summary = typeof m.aiSummary === 'string' ? m.aiSummary.trim() : '';
       if (!summary) {
         this.unsummarizedCharacters.push(lightweightChar);
       } else {
         this.summarizedCharacters.push(lightweightChar);
       }
+    });
+
+    // 默认新导入/最新创建的角色卡排在最前，导入新卡后点击总结第一时间处理新卡！
+    this.unsummarizedCharacters.sort((a, b) => {
+      const timeA = a.createdAt || a.fileModifiedAt || a.updatedAt || 0;
+      const timeB = b.createdAt || b.fileModifiedAt || b.updatedAt || 0;
+      return timeB - timeA;
+    });
+
+    this.summarizedCharacters.sort((a, b) => {
+      const timeA = a.updatedAt || a.createdAt || a.fileModifiedAt || 0;
+      const timeB = b.updatedAt || b.createdAt || b.fileModifiedAt || 0;
+      return timeB - timeA;
     });
 
     this.notify();
@@ -473,11 +489,16 @@ class TaggerState {
     await this.loadCharacters();
   }
 
-  async startBatchSummary() {
-    if (this.unsummarizedCharacters.length === 0 || this.isTagging) return;
+  async startBatchSummary(mode: 'unsummarized' | 'summarized' = 'unsummarized', customChars?: any[]) {
+    const pool = customChars && customChars.length > 0
+      ? customChars
+      : (mode === 'summarized' ? this.summarizedCharacters : this.unsummarizedCharacters);
+
+    if (pool.length === 0 || this.isTagging) return;
 
     this.isTagging = true;
     this.taggingMode = 'summary';
+    this.summarySubMode = mode;
     this.isPaused = false;
     this.visibilityPaused = false;
     this.releasePauseWaiters();
@@ -485,7 +506,7 @@ class TaggerState {
     this.stopRequested = false;
     this.apiKeyMissing = false;
 
-    const charsToProcess = this.batchSize === 0 ? this.unsummarizedCharacters : this.unsummarizedCharacters.slice(0, this.batchSize);
+    const charsToProcess = this.batchSize === 0 ? pool : pool.slice(0, this.batchSize);
     this.progress = { current: 0, total: charsToProcess.length, success: 0, failed: 0 };
 
     this.logs = charsToProcess.map(c => ({
@@ -515,6 +536,14 @@ class TaggerState {
             fullChar.data.aiSummary = summary;
           }
           await saveCharacter(fullChar);
+
+          // 同步内存引用，以便界面即时更新
+          char.aiSummary = summary;
+          if (char.data?.data) {
+            char.data.data.aiSummary = summary;
+          } else if (char.data) {
+            char.data.aiSummary = summary;
+          }
 
           this.progress.current++;
           this.progress.success++;
@@ -577,6 +606,7 @@ export function useTaggerState() {
   const [state, setState] = useState({
     isTagging: taggerState.isTagging,
     taggingMode: taggerState.taggingMode,
+    summarySubMode: taggerState.summarySubMode,
     isPaused: taggerState.isPaused,
     isCompleted: taggerState.isCompleted,
     progress: taggerState.progress,
@@ -596,6 +626,7 @@ export function useTaggerState() {
       setState({
         isTagging: taggerState.isTagging,
         taggingMode: taggerState.taggingMode,
+        summarySubMode: taggerState.summarySubMode,
         isPaused: taggerState.isPaused,
         isCompleted: taggerState.isCompleted,
         progress: { ...taggerState.progress },

@@ -27,7 +27,7 @@ import { syncWithAndroidLocalDirectory } from './lib/androidSync';
 import { Tag, Loader2, AlertCircle, Pause, X, CheckCircle2 } from 'lucide-react';
 
 function TaggerWidget({ onClick }: { onClick: () => void }) {
-  const { isTagging, isPaused, isCompleted, progress, logs } = useTaggerState();
+  const { isTagging, taggingMode, isPaused, isCompleted, progress, logs } = useTaggerState();
   const [errorToast, setErrorToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -41,7 +41,7 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
 
   useEffect(() => {
     if (isCompleted) {
-      // 保持完成状态至少 60 秒常驻，让用户切到卡里也能清楚知道打标已完成；用户也可随时点击 X 提前关闭
+      // 保持完成状态至少 60 秒常驻，让用户切到卡里也能清楚知道已完成；用户也可随时点击 X 提前关闭
       const timer = setTimeout(() => {
         import('./lib/taggerState').then(({ taggerState }) => {
           taggerState.clearCompleted();
@@ -54,6 +54,9 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
   // Only show if tagging is active, paused, recently completed, or there's a recent error
   const hasError = logs.some(l => l.status === 'failed');
   const shouldShow = isTagging || isPaused || isCompleted || (hasError && progress.current > 0 && progress.current < progress.total);
+
+  const isSummary = taggingMode === 'summary';
+  const actionLabel = isSummary ? '总结' : '打标';
 
   return (
     <>
@@ -96,7 +99,7 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
                 : 'max(1.25rem, calc(env(safe-area-inset-top, 0px) + 0.5rem))'
             }}
             className="tagger-floating-pill fixed left-1/2 z-[600] rounded-full px-4 py-2 sm:px-4.5 sm:py-2.5 flex items-center gap-2.5 max-w-[92vw] w-auto cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all overflow-hidden group select-none shadow-2xl"
-            title="点击打开打标面板"
+            title={`点击打开${actionLabel}面板`}
           >
             {isCompleted ? (
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 [.light-theme_&]:!text-emerald-600" />
@@ -109,7 +112,7 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
             )}
             
             <span className="text-xs sm:text-sm font-medium text-slate-100 whitespace-nowrap tagger-floating-text [.light-theme_&]:!text-[#0f172a]">
-              {isCompleted ? '打标已完成' : isPaused ? '打标已暂停' : hasError ? '打标遇到错误' : '自动打标中'}
+              {isCompleted ? `${actionLabel}已完成` : isPaused ? `${actionLabel}已暂停` : hasError ? `${actionLabel}遇到错误` : `自动${actionLabel}中`}
             </span>
 
             <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full shrink-0 border-0 border-none outline-none ${
@@ -127,14 +130,14 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
                   if (isCompleted) {
                     taggerState.clearCompleted();
                   } else {
-                    if (window.confirm("确定要停止当前的自动打标任务吗？")) {
+                    if (window.confirm(`确定要停止当前的自动${actionLabel}任务吗？`)) {
                       taggerState.stopTagging();
                     }
                   }
                 });
               }}
               className="p-1 hover:bg-white/20 rounded-full transition text-white/50 hover:text-white shrink-0 ml-0.5 tagger-floating-close [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/5 cursor-pointer"
-              title={isCompleted ? "关闭提示" : "停止打标任务"}
+              title={isCompleted ? "关闭提示" : `停止${actionLabel}任务`}
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -284,8 +287,13 @@ export default function App() {
         setIsUpdateModalOpen(true);
       }
     };
+    const handleOpenAISettings = () => setIsSettingsOpen(true);
     window.addEventListener('openUpdateModal', handleOpenUpdate);
-    return () => window.removeEventListener('openUpdateModal', handleOpenUpdate);
+    window.addEventListener('openAISettings', handleOpenAISettings);
+    return () => {
+      window.removeEventListener('openUpdateModal', handleOpenUpdate);
+      window.removeEventListener('openAISettings', handleOpenAISettings);
+    };
   }, []);
 
   useEffect(() => {
@@ -591,6 +599,7 @@ export default function App() {
               onBack={handleCloseCharacterDetail}
               onOpenChat={setGlobalChatViewerId}
               onOpenImport={handleOpenImportModal}
+              onOpenSettings={() => setIsSettingsOpen(true)}
               refreshKey={refreshKey}
               isLightMode={isLightMode}
             />

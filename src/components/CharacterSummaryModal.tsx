@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Sparkles, ChevronRight, RefreshCw, Loader2, ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { X, Sparkles, ChevronRight, RefreshCw, Loader2, ArrowLeft, Eye, EyeOff, Tag } from 'lucide-react';
 import { CharacterCard, saveCharacter, getCharacter } from '../lib/db';
 import { generateSummaryForCharacter } from '../lib/ai';
 import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
 import { useBackHandler } from '../lib/useBackHandler';
+import { CharacterRetagModal } from './CharacterRetagModal';
 
 interface Props {
   character: CharacterCard;
@@ -22,7 +23,13 @@ export function CharacterSummaryModal({
   onSummaryUpdated,
   isLightMode,
 }: Props) {
+  const [showRetagModal, setShowRetagModal] = useState(false);
+
   useBackHandler(true, () => {
+    if (showRetagModal) {
+      setShowRetagModal(false);
+      return true;
+    }
     onClose();
     return true;
   });
@@ -176,23 +183,40 @@ export function CharacterSummaryModal({
               <h2 className="text-lg sm:text-xl font-bold truncate drop-shadow-sm text-white [.light-theme_&]:!text-[#0f172a]">
                 {name}
               </h2>
-              {tags.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-1.5 overflow-hidden max-h-7">
-                  {tags.slice(0, 4).map((tag, idx) => (
-                    <span
-                      key={idx}
-                      className="px-2.5 py-0.5 rounded-lg text-[10px] sm:text-xs font-semibold border-0 outline-none bg-[#007aff]/10 text-[#007aff] [.light-theme_&]:!bg-[#007aff]/10 [.light-theme_&]:!text-[#007aff]"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                  {tags.length > 4 && (
-                    <span className="text-[10px] sm:text-xs font-semibold text-[#007aff] [.light-theme_&]:!text-[#007aff] self-center ml-0.5">
-                      +{tags.length - 4}
-                    </span>
-                  )}
-                </div>
-              )}
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                {tags.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5 overflow-hidden max-h-7">
+                    {tags.slice(0, 4).map((tag, idx) => (
+                      <span
+                        key={idx}
+                        className="px-2.5 py-0.5 rounded-lg text-[10px] sm:text-xs font-semibold border-0 outline-none bg-[#007aff]/10 text-[#007aff] [.light-theme_&]:!bg-[#007aff]/10 [.light-theme_&]:!text-[#007aff]"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                    {tags.length > 4 && (
+                      <span className="text-[10px] sm:text-xs font-semibold text-[#007aff] [.light-theme_&]:!text-[#007aff] self-center ml-0.5">
+                        +{tags.length - 4}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-[10px] sm:text-xs text-white/50 [.light-theme_&]:!text-slate-400">暂无标签</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowRetagModal(true)}
+                  className={`px-2.5 py-0.5 rounded-lg text-[10px] sm:text-xs font-semibold transition-all flex items-center gap-1 cursor-pointer active:scale-95 border ${
+                    isLight
+                      ? 'bg-[#007aff]/10 hover:bg-[#007aff]/15 text-[#007aff] border-[#007aff]/20 shadow-2xs'
+                      : 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
+                  }`}
+                  title="单卡 AI 重新打标"
+                >
+                  <Tag className={`w-3 h-3 ${isLight ? 'text-[#007aff]' : 'text-blue-300'}`} />
+                  <span>AI打标</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -285,6 +309,17 @@ export function CharacterSummaryModal({
           </button>
         </div>
       </motion.div>
+
+      {showRetagModal && (
+        <CharacterRetagModal
+          character={character}
+          onClose={() => setShowRetagModal(false)}
+          onTagsUpdated={async () => {
+            onSummaryUpdated?.();
+          }}
+          isLightMode={isLight}
+        />
+      )}
     </div>
   );
 }

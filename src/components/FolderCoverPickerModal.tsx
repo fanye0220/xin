@@ -132,13 +132,21 @@ export function FolderCoverPickerModal({
   }, [isOpen, folder]);
 
   const filteredCharacters = useMemo(() => {
-    if (!search.trim()) return characters;
-    const query = search.toLowerCase().trim();
-    return characters.filter(
-      (c) =>
-        c.name?.toLowerCase().includes(query) ||
-        c.tags?.some((t) => t.toLowerCase().includes(query)),
-    );
+    let list = characters;
+    if (search.trim()) {
+      const query = search.toLowerCase().trim();
+      list = list.filter(
+        (c) =>
+          c.name?.toLowerCase().includes(query) ||
+          c.tags?.some((t) => t.toLowerCase().includes(query)),
+      );
+    }
+    return list.slice().sort((a, b) => {
+      const aIsTool = Boolean(a.isTool || a.isQR);
+      const bIsTool = Boolean(b.isTool || b.isQR);
+      if (aIsTool !== bIsTool) return aIsTool ? 1 : -1;
+      return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+    });
   }, [characters, search]);
 
   if (!isOpen || !folder) return null;

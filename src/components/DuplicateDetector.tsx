@@ -404,6 +404,11 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
   const lastScanAtRef = useRef(0);
   const refreshTriggerRef = useRef(refreshTrigger);
   const lastSignatureRef = useRef<string | null>(null);
+  // 自上次扫描以来, 面板是否观察到过"卡片被删除"事件。
+  // 删除只会让重复组变小或消失, 而界面已经用 removeCardsOptimistically 把那些卡即时
+  // 移除了 —— 再跑一次全量扫描纯属白干(大卡库下就是"删完重复卡手机发烫"的那一下)。
+  // 只有"删除以外"的改动(比如详情页改了卡的内容)才值得重新扫描。
+  const sawDeleteSinceScanRef = useRef(false);
 
   // 实时响应核心：乐观直接清除已删除 / 已绑定的卡片，组内<=1张时立即消除该重复组，0秒延迟、不转圈！
   const removeCardsOptimistically = useCallback((idsToRemove: string | string[]) => {
@@ -437,12 +442,14 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
     const handleSingleDelete = (e: any) => {
       const id = e.detail?.id;
       if (id) {
+        sawDeleteSinceScanRef.current = true;
         removeCardsOptimistically(id);
       }
     };
     const handleBulkDelete = (e: any) => {
       const ids = e.detail?.ids;
       if (Array.isArray(ids) && ids.length > 0) {
+        sawDeleteSinceScanRef.current = true;
         removeCardsOptimistically(ids);
       }
     };
@@ -457,6 +464,8 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
   const loadDuplicates = useCallback(async (showSpinner: boolean = true) => {
     if (showSpinner) setLoading(true);
     lastScanAtRef.current = Date.now();
+    // 这一趟扫描已经把当前状态整个算过一遍了, 之前记下的"删除"不用再算。
+    sawDeleteSinceScanRef.current = false;
     try {
       const signature = await computeMetaSignature();
       const groups = await findDuplicates();
@@ -521,7 +530,15 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
     refreshTriggerRef.current = refreshTrigger;
     const timer = setTimeout(async () => {
       if (Date.now() - lastScanAtRef.current < 1000) return;
-      if ((await computeMetaSignature()) === lastSignatureRef.current) return;
+      const signature = await computeMetaSignature();
+      if (signature === lastSignatureRef.current) return;
+      if (sawDeleteSinceScanRef.current) {
+        // 这次变化只是"删了卡": 组里被删的卡上面已经即时移除了, 记下新签名收工,
+        // 没必要为了确认"删完还是不是重复"再把剩下的卡整卡读一遍。
+        sawDeleteSinceScanRef.current = false;
+        lastSignatureRef.current = signature;
+        return;
+      }
       loadDuplicates(false);
     }, 600);
     return () => clearTimeout(timer);
@@ -1274,13 +1291,13 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
                                     setSelectionMode(true);
                                     setSelectedIds(prev => new Set(prev).add(char.id));
                                   }
-                                }, 280);
+                                }, 550);
                               }}
                               onTouchMove={(e) => {
                                 if (longPressRef.current.timer && e.touches && e.touches[0]) {
                                   const dx = Math.abs(e.touches[0].clientX - (longPressRef.current.startX || 0));
                                   const dy = Math.abs(e.touches[0].clientY - (longPressRef.current.startY || 0));
-                                  if (dx > 28 || dy > 28) {
+                                  if (dx > 10 || dy > 10) {
                                     clearTimeout(longPressRef.current.timer);
                                     longPressRef.current.timer = null;
                                   }
@@ -1313,13 +1330,13 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
                                     setSelectionMode(true);
                                     setSelectedIds(prev => new Set(prev).add(char.id));
                                   }
-                                }, 280);
+                                }, 550);
                               }}
                               onMouseMove={(e) => {
                                 if (longPressRef.current.timer) {
                                   const dx = Math.abs(e.clientX - (longPressRef.current.startX || 0));
                                   const dy = Math.abs(e.clientY - (longPressRef.current.startY || 0));
-                                  if (dx > 28 || dy > 28) {
+                                  if (dx > 10 || dy > 10) {
                                     clearTimeout(longPressRef.current.timer);
                                     longPressRef.current.timer = null;
                                   }

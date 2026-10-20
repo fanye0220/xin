@@ -43,13 +43,28 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
 
   // Normalize previews into standard items with memoization
   const items: FolderPreviewItem[] = useMemo(() => {
+    // 过滤与排序预览项：优先真正的角色卡（非工具，非机器人 SVG）
+    const sortedPreviews = (previews || []).slice().sort((a, b) => {
+      const aIsTool = typeof a === "object" ? Boolean(a?.isTool) : false;
+      const bIsTool = typeof b === "object" ? Boolean(b?.isTool) : false;
+      if (aIsTool !== bIsTool) return aIsTool ? 1 : -1;
+
+      const aUrl = typeof a === "string" ? a : a?.url;
+      const bUrl = typeof b === "string" ? b : b?.url;
+      const aSvg = !aUrl || aUrl.startsWith('data:image/svg+xml');
+      const bSvg = !bUrl || bUrl.startsWith('data:image/svg+xml');
+      if (aSvg !== bSvg) return aSvg ? 1 : -1;
+
+      return 0;
+    });
+
     if (customAvatarUrl) {
       const list: FolderPreviewItem[] = [{ url: customAvatarUrl, seed: folder.id }];
-      if (previews && previews.length > 0) {
-        const backPreview = previews.find((p) => {
+      if (sortedPreviews && sortedPreviews.length > 0) {
+        const backPreview = sortedPreviews.find((p) => {
           const urlStr = typeof p === "string" ? p : p?.url;
           return urlStr && urlStr !== customAvatarUrl;
-        }) || previews[0];
+        }) || sortedPreviews[0];
 
         if (backPreview) {
           const urlStr = typeof backPreview === "string" ? backPreview : backPreview.url;
@@ -64,7 +79,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
       }
       return list;
     }
-    return (previews || []).slice(0, 2).map((p, idx) => {
+    return sortedPreviews.slice(0, 2).map((p, idx) => {
       if (typeof p === "string") {
         return { url: p, seed: `${folder.id}-${idx}` };
       }
@@ -146,21 +161,21 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
     );
   }
 
-  // Grid & Masonry View: 2-Card Stack Artwork with zero borders or black outlines
+  // Grid & Masonry View: 2-Card Stack Artwork matching single card dimensions exactly
   const hasBackCard = items.length >= 2;
   const hasFrontCard = items.length >= 1;
 
   return (
     <div
-      className={`relative w-full aspect-[2/3] select-none group flex items-center justify-center p-1.5 ${className}`}
+      className={`relative w-full aspect-[2/3] select-none group flex items-center justify-center ${className}`}
     >
       <div className="relative w-full h-full flex items-center justify-center transform-gpu">
-        {/* 1. Back Layer (Rendered when 2nd card preview exists, no black overlay or border) */}
+        {/* 1. Back Layer (Rendered when 2nd card preview exists, subtly peeking from top-left) */}
         {hasBackCard && (
           <div
-            className="absolute w-[94%] h-[95%] rounded-2xl overflow-hidden shadow-xs border-0 outline-none transition-transform duration-300 origin-bottom-left group-hover:-rotate-6 group-hover:-translate-x-1"
+            className="absolute w-full h-full rounded-2xl overflow-hidden shadow-xs border-0 outline-none transition-transform duration-300 origin-bottom-left group-hover:-rotate-3 group-hover:-translate-x-0.5"
             style={{
-              transform: "rotate(-3.5deg) translate(-2.5px, 2px)",
+              transform: "rotate(-2deg) translate(-2px, -1px)",
               zIndex: 1,
               willChange: "transform",
             }}
@@ -184,9 +199,9 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
           </div>
         )}
 
-        {/* 2. Front Layer (Main Front Card with Image, zero border or black outline) */}
+        {/* 2. Front Layer (Full-size Main Card identical to single character card size) */}
         <div
-          className="absolute w-[94%] h-[95%] rounded-2xl overflow-hidden shadow-sm border-0 outline-none transition-all duration-300 group-hover:scale-[1.02] group-hover:-translate-y-1"
+          className="absolute w-full h-full rounded-2xl overflow-hidden shadow-sm border-0 outline-none transition-all duration-300 group-hover:scale-[1.01] group-hover:-translate-y-0.5"
           style={{ zIndex: 2, willChange: "transform" }}
         >
           {hasFrontCard ? (
@@ -255,21 +270,21 @@ export const FrostedNewFolderCover = React.memo(function FrostedNewFolderCover({
 
   return (
     <div
-      className="relative w-full aspect-[2/3] select-none group cursor-pointer flex items-center justify-center p-1.5"
+      className="relative w-full aspect-[2/3] select-none group cursor-pointer flex items-center justify-center"
     >
       <div className="relative w-full h-full flex items-center justify-center transform-gpu">
         {/* Back Ghost Card */}
         <div
-          className="absolute w-[94%] h-[95%] rounded-2xl border-2 border-dashed border-white/20 bg-white/[0.04] transition-transform duration-300 origin-bottom-left group-hover:-rotate-6 group-hover:-translate-x-1"
+          className="absolute w-full h-full rounded-2xl border-2 border-dashed border-white/20 bg-white/[0.04] transition-transform duration-300 origin-bottom-left group-hover:-rotate-3 group-hover:-translate-x-0.5"
           style={{
-            transform: "rotate(-3.5deg) translate(-2.5px, 2px)",
+            transform: "rotate(-2deg) translate(-2px, -1px)",
             zIndex: 1,
             willChange: "transform",
           }}
         />
         {/* Front Ghost Card */}
         <div
-          className="absolute w-[94%] h-[95%] rounded-2xl border-2 border-dashed border-white/25 bg-white/[0.04] backdrop-blur-xs flex flex-col items-center justify-center p-2 text-center transition-all duration-300 group-hover:border-blue-400/50 group-hover:bg-blue-500/10 group-hover:scale-[1.02] group-hover:-translate-y-1 shadow-lg text-white/40"
+          className="absolute w-full h-full rounded-2xl border-2 border-dashed border-white/25 bg-white/[0.04] backdrop-blur-xs flex flex-col items-center justify-center p-2 text-center transition-all duration-300 group-hover:border-blue-400/50 group-hover:bg-blue-500/10 group-hover:scale-[1.01] group-hover:-translate-y-0.5 shadow-lg text-white/40"
           style={{ zIndex: 2, willChange: "transform" }}
         >
           <Plus className="w-4.5 h-4.5 sm:w-6 sm:h-6 opacity-50 mb-1 group-hover:scale-110 group-hover:text-blue-300 [.light-theme_&]:group-hover:!text-blue-600 transition-all shrink-0" />

@@ -94,7 +94,7 @@ const TrashedCharacterCard = ({
       longPressRef.current.triggered = true;
       longPressRef.current.lastTriggerTime = Date.now();
       onToggleSelect(char.id);
-    }, 280);
+    }, 550);
   };
 
   const cancelLongPress = () => {
@@ -108,7 +108,7 @@ const TrashedCharacterCard = ({
     if (longPressRef.current.timer) {
       const dx = Math.abs(clientX - (longPressRef.current.startX || 0));
       const dy = Math.abs(clientY - (longPressRef.current.startY || 0));
-      if (dx > 28 || dy > 28) {
+      if (dx > 10 || dy > 10) {
         cancelLongPress();
       }
     }

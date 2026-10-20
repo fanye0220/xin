@@ -1,6 +1,6 @@
 import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Tag, Play, CheckCircle2, Loader2, AlertCircle, Pause, Square, PlayCircle, RefreshCw, X, ArrowRightLeft, History, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
+import { ArrowLeft, Tag, Play, CheckCircle2, Loader2, AlertCircle, Pause, Square, PlayCircle, RefreshCw, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { taggerState, useTaggerState, RetagReviewItem } from '../lib/taggerState';
 
@@ -209,13 +209,14 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
     retagReviewQueue,
     unsummarizedCharacters,
     summarizedCharacters,
+    summarySubMode,
     batchSize,
     apiKeyMissing,
     logsExpanded
   } = useTaggerState();
 
-  const [activeTab, setActiveTab] = useState<'untagged' | 'tagged' | 'summary'>(
-    taggingMode === 'summary' ? 'summary' : taggingMode === 'tagged' ? 'tagged' : 'untagged'
+  const [activeTab, setActiveTab] = useState<'untagged' | 'tagged' | 'unsummarized' | 'summarized'>(
+    taggingMode === 'summary' ? (summarySubMode || 'unsummarized') : taggingMode === 'tagged' ? 'tagged' : 'untagged'
   );
 
   useEffect(() => {
@@ -338,7 +339,7 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
           </div>
         </div>
         
-        <div className="flex items-center gap-3 sm:gap-6 overflow-x-auto no-scrollbar w-full mt-1 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-4 overflow-x-auto no-scrollbar w-full mt-1 shrink-0 pb-1">
           <button
             onClick={() => setActiveTab('untagged')}
             className={`pb-2.5 sm:pb-3 pt-1 px-1 sm:px-2 text-xs sm:text-sm font-bold transition-all relative flex items-center justify-center gap-1.5 cursor-pointer border-0 border-none shrink-0 ${
@@ -381,15 +382,33 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
           </button>
 
           <button
-            onClick={() => setActiveTab('summary')}
+            onClick={() => setActiveTab('unsummarized')}
             className={`pb-2.5 sm:pb-3 pt-1 px-1 sm:px-2 text-xs sm:text-sm font-bold transition-all relative flex items-center justify-center gap-1.5 cursor-pointer border-0 border-none shrink-0 ${
-              activeTab === 'summary'
+              activeTab === 'unsummarized'
                 ? 'text-white [.light-theme_&]:!text-[#0f172a]'
                 : 'text-white/60 hover:text-white [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a]'
             }`}
           >
-            <span className="whitespace-nowrap">卡片总结 ({unsummarizedCharacters.length})</span>
-            {activeTab === 'summary' && (
+            <span className="whitespace-nowrap">未总结 ({unsummarizedCharacters.length})</span>
+            {activeTab === 'unsummarized' && (
+              <motion.div
+                layoutId="activeTabUnderline"
+                className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-white [.light-theme_&]:!bg-black rounded-full"
+                transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+              />
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('summarized')}
+            className={`pb-2.5 sm:pb-3 pt-1 px-1 sm:px-2 text-xs sm:text-sm font-bold transition-all relative flex items-center justify-center gap-1.5 cursor-pointer border-0 border-none shrink-0 ${
+              activeTab === 'summarized'
+                ? 'text-white [.light-theme_&]:!text-[#0f172a]'
+                : 'text-white/60 hover:text-white [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a]'
+            }`}
+          >
+            <span className="whitespace-nowrap">重新总结 ({summarizedCharacters.length})</span>
+            {activeTab === 'summarized' && (
               <motion.div
                 layoutId="activeTabUnderline"
                 className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-white [.light-theme_&]:!bg-black rounded-full"
@@ -588,16 +607,16 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                 </div>
               )}
             </div>
-          ) : (
+          ) : activeTab === 'unsummarized' ? (
             <div className="space-y-4 sm:space-y-6">
               <div className="auto-tagger-card rounded-2xl p-4 sm:p-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
                   <div>
-                    <h2 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a] flex items-center gap-2">
-                      <span>卡片总结</span>
+                    <h2 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a]">
+                      未总结角色
                     </h2>
                     <p className="text-xs sm:text-sm text-white/50 mt-0.5 sm:mt-1 [.light-theme_&]:!text-[#64748b]">
-                      优先围绕角色的【人设】、【世界书】与【开场白】，深度精炼出富有人设特色与剧情看点的卡片简介
+                      共发现 {unsummarizedCharacters.length} 个未生成简介总结的角色卡
                     </p>
                   </div>
                   
@@ -616,10 +635,11 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                     
                     {!isTagging ? (
                       <button
-                        onClick={() => taggerState.startBatchSummary()}
+                        onClick={() => taggerState.startBatchSummary('unsummarized')}
                         disabled={unsummarizedCharacters.length === 0}
-                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm bg-black hover:bg-neutral-900 text-white [.light-theme_&]:!bg-[#000000] [.light-theme_&]:hover:!bg-[#1c1c1e] [.light-theme_&]:!text-white transition-all active:scale-[0.98] shadow-sm disabled:opacity-40 disabled:shadow-none whitespace-nowrap cursor-pointer border-0 outline-none"
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm bg-black hover:bg-neutral-900 text-white [.light-theme_&]:!bg-[#000000] [.light-theme_&]:hover:!bg-[#1c1c1e] [.light-theme_&]:!text-white transition-all active:scale-[0.98] shadow-sm disabled:opacity-40 disabled:shadow-none whitespace-nowrap cursor-pointer border-0 border-none"
                       >
+                        <Play className="w-3.5 sm:w-4 h-3.5 sm:h-4 fill-current" />
                         <span>开始生成总结</span>
                       </button>
                     ) : (
@@ -647,7 +667,70 @@ export function AutoTagger({ onClose, onOpenSettings }: { onClose: () => void, o
                   </div>
                 </div>
 
-                {taggingMode === 'summary' && <ProgressAndLogs />}
+                {taggingMode === 'summary' && summarySubMode === 'unsummarized' && <ProgressAndLogs />}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4 sm:space-y-6">
+              <div className="auto-tagger-card rounded-2xl p-4 sm:p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a]">
+                      重新总结
+                    </h2>
+                    <p className="text-xs sm:text-sm text-white/50 mt-0.5 sm:mt-1 [.light-theme_&]:!text-[#64748b]">
+                      共发现 {summarizedCharacters.length} 个已生成简介总结的角色卡
+                    </p>
+                  </div>
+                  
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                    <select
+                      value={batchSize}
+                      onChange={(e) => taggerState.setBatchSize(Number(e.target.value))}
+                      disabled={isTagging}
+                      className="auto-tagger-select w-full sm:w-auto rounded-xl px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm focus:outline-none disabled:opacity-50 min-w-0 sm:min-w-[140px] shadow-xs"
+                    >
+                      <option value={10}>每次处理 10 个</option>
+                      <option value={20}>每次处理 20 个</option>
+                      <option value={50}>每次处理 50 个</option>
+                      <option value={0}>处理全部</option>
+                    </select>
+                    
+                    {!isTagging ? (
+                      <button
+                        onClick={() => taggerState.startBatchSummary('summarized')}
+                        disabled={summarizedCharacters.length === 0}
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full font-bold text-xs sm:text-sm bg-black hover:bg-neutral-900 text-white [.light-theme_&]:!bg-[#000000] [.light-theme_&]:hover:!bg-[#1c1c1e] [.light-theme_&]:!text-white transition-all active:scale-[0.98] shadow-sm disabled:opacity-40 disabled:shadow-none whitespace-nowrap cursor-pointer border-0 border-none"
+                      >
+                        <Play className="w-3.5 sm:w-4 h-3.5 sm:h-4 fill-current" />
+                        <span>开始重新总结</span>
+                      </button>
+                    ) : (
+                      <div className="flex gap-2 w-full sm:w-auto">
+                        <button
+                          onClick={togglePause}
+                          className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-3 rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer border-none ${
+                            isPaused 
+                              ? 'bg-white text-slate-950 [.light-theme_&]:!bg-black [.light-theme_&]:!text-white shadow-md' 
+                              : 'bg-white/10 hover:bg-white/20 text-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]'
+                          }`}
+                        >
+                          {isPaused ? <PlayCircle className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                          {isPaused ? '继续' : '暂停'}
+                        </button>
+                        <button
+                          onClick={stopTagging}
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-3 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap border-none [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] cursor-pointer"
+                        >
+                          <Square className="w-4 h-4" />
+                          停止
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {taggingMode === 'summary' && summarySubMode === 'summarized' && <ProgressAndLogs />}
               </div>
             </div>
           )}

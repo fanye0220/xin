@@ -32,6 +32,7 @@ import {
   Loader2,
   Image as ImageIcon,
   Heart,
+  Clock,
 } from "lucide-react";
 import { formatTokenCount, getCharacterTokenBreakdown, CharacterTokenBreakdown } from "../lib/tokens";
 import { TokenBreakdownModal } from "./TokenBreakdownModal";
@@ -470,6 +471,70 @@ export function CharacterList({
   // 搜索框本身要立即响应输入(不然打字会卡顿感), 但真正触发查询用防抖后的值,
   // 避免每敲一个字就对全部角色做一次全量过滤+排序。
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+
+  // 搜索历史记录 (保留 3-5 条，支持删除和全部清除)
+  const [searchHistory, setSearchHistory] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem("miu_search_history");
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed.slice(0, 5) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  const saveSearchToHistory = useCallback((query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    setSearchHistory((prev) => {
+      const filtered = prev.filter((item) => item !== trimmed);
+      const updated = [trimmed, ...filtered].slice(0, 5);
+      try {
+        localStorage.setItem("miu_search_history", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  }, []);
+
+  const deleteSearchHistoryItem = useCallback((itemToDelete: string, e?: React.MouseEvent | React.PointerEvent) => {
+    e?.stopPropagation();
+    setSearchHistory((prev) => {
+      const updated = prev.filter((item) => item !== itemToDelete);
+      try {
+        localStorage.setItem("miu_search_history", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  }, []);
+
+  const clearAllSearchHistory = useCallback((e?: React.MouseEvent | React.PointerEvent) => {
+    e?.stopPropagation();
+    setSearchHistory([]);
+    try {
+      localStorage.removeItem("miu_search_history");
+    } catch {}
+  }, []);
+
+  // 搜索历史只在「离开搜索框」时存一次（回车 / 点历史项 / 点清空按钮也会存）。
+  // 之前是打字停 1 秒就存，手机上打字一停顿就会把「阿 / 阿波 / 阿波菲斯」这种半截词
+  // 也写进历史，只留 5 条，很快被自己的输入挤满。
+  const handleSearchBlur = useCallback(() => {
+    saveSearchToHistory(searchQuery);
+  }, [searchQuery, saveSearchToHistory]);
+
+  useEffect(() => {
+    const handlePointerDownOutside = (e: PointerEvent | MouseEvent | TouchEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setIsSearchFocused(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDownOutside);
+    return () => document.removeEventListener("pointerdown", handlePointerDownOutside);
+  }, []);
   const [viewMode, setViewMode] = useState<"grid" | "list" | "masonry">(
     () =>
       (localStorage.getItem("tavern_viewMode") as
@@ -530,7 +595,7 @@ export function CharacterList({
         try { navigator.vibrate(40); } catch (e) {}
       }
       setTagActionModal(tag);
-    }, 280);
+    }, 550);
   };
 
   const handleTagTouchEnd = () => {
@@ -2785,15 +2850,189 @@ export function CharacterList({
                 )}
               </button>
 
-              <div className="relative flex-1 min-w-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50 [.light-theme_&]:!text-[#64748b] stroke-[1.75]" />
-                <input
-                  type="text"
-                  placeholder="搜索..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white/10 hover:bg-white/15 focus:bg-white/15 border-0 border-none rounded-full pl-8.5 pr-4 py-1.5 sm:py-2 text-sm text-white placeholder:text-white/40 focus:outline-none transition [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1]/70 [.light-theme_&]:focus:!bg-[#cbd5e1]/70 [.light-theme_&]:!border-none [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#8e8e93] shadow-xs"
-                />
+              <div ref={searchContainerRef} className="relative flex-1 min-w-0">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50 [.light-theme_&]:!text-[#64748b] stroke-[1.75] pointer-events-none z-10" />
+                <form
+                  action=""
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    saveSearchToHistory(searchQuery);
+                    setIsSearchFocused(false);
+                    (document.activeElement as HTMLElement)?.blur();
+                  }}
+                  className="w-full relative"
+                >
+                  <input
+                    type="text"
+                    inputMode="search"
+                    enterKeyHint="search"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck="false"
+                    placeholder="搜索..."
+                    value={searchQuery}
+                    onFocus={() => setIsSearchFocused(true)}
+                    onClick={() => setIsSearchFocused(true)}
+                    onPointerDown={() => setIsSearchFocused(true)}
+                    onTouchStart={() => setIsSearchFocused(true)}
+                    onBlur={handleSearchBlur}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      if (!isSearchFocused) setIsSearchFocused(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        saveSearchToHistory(searchQuery);
+                        setIsSearchFocused(false);
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
+                    className={`w-full border-0 border-none rounded-full pl-8.5 ${searchQuery ? 'pr-8' : 'pr-4'} py-1.5 sm:py-2 text-sm focus:outline-none transition shadow-xs [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-cancel-button]:appearance-none ${
+                      isLightMode
+                        ? 'bg-[#e2e8f0] hover:bg-[#cbd5e1]/70 focus:bg-[#cbd5e1]/70 text-[#0f172a] placeholder:text-[#8e8e93]'
+                        : 'bg-white/10 hover:bg-white/15 focus:bg-white/15 text-white placeholder:text-white/40'
+                    }`}
+                  />
+                </form>
+
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                    }}
+                    onClick={() => {
+                      setSearchQuery("");
+                      setDebouncedSearchQuery("");
+                    }}
+                    className={`absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-full transition cursor-pointer z-10 ${
+                      isLightMode
+                        ? 'text-slate-400 hover:text-slate-700 hover:bg-black/5 active:bg-black/10'
+                        : 'text-white/40 hover:text-white hover:bg-white/10 active:bg-white/20'
+                    }`}
+                    title="清空输入"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+
+                {/* 搜索历史记录浮窗 - 只要选中/点击输入框即立即弹出 */}
+                <AnimatePresence>
+                  {isSearchFocused && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 6, scale: 0.98 }}
+                      transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                      className={`absolute left-0 w-full min-w-[220px] max-w-[calc(100vw-2.5rem)] sm:min-w-0 sm:max-w-none top-full mt-2 z-50 rounded-2xl overflow-hidden shadow-xl border-0 border-none outline-none ${
+                        isLightMode
+                          ? 'bg-[#ffffff] [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-none [.light-theme_&]:!shadow-xl text-[#0f172a] [.light-theme_&]:!text-[#0f172a]'
+                          : 'bg-slate-800 text-white border-0 border-none shadow-2xl'
+                      }`}
+                    >
+                      {/* 历史头部 - 无边框纯净设计 */}
+                      <div className="flex items-center justify-between px-3.5 pt-2.5 pb-1.5 border-0 border-none">
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 [.light-theme_&]:!text-slate-400">
+                          <Clock className="w-3.5 h-3.5 stroke-[1.75]" />
+                          <span>历史搜索</span>
+                          {searchHistory.length > 0 && (
+                            <span className="text-[10px] font-normal text-slate-400/80">
+                              ({searchHistory.length}/5)
+                            </span>
+                          )}
+                        </div>
+                        {searchHistory.length > 0 && (
+                          <button
+                            type="button"
+                            onPointerDown={(e) => {
+                              e.preventDefault();
+                              clearAllSearchHistory(e);
+                            }}
+                            className="text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1 p-1 -mr-1 border-0 border-none text-slate-400 hover:text-red-500 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-red-500"
+                            title="清除全部搜索记录"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>全部清除</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* 历史项列表与空状态 */}
+                      <div className="p-1">
+                        {(() => {
+                          const matchingItems = searchQuery.trim()
+                            ? searchHistory.filter((item) =>
+                                item.toLowerCase().includes(searchQuery.trim().toLowerCase())
+                              )
+                            : searchHistory;
+
+                          if (matchingItems.length > 0) {
+                            return matchingItems.map((item) => (
+                              <div
+                                key={item}
+                                onPointerDown={(e) => {
+                                  e.preventDefault();
+                                  setSearchQuery(item);
+                                  setDebouncedSearchQuery(item);
+                                  saveSearchToHistory(item);
+                                  setIsSearchFocused(false);
+                                }}
+                                className={`group flex items-center justify-between px-3 py-2 rounded-xl text-xs sm:text-sm cursor-pointer transition-colors active:scale-[0.99] border-0 border-none ${
+                                  isLightMode
+                                    ? 'hover:bg-slate-100 [.light-theme_&]:hover:!bg-[#f1f2f6] text-[#0f172a] [.light-theme_&]:!text-[#0f172a]'
+                                    : 'hover:bg-white/10 text-white'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                  <Clock
+                                    className={`w-3.5 h-3.5 shrink-0 ${
+                                      isLightMode
+                                        ? 'text-slate-400 group-hover:text-slate-600'
+                                        : 'text-white/40 group-hover:text-white/70'
+                                    }`}
+                                  />
+                                  <span className="truncate font-medium text-white [.light-theme_&]:!text-[#0f172a]">
+                                    {item}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onPointerDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    deleteSearchHistoryItem(item, e);
+                                  }}
+                                  className={`p-1 rounded-lg transition shrink-0 ml-2 cursor-pointer border-0 border-none ${
+                                    isLightMode
+                                      ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 active:bg-slate-300'
+                                      : 'text-white/40 hover:text-white hover:bg-white/10 active:bg-white/20'
+                                  }`}
+                                  title="删除此条记录"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ));
+                          }
+
+                          if (searchQuery.trim() && searchHistory.length > 0) {
+                            return (
+                              <div className="py-3 px-3.5 text-center text-xs text-slate-400 [.light-theme_&]:!text-slate-400 select-none font-normal">
+                                无匹配的历史搜索记录
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="py-3 px-3.5 text-center text-xs text-slate-400 [.light-theme_&]:!text-slate-400 select-none font-normal">
+                              暂无历史搜索记录 (每次搜索将自动保存)
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               <button
@@ -3056,8 +3295,8 @@ export function CharacterList({
                     viewMode === "list"
                       ? "flex flex-col gap-2 mb-2"
                       : viewMode === "grid"
-                        ? "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4 mb-6"
-                        : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-6"
+                        ? "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 sm:gap-4 mb-4 sm:mb-5"
+                        : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4 mb-4 sm:mb-5"
                   }
                 >
 
@@ -3093,13 +3332,13 @@ export function CharacterList({
                                 setSelectedIds(new Set([folder.id]));
                                 setIsHeaderVisible(true);
                               }
-                            }, 280);
+                            }, 550);
                           }}
                           onTouchMove={(e) => {
                             if (longPressRef.current.timer && e.touches[0]) {
                               const dx = Math.abs(e.touches[0].clientX - (longPressRef.current.startX || 0));
                               const dy = Math.abs(e.touches[0].clientY - (longPressRef.current.startY || 0));
-                              if (dx > 28 || dy > 28 || isDraggingRef.current) {
+                              if (dx > 10 || dy > 10 || isDraggingRef.current) {
                                 clearTimeout(longPressRef.current.timer);
                                 longPressRef.current.timer = null;
                               }
@@ -3133,13 +3372,13 @@ export function CharacterList({
                                 setSelectedIds(new Set([folder.id]));
                                 setIsHeaderVisible(true);
                               }
-                            }, 280);
+                            }, 550);
                           }}
                           onMouseMove={(e) => {
                             if (longPressRef.current.timer) {
                               const dx = Math.abs(e.clientX - (longPressRef.current.startX || 0));
                               const dy = Math.abs(e.clientY - (longPressRef.current.startY || 0));
-                              if (dx > 28 || dy > 28 || isDraggingRef.current) {
+                              if (dx > 10 || dy > 10 || isDraggingRef.current) {
                                 clearTimeout(longPressRef.current.timer);
                                 longPressRef.current.timer = null;
                               }
@@ -3192,7 +3431,7 @@ export function CharacterList({
                           className={
                             viewMode === "list"
                               ? "flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-colors duration-150 relative group select-none border bg-white/5 hover:bg-white/10 border-transparent overflow-hidden"
-                              : "flex flex-col items-center cursor-pointer group relative select-none break-inside-avoid w-full rounded-2xl p-1 transition-colors duration-150 border border-transparent overflow-hidden"
+                              : "flex flex-col items-center cursor-pointer group relative select-none break-inside-avoid w-full rounded-2xl transition-colors duration-150 border border-transparent"
                           }
                         >
                           <FrostedFolderCover
@@ -3301,7 +3540,7 @@ export function CharacterList({
                 <div
                   className={
                     viewMode === "grid"
-                      ? "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4"
+                      ? "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 sm:gap-4"
                       : "flex flex-col gap-2"
                   }
                 >
@@ -4003,7 +4242,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
       isLongPress.current = true;
       lastLongPressTimeRef.current = Date.now();
       onLongPress();
-    }, 280);
+    }, 550);
   };
 
   const handlePointerMove = (e: React.SyntheticEvent) => {
@@ -4019,7 +4258,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
     }
     const dx = Math.abs(clientX - touchStartXRef.current);
     const dy = Math.abs(clientY - touchStartYRef.current);
-    if (dx > 28 || dy > 28) {
+    if (dx > 10 || dy > 10) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }

@@ -749,16 +749,95 @@ export async function getFolderPreviews(
 ): Promise<Record<string, FolderPreviewItem[]>> {
   if (folderIds.length === 0) return {};
   const db = await initDB();
-  const tx = db.transaction("char_meta", "readonly");
-  const index = tx.store.index("by-folder");
 
   const previews: Record<string, FolderPreviewItem[]> = {};
 
+  // 每次都新开一次读取事务：上面那次查询一结束事务就已经提交，
+  // 再拿同一个事务的索引去查会直接抛 TransactionInactiveError（父文件夹预览就是这样悄悄变空的）
+  const readFolderMetas = async (id: string): Promise<CharMeta[]> => {
+    const metas = await db.getAllFromIndex("char_meta", "by-folder", id);
+    return metas.filter((m) => !m.deletedAt);
+  };
+
   await Promise.all(
     folderIds.map(async (folderId) => {
-      let metas = await index.getAll(folderId);
-      metas = metas.filter((m) => !m.deletedAt);
-      metas.sort((a, b) => b.createdAt - a.createdAt);
+      const metas = await readFolderMetas(folderId);
+
+      // 如果当前文件夹直属卡片为空，递归查找子孙文件夹里的卡片作为预览候选
+      if (metas.length === 0) {
+        try {
+          const allFolders = await db.getAll("folders");
+          const childFolderIds: string[] = [];
+          const seen = new Set<string>([folderId]);
+          const findChildren = (pid: string) => {
+            for (const f of allFolders) {
+              if (f.parentId === pid && !seen.has(f.id)) {
+                seen.add(f.id);
+                childFolderIds.push(f.id);
+                findChildren(f.id);
+              }
+            }
+          };
+          findChildren(folderId);
+          for (const cId of childFolderIds) {
+            metas.push(...(await readFolderMetas(cId)));
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // 核心排序：优先真正的角色卡（非工具 / 非 QR / 非纯配置），绝对不让工具卡/机器人占领封面！
+      metas.sort((a, b) => {
+        // 1. 严格排斥工具卡：非工具卡排在前面 (isTool, isQR, 或 tool/regex/preset/qr 标签)
+        const aIsTool = Boolean(
+          a.isTool ||
+          a.isQR ||
+          a.tags?.some((t: string) => ['tool', '工具', 'preset', 'regex', 'qr', '快捷回复'].includes(t.toLowerCase()))
+        );
+        const bIsTool = Boolean(
+          b.isTool ||
+          b.isQR ||
+          b.tags?.some((t: string) => ['tool', '工具', 'preset', 'regex', 'qr', '快捷回复'].includes(t.toLowerCase()))
+        );
+        if (aIsTool !== bIsTool) {
+          return aIsTool ? 1 : -1;
+        }
+
+        // 2. 真实图片头像优先于无头像/DiceBear机器人占位符
+        const aHasRealAvatar = Boolean(
+          a.localFilePath ||
+          a.hasBlobsSeparated ||
+          (a as any).avatarBlob ||
+          (a.avatarUrlFallback &&
+            !a.avatarUrlFallback.includes('dicebear') &&
+            !a.avatarUrlFallback.includes('data:image/svg+xml') &&
+            !a.avatarUrlFallback.startsWith('data:image/svg+xml'))
+        );
+        const bHasRealAvatar = Boolean(
+          b.localFilePath ||
+          b.hasBlobsSeparated ||
+          (b as any).avatarBlob ||
+          (b.avatarUrlFallback &&
+            !b.avatarUrlFallback.includes('dicebear') &&
+            !b.avatarUrlFallback.includes('data:image/svg+xml') &&
+            !b.avatarUrlFallback.startsWith('data:image/svg+xml'))
+        );
+        if (aHasRealAvatar !== bHasRealAvatar) {
+          return aHasRealAvatar ? -1 : 1;
+        }
+
+        // 3. 用户收藏的卡片优先
+        const aFav = Boolean(a.isFavorite);
+        const bFav = Boolean(b.isFavorite);
+        if (aFav !== bFav) {
+          return aFav ? -1 : 1;
+        }
+
+        // 4. 最新创建或修改的优先
+        return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+      });
+
       const topMetas = metas.slice(0, 4);
 
       // 只读取前 4 张卡的轻量 meta, 再按需取头像 blob, 不再全量读取角色 data
@@ -800,7 +879,21 @@ export async function getFolderPreviews(
         }),
       );
 
-      previews[folderId] = topBlobs.filter(Boolean) as FolderPreviewItem[];
+      const validBlobs = topBlobs.filter(Boolean) as FolderPreviewItem[];
+      // 二次保障：确保排在最前面的封面绝对是真实角色卡，工具/机器人退居次选
+      validBlobs.sort((a, b) => {
+        if (Boolean(a.isTool) !== Boolean(b.isTool)) {
+          return a.isTool ? 1 : -1;
+        }
+        const aIsFallback = !a.url || a.url.startsWith('data:image/svg+xml');
+        const bIsFallback = !b.url || b.url.startsWith('data:image/svg+xml');
+        if (aIsFallback !== bIsFallback) {
+          return aIsFallback ? 1 : -1;
+        }
+        return 0;
+      });
+
+      previews[folderId] = validBlobs;
     }),
   );
 
@@ -1117,6 +1210,16 @@ export interface CharMeta {
 
   tokenCount?: number;
   permanentTokens?: number;
+
+  /* ---- 查重指纹：只存「比对重复」用得着的几个值，查重时不必把整张卡读出来 ---- */
+  dupVersion?: number;
+  dupResType?: ResourceType;
+  dupBaseName?: string;
+  dupIsGenericName?: boolean;
+  dupDescHash?: string;
+  dupFirstHash?: string;
+  dupDescLen?: number;
+  dupFirstLen?: number;
 }
 
 function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
@@ -1147,6 +1250,13 @@ function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
     } catch {}
   }
 
+  // 有些工具卡（比如 prompts 里混了 null 的预设）token 就是算不出来。以前这里会留下
+  // undefined，而"索引里有 undefined 就整库重建一次"的判断会因此**每次打开都成立** ——
+  // 卡库越大，每次开 App 都要陪着重建一遍（就是"第一次打开要等很久"的真凶）。
+  // 算不出来就记 0：卡片列表本来就是"大于 0 才显示 T 角标"，0 和 undefined 显示一样。
+  if (typeof tokenCount !== "number") tokenCount = 0;
+  if (typeof permanentTokens !== "number") permanentTokens = 0;
+
   return {
     id: val.id,
     createdAt: val.createdAt,
@@ -1168,6 +1278,11 @@ function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
     avatarUrlFallback: fallbackAvatar,
     tokenCount,
     permanentTokens,
+    // 查重指纹（基础名 / 设定 / 开场白）在建索引时就顺手算好，查重时直接读索引，
+    // 不再把整张卡的大字段读出来重算一遍（那是「删重复卡会发烫」的大头）。
+    // 这里走 safe 版：算指纹失败最坏就是"这张卡没指纹"（查重时会对它回退读一次整卡），
+    // 绝不能让一张卡因为算指纹出错而被从索引里丢掉 —— 那卡在卡库里就看不见了。
+    ...safeDuplicateFingerprint(val, foldersMap),
   };
 }
 
@@ -1252,26 +1367,76 @@ async function buildMetaCache(): Promise<CharMeta[]> {
     localStorage.getItem(REPAIR_TOKEN_FLAG) !== 'true'
   );
 
-  // 第一次升级/索引丢失/缺少 category 字段/缺少 token 统计/需要修复历史错误分类时, 从完整角色表重建一次, 并写回轻量索引。
-  // 之后所有常用入口都只读 char_meta, 不再触碰大字段 data。
-  if (!newMeta || newMeta.length === 0 || newMeta.some((m) => m.category === undefined || m.tokenCount === undefined) || needsRepair) {
-    const previousMeta = newMeta || [];
-    try {
-      // Build folder map for folder-based classification
-      const foldersTx = db.transaction("folders", "readonly");
-      const allFolders = await foldersTx.store.getAll();
-      await foldersTx.done;
-      const folderMap = new Map<string, string>();
-      for (const f of allFolders) {
-        folderMap.set(f.id, f.name);
-      }
+  // 只有"整张索引都没有"或者"该跑的迁移还没跑"才整库重建（那才是慢的那一下）。
+  // 个别记录缺字段（category / tokenCount）只补那几条, 见下面的补漏逻辑。
+  const needsFullRebuild = !newMeta || newMeta.length === 0 || needsRepair;
 
-      const toolFolderIds = new Set<string>();
-      for (const f of allFolders) {
-        if (["世界书", "预设", "工具区", "美化", "快速回复", "脚本"].includes(f.name)) {
-          toolFolderIds.add(f.id);
+  // 文件夹映射：分类要用（重建和下面的"补漏卡"都要），文件夹数量少，读一次很便宜
+  const folderMap = new Map<string, string>();
+  const toolFolderIds = new Set<string>();
+  try {
+    const foldersTx = db.transaction("folders", "readonly");
+    const allFolders = await foldersTx.store.getAll();
+    await foldersTx.done;
+    for (const f of allFolders) {
+      folderMap.set(f.id, f.name);
+      if (["世界书", "预设", "工具区", "美化", "快速回复", "脚本"].includes(f.name)) {
+        toolFolderIds.add(f.id);
+      }
+    }
+  } catch (e) {}
+
+  // 三类小缺口都只补那几条，不重建整库（卡多的时候整库重建要等很久）：
+  //   1) characters 里有、索引里没有的卡 —— 卡还在本地，只是列表里看不见它了；
+  //   2) 索引里有、但缺 category / tokenCount 的记录 —— 以前这也被当成"要整库重建"，
+  //      某个卡算不出 token 就会让**每次打开都重建一遍**。
+  //   3) 索引里有、但整条记录里没有 aiSummary 这个字段的老记录 —— 那是更早的版本写的
+  //      索引，而"打标面板 -> 总结"页签是按索引里的 aiSummary 判断已总结/未总结的，
+  //      少了这个字段就会变成：简介明明总结过了，却一直躺在"未总结"里、也不会出现在
+  //      "重新总结"里。补上之后就正常了（补完不会再有这个字段缺失）。
+  if (!needsFullRebuild && newMeta) {
+    try {
+      const charKeys = await db.getAllKeys("characters");
+      const have = new Set(newMeta.map((m) => m.id));
+      const missing = charKeys.filter((k) => !have.has(k as string)).map((k) => String(k));
+      const incomplete = newMeta
+        .filter(
+          (m) =>
+            m.category === undefined ||
+            m.tokenCount === undefined ||
+            !("aiSummary" in m),
+        )
+        .map((m) => m.id);
+      const toFix = Array.from(new Set(missing.concat(incomplete)));
+      if (toFix.length > 0) {
+        const filled: CharMeta[] = [];
+        for (let i = 0; i < toFix.length; i++) {
+          try {
+            const char = (await db.get("characters", toFix[i])) as CharacterCard | undefined;
+            if (char) filled.push(buildCharMeta(char, folderMap));
+          } catch (err) {
+            console.warn("[MetaCache] 这张卡补索引失败, 先跳过：", toFix[i], err);
+          }
+          if (i % 50 === 49) await new Promise((r) => setTimeout(r, 0));
+        }
+        if (filled.length > 0) {
+          const putTx = db.transaction("char_meta", "readwrite");
+          for (const meta of filled) putTx.store.put(meta);
+          await putTx.done;
+          const byId = new Map(newMeta.map((m) => [m.id, m]));
+          for (const meta of filled) byId.set(meta.id, meta);
+          newMeta = Array.from(byId.values());
+          console.log("[MetaCache] 索引里补/修了", filled.length, "条记录");
         }
       }
+    } catch (e) {}
+  }
+
+  // 第一次升级/索引丢失/缺少 category 字段/缺少 token 统计/需要修复历史错误分类时, 从完整角色表重建一次, 并写回轻量索引。
+  // 之后所有常用入口都只读 char_meta, 不再触碰大字段 data。
+  if (needsFullRebuild) {
+    const previousMeta = newMeta || [];
+    try {
 
       // 一次性重建: 逐条用独立事务读(不跨任务持有事务), 需要修分类的先收集, 最后统一写回。
       // 不能在事务还开着的时候 await 定时器 —— 事务会被自动提交, 之后继续写会抛
@@ -2322,13 +2487,23 @@ export async function deleteCharactersBulk(
   let totalProcessed = 0;
   const totalItems = toSoftDelete.length + toHardDelete.length;
 
+  // 索引里要用文件夹名判断工具类型（世界书 / 预设 / QR），这里读一次给后面写索引用，
+  // 免得算出来的查重类型跟着文件夹一起丢
+  let foldersMapForMeta: Map<string, string> | undefined;
+  try {
+    const ftx = db.transaction("folders", "readonly");
+    const allFolders = await ftx.store.getAll();
+    await ftx.done;
+    foldersMapForMeta = new Map(allFolders.map((f: any) => [f.id, f.name] as [string, string]));
+  } catch (e) {}
+
   // Soft Delete Transaction
   // 批量写进同一个事务, 不在循环里逐个 await(参考卡库的写法), 减少不必要的等待
   if (toSoftDelete.length > 0) {
     const tx = db.transaction(["characters", "char_meta"], "readwrite");
     for (const char of toSoftDelete) {
       tx.objectStore("characters").put(char);
-      tx.objectStore("char_meta").put(buildCharMeta(char));
+      tx.objectStore("char_meta").put(buildCharMeta(char, foldersMapForMeta));
     }
     await tx.done;
 
@@ -2550,7 +2725,14 @@ export async function restoreCharacter(id: string): Promise<void> {
     }
 
     await db.put("characters", char);
-    await db.put("char_meta", buildCharMeta(char));
+    // 工具类（世界书 / 预设 / QR）是靠所在文件夹名认出来的，写索引时把这张卡所在
+    // 文件夹一起喂进去，查重指纹里的类型才不会算成"角色卡"
+    let restoreFolders: Map<string, string> | undefined;
+    if (char.folderId) {
+      const fold = await db.get("folders", char.folderId);
+      if (fold) restoreFolders = new Map([[fold.id, fold.name]]);
+    }
+    await db.put("char_meta", buildCharMeta(char, restoreFolders));
 
     if (ENABLE_ANDROID_FILE_SYNC && isAndroid()) {
       import("./androidSync").then(
@@ -2709,6 +2891,101 @@ export function normalizeCardBaseName(rawName: string): string {
   return s.trim() || rawName.trim();
 }
 
+/** 查重指纹格式版本：改过提取规则就 +1，老索引会自动重建一次。 */
+export const DUP_FP_VERSION = 1;
+
+/** 这些是「占位名」，同名也不算重复（新建卡默认名字之类）。 */
+const GENERIC_DUP_NAMES = new Set([
+  "",
+  "未命名",
+  "未命名角色",
+  "未命名工具",
+  "untitled",
+  "new character",
+  "character",
+  "card",
+  "角色",
+  "新建角色",
+]);
+
+/**
+ * 算一张卡的「查重指纹」：只取比对重复要用的那几个值
+ * （基础名 / 是不是占位名 / 资源类型 / 设定指纹+长度 / 开场白指纹+长度）。
+ *
+ * 以前这些是在查重时现算的：要先把卡库里每一张卡的完整数据读出来才够算，卡多、正文长
+ * 就很慢（删一次重复卡就整库重算一遍，机器会明显发烫）。现在改成「建索引时算一次存进
+ * 轻量索引 char_meta」，查重只读索引 —— 索引里没有大字段，也没有卡图 base64。
+ */
+export function computeDuplicateFingerprint(
+  val: any,
+  foldersMap?: Map<string, string>,
+): Pick<CharMeta, "dupVersion" | "dupResType" | "dupBaseName" | "dupIsGenericName" | "dupDescHash" | "dupFirstHash" | "dupDescLen" | "dupFirstLen"> {
+  const data = val?.data?.data || val?.data || {};
+  const rawName = String(val?.name || data.name || "").trim();
+  const baseName = normalizeCardBaseName(rawName).toLowerCase();
+
+  // 预设 / 世界书 / 快速回复这些工具类资源, 正文散在 prompts / entries / qrList 里
+  let extraContent = "";
+  if (data.prompts && Array.isArray(data.prompts)) {
+    extraContent = data.prompts.map((p: any) => p?.content || p?.text || "").join("");
+  } else if (data.entries && (Array.isArray(data.entries) || typeof data.entries === "object")) {
+    const entVals = Array.isArray(data.entries) ? data.entries : Object.values(data.entries);
+    extraContent = (entVals as any[]).map((e: any) => e?.content || e?.text || e?.comment || "").join("");
+  } else if (data.qrList && Array.isArray(data.qrList)) {
+    extraContent = data.qrList.map((q: any) => q?.message || q?.label || "").join("");
+  } else if (data.content && typeof data.content === "string") {
+    extraContent = data.content;
+  }
+
+  const descClean = (String(data.description || "") + extraContent).replace(/\s+/g, "");
+  const firstClean = String(data.first_mes || "").replace(/\s+/g, "");
+
+  return {
+    dupVersion: DUP_FP_VERSION,
+    dupResType: getResourceType(val, foldersMap),
+    dupBaseName: baseName,
+    dupIsGenericName: GENERIC_DUP_NAMES.has(baseName),
+    dupDescHash: descClean ? hashForDuplicateKey(descClean) : "",
+    dupFirstHash: firstClean ? hashForDuplicateKey(firstClean) : "",
+    dupDescLen: descClean.length,
+    dupFirstLen: firstClean.length,
+  };
+}
+
+/**
+ * 算指纹的"兜底版"：任何一张卡的数据长得再野（第三方卡把 null 塞进 prompts 之类），
+ * 也只是这张卡暂时没有指纹，不会把这张卡从索引里踢出去。
+ */
+function safeDuplicateFingerprint(val: any, foldersMap?: Map<string, string>) {
+  try {
+    return computeDuplicateFingerprint(val, foldersMap);
+  } catch (err) {
+    console.warn("[MetaCache] 这张卡的查重指纹没算出来（卡本身不受影响）：", err);
+    return {};
+  }
+}
+
+/**
+ * 索引里的指纹 → 查重扫描用的条目。索引里没有指纹（老数据、或字段自相矛盾）时返回 null，
+ * 调用方只对那一张卡回退读一次整卡。
+ */
+function duplicateEntryFromMeta(meta: CharMeta): DuplicateScanEntry | null {
+  if (!meta || meta.dupVersion !== DUP_FP_VERSION || !meta.dupResType) return null;
+  // 索引里两个字段打架（一个说是工具、一个算成了角色卡）：宁可多读这一次，也不能把
+  // 工具卡和角色卡凑成一组重复。
+  if (meta.isTool && meta.dupResType === "character") return null;
+  return {
+    id: meta.id,
+    resType: meta.dupResType,
+    baseName: meta.dupBaseName || "",
+    isGenericName: !!meta.dupIsGenericName,
+    descHash: meta.dupDescHash || "",
+    firstHash: meta.dupFirstHash || "",
+    descLen: meta.dupDescLen || 0,
+    firstLen: meta.dupFirstLen || 0,
+  };
+}
+
 interface DuplicateScanEntry {
   id: string;
   resType: ResourceType;
@@ -2748,73 +3025,63 @@ export async function findDuplicates(): Promise<DuplicateGroup[]> {
     foldersMap.set(f.id, f.name);
   }
 
-  const GENERIC_NAMES = new Set([
-    "",
-    "未命名",
-    "未命名角色",
-    "未命名工具",
-    "untitled",
-    "new character",
-    "character",
-    "card",
-    "角色",
-    "新建角色",
-  ]);
-
-  // 流式扫描: 逐条读到就地把正文压成短指纹, 不在内存里留下一整张卡的完整对象
-  // (旧写法 getAll() 会把整张表连同历史版本一起拉进内存, 大卡库下直接卡死)。
+  // 查重只读轻量索引 char_meta：里面已经存好了「比对重复」要用的指纹
+  // （基础名 / 设定指纹 / 开场白指纹 + 各自长度），不用再把每张卡的完整数据
+  // （大字段 data、世界书条目、预设全文、卡图 base64）逐张读进内存再算一遍。
+  // 索引里没有指纹的（升级后第一次还没重建索引、极个别漏写的老数据）只对那一张
+  // 回退读整卡，并顺手把指纹补写回索引，下次就不用再读了。
   const precomputed: DuplicateScanEntry[] = [];
-  // 逐批扫描: 每 50 张用一个新事务读完就关掉, 批与批之间才让出主线程。
-  // 不能在事务还开着的时候 await 定时器 —— 事务会被浏览器自动提交, 之后任何继续读写的
-  // 请求都会抛 TransactionInactiveError, 整个查重扫描会中途中断(表现就是重复卡列表永远
-  // 是空的), 所以让出主线程必须放在事务之外。
-  const scanKeys = await db.getAllKeys("characters");
-  const SCAN_CHUNK = 50;
 
-  for (let chunkStart = 0; chunkStart < scanKeys.length; chunkStart += SCAN_CHUNK) {
-    const chunkKeys = scanKeys.slice(chunkStart, chunkStart + SCAN_CHUNK);
-    const scanTx = db.transaction("characters", "readonly");
-    const chunkRows = (await Promise.all(
-      chunkKeys.map((key) => scanTx.store.get(key)),
-    )) as (CharacterCard | undefined)[];
-    await scanTx.done;
+  const metaRows = await db.getAll("char_meta");
+  const metaById = new Map<string, CharMeta>();
+  const needFill: string[] = [];
+  for (const meta of metaRows) {
+    metaById.set(meta.id, meta);
+    if (meta.deletedAt) continue;
+    const entry = duplicateEntryFromMeta(meta);
+    if (entry) precomputed.push(entry);
+    else needFill.push(meta.id);
+  }
 
-    for (const char of chunkRows.filter((c): c is CharacterCard => !!c && !c.deletedAt)) {
-      const data = char.data?.data || char.data || {};
-      const firstMes = String(data.first_mes || "");
-      const desc = String(data.description || "");
-      const rawName = (char.name || data.name || "").trim();
-      const baseName = normalizeCardBaseName(rawName).toLowerCase();
+  // characters 里有、索引里没有的（异常数据，正常不该出现）：一起补，保证不漏卡
+  const charKeys = await db.getAllKeys("characters");
+  for (const key of charKeys) {
+    if (!metaById.has(key)) needFill.push(key);
+  }
 
-      // Support presets, worldbooks, and other tool types content matching
-      let extraContent = "";
-      if (data.prompts && Array.isArray(data.prompts)) {
-        extraContent = data.prompts.map((p: any) => p.content || p.text || "").join("");
-      } else if (data.entries && (Array.isArray(data.entries) || typeof data.entries === 'object')) {
-        const entVals = Array.isArray(data.entries) ? data.entries : Object.values(data.entries);
-        extraContent = entVals.map((e: any) => e.content || e.text || e.comment || "").join("");
-      } else if (data.qrList && Array.isArray(data.qrList)) {
-        extraContent = data.qrList.map((q: any) => q.message || q.label || "").join("");
-      } else if (data.content && typeof data.content === "string") {
-        extraContent = data.content;
+  if (needFill.length > 0) {
+    // 逐批读（每批 50 张，批与批之间让出主线程），只读缺指纹的那些卡
+    const FILL_CHUNK = 50;
+    const filledMetas: CharMeta[] = [];
+    for (let i = 0; i < needFill.length; i += FILL_CHUNK) {
+      const chunkIds = needFill.slice(i, i + FILL_CHUNK);
+      const fillTx = db.transaction("characters", "readonly");
+      const chunkRows = (await Promise.all(
+        chunkIds.map((id) => fillTx.store.get(id)),
+      )) as (CharacterCard | undefined)[];
+      await fillTx.done;
+
+      for (const char of chunkRows) {
+        if (!char || char.deletedAt) continue;
+        const meta = buildCharMeta(char, foldersMap);
+        filledMetas.push(meta);
+        const entry = duplicateEntryFromMeta(meta);
+        if (entry) precomputed.push(entry);
       }
 
-      const descClean = (desc + extraContent).replace(/\s+/g, "");
-      const firstClean = firstMes.replace(/\s+/g, "");
-
-      precomputed.push({
-        id: char.id,
-        resType: getResourceType(char, foldersMap),
-        baseName,
-        isGenericName: GENERIC_NAMES.has(baseName),
-        descHash: descClean ? hashForDuplicateKey(descClean) : "",
-        firstHash: firstClean ? hashForDuplicateKey(firstClean) : "",
-        descLen: descClean.length,
-        firstLen: firstClean.length,
-      });
+      if (i + FILL_CHUNK < needFill.length) {
+        await new Promise((r) => setTimeout(r, 0));
+      }
     }
-    if (chunkStart + SCAN_CHUNK < scanKeys.length) {
-      await new Promise((r) => setTimeout(r, 0));
+
+    // 补写回索引：一个事务批量写，不逐条开事务
+    if (filledMetas.length > 0) {
+      try {
+        const putTx = db.transaction("char_meta", "readwrite");
+        for (const meta of filledMetas) putTx.store.put(meta);
+        await putTx.done;
+        invalidateCache();
+      } catch (e) {}
     }
   }
 

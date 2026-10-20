@@ -6,6 +6,7 @@ import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, Che
 import { getCharacter, deleteCharacter, saveCharacter, toggleCharacterFavorite, CharacterCard, getFolders, resolveFolderPath, getCachedMeta, getCharacterCategoryPrefix, isActualCharacterCard, stripToolNameSuffix } from '../lib/db';
 import { getCardTypeBadgeInfo } from '../lib/cardType';
 import { parseTavernCard } from '../types/tavern';
+import { normalizeSourceUrl } from '../lib/sourceUrl';
 import { injectTavernData } from '../lib/png';
 import { normalizeWorldbookEntries } from '../lib/worldbook';
 import { getAISettings, normalizeSillyTavernUrl, getSillyTavernAuthHeaders } from '../lib/ai';
@@ -103,13 +104,14 @@ interface Props {
   onBack: () => void;
   onOpenChat?: (chatId: string) => void;
   onOpenImport?: (files?: FileList | File[]) => void;
+  onOpenSettings?: () => void;
   refreshKey?: number;
   isLightMode?: boolean;
 }
 
 // memo 化: 防止父组件里无关的状态变化(比如列表滚动位置、其他弹窗开关)
 // 连带触发这个 1700+ 行的大组件整体重渲染。
-export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpenChat, onOpenImport, refreshKey, isLightMode: propIsLightMode }: Props) {
+export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpenChat, onOpenImport, onOpenSettings, refreshKey, isLightMode: propIsLightMode }: Props) {
   const [character, setCharacter] = useState<CharacterCard | null>(null);
   const [activeTab, setActiveTab] = useState<'profile' | 'greetings' | 'worldbook' | 'regex' | 'chats' | 'memos' | 'versions' | 'data_viewer'>('profile');
 
@@ -390,9 +392,14 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     setCharacter(updatedChar);
   };
 
-  const handleUpdateSource = async (sourceStr: string) => {
+  const handleUpdateSource = async (rawInput: string) => {
     setIsEditingSource(false);
     if (!character) return;
+
+    // 存之前先把链接整理干净：example.com -> https://example.com。
+    // 整理不出来（比如写的是一句说明）就按原文存，只去首尾空格，绝不丢内容。
+    const trimmedInput = (rawInput || '').trim();
+    const sourceStr = normalizeSourceUrl(trimmedInput) || trimmedInput;
     
     let updatedData = typeof character.data === 'object' && character.data !== null ? { ...character.data } : character.data;
     if (updatedData && typeof updatedData === 'object') {
@@ -504,6 +511,11 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   const card = parseTavernCard(character.data);
   const data = card.data;
   const rawData = character.data;
+
+  // 卡片「来源」：存的可能是 example.com/page 这种没带协议的，也可能就是一句话。
+  // 统一整理成能点的干净链接；整理不出来就当作普通文字/无来源显示。
+  const rawSource = data.extensions?.source || data.source || character.sourceUrl || '';
+  const sourceLink = normalizeSourceUrl(rawSource);
   const category = getCharacterCategoryPrefix(character);
   const isPreset = category === '预设';
   const isStandaloneWorldbook = category === '世界书';
@@ -1625,7 +1637,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                           }`}>
                             {(character.tags && character.tags.length > 0) ? character.tags.join(', ') : (data.tags && data.tags.length > 0 ? data.tags.join(', ') : '无标签')}
                           </span>
-                          <button onClick={() => { setTempTags((character.tags || data.tags || []).join(', ')); setIsEditingTags(true); }} className="p-1 text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a] transition cursor-pointer">
+                          <button onClick={() => { setTempTags((character.tags || data.tags || []).join(', ')); setIsEditingTags(true); }} className="p-1 text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a] transition cursor-pointer" title="手动编辑标签">
                             <Edit2 className="w-3 h-3" />
                           </button>
                         </div>
@@ -1654,22 +1666,24 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                         </div>
                       ) : (
                         <div className="flex items-center gap-1.5 min-w-0 justify-end">
-                          {data.extensions?.source || data.source || character.sourceUrl ? (
+                          {sourceLink ? (
                             <a 
-                              href={data.extensions?.source || data.source || character.sourceUrl} 
+                              href={sourceLink} 
                               target="_blank" 
                               rel="noopener noreferrer"
                               className="text-blue-400 [.light-theme_&]:!text-[#007aff] hover:underline flex items-center gap-1 truncate font-medium text-xs sm:text-sm cursor-pointer min-w-0 font-mono"
-                              title={data.extensions?.source || data.source || character.sourceUrl}
+                              title={sourceLink}
                             >
                               <ExternalLink className="w-3 h-3 shrink-0 text-blue-400 [.light-theme_&]:!text-[#007aff]" />
-                              <span className="truncate max-w-[200px] sm:max-w-[280px]">{data.extensions?.source || data.source || character.sourceUrl}</span>
+                              <span className="truncate max-w-[200px] sm:max-w-[280px]">{sourceLink}</span>
                             </a>
+                          ) : rawSource ? (
+                            <span className="text-white/70 [.light-theme_&]:!text-[#0f172a] font-normal text-xs sm:text-sm truncate min-w-0" title={rawSource}>{rawSource}</span>
                           ) : (
                             <span className="text-white/60 [.light-theme_&]:!text-[#0f172a] font-normal text-xs sm:text-sm">无来源</span>
                           )}
                           <button 
-                            onClick={() => { setTempSource(data.extensions?.source || data.source || character.sourceUrl || ''); setIsEditingSource(true); }} 
+                            onClick={() => { setTempSource(sourceLink || rawSource); setIsEditingSource(true); }} 
                             className="p-1 text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a] transition cursor-pointer shrink-0"
                             title="修改来源网址"
                           >

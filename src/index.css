@@ -18,7 +18,15 @@
   --color-slate-100: #f4f4f5;
   --color-white: #ffffff;
   --color-black: #000000;
-  
+}
+
+/* Hide default browser search cancel button */
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration,
+input[type="search"]::-webkit-search-results-button,
+input[type="search"]::-webkit-search-results-decoration {
+  -webkit-appearance: none;
+  display: none;
 }
 
 /* Global Selection styling (matching the pale blue scroll wheel tone) */

@@ -745,7 +745,7 @@ export function CharacterVersionsSection({
       const currSrc = extractCardSource(currData);
       if (snapSrc.hasSource && !currSrc.hasSource) {
         tags.push({ text: '含来源链接', type: 'increase' });
-        bullets.push(`包含原作者卡片来源: ${snapSrc.source}`);
+        bullets.push(`包含卡片来源链接: ${snapSrc.source}`);
       }
 
       if (tags.length === 0) {
