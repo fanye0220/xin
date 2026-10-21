@@ -1,4 +1,4 @@
-import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
+import {getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL, isFallbackMiuImage } from '../lib/avatar';
 import { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -369,7 +369,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   const handleUpdateTags = async (tagsStr: string) => {
     setIsEditingTags(false);
     if (!character) return;
-    const newTags = tagsStr.split(/[,，]/).map(t => t.trim()).filter(Boolean);
+    // Split by comma, Chinese comma, slash, vertical pipe, backslash, semicolons, or newlines
+    const newTags = Array.from(new Set(
+      tagsStr.split(/[,，/|\\;；\n]/).map(t => t.trim()).filter(Boolean)
+    ));
     
     let updatedData = typeof character.data === 'object' && character.data !== null ? { ...character.data } : character.data;
     if (updatedData && typeof updatedData === 'object') {
@@ -1038,7 +1041,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
       {/* Blurred Background - Beautifully adapted for both dark and light themes */}
       <div 
         className="fixed inset-0 bg-cover bg-center opacity-30 blur-3xl scale-110 pointer-events-none [.light-theme_&]:opacity-40 [.light-theme_&]:scale-125"
-        style={{ backgroundImage: avatarUrl ? `url(${avatarUrl})` : undefined }}
+        style={{ backgroundImage: avatarUrl && !isFallbackMiuImage(avatarUrl) ? `url(${avatarUrl})` : undefined }}
       />
       <div 
         className="fixed inset-0 pointer-events-none bg-gradient-to-b from-black/20 via-transparent to-black/80 [.light-theme_&]:from-[#e8f1fd]/60 [.light-theme_&]:via-[#eef4fe]/40 [.light-theme_&]:to-[#e2eeff]/80"
@@ -1344,7 +1347,11 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                  setAvatarUrl(fallback);
               }
             }}
-            className="w-32 h-32 rounded-full object-cover border-4 border-white/20 shadow-2xl cursor-pointer hover:scale-105 transition-transform"
+            className={`w-32 h-32 rounded-full border-4 border-white/20 shadow-2xl cursor-pointer hover:scale-105 transition-transform ${
+              isFallbackMiuImage(avatarUrl)
+                ? 'object-contain p-6 bg-white'
+                : 'object-cover'
+            }`}
           />
           {isEditingName ? (
             <div className="flex items-center justify-center gap-2 mt-4 w-full px-4">
@@ -1610,14 +1617,16 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             value={tempTags} 
                             onChange={e => {
                               const val = e.target.value;
-                              if (val.endsWith(' ') && !val.endsWith(', ')) {
-                                setTempTags(val.slice(0, -1) + ', ');
+                              // Auto-convert slash, vertical pipe, backslash, semicolons to comma-space
+                              const normalized = val.replace(/[/|\\;；]/g, ', ');
+                              if (normalized.endsWith(' ') && !normalized.endsWith(', ')) {
+                                setTempTags(normalized.slice(0, -1) + ', ');
                               } else {
-                                setTempTags(val);
+                                setTempTags(normalized);
                               }
                             }} 
                             className="bg-black/60 border border-white/30 rounded-lg px-2.5 py-1 text-xs text-white outline-none flex-1 min-w-0 w-full focus:border-white/70 [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a]"
-                            placeholder="标签逗号分隔"
+                            placeholder="标签（支持 / | ， ； 分隔）"
                             autoFocus
                             onKeyDown={e => e.key === 'Enter' && handleUpdateTags(tempTags)}
                           />

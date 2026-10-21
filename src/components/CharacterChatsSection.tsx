@@ -1,4 +1,4 @@
-import { getFallbackAvatar, safeCreateObjectURL } from "../lib/avatar";
+import { getFallbackAvatar, isFallbackMiuImage, safeCreateObjectURL } from "../lib/avatar";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   getChatsForCharacter,
@@ -1291,7 +1291,11 @@ export function CharacterChatsSection({
                               <img
                                 src={avatar}
                                 alt="avatar"
-                                className="w-10 h-10 rounded-full object-cover border-none shadow-none"
+                                className={`w-10 h-10 rounded-full border-none shadow-none ${
+                                  isFallbackMiuImage(avatar)
+                                    ? 'object-contain p-1 bg-white'
+                                    : 'object-cover'
+                                }`}
                                 onError={(e) => {
                                   getCharacterBlob(characterId).then((b) => {
                                     if (b && b.avatarBlob) {

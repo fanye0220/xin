@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { X, Sparkles, ChevronRight, RefreshCw, Loader2, ArrowLeft, Eye, EyeOff, Tag } from 'lucide-react';
 import { CharacterCard, saveCharacter, getCharacter } from '../lib/db';
 import { generateSummaryForCharacter } from '../lib/ai';
-import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
+import {getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL, isFallbackMiuImage } from '../lib/avatar';
 import { useBackHandler } from '../lib/useBackHandler';
 import { CharacterRetagModal } from './CharacterRetagModal';
 
@@ -154,7 +154,11 @@ export function CharacterSummaryModal({
             onError={(e) => {
               (e.target as HTMLImageElement).src = defaultFallback;
             }}
-            className="w-full h-full object-cover object-top opacity-90 filter blur-xs scale-105"
+            className={`w-full h-full ${
+              isFallbackMiuImage(avatarUrl || defaultFallback)
+                ? 'object-cover bg-white opacity-90 filter blur-xs scale-105'
+                : 'object-cover object-top opacity-90 filter blur-xs scale-105'
+            }`}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-[#1c1c1e] via-[#1c1c1e]/60 to-transparent [.light-theme_&]:!from-[#ffffff] [.light-theme_&]:!via-[#ffffff]/60" />
 
@@ -169,14 +173,20 @@ export function CharacterSummaryModal({
 
           {/* Avatar & Title Over Overlay */}
           <div className="absolute bottom-3 left-4 right-4 flex items-end gap-3 sm:gap-4 z-10">
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden border-0 shadow-lg shrink-0 bg-slate-800">
+            <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden border-0 shadow-lg shrink-0 ${
+              isFallbackMiuImage(avatarUrl || defaultFallback) ? 'bg-white' : 'bg-slate-800'
+            }`}>
               <img
                 src={avatarUrl || defaultFallback}
                 alt={name}
                 onError={(e) => {
                   (e.target as HTMLImageElement).src = defaultFallback;
                 }}
-                className="w-full h-full object-cover"
+                className={`w-full h-full ${
+                  isFallbackMiuImage(avatarUrl || defaultFallback)
+                    ? 'object-contain p-2 bg-white'
+                    : 'object-cover'
+                }`}
               />
             </div>
             <div className="min-w-0 flex-1">

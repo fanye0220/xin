@@ -1051,6 +1051,7 @@ export async function uploadCharacterToCloud(
   const searchData = await searchRes.json();
   
   let targetFileId = '';
+  let targetFileIsNewlyCreated = false;
   let finalCharName = char.name || "未命名";
 
   let existingFile: any = null;
@@ -1202,13 +1203,17 @@ export async function uploadCharacterToCloud(
     if (!createRes.ok) throw new Error("Failed to create file");
     const createdData = await createRes.json();
     targetFileId = createdData.id;
+    targetFileIsNewlyCreated = true;
   }
 
   if (onProgress) onProgress("上传实体数据...");
   const uploadRes = await uploadBlobToDrive(token, targetFileId, finalBlob, mimeType);
 
   if (!uploadRes.ok) {
-    if (targetFileId) {
+    // 只清掉"本次刚新建的空壳文件"。云端原本就存在的卡绝不能在这里删——
+    // 以前是无条件 DELETE targetFileId，结果大文件补传一失败，连用户云端
+    // 已有的那张卡一起被永久删掉（files.delete 不进回收站），卡库里就"搜不到"了。
+    if (targetFileIsNewlyCreated && targetFileId) {
       try {
         await fetch(`https://www.googleapis.com/drive/v3/files/${targetFileId}`, {
           method: 'DELETE',
@@ -1216,26 +1221,60 @@ export async function uploadCharacterToCloud(
         });
       } catch {}
     }
-    throw new Error("上传失败: " + uploadRes.statusText);
+    throw new Error(`上传失败: HTTP ${uploadRes.status} ${uploadRes.statusText}`.trim());
   }
   
   if (onProgress) onProgress("上传完成！");
   return 'uploaded';
 }
-export async function listCloudCharacters(token: string) {
+export async function listCloudCharacters(
+  token: string,
+  onProgress?: (msg: string, loaded: number) => void,
+) {
   const q = `(appProperties has { key='isChar' and value='true' } or appProperties has { key='isChat' and value='true' }) and trashed=false`;
-  const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,thumbnailLink,appProperties,size,createdTime,parents)&pageSize=1000`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  if (!response.ok) throw new Error("Failed to list cloud characters");
-  const data = await response.json();
-  const files = data.files || [];
-  return files.filter((f: any) => {
-    if (f.appProperties?.fileKind && f.appProperties.fileKind.startsWith('avatar_')) {
-      return false;
+  // nextPageToken 必须写进 fields，否则 Google 不会回翻页令牌 —— 以前就是漏了这个，
+  // 所以云端文件一超过 1000 条，后面的卡就彻底不出现在卡库里（搜不到、也对不了本地）。
+  const fields = 'nextPageToken,files(id,name,thumbnailLink,appProperties,size,createdTime,parents)';
+  const MAX_PAGES = 40; // 40 × 1000 = 4 万条，正常够用，也能防止令牌异常时无限翻页
+
+  const collected: any[] = [];
+  let pageToken: string | undefined;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent(fields)}&pageSize=1000`
+      + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    if (!response.ok) {
+      // 第一页就失败：照旧抛错（登录/权限问题要让用户看到）。
+      // 翻到后面某一页失败：把已拿到的先返回 —— 宁可少几页，也不能让整个云端卡库打不开。
+      if (collected.length === 0) throw new Error(`Failed to list cloud characters (HTTP ${response.status})`);
+      console.warn(`[cloud] 云端列表第 ${page + 1} 页拉取失败(HTTP ${response.status})，先返回已拿到的 ${collected.length} 条`);
+      break;
     }
-    return true;
-  });
+
+    const data = await response.json();
+    collected.push(...(data.files || []));
+    pageToken = data.nextPageToken;
+    if (onProgress) onProgress(`已拉取 ${collected.length} 张云端卡片...`, collected.length);
+    if (!pageToken) break;
+    // 让出主线程，别让连续几页请求把界面顶住
+    await new Promise((r) => setTimeout(r, 0));
+  }
+
+  // 翻页期间云端可能正好被改动，理论上会出现同一条重复返回；按文件 id 去重。
+  // （同名重复卡是不同的文件 id，不受影响，查重/双端对比照旧。）
+  const seen = new Set<string>();
+  const files: any[] = [];
+  for (const f of collected) {
+    if (!f || !f.id || seen.has(f.id)) continue;
+    if (f.appProperties?.fileKind && f.appProperties.fileKind.startsWith('avatar_')) continue;
+    seen.add(f.id);
+    files.push(f);
+  }
+  return files;
 }
 
 

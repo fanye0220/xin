@@ -130,7 +130,7 @@ async function driveMultipartUpload(
 }
 
 /** 断点续传单个分块用的大小，必须是 256KB 的整数倍（Google 要求），最后一块除外。 */
-const RESUMABLE_CHUNK_SIZE = 8 * 1024 * 1024; // 8MB
+const RESUMABLE_CHUNK_SIZE = 4 * 1024 * 1024; // 4MB：和 multipart 通道的峰值一个量级，安卓上更稳
 
 /**
  * Google Drive 的断点续传上传（resumable upload）——没有 5MB 上限（最大到
@@ -166,12 +166,20 @@ export async function resumableUploadToDrive(
   });
 
   if (!startRes.ok) {
+    let errText = '';
+    try {
+      errText = await startRes.text();
+      try {
+        errText = JSON.parse(errText)?.error?.message || errText;
+      } catch {}
+    } catch {}
+    const message = errText || `HTTP ${startRes.status}`;
     return {
       ok: false,
       status: startRes.status,
-      statusText: startRes.statusText,
-      text: () => startRes.text(),
-      json: () => startRes.json(),
+      statusText: message,
+      text: async () => message,
+      json: async () => ({ error: message }),
     };
   }
 
@@ -196,7 +204,11 @@ export async function resumableUploadToDrive(
       const nativeRes = await CapacitorHttp.request({
         url: sessionUrl,
         method: 'PUT',
-        headers: { 'Content-Range': rangeHeader },
+        // 必须带 Content-Type：安卓原生层只有在请求带 Content-Type 时才会真正把请求体
+        // 写进 HTTP 连接（CapacitorHttpUrlConnection.setRequestBody 没有 Content-Type 会
+        // 直接 return，一个字节都不发）。少了这行，分块上传永远是空请求体，
+        // 大文件在安卓上就永远传不上云端。
+        headers: { 'Content-Range': rangeHeader, 'Content-Type': 'application/octet-stream' },
         data: base64Chunk,
         dataType: 'file',
       });
@@ -204,7 +216,7 @@ export async function resumableUploadToDrive(
     }
     const res = await fetch(sessionUrl, {
       method: 'PUT',
-      headers: { 'Content-Range': rangeHeader },
+      headers: { 'Content-Range': rangeHeader, 'Content-Type': 'application/octet-stream' },
       body: chunkBuffer,
     });
     let data: any = null;
@@ -244,12 +256,19 @@ export async function resumableUploadToDrive(
 
     // 出错了
     const asText = isString ? data : JSON.stringify(data ?? '');
+    let message = '';
+    try {
+      message = JSON.parse(data)?.error?.message || '';
+    } catch {}
+    message = message || `HTTP ${status} ${asText.slice(0, 200)}`;
     return {
       ok: false,
       status,
-      statusText: '',
+      statusText: message,
       text: async () => asText,
-      json: async () => (isString ? JSON.parse(data) : data),
+      json: async () => {
+        try { return JSON.parse(data); } catch { return { error: message }; }
+      },
     };
   }
 

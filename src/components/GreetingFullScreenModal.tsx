@@ -14,7 +14,7 @@ import {
   List,
 } from 'lucide-react';
 import { CharacterCard } from '../lib/db';
-import { getFallbackAvatar, safeCreateObjectURL } from '../lib/avatar';
+import {getFallbackAvatar, safeCreateObjectURL, isFallbackMiuImage } from '../lib/avatar';
 import { MessageContent } from './MessageContent';
 import {
   applyRegexToText,
@@ -690,7 +690,11 @@ export function GreetingFullScreenModal({
                   <img
                     src={effectiveAvatar}
                     alt={character.name}
-                    className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover shadow-xl border-2 ring-4 ring-white/5 [.light-theme_&]:!ring-black/5"
+                    className={`w-20 h-20 sm:w-24 sm:h-24 rounded-full shadow-xl border-2 ring-4 ring-white/5 [.light-theme_&]:!ring-black/5 ${
+                      isFallbackMiuImage(effectiveAvatar)
+                        ? 'object-contain p-4 bg-white'
+                        : 'object-cover'
+                    }`}
                     style={{ borderColor: currentTheme.border }}
                   />
                 </div>

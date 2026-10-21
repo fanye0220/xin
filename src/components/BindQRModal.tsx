@@ -1,4 +1,4 @@
-import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
+import { getFallbackAvatar, isFallbackMiuImage, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -74,7 +74,11 @@ function CharacterOption({
           <img
             src={url || defaultFallback}
             alt={char.name}
-            className="w-full h-full object-cover"
+            className={`w-full h-full ${
+              isFallbackMiuImage(url || defaultFallback)
+                ? 'object-contain p-1 bg-white'
+                : 'object-cover'
+            }`}
             onError={(e) => {
               if (e.currentTarget.src !== defaultFallback)
                 e.currentTarget.src = defaultFallback;

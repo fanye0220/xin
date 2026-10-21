@@ -1,4 +1,4 @@
-import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
+import { getFallbackAvatar, isFallbackMiuImage, resolveAvatarUrl } from '../lib/avatar';
 import { getLocalImageUrl } from '../lib/appBridge';
 import { useState, useRef, useEffect } from 'react';
 import { ArrowLeft, Sparkles, Loader2, AlertCircle, Play, Terminal, Dices } from 'lucide-react';
@@ -24,7 +24,7 @@ function RecommendResultAvatar({ char, name }: { char: CharacterCard; name: stri
     <img
       src={fallbackUrl || url}
       alt={name}
-      className="w-full h-full object-cover"
+      className={`w-full h-full ${isFallbackMiuImage(fallbackUrl || url) ? "object-contain p-1 bg-white" : "object-cover"}`}
       onError={(e) => {
         import('../lib/db').then((m) =>
           m.getCharacterBlob(char.id).then((b) => {

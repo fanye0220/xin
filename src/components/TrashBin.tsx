@@ -1,4 +1,4 @@
-import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
+import { getFallbackAvatar, isFallbackMiuImage, resolveAvatarUrl } from '../lib/avatar';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Trash2, RotateCcw, X, AlertTriangle, CheckCircle2, Check } from 'lucide-react';
@@ -185,7 +185,11 @@ const TrashedCharacterCard = ({
         <img 
           src={avatarUrl || defaultFallback} 
           alt={char.name} 
-          className="w-full h-full object-cover pointer-events-none" 
+          className={`w-full h-full pointer-events-none ${
+            isFallbackMiuImage(avatarUrl || defaultFallback)
+              ? 'object-contain p-1.5 bg-white'
+              : 'object-cover'
+          }`} 
           referrerPolicy="no-referrer"
           onError={(e) => {
             if (e.currentTarget.src !== defaultFallback) {

@@ -1,3 +1,4 @@
+import { isFallbackMiuImage } from "../lib/avatar";
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -70,7 +71,7 @@ function InboxAvatar({ id, hasThumb }: { id: string; hasThumb?: boolean }) {
       className="w-11 h-11 rounded-xl overflow-hidden shrink-0 bg-white/5 [.light-theme_&]:!bg-[#f1f5f9] flex items-center justify-center"
     >
       {url ? (
-        <img src={url} alt="" className="w-full h-full object-cover" decoding="async" />
+        <img src={url} alt="" className={`w-full h-full ${isFallbackMiuImage(url) ? "object-contain p-1 bg-white" : "object-cover"}`} decoding="async" />
       ) : (
         <UserRound className="w-4 h-4 text-white/25 [.light-theme_&]:!text-slate-300" />
       )}

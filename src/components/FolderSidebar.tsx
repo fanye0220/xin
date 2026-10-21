@@ -304,7 +304,6 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
                     }}
                     className="flex-1 flex items-center gap-2 text-left truncate min-w-0"
                   >
-                    <FolderIcon className={`w-4 h-4 shrink-0 ${isFullWallpaper ? (isDarkTheme ? '!text-[rgba(255,255,255,0.85)]' : '!text-[#1c1c1e]') : (isSelected ? 'text-slate-100 [.light-theme_&]:!text-[#1c1c1e]' : 'text-slate-400 [.light-theme_&]:!text-[#1c1c1e]')}`} />
                     {editingFolderId === folder.id ? (
                       <input
                         type="text"
@@ -373,7 +372,6 @@ export function FolderSidebar({ selectedFolderId, onSelectFolder, onClose, onOpe
           >
             <div className="flex items-center gap-1 flex-1 min-w-0">
               <div className="p-1 w-5 h-5" />
-              <FolderIcon className="w-4 h-4 text-slate-400 shrink-0 mx-1" />
               <input
                 type="text"
                 value={editName}

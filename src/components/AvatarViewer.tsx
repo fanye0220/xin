@@ -1,4 +1,4 @@
-import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
+import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL, isFallbackMiuImage } from '../lib/avatar';
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -552,10 +552,14 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
               src={currentAvatarUrl}
               alt="Current Avatar"
               draggable={false}
-              className="w-full h-full object-contain cursor-grab active:cursor-grabbing"
+              className={`w-full h-full cursor-grab active:cursor-grabbing ${
+                isFallbackMiuImage(currentAvatarUrl)
+                  ? 'object-contain max-w-[280px] max-h-[280px] p-6 bg-white rounded-3xl shadow-xl'
+                  : 'object-contain'
+              }`}
               onError={(e) => {
                  const target = e.target as HTMLImageElement;
-                 const fallback = getFallbackAvatar(character.name || character.id);
+                 const fallback = getFallbackAvatar(character.name || character.id, character.tags?.join(',') || (character.isTool ? 'tool' : undefined));
                  if (target.src !== fallback && !target.src.startsWith("blob:")) {
                      target.src = fallback;
                      setCurrentAvatarUrl(fallback);
@@ -628,7 +632,13 @@ export function AvatarViewer({ isOpen, character, onClose, onUpdate }: Props) {
                 onClick={() => handleSelectHistory(item.blob)}
                 className={`group relative w-20 h-20 flex-shrink-0 rounded-xl overflow-hidden cursor-pointer snap-start transition-all ${isPreviewed ? 'ring-2 ring-blue-500 scale-105' : 'ring-1 ring-white/10 hover:ring-white/30 opacity-70 hover:opacity-100'}`}
               >
-                <img src={item.url || undefined} alt={`History ${index}`} className="w-full h-full object-cover" />
+                <img
+                  src={item.url || undefined}
+                  alt={`History ${index}`}
+                  className={`w-full h-full ${
+                    isFallbackMiuImage(item.url) ? 'object-contain p-2 bg-white' : 'object-cover'
+                  }`}
+                />
                 {isActualCurrent && (
                   <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
                     <div className="bg-blue-500 rounded-full p-1">

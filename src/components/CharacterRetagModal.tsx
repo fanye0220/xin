@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { X, Sparkles, RefreshCw, Loader2, ArrowLeft, Check, AlertCircle, Plus, Tag } from 'lucide-react';
 import { CharacterCard, saveCharacter, getCharacter } from '../lib/db';
 import { generateTagsForCharacters } from '../lib/ai';
-import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
+import {getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL, isFallbackMiuImage } from '../lib/avatar';
 import { useBackHandler } from '../lib/useBackHandler';
 
 interface Props {
@@ -126,13 +126,20 @@ export function CharacterRetagModal({
     });
   };
 
-  const handleAddCustomTag = () => {
-    const trimmed = customTagInput.trim();
-    if (!trimmed) return;
-    if (!generatedTags.includes(trimmed)) {
-      setGeneratedTags(prev => [...prev, trimmed]);
+  const handleAddCustomTag = (inputOverride?: string | React.MouseEvent | React.KeyboardEvent) => {
+    const raw = (typeof inputOverride === 'string' ? inputOverride : customTagInput).trim();
+    if (!raw) return;
+    const newItems = Array.from(new Set(
+      raw.split(/[,，/|\\;；\n]/).map(t => t.trim()).filter(Boolean)
+    ));
+    if (newItems.length > 0) {
+      setGeneratedTags(prev => Array.from(new Set([...prev, ...newItems])));
+      setSelectedTags(prev => {
+        const next = new Set(prev);
+        newItems.forEach(t => next.add(t));
+        return next;
+      });
     }
-    setSelectedTags(prev => new Set(prev).add(trimmed));
     setCustomTagInput('');
     setShowAddCustom(false);
     setHasGenerated(true);
@@ -203,7 +210,11 @@ export function CharacterRetagModal({
             onError={(e) => {
               (e.target as HTMLImageElement).src = defaultFallback;
             }}
-            className="w-full h-full object-cover object-top opacity-90 filter blur-xs scale-105"
+            className={`w-full h-full ${
+              isFallbackMiuImage(avatarUrl || defaultFallback)
+                ? 'object-cover bg-white opacity-90 filter blur-xs scale-105'
+                : 'object-cover object-top opacity-90 filter blur-xs scale-105'
+            }`}
           />
           <div className={`absolute inset-0 bg-gradient-to-t ${
             isLight
@@ -227,7 +238,9 @@ export function CharacterRetagModal({
           {/* Avatar & Title Over Overlay */}
           <div className="absolute bottom-3 left-4 right-4 flex items-end gap-3 sm:gap-4 z-10">
             <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden border-0 shadow-lg shrink-0 ${
-              isLight ? 'bg-slate-100' : 'bg-slate-800'
+              isFallbackMiuImage(avatarUrl || defaultFallback)
+                ? 'bg-white'
+                : isLight ? 'bg-slate-100' : 'bg-slate-800'
             }`}>
               <img
                 src={avatarUrl || defaultFallback}
@@ -235,7 +248,11 @@ export function CharacterRetagModal({
                 onError={(e) => {
                   (e.target as HTMLImageElement).src = defaultFallback;
                 }}
-                className="w-full h-full object-cover"
+                className={`w-full h-full ${
+                  isFallbackMiuImage(avatarUrl || defaultFallback)
+                    ? 'object-contain p-2 bg-white'
+                    : 'object-cover'
+                }`}
               />
             </div>
             <div className="min-w-0 flex-1">
@@ -415,11 +432,18 @@ export function CharacterRetagModal({
                         <input
                           type="text"
                           value={customTagInput}
-                          onChange={(e) => setCustomTagInput(e.target.value)}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (/[/|\\;；,，\n]/.test(val)) {
+                              handleAddCustomTag(val);
+                            } else {
+                              setCustomTagInput(val);
+                            }
+                          }}
                           onKeyDown={(e) => e.key === 'Enter' && handleAddCustomTag()}
-                          placeholder="新标签"
+                          placeholder="新标签（支持 / | ， ；）"
                           autoFocus
-                          className={`w-20 px-2 py-1 rounded-lg text-xs outline-none ${
+                          className={`w-32 px-2 py-1 rounded-lg text-xs outline-none ${
                             isLight
                               ? 'bg-white text-slate-800 border border-slate-300 focus:border-[#007aff]'
                               : 'bg-black/60 border border-white/20 text-white focus:border-blue-400'

@@ -1,4 +1,4 @@
-import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from "../lib/avatar";
+import { getFallbackAvatar, isFallbackMiuImage, resolveAvatarUrl, safeCreateObjectURL } from "../lib/avatar";
 import React, { useState, useRef, useEffect, memo, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -188,11 +188,18 @@ const ImportCardAvatar = memo(function ImportCardAvatar({
     };
   }, [blob]);
 
+  const srcUrl = blobUrl || fallback || getFallbackAvatar(name);
+  const isFallback = isFallbackMiuImage(srcUrl);
+
   return (
     <img
-      src={blobUrl || fallback || getFallbackAvatar(name)}
+      src={srcUrl}
       alt={name}
-      className="w-full h-full object-cover"
+      className={`w-full h-full ${
+        isFallback
+          ? 'object-contain p-1.5 bg-white'
+          : 'object-cover'
+      }`}
       loading="lazy"
       decoding="async"
     />
@@ -275,11 +282,18 @@ export function TavernAvatar({ char, aiSettings, className = "w-12 h-12 sm:w-14 
     return () => { cancelled = true; };
   }, [char.avatar, aiSettings, inView]);
 
+  const srcUrl = error || !blobUrl ? getFallbackAvatar(char.name) : blobUrl;
+  const isFallback = isFallbackMiuImage(srcUrl);
+
   return (
     <img
       ref={containerRef}
-      src={error || !blobUrl ? getFallbackAvatar(char.name) : blobUrl}
-      className={className}
+      src={srcUrl}
+      className={`${className.replace(/\bobject-cover\b/g, '')} ${
+        isFallback
+          ? 'object-contain p-1.5 bg-white'
+          : 'object-cover'
+      }`}
       alt={char.name}
     />
   );

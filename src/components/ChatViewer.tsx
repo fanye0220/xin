@@ -1,4 +1,4 @@
-import { resolveAvatarUrl, getFallbackAvatar, safeCreateObjectURL } from "../lib/avatar";
+import { resolveAvatarUrl, getFallbackAvatar, safeCreateObjectURL, isFallbackMiuImage } from "../lib/avatar";
 import React, {
   useState,
   useRef,
@@ -822,16 +822,8 @@ export function ChatViewer({
               })
             );
           }
-        } else if (
-          char.avatarUrlFallback &&
-          !char.avatarUrlFallback.includes('api.dicebear.com') &&
-          (char.avatarUrlFallback.startsWith('http://') ||
-           char.avatarUrlFallback.startsWith('https://') ||
-           char.avatarUrlFallback.startsWith('data:image/') ||
-           char.avatarUrlFallback.startsWith('blob:')) &&
-          !char.avatarUrlFallback.startsWith('data:image/svg+xml')
-        ) {
-          urls[char.id] = char.avatarUrlFallback;
+        } else {
+          urls[char.id] = resolveAvatarUrl(char.avatarUrlFallback, char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
         }
       });
       if (active) setAvatarUrls(urls);
@@ -1989,7 +1981,7 @@ export function ChatViewer({
                                     <img
                                       src={gUrl}
                                       alt="avatar"
-                                      className="w-full h-full object-cover"
+                                      className={`w-full h-full ${isFallbackMiuImage(gUrl) ? "object-contain p-1 bg-white" : "object-cover"}`}
                                       onError={() => {
                                         if (charId) {
                                           setImgErrorMap((prev) => ({ ...prev, [charId]: true }));
@@ -2289,7 +2281,7 @@ export function ChatViewer({
                                         <img
                                           src={charUrl}
                                           alt="avatar"
-                                          className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl object-cover shadow-sm shrink-0"
+                                          className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl shadow-sm shrink-0 ${isFallbackMiuImage(charUrl) ? "object-contain p-1 bg-white" : "object-cover"}`}
                                           onError={() => setImgErrorMap((prev) => ({ ...prev, [charId]: true }))}
                                         />
                                       );
@@ -2379,7 +2371,11 @@ export function ChatViewer({
                                       <img
                                         src={charUrl}
                                         alt="avatar"
-                                        className="w-full h-full object-cover"
+                                        className={`w-full h-full ${
+                                         isFallbackMiuImage(charUrl)
+                                           ? 'object-contain p-1 bg-white'
+                                           : 'object-cover'
+                                       }`}
                                         onError={() => {
                                           if (charId) {
                                             setImgErrorMap((prev) => ({ ...prev, [charId]: true }));

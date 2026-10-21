@@ -17,7 +17,7 @@ import {
 import { getCardTypeBadgeInfo } from '../lib/cardType';
 import { injectTavernData, extractTavernData } from '../lib/png';
 import { downloadOrShareFile } from '../lib/appBridge';
-import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
+import { getFallbackAvatar, isFallbackMiuImage, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
 
 interface Props {
   character: CharacterCard;
@@ -143,7 +143,11 @@ const CandidateAvatar = React.memo(function CandidateAvatar({ char }: { char: Ch
           alt={char.name}
           loading="lazy"
           decoding="async"
-          className="w-full h-full object-cover"
+          className={`w-full h-full ${
+            isFallbackMiuImage(imgSrc)
+              ? 'object-contain p-1 bg-white'
+              : 'object-cover'
+          }`}
           onError={(e) => {
             if (e.currentTarget.src !== defaultFallback) {
               e.currentTarget.src = defaultFallback;
@@ -197,7 +201,11 @@ function ActiveAvatar({ character, avatarUrl }: { character: CharacterCard; avat
     <img
       src={finalSrc}
       alt={character.name}
-      className="w-full h-full object-cover"
+      className={`w-full h-full ${
+        isFallbackMiuImage(finalSrc)
+          ? 'object-contain p-1 bg-white'
+          : 'object-cover'
+      }`}
       onError={(e) => {
         e.currentTarget.src = getFallbackAvatar(character.name);
       }}
@@ -246,7 +254,11 @@ function SnapshotAvatar({ snapshot, fallbackName }: { snapshot: CardVersionSnaps
     <img
       src={url}
       alt={snapshot.versionName || fallbackName}
-      className="w-full h-full object-cover"
+      className={`w-full h-full ${
+        isFallbackMiuImage(url)
+          ? 'object-contain p-1 bg-white'
+          : 'object-cover'
+      }`}
       onError={(e) => {
         e.currentTarget.src = getFallbackAvatar(fallbackName);
       }}

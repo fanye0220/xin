@@ -312,12 +312,6 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
                     <div className="w-4.5 shrink-0" />
                   )}
 
-                  <FolderIcon className={`w-4 h-4 shrink-0 stroke-[2] ${
-                    isSelected
-                      ? isLightMode ? 'text-[#2563eb]' : 'text-blue-400'
-                      : isLightMode ? 'text-[#3b82f6]' : 'text-blue-400'
-                  }`} />
-                  
                   <span className={`text-sm truncate leading-tight flex-1 ${
                     isSelected ? 'font-bold' : 'font-medium'
                   }`}>
@@ -520,11 +514,6 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
                         }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
-                          <FolderIcon className={`w-4 h-4 shrink-0 stroke-[2] ${
-                            isSelected
-                              ? isLightMode ? 'text-[#2563eb]' : 'text-blue-400'
-                              : isLightMode ? 'text-[#3b82f6]' : 'text-blue-400'
-                          }`} />
                           <div className="min-w-0 flex-1">
                             <div className={`text-sm truncate ${
                               isSelected ? 'font-bold' : 'font-medium'

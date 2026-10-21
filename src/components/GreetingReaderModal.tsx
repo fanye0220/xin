@@ -9,7 +9,7 @@ import {
   Wand2, AlignLeft
 } from 'lucide-react';
 import { CharacterCard } from '../lib/db';
-import { resolveAvatarUrl, getFallbackAvatar } from '../lib/avatar';
+import {resolveAvatarUrl, getFallbackAvatar, isFallbackMiuImage } from '../lib/avatar';
 import { useBackHandler } from '../lib/useBackHandler';
 import { MessageContent } from './MessageContent';
 import { applyRegexToText, extractCharacterStyles } from '../lib/regexEngine';
@@ -1575,7 +1575,11 @@ export function GreetingReaderModal({
                   <img
                     src={displayAvatar}
                     alt={character.name || 'Character'}
-                    className="w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover shadow-xl border-2 transition-transform duration-300 group-hover:scale-105"
+                    className={`w-24 h-24 sm:w-28 sm:h-28 rounded-full shadow-xl border-2 transition-transform duration-300 group-hover:scale-105 ${
+                      isFallbackMiuImage(displayAvatar)
+                        ? 'object-contain p-5 bg-white'
+                        : 'object-cover'
+                    }`}
                     style={{
                       borderColor: isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)',
                     }}

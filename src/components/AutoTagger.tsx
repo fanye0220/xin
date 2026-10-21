@@ -1,4 +1,4 @@
-import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
+import { getFallbackAvatar, isFallbackMiuImage, resolveAvatarUrl, safeCreateObjectURL } from '../lib/avatar';
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Tag, Play, CheckCircle2, Loader2, AlertCircle, Pause, Square, PlayCircle, RefreshCw, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -11,9 +11,15 @@ function RetagReviewCard({ item }: { item: RetagReviewItem }) {
   const unusedOldTags = item.oldTags.filter(t => !activeTags.includes(t));
 
   const handleAdd = (tag: string) => {
-    const t = tag.trim().replace(/^,+|,+$/g, '');
-    if (t && !activeTags.includes(t)) {
-      setActiveTags([...activeTags, t]);
+    const newTags = tag.split(/[,，/|\\;；\n]/).map(t => t.trim().replace(/^,+|,+$/g, '')).filter(Boolean);
+    if (newTags.length > 0) {
+      setActiveTags(prev => {
+        const next = [...prev];
+        newTags.forEach(t => {
+          if (!next.includes(t)) next.push(t);
+        });
+        return next;
+      });
     }
     setInputValue('');
   };
@@ -61,16 +67,20 @@ function RetagReviewCard({ item }: { item: RetagReviewItem }) {
         <div className="flex items-center gap-3 min-w-0">
            <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 shadow-inner">
              <img 
-             src={avatarUrl || undefined} 
-             alt={charName} 
-             className="w-full h-full object-cover" 
-             referrerPolicy="no-referrer"
-             onError={(e) => {
-               if (e.currentTarget.src !== defaultFallback) {
-                 e.currentTarget.src = defaultFallback;
-               }
-             }}
-           />
+               src={avatarUrl || undefined} 
+               alt={charName} 
+               className={`w-full h-full ${
+                 isFallbackMiuImage(avatarUrl || defaultFallback)
+                   ? 'object-contain p-1.5 bg-white'
+                   : 'object-cover'
+               }`} 
+               referrerPolicy="no-referrer"
+               onError={(e) => {
+                 if (e.currentTarget.src !== defaultFallback) {
+                   e.currentTarget.src = defaultFallback;
+                 }
+               }}
+             />
            </div>
            <h4 className="font-bold text-lg text-white truncate [.light-theme_&]:!text-[#0f172a]">{charName}</h4>
         </div>
@@ -150,9 +160,16 @@ function RetagReviewCard({ item }: { item: RetagReviewItem }) {
             <input 
               id={`tag-input-${item.char.id}`}
               value={inputValue}
-              onChange={e => setInputValue(e.target.value)}
+              onChange={e => {
+                const val = e.target.value;
+                if (/[/|\\;；,，\n]/.test(val)) {
+                  handleAdd(val);
+                } else {
+                  setInputValue(val);
+                }
+              }}
               onKeyDown={e => {
-                if (e.key === 'Enter' || e.key === ',') {
+                if (e.key === 'Enter') {
                   e.preventDefault();
                   handleAdd(inputValue);
                 } else if (e.key === 'Backspace' && inputValue === '' && activeTags.length > 0) {
@@ -160,7 +177,7 @@ function RetagReviewCard({ item }: { item: RetagReviewItem }) {
                 }
               }}
               className="bg-transparent border-none outline-none text-sm sm:text-base text-white placeholder:text-white/30 [.light-theme_&]:placeholder:!text-[#94a3b8] min-w-[120px] flex-1 py-1 [.light-theme_&]:!text-[#0f172a]"
-              placeholder={activeTags.length === 0 ? "输入新标签并回车..." : "添加更多标签..."}
+              placeholder={activeTags.length === 0 ? "输入新标签（支持 / | ， ； 分隔）..." : "添加更多标签..."}
             />
           </div>
         </div>

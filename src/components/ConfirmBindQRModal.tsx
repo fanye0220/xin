@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Link2, ArrowRight, Check } from "lucide-react";
 import { CharacterCard, getCharacterBlob } from "../lib/db";
-import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from "../lib/avatar";
+import { getFallbackAvatar, isFallbackMiuImage, resolveAvatarUrl, safeCreateObjectURL } from "../lib/avatar";
 import { useBackHandler } from "../lib/useBackHandler";
 
 interface Props {
@@ -74,7 +74,11 @@ function ItemCardPreview({
         <img
           src={url || defaultFallback}
           alt={char.name}
-          className="w-full h-full object-cover"
+          className={`w-full h-full ${
+            isFallbackMiuImage(url || defaultFallback)
+              ? 'object-contain p-1 bg-white'
+              : 'object-cover'
+          }`}
           onError={(e) => {
             e.currentTarget.src = defaultFallback;
           }}

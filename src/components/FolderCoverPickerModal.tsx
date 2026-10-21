@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Image as ImageIcon, Sparkles, Upload, RotateCcw, Loader2, Search } from "lucide-react";
 import { Folder, CharacterCard, getCharacters, getCharacterThumb } from "../lib/db";
-import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from "../lib/avatar";
+import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL, isFallbackMiuImage } from "../lib/avatar";
 import { peekCachedUrl, putCachedBlobUrl } from "../lib/thumbCache";
 import { useBackHandler } from "../lib/useBackHandler";
 
@@ -79,7 +79,11 @@ const CoverPickerItem = React.memo(function CoverPickerItem({
           alt={char.name}
           loading="lazy"
           decoding="async"
-          className="w-full h-full object-cover pointer-events-none group-hover:scale-105 transition duration-300"
+          className={`w-full h-full pointer-events-none group-hover:scale-105 transition duration-300 ${
+            isFallbackMiuImage(url)
+              ? 'object-contain p-2 bg-white'
+              : 'object-cover'
+          }`}
           onError={(e) => {
             e.currentTarget.src = defaultFallback;
           }}

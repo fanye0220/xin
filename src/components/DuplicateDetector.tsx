@@ -1,4 +1,4 @@
-import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
+import { getFallbackAvatar, isFallbackMiuImage, resolveAvatarUrl } from '../lib/avatar';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -257,11 +257,16 @@ function CharAvatarImg({ char, className }: { char: CharacterCard, className: st
     return () => { isMounted = false; };
   }, [char.id, char.updatedAt, char.localFilePath, char.avatarBlob]);
 
+  const isFallback = isFallbackMiuImage(url || defaultFallback);
+  const finalClass = isFallback
+    ? `${className.replace(/\bobject-cover\b/g, '')} object-contain p-1.5 bg-white`
+    : className;
+
   return (
     <img 
       src={url || undefined} 
       alt={char.name} 
-      className={className} 
+      className={finalClass} 
       loading="lazy"
       decoding="async"
       referrerPolicy="no-referrer" 

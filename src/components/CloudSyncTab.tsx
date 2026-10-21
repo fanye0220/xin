@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { isFallbackMiuImage } from '../lib/avatar';
 import { Capacitor } from '@capacitor/core';
 import { Cloud, Download, Upload, Trash2, Github, Loader2, Search, Folder, ChevronRight, MessageSquare, FileText, FolderSync, Copy, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { listCloudCharacters, deleteCloudCharacter, syncFolderStructureToCloud } from '../lib/cloudDrive';
@@ -68,6 +69,52 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
   const [searchCloudQuery, setSearchCloudQuery] = useState("");
   const [currentCloudPath, setCurrentCloudPath] = useState<string>("");
   const [isDuplicateMode, setIsDuplicateMode] = useState(false);
+  const [cloudFilterMode, setCloudFilterMode] = useState<'all' | 'cloud_only' | 'local_exist'>('all');
+  const [localBaseNameSet, setLocalBaseNameSet] = useState<Set<string>>(new Set());
+  const [cloudLoadMsg, setCloudLoadMsg] = useState("");
+
+  const refreshLocalCardsIndex = async () => {
+    try {
+      // 只读本地「索引」：getCachedMeta 是常驻内存的元数据缓存，只有名字/标签这类小字段。
+      // 之前这里用 getCharacters(..., includeData:true)，会把整个卡库的卡一条条整张读出来，
+      // 卡一多就是「每次切页签 / 每次刷新 / 每次下载完都全库读一遍」，那才是卡顿和发热的来源。
+      const { getCachedMeta } = await import('../lib/db');
+      const res = await getCachedMeta();
+      const namesSet = new Set<string>();
+      res.forEach((m) => {
+        if (m.deletedAt) return;
+        const name1 = normalizeCardBaseName(m.name || "").toLowerCase();
+        if (name1) namesSet.add(name1);
+        // dupBaseName 是建索引时用同一个 normalizeCardBaseName 从「卡片名 / 卡内 data.name」
+        // 算好存下的（已小写），等价于原来的 c.data?.name，但不用把整张卡读出来。
+        const name2 = (m.dupBaseName || "").toLowerCase();
+        if (name2) namesSet.add(name2);
+      });
+      setLocalBaseNameSet(namesSet);
+    } catch (e) {
+      console.error("Failed to index local cards:", e);
+    }
+  };
+
+  useEffect(() => {
+    refreshLocalCardsIndex();
+  }, [activeTab]);
+
+  const checkIsCardLocal = (char: any) => {
+    const isChat = char.appProperties?.isChat === 'true';
+    const baseCharName = char.appProperties?.charName || char.name?.replace(/\.(zip|png|json|webp|jpg)$/i, '') || '';
+    const charName = isChat ? (char.name?.replace(/\.(jsonl|json)$/i, '') || baseCharName) : baseCharName;
+    const normName = normalizeCardBaseName(charName).toLowerCase();
+    return localBaseNameSet.has(normName);
+  };
+
+  const cloudOnlyCount = useMemo(() => {
+    return cloudChars.filter(c => !checkIsCardLocal(c)).length;
+  }, [cloudChars, localBaseNameSet]);
+
+  const localExistCount = useMemo(() => {
+    return cloudChars.filter(c => checkIsCardLocal(c)).length;
+  }, [cloudChars, localBaseNameSet]);
 
   const cloudDuplicateGroups = useMemo(() => {
     const map = new Map<string, any[]>();
@@ -125,6 +172,10 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
 
   const filteredCloudChars = useMemo(() => {
     return cloudChars.filter(char => {
+      const isLocal = checkIsCardLocal(char);
+      if (cloudFilterMode === 'cloud_only' && isLocal) return false;
+      if (cloudFilterMode === 'local_exist' && !isLocal) return false;
+
       if (searchCloudQuery) {
         const charName = char.appProperties?.charName || char.name?.replace(/\.(zip|png|json|webp|jpg)$/i, '') || '';
         return charName.toLowerCase().includes(searchCloudQuery.toLowerCase());
@@ -132,18 +183,21 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
       const charPath = char.appProperties?.folderPath || "";
       return charPath === currentCloudPath;
     });
-  }, [cloudChars, searchCloudQuery, currentCloudPath]);
-
+  }, [cloudChars, searchCloudQuery, currentCloudPath, cloudFilterMode, localBaseNameSet]);
 
   const loadCloudChars = async (t: string) => {
     setIsLoadingCloud(true);
+    setCloudLoadMsg("");
     try {
-        const list = await listCloudCharacters(t);
+        // 云端文件多的时候是「一页 1000 条」连着翻，这里把进度显示出来
+        const list = await listCloudCharacters(t, (msg) => setCloudLoadMsg(msg));
         setCloudChars(list);
+        refreshLocalCardsIndex();
     } catch (err: any) {
         console.error('List cloud chars failed:', err);
     } finally {
         setIsLoadingCloud(false);
+        setCloudLoadMsg("");
     }
   };
 
@@ -214,6 +268,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
       }
 
       invalidateCache();
+      await refreshLocalCardsIndex();
       const extraCountNotice = [
         chats && chats.length > 0 ? `${chats.length} 条对话` : null,
         memos && memos.length > 0 ? `${memos.length} 条备忘录/剧场` : null,
@@ -856,7 +911,53 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
         <div className="space-y-6">
           
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-            <h3 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a] shrink-0">我的云端角色卡</h3>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a] shrink-0">我的云端角色卡</h3>
+              
+              {/* 本地对比筛选胶囊 (全部 / 未在本地 / 本地已有) */}
+              {!isDuplicateMode && (
+                <div className="flex items-center gap-0.5 bg-black/20 p-1 rounded-full border border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] shrink-0 text-xs font-medium shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => setCloudFilterMode('all')}
+                    className={`px-2.5 py-0.5 rounded-full transition cursor-pointer whitespace-nowrap ${
+                      cloudFilterMode === 'all'
+                        ? 'bg-white/20 text-white font-bold [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]'
+                        : 'text-slate-400 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]'
+                    }`}
+                  >
+                    全部 ({cloudChars.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCloudFilterMode('cloud_only')}
+                    className={`px-2.5 py-0.5 rounded-full transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                      cloudFilterMode === 'cloud_only'
+                        ? 'bg-white/20 text-white font-bold [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]'
+                        : 'text-slate-400 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]'
+                    }`}
+                    title="只看云端存在但本地数据库尚未下载的角色卡"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />
+                    <span>未在本地 ({cloudOnlyCount})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCloudFilterMode('local_exist')}
+                    className={`px-2.5 py-0.5 rounded-full transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                      cloudFilterMode === 'local_exist'
+                        ? 'bg-white/20 text-white font-bold [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]'
+                        : 'text-slate-400 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a]'
+                    }`}
+                    title="只看本地数据库已存在的云端卡片"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                    <span>本地已有 ({localExistCount})</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
             <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
               <div className="relative flex-1 sm:w-44 min-w-[110px]">
                 <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
@@ -901,7 +1002,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
             {isLoadingCloud ? (
               <div className="flex flex-col items-center justify-center py-12 text-white/50 [.light-theme_&]:!text-slate-600">
                 <Loader2 className="w-8 h-8 animate-spin mb-4" />
-                <p>正在拉取云端卡库...</p>
+                <p>{cloudLoadMsg || '正在拉取云端卡库...'}</p>
               </div>
             ) : cloudChars.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-white/40 [.light-theme_&]:!text-slate-500">
@@ -913,20 +1014,20 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
               /* 云端同名查重模式 */
               <div className="space-y-3.5">
                 {/* 顶部精简查重横幅 */}
-                <div className="px-3.5 py-2 sm:py-2.5 rounded-xl border flex items-center justify-between gap-2 bg-blue-500/10 border-blue-500/20 text-blue-200 [.light-theme_&]:!bg-[#f0f7ff] [.light-theme_&]:!border-[#bfdbfe] [.light-theme_&]:!text-[#1e3a8a]">
+                <div className="px-3.5 py-2 sm:py-2.5 rounded-xl border flex items-center justify-between gap-2 bg-white/5 border-white/10 text-white/90 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] shadow-2xs">
                   <div className="flex items-center gap-2 min-w-0 flex-wrap sm:flex-nowrap">
-                    <Copy className="w-4 h-4 shrink-0 text-blue-400 [.light-theme_&]:!text-[#2563eb]" />
+                    <Copy className="w-4 h-4 shrink-0 text-slate-300 [.light-theme_&]:!text-[#475569]" />
                     <span className="font-bold text-xs sm:text-sm shrink-0 text-white [.light-theme_&]:!text-[#0f172a]">查重模式</span>
-                    <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold shrink-0 bg-blue-500/25 text-blue-200 border border-blue-500/30 [.light-theme_&]:!bg-[#dbeafe] [.light-theme_&]:!text-[#1e40af] [.light-theme_&]:!border-[#bfdbfe]">
+                    <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold shrink-0 bg-white/10 text-white/90 border border-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#334155] [.light-theme_&]:!border-[#e2e8f0]">
                       {cloudDuplicateGroups.length} 组 · {totalDuplicateCards} 副本
                     </span>
-                    <span className="text-[11px] hidden sm:inline text-blue-300/80 [.light-theme_&]:!text-[#475569] truncate">
+                    <span className="text-[11px] hidden sm:inline text-slate-400 [.light-theme_&]:!text-[#64748b] truncate">
                       比对上传时间，清理历史旧卡
                     </span>
                   </div>
                   <button
                     onClick={() => setIsDuplicateMode(false)}
-                    className="px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition cursor-pointer bg-white/10 hover:bg-white/20 text-white border border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:hover:!bg-[#f8fafc] shadow-2xs whitespace-nowrap"
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition cursor-pointer bg-white/10 hover:bg-white/20 text-white border border-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:hover:!bg-[#e2e8f0] shadow-2xs whitespace-nowrap"
                   >
                     返回全部
                   </button>
@@ -961,7 +1062,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                         {/* Group Header */}
                         <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0]">
                           <div className="flex items-center gap-2 min-w-0">
-                            <span className="w-2 h-2 rounded-full shrink-0 bg-blue-400 [.light-theme_&]:!bg-blue-600" />
+                            <span className="w-2 h-2 rounded-full shrink-0 bg-slate-400 [.light-theme_&]:!bg-[#64748b]" />
                             <h4 className="font-bold text-sm sm:text-base truncate text-white [.light-theme_&]:!text-[#0f172a]">
                               {group.name}
                             </h4>
@@ -983,11 +1084,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                             return (
                               <div 
                                 key={char.id}
-                                className={`rounded-xl p-3 border flex flex-col justify-between gap-2.5 transition ${
-                                  isLatest 
-                                    ? 'bg-slate-900/80 border-blue-500/40 shadow-xs [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#93c5fd] [.light-theme_&]:!shadow-xs'
-                                    : 'bg-slate-900/40 border-white/10 hover:border-white/20 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!border-[#cbd5e1]'
-                                }`}
+                                className="rounded-xl p-3 border flex flex-col justify-between gap-2.5 transition bg-slate-900/40 border-white/10 hover:border-white/20 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!shadow-2xs"
                               >
                                 <div className="flex items-start gap-2.5 sm:gap-3 min-w-0">
                                   {/* Thumbnail */}
@@ -996,7 +1093,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                                       <img 
                                         src={char.thumbnailLink} 
                                         alt={charName} 
-                                        className="w-full h-full object-cover" 
+                                        className={`w-full h-full ${isFallbackMiuImage(char.thumbnailLink) ? "object-contain p-1 bg-white" : "object-cover"}`}
                                         referrerPolicy="no-referrer" 
                                       />
                                     ) : (
@@ -1014,10 +1111,21 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                                           最新上传
                                         </span>
                                       ) : (
-                                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-500/15 text-amber-400 border border-amber-500/25 shrink-0 [.light-theme_&]:!bg-[#fffbeb] [.light-theme_&]:!text-[#b45309] [.light-theme_&]:!border-[#fde68a]">
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 bg-white/10 text-slate-300 border border-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#64748b] [.light-theme_&]:!border-[#e2e8f0]">
                                           较旧副本
                                         </span>
                                       )}
+
+                                      {checkIsCardLocal(char) ? (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 select-none bg-white/10 text-slate-300 border border-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#64748b] [.light-theme_&]:!border-[#e2e8f0]" title="本地数据库已有此卡片">
+                                          已在本地
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 select-none bg-white/10 text-slate-300 border border-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#64748b] [.light-theme_&]:!border-[#e2e8f0]" title="仅存在于云端，本地尚未下载">
+                                          未在本地
+                                        </span>
+                                      )}
+
                                       <span className="text-xs font-semibold truncate text-white [.light-theme_&]:!text-[#0f172a]" title={charName}>
                                         {charName}
                                       </span>
@@ -1025,7 +1133,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
 
                                     <div className="text-[11px] space-y-0.5 text-slate-300 [.light-theme_&]:!text-slate-600">
                                       <div className="flex items-center gap-1 text-[11px] font-mono">
-                                        <span className={isLatest ? 'text-emerald-400 font-semibold [.light-theme_&]:!text-[#047857]' : 'text-slate-300 [.light-theme_&]:!text-[#475569]'}>
+                                        <span className="text-slate-300 [.light-theme_&]:!text-[#475569]">
                                           上传：{uploadDate ? uploadDate.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '未知时间'}
                                         </span>
                                       </div>
@@ -1149,7 +1257,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                             <img 
                               src={char.thumbnailLink} 
                               alt={charName} 
-                              className="w-full h-full object-cover group-hover:scale-105 transition duration-500" 
+                              className={`w-full h-full group-hover:scale-105 transition duration-500 ${isFallbackMiuImage(char.thumbnailLink) ? "object-contain p-2 bg-white" : "object-cover"}`}
                               referrerPolicy="no-referrer" 
                               onError={(e) => {
                                 e.currentTarget.style.display = 'none';
@@ -1170,12 +1278,28 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                         
                         {(() => {
                           const badge = getCardBadgeInfo(char);
-                          if (!badge) return null;
+                          const isLocal = checkIsCardLocal(char);
                           return (
-                            <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-md text-[10px] font-medium text-white/90 border border-white/10 uppercase flex items-center gap-1.5 shadow-sm pointer-events-none select-none">
-                              <span className={`w-1.5 h-1.5 rounded-full ${badge.dotColor} shrink-0`} />
-                              <span>{badge.label}</span>
-                            </div>
+                            <>
+                              {badge && (
+                                <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-md text-[10px] font-medium text-white/90 border border-white/10 uppercase flex items-center gap-1.5 shadow-sm pointer-events-none select-none">
+                                  <span className={`w-1.5 h-1.5 rounded-full ${badge.dotColor} shrink-0`} />
+                                  <span>{badge.label}</span>
+                                </div>
+                              )}
+
+                              {isLocal ? (
+                                <div className="absolute top-2 right-2 z-10 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-md text-[10px] font-medium text-white/90 border border-white/10 flex items-center gap-1.5 shadow-xs pointer-events-none select-none" title="本地数据库已有此卡片">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                                  <span>已在本地</span>
+                                </div>
+                              ) : (
+                                <div className="absolute top-2 right-2 z-10 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-md text-[10px] font-medium text-white/90 border border-white/10 flex items-center gap-1.5 shadow-xs pointer-events-none select-none" title="仅在云端存储，本地尚未下载">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />
+                                  <span>未在本地</span>
+                                </div>
+                              )}
+                            </>
                           );
                         })()}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-60 group-hover:opacity-80 transition pointer-events-none" />

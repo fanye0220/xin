@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Folder } from "../lib/db";
-import { getFallbackAvatar, safeCreateObjectURL } from "../lib/avatar";
+import { getFallbackAvatar, isFallbackMiuImage, safeCreateObjectURL } from "../lib/avatar";
 import { Folder as FolderIcon, Sparkles, Plus } from "lucide-react";
 
 export interface FolderPreviewItem {
@@ -58,7 +58,9 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
       return 0;
     });
 
-    if (customAvatarUrl) {
+    const isCustomSvg = customAvatarUrl && customAvatarUrl.startsWith('data:image/svg+xml');
+
+    if (customAvatarUrl && !isCustomSvg) {
       const list: FolderPreviewItem[] = [{ url: customAvatarUrl, seed: folder.id }];
       if (sortedPreviews && sortedPreviews.length > 0) {
         const backPreview = sortedPreviews.find((p) => {
@@ -105,7 +107,11 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
                   alt=""
                   loading="lazy"
                   decoding="async"
-                  className="w-full h-full object-cover pointer-events-none"
+                  className={`w-full h-full pointer-events-none ${
+                    isFallbackMiuImage(items[1].url)
+                      ? 'object-contain p-1 bg-white'
+                      : 'object-cover'
+                  }`}
                   onError={(e) => {
                     if (items[1]?.seed) {
                       const category = items[1].tags?.join(",") || (items[1].isTool ? "tool" : undefined);
@@ -113,6 +119,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
                     }
                   }}
                 />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/30 to-transparent [.light-theme_&]:from-black/50 [.light-theme_&]:via-black/15 [.light-theme_&]:to-transparent pointer-events-none rounded-lg" />
               </div>
             )}
             {/* Front Card */}
@@ -130,7 +137,11 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
                 alt=""
                 loading="lazy"
                 decoding="async"
-                className="w-full h-full object-cover pointer-events-none"
+                className={`w-full h-full pointer-events-none ${
+                  isFallbackMiuImage(items[0].url)
+                    ? 'object-contain p-1 bg-white'
+                    : 'object-cover'
+                }`}
                 onError={(e) => {
                   if (items[0]?.seed) {
                     const category = items[0].tags?.join(",") || (items[0].isTool ? "tool" : undefined);
@@ -185,7 +196,11 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
               alt=""
               loading="lazy"
               decoding="async"
-              className="w-full h-full object-cover pointer-events-none"
+              className={`w-full h-full pointer-events-none transition-all duration-300 ${
+                isFallbackMiuImage(items[1].url)
+                  ? 'object-contain p-4 bg-white'
+                  : 'object-cover'
+              }`}
               onError={(e) => {
                 if (items[1]?.seed) {
                   const category = items[1].tags?.join(",") || (items[1].isTool ? "tool" : undefined);
@@ -193,6 +208,8 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
                 }
               }}
             />
+            {/* 卡片同款渐变沉浸遮罩 (底部渐变过渡, 拒绝呆板实色) */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent [.light-theme_&]:from-black/50 [.light-theme_&]:via-black/20 [.light-theme_&]:to-transparent pointer-events-none rounded-2xl transition-opacity" />
             {isSelected && (
               <div className="absolute inset-0 bg-black/45 rounded-2xl pointer-events-none z-10 transition-opacity" />
             )}
@@ -210,7 +227,11 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
               alt=""
               loading="lazy"
               decoding="async"
-              className="w-full h-full object-cover pointer-events-none"
+              className={`w-full h-full pointer-events-none ${
+                isFallbackMiuImage(items[0].url)
+                  ? 'object-contain p-4 bg-white'
+                  : 'object-cover'
+              }`}
               onError={(e) => {
                 if (items[0]?.seed) {
                   const category = items[0].tags?.join(",") || (items[0].isTool ? "tool" : undefined);

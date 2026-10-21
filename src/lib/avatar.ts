@@ -1,43 +1,70 @@
-import { createAvatar } from '@dicebear/core';
-import { bottts } from '@dicebear/collection';
-
-export function getFallbackAvatar(seed: string, category?: string): string {
-  const cat = (category || '').toLowerCase();
-  
-  try {
-    const avatar = createAvatar(bottts, {
-      seed: seed || 'default',
-      size: 100,
-      backgroundColor: ['f1f5f9', 'e2e8f0', 'eff6ff', 'f0fdf4', 'faf5ff', 'fff7ed'],
-      backgroundType: ['solid'],
-    });
-    const svgStr = avatar.toString();
-    // Use standard URL encoding for SVG data URI, which has the widest compatibility across mobile WebViews
-    return `data:image/svg+xml,${encodeURIComponent(svgStr)}`;
-  } catch {
-    const fallbackRobot = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="24" fill="#f1f5f9"/><rect x="28" y="32" width="44" height="36" rx="10" fill="#6366f1"/><circle cx="40" cy="48" r="5" fill="#ffffff"/><circle cx="60" cy="48" r="5" fill="#ffffff"/><rect x="42" y="58" width="16" height="4" rx="2" fill="#ffffff"/><rect x="47" y="22" width="6" height="10" rx="3" fill="#6366f1"/><circle cx="50" cy="20" r="4" fill="#6366f1"/></svg>';
-    return `data:image/svg+xml,${encodeURIComponent(fallbackRobot)}`;
+function stringToHash(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
   }
+  return Math.abs(hash);
 }
 
-export function resolveAvatarUrl(avatarFallback: string | undefined | null, seed: string, category?: string): string {
+const PALETTES = [
+  { name: 'Violet Dusk', start: '#6366f1', end: '#a855f7' },
+  { name: 'Slate Graphite', start: '#475569', end: '#1e293b' },
+  { name: 'Cobalt Sky', start: '#0284c7', end: '#2563eb' },
+  { name: 'Emerald Jade', start: '#059669', end: '#0f766e' },
+  { name: 'Amber Flare', start: '#d97706', end: '#ea580c' },
+  { name: 'Crimson Rose', start: '#e11d48', end: '#9f1239' },
+  { name: 'Royal Indigo', start: '#4f46e5', end: '#3730a3' },
+  { name: 'Obsidian Dark', start: '#27272a', end: '#09090b' },
+  { name: 'Aether Teal', start: '#0d9488', end: '#115e59' },
+  { name: 'Orchid Purple', start: '#9333ea', end: '#581c87' },
+  { name: 'Midnight Cyan', start: '#0891b2', end: '#155e75' },
+  { name: 'Champagne Taupe', start: '#78716c', end: '#44403c' },
+];
+
+export function isFallbackMiuImage(url: string | undefined | null): boolean {
+  if (!url || typeof url !== 'string') return true;
+  const lower = url.toLowerCase();
+  return (
+    lower.includes('miu') ||
+    lower.includes('dicebear') ||
+    lower.includes('bottts') ||
+    lower.startsWith('data:image/svg')
+  );
+}
+
+export function getFallbackAvatar(seed?: string, category?: string): string {
+  // 使用用户最新指定的圆润可爱版 miu 官方图案
+  return '/assets/aistudio/_______miu__5866e70e.png';
+}
+
+export function resolveAvatarUrl(avatarFallback: string | undefined | null, seed?: string, category?: string): string {
   if (
     avatarFallback &&
     typeof avatarFallback === 'string' &&
     avatarFallback.trim().length > 0 &&
     avatarFallback !== 'undefined' &&
-    avatarFallback !== 'null' &&
-    !avatarFallback.includes('api.dicebear.com') &&
-    (avatarFallback.startsWith('data:image/') || 
-     avatarFallback.startsWith('http://') || 
-     avatarFallback.startsWith('https://') || 
-     avatarFallback.startsWith('blob:'))
+    avatarFallback !== 'null'
   ) {
-    // 强制修复本地 IndexedDB 里残留的老版本带有 charset=utf-8 / base64 声明的 bug 图片
-    if (avatarFallback.startsWith('data:image/svg+xml;charset=utf-8,') || avatarFallback.startsWith('data:image/svg+xml;base64,')) {
+    const lower = avatarFallback.toLowerCase();
+    // 只要包含任何老版本/占位符标志（miu, bottts, dicebear, svg）, 统一归一化返回最新的 5866e70e miu 官方图
+    if (
+      lower.includes('miu') ||
+      lower.includes('bottts') ||
+      lower.includes('dicebear') ||
+      lower.startsWith('data:image/svg')
+    ) {
       return getFallbackAvatar(seed, category);
     }
-    return avatarFallback;
+    // 只有真正的 HTTP(S)/Blob/Data(PNG/JPG) 照片才原样返回
+    if (
+      avatarFallback.startsWith('http://') || 
+      avatarFallback.startsWith('https://') || 
+      avatarFallback.startsWith('blob:') ||
+      avatarFallback.startsWith('data:image/')
+    ) {
+      return avatarFallback;
+    }
   }
   return getFallbackAvatar(seed, category);
 }

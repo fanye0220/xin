@@ -1,4 +1,4 @@
-import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from "./avatar";
+import { getFallbackAvatar, isFallbackMiuImage, resolveAvatarUrl, safeCreateObjectURL } from "./avatar";
 import { openDB, DBSchema, IDBPDatabase } from "idb";
 import { getLocalImageUrl, isAndroid } from "./appBridge";
 import { sanitizeChatMessages } from "./chatParse";
@@ -804,24 +804,18 @@ export async function getFolderPreviews(
           return aIsTool ? 1 : -1;
         }
 
-        // 2. 真实图片头像优先于无头像/DiceBear机器人占位符
+        // 2. 真实图片头像优先于无头像/MIU 占位符
         const aHasRealAvatar = Boolean(
           a.localFilePath ||
           a.hasBlobsSeparated ||
           (a as any).avatarBlob ||
-          (a.avatarUrlFallback &&
-            !a.avatarUrlFallback.includes('dicebear') &&
-            !a.avatarUrlFallback.includes('data:image/svg+xml') &&
-            !a.avatarUrlFallback.startsWith('data:image/svg+xml'))
+          (a.avatarUrlFallback && !isFallbackMiuImage(a.avatarUrlFallback))
         );
         const bHasRealAvatar = Boolean(
           b.localFilePath ||
           b.hasBlobsSeparated ||
           (b as any).avatarBlob ||
-          (b.avatarUrlFallback &&
-            !b.avatarUrlFallback.includes('dicebear') &&
-            !b.avatarUrlFallback.includes('data:image/svg+xml') &&
-            !b.avatarUrlFallback.startsWith('data:image/svg+xml'))
+          (b.avatarUrlFallback && !isFallbackMiuImage(b.avatarUrlFallback))
         );
         if (aHasRealAvatar !== bHasRealAvatar) {
           return aHasRealAvatar ? -1 : 1;
@@ -840,7 +834,7 @@ export async function getFolderPreviews(
 
       const topMetas = metas.slice(0, 4);
 
-      // 只读取前 4 张卡的轻量 meta, 再按需取头像 blob, 不再全量读取角色 data
+      // 只读取前 4 张卡的轻量 meta, 再按需取头像/缩略图 blob, 不再全量读取角色 data
       const topBlobs = await Promise.all(
         topMetas.map(async (meta) => {
           let url: string | undefined = undefined;
@@ -849,25 +843,19 @@ export async function getFolderPreviews(
               meta.localFilePath,
               meta.updatedAt || meta.createdAt,
             );
-          } else if (meta.hasBlobsSeparated) {
-            const blobs = await db.get("blobs", meta.id);
-            if (blobs?.avatarBlob) {
-              const { putCachedBlobUrl } = await import("./thumbCache");
-              url = putCachedBlobUrl(`folder_preview_${meta.id}`, blobs.avatarBlob);
-            }
           } else {
-            const legacyChar = await db.get("characters", meta.id);
-            if (legacyChar?.avatarBlob) {
-              const { putCachedBlobUrl } = await import("./thumbCache");
-              url = putCachedBlobUrl(`folder_preview_${meta.id}`, legacyChar.avatarBlob);
+            try {
+              const thumbBlob = await getCharacterThumb(meta.id);
+              if (thumbBlob) {
+                const { putCachedBlobUrl } = await import("./thumbCache");
+                url = putCachedBlobUrl(`folder_preview_${meta.id}`, thumbBlob);
+              }
+            } catch {
+              // ignore
             }
           }
           let fallbackUrlStr = meta.avatarUrlFallback;
-          if (fallbackUrlStr && (
-              fallbackUrlStr.includes("api.dicebear.com") || 
-              fallbackUrlStr.startsWith('data:image/svg+xml;charset=utf-8,') || 
-              fallbackUrlStr.startsWith('data:image/svg+xml;base64,')
-          )) {
+          if (fallbackUrlStr && isFallbackMiuImage(fallbackUrlStr)) {
             fallbackUrlStr = undefined;
           }
           return {

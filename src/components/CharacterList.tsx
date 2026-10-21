@@ -1,6 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { CURRENT_APP_VERSION } from "../config/version";
-import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL } from "../lib/avatar";
+import { getFallbackAvatar, isFallbackMiuImage, resolveAvatarUrl, safeCreateObjectURL } from "../lib/avatar";
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Masonry from 'react-masonry-css';
@@ -4317,16 +4317,17 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
         onTouchCancel={handlePointerEnd}
         onTouchMove={handlePointerMove}
         onMouseDown={handlePointerStart}
-        onMouseMove={handlePointerMove}
-        onMouseUp={handlePointerEnd}
-        onMouseLeave={handlePointerEnd}
         className="relative flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-colors duration-150 select-none bg-white/5 hover:bg-white/10 border border-transparent"
       >
-        <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 relative">
+        <div className="w-12 h-12 rounded-xl sm:rounded-2xl overflow-hidden shrink-0 relative bg-[#f0f4f8] [.light-theme_&]:bg-[#f0f4f8] dark:bg-[#1e2430] border border-slate-200/60 dark:border-white/10 shadow-xs flex items-center justify-center">
           <img
             src={url || undefined}
             alt={char.name}
-            className="w-full h-full object-cover pointer-events-none"
+            className={`w-full h-full pointer-events-none ${
+              isFallbackMiuImage(url)
+                ? 'object-contain p-2 bg-white'
+                : 'object-cover'
+            }`}
             onError={() => {
               if (url === defaultFallback) return;
               if (fallbackObjectUrlRef.current) {
@@ -4460,7 +4461,11 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
         alt={char.name}
         loading="lazy"
         decoding="async"
-        className="w-full h-full object-cover pointer-events-none"
+        className={`w-full h-full pointer-events-none ${
+          isFallbackMiuImage(url)
+            ? 'object-contain p-6 sm:p-8 bg-white'
+            : 'object-cover'
+        }`}
         onError={() => {
           if (url === defaultFallback) return;
           if (fallbackObjectUrlRef.current) {
