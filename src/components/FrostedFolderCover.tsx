@@ -8,7 +8,52 @@ export interface FolderPreviewItem {
   seed?: string;
   tags?: string[];
   isTool?: boolean;
+  /** 上游已经判定这张就是「默认占位图」(不是真卡片图) */
+  isFallback?: boolean;
 }
+
+/**
+ * 封面用的图片。
+ *
+ * 特意做成带 state 的组件: 以前的兜底是直接改 DOM 的 img.src, className 还停在
+ * 按旧 URL 算出来的 object-cover 上 —— 于是加载失败时占位图会被拉满裁切成巨图。
+ * 走 state 之后 className 会跟着重算, 占位图永远是"小白底 + 居中"。
+ */
+const CoverImage = React.memo(function CoverImage({
+  item,
+  padClass,
+}: {
+  item?: FolderPreviewItem;
+  padClass: string;
+}) {
+  const seed = item?.seed;
+  const initialUrl = item?.url || '';
+  const initialFallback = Boolean(item?.isFallback) || isFallbackMiuImage(initialUrl);
+  const [src, setSrc] = useState(initialUrl);
+  const [isFallback, setIsFallback] = useState(initialFallback);
+
+  useEffect(() => {
+    setSrc(initialUrl);
+    setIsFallback(Boolean(item?.isFallback) || isFallbackMiuImage(initialUrl));
+  }, [initialUrl, item?.isFallback, seed]);
+
+  return (
+    <img
+      src={src || undefined}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className={`w-full h-full pointer-events-none ${
+        isFallback ? `object-contain ${padClass} bg-white` : 'object-cover'
+      }`}
+      onError={() => {
+        if (isFallback) return;
+        setSrc(getFallbackAvatar(seed));
+        setIsFallback(true);
+      }}
+    />
+  );
+});
 
 interface Props {
   folder: Folder;
@@ -76,6 +121,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
             seed: seedStr,
             tags: typeof backPreview === "object" ? backPreview.tags : undefined,
             isTool: typeof backPreview === "object" ? backPreview.isTool : undefined,
+            isFallback: typeof backPreview === "object" ? backPreview.isFallback : undefined,
           });
         }
       }
@@ -102,23 +148,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
                 className="absolute w-8 h-10 rounded-lg overflow-hidden shadow-xs border-0 outline-none"
                 style={{ transform: "rotate(-5deg) translateX(-3px)", willChange: "transform" }}
               >
-                <img
-                  src={items[1].url}
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  className={`w-full h-full pointer-events-none ${
-                    isFallbackMiuImage(items[1].url)
-                      ? 'object-contain p-1 bg-white'
-                      : 'object-cover'
-                  }`}
-                  onError={(e) => {
-                    if (items[1]?.seed) {
-                      const category = items[1].tags?.join(",") || (items[1].isTool ? "tool" : undefined);
-                      e.currentTarget.src = getFallbackAvatar(items[1].seed, category);
-                    }
-                  }}
-                />
+                <CoverImage item={items[1]} padClass="p-1" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/30 to-transparent [.light-theme_&]:from-black/50 [.light-theme_&]:via-black/15 [.light-theme_&]:to-transparent pointer-events-none rounded-lg" />
               </div>
             )}
@@ -132,23 +162,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
                 willChange: "transform",
               }}
             >
-              <img
-                src={items[0].url}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                className={`w-full h-full pointer-events-none ${
-                  isFallbackMiuImage(items[0].url)
-                    ? 'object-contain p-1 bg-white'
-                    : 'object-cover'
-                }`}
-                onError={(e) => {
-                  if (items[0]?.seed) {
-                    const category = items[0].tags?.join(",") || (items[0].isTool ? "tool" : undefined);
-                    e.currentTarget.src = getFallbackAvatar(items[0].seed, category);
-                  }
-                }}
-              />
+              <CoverImage item={items[0]} padClass="p-1" />
             </div>
           </div>
         ) : (
@@ -191,23 +205,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
               willChange: "transform",
             }}
           >
-            <img
-              src={items[1].url}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              className={`w-full h-full pointer-events-none transition-all duration-300 ${
-                isFallbackMiuImage(items[1].url)
-                  ? 'object-contain p-4 bg-white'
-                  : 'object-cover'
-              }`}
-              onError={(e) => {
-                if (items[1]?.seed) {
-                  const category = items[1].tags?.join(",") || (items[1].isTool ? "tool" : undefined);
-                  e.currentTarget.src = getFallbackAvatar(items[1].seed, category);
-                }
-              }}
-            />
+            <CoverImage item={items[1]} padClass="p-4" />
             {/* 卡片同款渐变沉浸遮罩 (底部渐变过渡, 拒绝呆板实色) */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent [.light-theme_&]:from-black/50 [.light-theme_&]:via-black/20 [.light-theme_&]:to-transparent pointer-events-none rounded-2xl transition-opacity" />
             {isSelected && (
@@ -222,23 +220,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
           style={{ zIndex: 2, willChange: "transform" }}
         >
           {hasFrontCard ? (
-            <img
-              src={items[0].url}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              className={`w-full h-full pointer-events-none ${
-                isFallbackMiuImage(items[0].url)
-                  ? 'object-contain p-4 bg-white'
-                  : 'object-cover'
-              }`}
-              onError={(e) => {
-                if (items[0]?.seed) {
-                  const category = items[0].tags?.join(",") || (items[0].isTool ? "tool" : undefined);
-                  e.currentTarget.src = getFallbackAvatar(items[0].seed, category);
-                }
-              }}
-            />
+            <CoverImage item={items[0]} padClass="p-4" />
           ) : (
             /* Empty Card Background */
             <div className="w-full h-full rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xs flex flex-col items-center justify-center p-2 text-center text-white/40 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-slate-400">
@@ -268,6 +250,9 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
     const u1 = typeof p1[i] === "string" ? p1[i] : (p1[i] as any)?.url;
     const u2 = typeof p2[i] === "string" ? p2[i] : (p2[i] as any)?.url;
     if (u1 !== u2) return false;
+    const f1 = typeof p1[i] === "string" ? undefined : (p1[i] as any)?.isFallback;
+    const f2 = typeof p2[i] === "string" ? undefined : (p2[i] as any)?.isFallback;
+    if (Boolean(f1) !== Boolean(f2)) return false;
   }
 
   return true;

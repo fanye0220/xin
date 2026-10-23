@@ -1,3 +1,5 @@
+import { getPlaceholderUrl } from './placeholder';
+
 function stringToHash(str: string): number {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -24,7 +26,20 @@ const PALETTES = [
 
 export function isFallbackMiuImage(url: string | undefined | null): boolean {
   if (!url || typeof url !== 'string') return true;
+  // 用户当前生效的默认占位图(内置 or 自己换的那张)一律算占位图
+  if (url === getPlaceholderUrl()) return true;
   const lower = url.toLowerCase();
+  // 安卓本机卡片图: 卡片库就存在 Download/MIU/ 下, 路径里必然带 "miu",
+  // 但它是实实在在的真卡片图, 绝不能因为目录名被当成占位图 —— 否则整张图会被
+  // 塞进小白底里缩成一团(object-contain), 也就是"我的图怎么小小地出现"。
+  //   file 形式: https://appassets.androidplatform.net/localfile?path=/storage/.../MIU/x.png
+  //   Capacitor: https://localhost/_capacitor_file_/storage/.../MIU/x.png
+  if (
+    lower.includes('appassets.androidplatform.net/localfile') ||
+    lower.includes('/_capacitor_file_/')
+  ) {
+    return false;
+  }
   return (
     lower.includes('miu') ||
     lower.includes('dicebear') ||
@@ -34,8 +49,10 @@ export function isFallbackMiuImage(url: string | undefined | null): boolean {
 }
 
 export function getFallbackAvatar(seed?: string, category?: string): string {
-  // 使用用户最新指定的圆润可爱版 miu 官方图案
-  return '/assets/aistudio/_______miu__5866e70e.png';
+  // 全局唯一的默认占位图入口: 用户可以在「设置 → 关于 → 默认占位图」里把它换掉,
+  // 换一次所有用到默认图的地方(列表/详情/文件夹封面/TT拉取/云端/回收站/查重)全跟着变。
+  // 详见 lib/placeholder.ts
+  return getPlaceholderUrl();
 }
 
 export function resolveAvatarUrl(avatarFallback: string | undefined | null, seed?: string, category?: string): string {

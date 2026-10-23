@@ -61,7 +61,7 @@ import {
 } from "../lib/db";
 import { useInView } from "../lib/useInView";
 import { useContinuousInView } from "../lib/useContinuousInView";
-import { peekCachedUrl, putCachedBlobUrl } from "../lib/thumbCache";
+import { peekCachedUrl, putCachedBlobUrl, isCachedBlobUrl } from "../lib/thumbCache";
 import { useBackHandler } from "../lib/useBackHandler";
 import { getCardBadgeInfo } from "../lib/cardBadge";
 import { MoveToFolderModal } from "./MoveToFolderModal";
@@ -377,7 +377,7 @@ export function CharacterList({
         if (newItems.length === 0) {
           oldItems.forEach((it) => {
             const u = typeof it === "string" ? it : it?.url;
-            if (u && u.startsWith("blob:")) urlsToRevoke.push(u);
+            if (u && u.startsWith("blob:") && !isCachedBlobUrl(u)) urlsToRevoke.push(u);
           });
           continue;
         }
@@ -422,7 +422,7 @@ export function CharacterList({
       if (urlsToRevoke.length > 0) {
         requestAnimationFrame(() => {
           urlsToRevoke.forEach((u) => {
-            if (u && u.startsWith("blob:")) URL.revokeObjectURL(u);
+            if (u && u.startsWith("blob:") && !isCachedBlobUrl(u)) URL.revokeObjectURL(u);
           });
         });
       }
@@ -433,7 +433,8 @@ export function CharacterList({
   useEffect(() => {
     return () => {
       folderPreviewUrlsRef.current.forEach((u) => {
-        if (u.startsWith("blob:")) URL.revokeObjectURL(u);
+        // 缩略图缓存持有的 URL 交给 LRU 自己释放(否则会把缓存里的图释放掉, 图会裂)
+        if (u.startsWith("blob:") && !isCachedBlobUrl(u)) URL.revokeObjectURL(u);
       });
     };
   }, []);
@@ -793,6 +794,20 @@ export function CharacterList({
           const res = await fetch(char.avatarUrlFallback);
           if (res.ok) avatarBlob = await res.blob();
         } catch (e) {}
+      }
+      // 卡片本身没有真图(取到的是默认占位图)时不许当封面 ——
+      // 否则文件夹封面会被占位图顶掉, 而且永远显示不出来是"哪张卡"
+      if (avatarBlob) {
+        try {
+          const { isPlaceholderImageBlob } = await import('../lib/placeholder');
+          if (await isPlaceholderImageBlob(avatarBlob)) {
+            avatarBlob = undefined;
+          }
+        } catch {}
+      }
+      if (!avatarBlob) {
+        alert('这张卡没有自己的图，不能作为文件夹封面');
+        return;
       }
       if (avatarBlob) {
         let compressedBlob = avatarBlob;

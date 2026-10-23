@@ -68,6 +68,20 @@ export function putCachedStaticUrl(key: string, url: string): string {
   return url;
 }
 
+/**
+ * 这个 URL 是不是本缓存创建并持有的 blob URL。
+ * 页面侧(比如文件夹预览)要释放自己用过的 blob URL 时, 必须先用它过滤一遍 ——
+ * 缓存持有的 URL 由 LRU 淘汰时统一释放, 页面再 revoke 一次就"双重释放"了:
+ * 图片会当场裂掉退回占位图, 之后复用同一个缓存 URL 的地方也一直是裂的。
+ */
+export function isCachedBlobUrl(url: string): boolean {
+  if (!url || !url.startsWith("blob:")) return false;
+  for (const entry of cache.values()) {
+    if (entry.isBlobUrl && entry.url === url) return true;
+  }
+  return false;
+}
+
 /** 主动移除某一项(比如角色被删除时), 不等 LRU 自然淘汰 */
 export function releaseCachedUrl(key: string) {
   const entry = cache.get(key);

@@ -742,6 +742,8 @@ export interface FolderPreviewItem {
   seed: string;
   tags?: string[];
   isTool?: boolean;
+  /** 这张其实是「默认占位图」而不是真卡片图 —— 渲染端据此走 object-contain 小白底, 不会拉满 */
+  isFallback?: boolean;
 }
 
 export async function getFolderPreviews(
@@ -787,101 +789,126 @@ export async function getFolderPreviews(
         }
       }
 
-      // 核心排序：优先真正的角色卡（非工具 / 非 QR / 非纯配置），绝对不让工具卡/机器人占领封面！
-      metas.sort((a, b) => {
-        // 1. 严格排斥工具卡：非工具卡排在前面 (isTool, isQR, 或 tool/regex/preset/qr 标签)
-        const aIsTool = Boolean(
-          a.isTool ||
-          a.isQR ||
-          a.tags?.some((t: string) => ['tool', '工具', 'preset', 'regex', 'qr', '快捷回复'].includes(t.toLowerCase()))
+      // ── 封面挑选：相册式「顺位」 ────────────────────────────────────────
+      // 1) 工具卡 / 机器人 / 预设 / 二维码永远沉底，绝不当封面
+      // 2) 其余按你在列表里看到的顺序（跟随 tavern_sortBy；手动排序就是拖出来的顺序）
+      // 3) 顺着这个顺序往下找「真的有图」的第一张当封面，第二张当后面探出来的那张；
+      //    整个文件夹一张有图的都没有 → 才用默认占位图（miu）
+      //    ★ 以前掺了「最近改过的优先 / 收藏优先」，所以你点开或编辑一张卡封面就跳一次，
+      //      看着就是"一直在刷新"；现在只有你自己改顺序 / 换封面它才会变。
+      const isToolMeta = (m: CharMeta) =>
+        Boolean(
+          m.isTool ||
+            m.isQR ||
+            m.tags?.some((t: string) =>
+              ['tool', '工具', 'preset', 'regex', 'qr', '快捷回复'].includes(t.toLowerCase()),
+            ),
         );
-        const bIsTool = Boolean(
-          b.isTool ||
-          b.isQR ||
-          b.tags?.some((t: string) => ['tool', '工具', 'preset', 'regex', 'qr', '快捷回复'].includes(t.toLowerCase()))
-        );
-        if (aIsTool !== bIsTool) {
-          return aIsTool ? 1 : -1;
-        }
 
-        // 2. 真实图片头像优先于无头像/MIU 占位符
-        const aHasRealAvatar = Boolean(
-          a.localFilePath ||
-          a.hasBlobsSeparated ||
-          (a as any).avatarBlob ||
-          (a.avatarUrlFallback && !isFallbackMiuImage(a.avatarUrlFallback))
-        );
-        const bHasRealAvatar = Boolean(
-          b.localFilePath ||
-          b.hasBlobsSeparated ||
-          (b as any).avatarBlob ||
-          (b.avatarUrlFallback && !isFallbackMiuImage(b.avatarUrlFallback))
-        );
-        if (aHasRealAvatar !== bHasRealAvatar) {
-          return aHasRealAvatar ? -1 : 1;
-        }
+      let coverSortBy: SortOption = 'newest_import';
+      try {
+        const saved = localStorage.getItem('tavern_sortBy') as SortOption | null;
+        if (saved) coverSortBy = saved;
+      } catch {
+        // ignore
+      }
 
-        // 3. 用户收藏的卡片优先
-        const aFav = Boolean(a.isFavorite);
-        const bFav = Boolean(b.isFavorite);
-        if (aFav !== bFav) {
-          return aFav ? -1 : 1;
+      const sortedMetas = metas.slice().sort((a, b) => {
+        const aTool = isToolMeta(a);
+        const bTool = isToolMeta(b);
+        if (aTool !== bTool) return aTool ? 1 : -1;
+        switch (coverSortBy) {
+          case 'custom': {
+            const ao = a.sortOrder;
+            const bo = b.sortOrder;
+            if (ao !== undefined && bo !== undefined) return ao - bo;
+            if (ao !== undefined) return -1;
+            if (bo !== undefined) return 1;
+            return (b.createdAt || 0) - (a.createdAt || 0);
+          }
+          case 'oldest_import':
+            return (a.createdAt || 0) - (b.createdAt || 0);
+          case 'recently_modified':
+            return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+          case 'tokens_desc':
+            return (b.tokenCount || 0) - (a.tokenCount || 0);
+          case 'tokens_asc':
+            return (a.tokenCount || 0) - (b.tokenCount || 0);
+          case 'a_z':
+            return (a.name || '').localeCompare(b.name || '', 'zh-CN');
+          case 'z_a':
+            return (b.name || '').localeCompare(a.name || '', 'zh-CN');
+          case 'newest_import':
+          default:
+            return (b.createdAt || 0) - (a.createdAt || 0);
         }
-
-        // 4. 最新创建或修改的优先
-        return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
       });
 
-      const topMetas = metas.slice(0, 4);
-
-      // 只读取前 4 张卡的轻量 meta, 再按需取头像/缩略图 blob, 不再全量读取角色 data
-      const topBlobs = await Promise.all(
-        topMetas.map(async (meta) => {
-          let url: string | undefined = undefined;
-          if (meta.localFilePath) {
-            url = getLocalImageUrl(
-              meta.localFilePath,
-              meta.updatedAt || meta.createdAt,
-            );
-          } else {
-            try {
-              const thumbBlob = await getCharacterThumb(meta.id);
-              if (thumbBlob) {
-                const { putCachedBlobUrl } = await import("./thumbCache");
-                url = putCachedBlobUrl(`folder_preview_${meta.id}`, thumbBlob);
-              }
-            } catch {
-              // ignore
-            }
-          }
-          let fallbackUrlStr = meta.avatarUrlFallback;
-          if (fallbackUrlStr && isFallbackMiuImage(fallbackUrlStr)) {
-            fallbackUrlStr = undefined;
-          }
-          return {
-            url: url || fallbackUrlStr || getFallbackAvatar(meta.name || meta.id, meta.tags?.join(',') || (meta.isTool ? 'tool' : undefined)),
-            seed: meta.name || meta.id,
-            tags: meta.tags,
-            isTool: meta.isTool
-          };
-        }),
-      );
-
-      const validBlobs = topBlobs.filter(Boolean) as FolderPreviewItem[];
-      // 二次保障：确保排在最前面的封面绝对是真实角色卡，工具/机器人退居次选
-      validBlobs.sort((a, b) => {
-        if (Boolean(a.isTool) !== Boolean(b.isTool)) {
-          return a.isTool ? 1 : -1;
+      // 不用读库就能确定「这张有图」的地址：安卓本地图片文件 / 卡片自带的网络图
+      const cheapImageUrl = (m: CharMeta): string | undefined => {
+        if (m.localFilePath && /\.(png|jpe?g|webp|gif|bmp)$/i.test(m.localFilePath)) {
+          return getLocalImageUrl(m.localFilePath, m.updatedAt || m.createdAt);
         }
-        const aIsFallback = !a.url || a.url.startsWith('data:image/svg+xml');
-        const bIsFallback = !b.url || b.url.startsWith('data:image/svg+xml');
-        if (aIsFallback !== bIsFallback) {
-          return aIsFallback ? 1 : -1;
+        if (m.avatarUrlFallback && !isFallbackMiuImage(m.avatarUrlFallback)) {
+          return m.avatarUrlFallback;
         }
-        return 0;
-      });
+        return undefined;
+      };
 
-      previews[folderId] = validBlobs;
+      // 图存在库里的 blob（读库才知道有没有）: 按需读缩略图, getCharacterThumb 对
+      // 「头像其实就是占位图」的老卡会返回 null, 正好当成"没图"。
+      // 复用一个已经生成过的 URL, 避免每次刷新都重建 blob 地址把页面上那张图 revoke 掉。
+      const readThumbUrl = async (m: CharMeta): Promise<string | undefined> => {
+        try {
+          const { peekCachedUrl, putCachedBlobUrl } = await import("./thumbCache");
+          const cacheKey = `folder_preview_${m.id}:${m.updatedAt || m.createdAt || 0}`;
+          const cached = peekCachedUrl(cacheKey);
+          if (cached) return cached;
+          const thumbBlob = await getCharacterThumb(m.id);
+          if (!thumbBlob) return undefined;
+          return putCachedBlobUrl(cacheKey, thumbBlob) || undefined;
+        } catch {
+          return undefined;
+        }
+      };
+
+      const pickedItems: FolderPreviewItem[] = [];
+      let thumbBudget = 6; // 只有"不读库不知道有没有图"的卡才花额度, 本地图 / 网络图不花
+      let firstMeta: CharMeta | undefined;
+      for (const meta of sortedMetas) {
+        if (!firstMeta) firstMeta = meta;
+        if (pickedItems.length >= 2) break;
+        let url = cheapImageUrl(meta);
+        if (!url) {
+          if (thumbBudget <= 0) continue;
+          thumbBudget--;
+          url = await readThumbUrl(meta);
+        }
+        if (!url) continue;
+        pickedItems.push({
+          url,
+          seed: meta.name || meta.id,
+          tags: meta.tags,
+          isTool: meta.isTool,
+          isFallback: false,
+        });
+      }
+
+      // 一张有图的都没有: 顺位第一张卡走默认占位图(miu)
+      if (pickedItems.length === 0 && firstMeta) {
+        pickedItems.push({
+          url: getFallbackAvatar(
+            firstMeta.name || firstMeta.id,
+            firstMeta.tags?.join(',') || (firstMeta.isTool ? 'tool' : undefined),
+          ),
+          seed: firstMeta.name || firstMeta.id,
+          tags: firstMeta.tags,
+          isTool: firstMeta.isTool,
+          isFallback: true,
+        });
+      }
+
+      previews[folderId] = pickedItems;
     }),
   );
 
@@ -1937,6 +1964,14 @@ export async function getCharacterThumb(id: string): Promise<Blob | null> {
     // 若原图也没有, 但有旧缩略图则暂用旧缩略图
     return blobs?.thumbBlob || null;
   }
+
+  // 老数据里有把「占位图」当成头像存下来的卡(库里存过的旧 miu / dicebear 等),
+  // 这里认出来就当它没图: 返回 null 让上层统一走用户的默认占位图,
+  // 免得占位图被当成真图画成 object-cover(被拉满裁切的巨图)占满封面。
+  try {
+    const { isPlaceholderImageBlob } = await import("./placeholder");
+    if (await isPlaceholderImageBlob(avatarBlob)) return null;
+  } catch {}
 
   const { generateThumbnail } = await import("./avatar");
   let thumb: Blob;

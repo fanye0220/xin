@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Globe, CheckCircle2, AlertCircle, Loader2, RefreshCw, Plus, Trash2, ChevronDown, ChevronUp, Save, ShieldAlert } from 'lucide-react';
+import { X, Globe, CheckCircle2, AlertCircle, Loader2, RefreshCw, Plus, Trash2, ChevronDown, ChevronUp, Save, ShieldAlert, Upload, RotateCcw } from 'lucide-react';
 import { AISettings, CustomEndpoint, getAISettings, saveAISettings, testConnection, fetchCustomModels, COMMUNITY_JAILBREAK_PRESET, MINIMAL_BYPASS_PRESET, IMMERSIVE_FICTION_PRESET } from '../lib/ai';
 import { CloudSyncTab } from './CloudSyncTab';
 import { SidebarWallpaperTab } from './SidebarWallpaperTab';
@@ -9,6 +9,7 @@ import { useSidebarWallpaper, saveSidebarWallpaperConfig } from '../lib/sidebarW
 import { useBackHandler } from '../lib/useBackHandler';
 import { CURRENT_APP_VERSION } from '../config/version';
 import { openExternalUrl } from '../lib/appBridge';
+import { hasCustomPlaceholder, setCustomPlaceholder, resetCustomPlaceholder, usePlaceholderUrl } from '../lib/placeholder';
 
 interface Props {
   isOpen: boolean;
@@ -59,6 +60,9 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
   const [updateResult, setUpdateResult] = useState<{ msg: string; isError?: boolean; downloadUrl?: string; versionInfo?: any } | null>(null);
   const [isStSetupOpen, setIsStSetupOpen] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+  const [placeholderBusy, setPlaceholderBusy] = useState(false);
+  const placeholderInputRef = useRef<HTMLInputElement>(null);
+  const placeholderUrl = usePlaceholderUrl();
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMsg, setTestMsg] = useState('');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -779,6 +783,67 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
                       </div>
                     </div>
                   )}
+                </div>
+
+                {/* 默认占位图: 没图的卡走到哪里都用这一张, 用户可自换 */}
+                <div className="border rounded-2xl p-4 space-y-3 bg-white/5 border-white/10 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h4 className="text-sm font-medium text-white [.light-theme_&]:!text-[#0f172a]">默认占位图</h4>
+                      <p className="text-xs text-white/50 [.light-theme_&]:!text-[#64748b]">
+                        没图的卡片、文件夹封面、TT 拉取、云端卡库、回收站、查重都用这一张。换一次全app生效。
+                      </p>
+                    </div>
+                    <div className="w-14 h-14 rounded-xl overflow-hidden shrink-0 border border-white/10 bg-white flex items-center justify-center">
+                      <img src={placeholderUrl} alt="默认占位图" className="w-full h-full object-contain p-1" />
+                    </div>
+                  </div>
+                  <input
+                    ref={placeholderInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (!file) return;
+                      setPlaceholderBusy(true);
+                      try {
+                        await setCustomPlaceholder(file);
+                        // 占位图的地址已经散落在列表/详情/封面的各处 state 里, 重载一次最干净
+                        window.location.reload();
+                      } catch (err: any) {
+                        alert('换图失败: ' + (err?.message || err));
+                        setPlaceholderBusy(false);
+                      }
+                    }}
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={placeholderBusy}
+                      onClick={() => placeholderInputRef.current?.click()}
+                      className="px-3.5 py-1.5 active:scale-95 text-xs font-semibold transition disabled:opacity-50 flex items-center gap-1.5 shrink-0 shadow-sm cursor-pointer rounded-full bg-white text-black hover:bg-white/90 [.light-theme_&]:!bg-[#0f172a] [.light-theme_&]:!text-white"
+                    >
+                      {placeholderBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                      <span>上传新图</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={placeholderBusy || !hasCustomPlaceholder()}
+                      onClick={() => {
+                        resetCustomPlaceholder();
+                        window.location.reload();
+                      }}
+                      className="px-3.5 py-1.5 active:scale-95 text-xs font-semibold transition disabled:opacity-40 flex items-center gap-1.5 shrink-0 rounded-full bg-white/5 hover:bg-white/10 text-white/80 border border-white/15 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0]"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>恢复内置图</span>
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-white/40 [.light-theme_&]:!text-[#94a3b8]">
+                    {hasCustomPlaceholder() ? '当前：你上传的图（换完会自动刷新一次界面）' : '当前：内置 miu 图'}
+                  </p>
                 </div>
               </motion.div>
             )}
