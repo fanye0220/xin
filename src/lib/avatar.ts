@@ -75,8 +75,8 @@ export function resolveAvatarUrl(avatarFallback: string | undefined | null, seed
     }
     // 只有真正的 HTTP(S)/Blob/Data(PNG/JPG) 照片才原样返回
     if (
-      avatarFallback.startsWith('http://') || 
-      avatarFallback.startsWith('https://') || 
+      avatarFallback.startsWith('http://') ||
+      avatarFallback.startsWith('https://') ||
       avatarFallback.startsWith('blob:') ||
       avatarFallback.startsWith('data:image/')
     ) {
