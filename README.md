@@ -1,20 +1,78 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# MIU 联动（TauriTavern 扩展）
 
-# Run and deploy your AI Studio app
+把 **TauriTavern 里的角色卡** 一键推进 **MIU 安卓 App**。不登录账号、不上云，数据只在你这台手机里走。
 
-This contains everything you need to run your app locally.
+**双向都通**：酒馆 → MIU（推送当前角色 / 推送全部角色卡，或由 MIU 主动「拉取 TauriTavern」）、MIU → 酒馆（接收 MIU 推送）。
 
-View your app in AI Studio: https://ai.studio/apps/8858d001-dbad-4855-854c-b06238073ff1
+- 走 TT 自带的本机 MCP 客户端（Rust 侧直连 `127.0.0.1`），所以不受正式版 TT「禁止明文 HTTP」的限制
+- 需要 **MIU 安卓版（带 TauriTavern的版本）** 和 **官方 TauriTavern 2.3.0 或更高**
+- 不做模型调用，只搬运你自己选的角色卡
 
-## Run Locally
+## 安装
 
-**Prerequisites:**  Node.js
+在 TT 里：**扩展（Extensions）面板 → 安装扩展（Install extension）→ 填 Git 地址**：
 
+```
+https://github.com/fanye0220/TT-tui
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+> 注意：只能填**仓库地址**（根目录就是这个扩展），不要填 `.../tree/main/子目录` 那种网页链接，TT 会拒绝。
+
+装完刷新一次 TT 页面，扩展面板里会出现 **MIU 联动**。
+
+## 使用
+
+1. 打开 MIU → 设置 → **TauriTavern** → 点「**开启接收服务**」，记住端口（默认 8791）。
+2. 回到 TT → 扩展面板 → **MIU 联动** → 点「**连接 MIU**」。
+3. 点「**推送当前角色**」或「**推送全部角色卡**」。
+4. 切回 MIU → 设置 → TauriTavern → 点「**选择要导入的卡**」，勾选要入库的（默认全选）再点「导入」。
+
+安卓会在切到后台后冻结 App，所以推完请尽快切回 MIU 导入；一次别推太多（几百张以内比较稳）。
+
+## 反向：把 MIU 的卡送到酒馆
+
+1. 在 MIU 里打开角色卡详情页，点右上角的纸飞机「**发送到酒馆**」，
+   在弹出的选项里选「**发送到酒馆（TT 联动）**」。
+2. 卡会排进 MIU 的「待发送到酒馆」队列。
+3. 回到 TT → 扩展面板 → **MIU 联动** → 点「**接收 MIU 推送**」（按钮上的数字就是排队张数，每 3 秒自动刷新）。
+4. 扩展会把卡一张张取回来导入酒馆；导入成功的才会从 MIU 队列里移除，失败的留在 MIU 里可以重试。
+
+## 也可以由 MIU 主动拉（酒馆 → MIU）
+
+不想切到 TT 点按钮的话：TT 保持运行（**挂小窗最稳**）→ MIU → 设置 → TauriTavern → 「**拉取 TauriTavern**」→
+在 MIU 面板里搜索、勾选要哪几张 → 「**拉取选中**」。
+
+这边会自动把角色列表送过去，并把勾中的卡逐张导出推进 MIU（TT 页面不用点任何按钮）；
+MIU 收齐后自动进导入流程。
+
+列表里每张卡都带一张 **112px 的小头像**：只对划进屏幕的那几行生成，一张几 KB。
+列表本身仍然只传卡名和文件名，**不会为了看头像把整张卡拉下来**，所以划起来不卡。
+酒馆取不到缩略图时显示占位图标，不影响勾选。
+
+## 连不上怎么办
+
+- 提示「没找到 MIU 接收服务」：MIU 那边没开启，或服务被系统杀了 → 回 MIU 重新点一次「开启接收服务」。
+- 提示「联动通道暂时连不上」：MIU 被冻结了 → 分屏或锁定后台，让 MIU 保持运行再试。
+- 提示「这个 TT 版本没有联动能力」：TT 版本低于 2.3.0。
+- MIU 点「拉取 TauriTavern」一直转圈：MIU 面板上会写明卡在哪一步——
+  「扩展在线（N 秒前刚回过话）」是通道通了、在等列表；
+  「一次都没回话」是酒馆没连上（没点「连接 MIU」，或酒馆退到后台被冻结）；
+  直接显示一句原因就是扩展列卡失败，按那句话排查。
+  酒馆切回前台会立刻补做一次，不用一直等。
+
+## 1.4.2 改了什么
+
+- 列卡改走酒馆内存里的角色列表（`SillyTavern.getContext().characters`），
+  不再依赖 `/api/characters/all`——这个接口在 TT 里取不到数据，
+  所以「拉取 TauriTavern」之前会一直停在等列表。
+- 小头像换成更稳的取图顺序：内存缓存 -> 酒馆页面上已渲染的头像 `img`（0 开销）->
+  9 个候选地址（`getContext().getThumbnailUrl`、`/thumbnail?type=avatar&file=...`、`/characters/...` 等）->
+  下载到的字节用 Blob URL 转 canvas（画布不会被跨域污染）-> 兜底导出整卡再抽图。
+  之前用 `import('script.js')` 取不到缩略图函数，头像一直显示占位图标。
+- 扩展没给出小头像时，安卓端会自己从卡图字节里解一张 112px 小图，待接收列表不再空头像。
+- 酒馆切回前台时立刻补一次轮询（后台会被系统降频，原来只能干等下一轮）。
+- 列卡/取图失败会把原因回报给 MIU，面板上直接显示；MIU 端等待时间 30 秒 -> 90 秒。
+
+---
+
+作者：MIU。仅供个人使用。
