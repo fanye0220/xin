@@ -659,7 +659,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
     return res;
   };
 
-  const buildTavernToolCatalog = (data: any, keepPayloadFor?: Set<string>) => {
+  const buildTavernToolCatalog = (data: any) => {
     const items: any[] = [];
     const counts: Record<string, number> = {};
     const payloads = tavernToolPayloadRef.current;
@@ -668,10 +668,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
     const push = (item: any, payload?: any) => {
       items.push(item);
       counts[item.kind] = (counts[item.kind] || 0) + 1;
-      // 列表只留名字；批量拉取时点名要的那几项才把正文留在内存
-      if (payload !== undefined && (!keepPayloadFor || keepPayloadFor.has(item.id))) {
-        payloads.set(item.id, payload);
-      }
+      if (payload !== undefined) payloads.set(item.id, payload);
     };
 
     const worlds = Array.isArray(data?.world_names) ? data.world_names : [];
@@ -710,7 +707,6 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
         if (!isRealTavernPreset(preset)) return;
         const name = String((Array.isArray(group.names) && group.names[index]) || preset.name || `预设 ${index + 1}`).slice(0, 160);
         const id = `preset:${group.apiId}:${index}:${name}`;
-        // 只列名字，正文选中后再读：/api/settings/get 返回整个酒馆设置，预设多时几十 MB，一次全存会卡
         push({ id, avatar: id, kind: 'preset', name, apiId: group.apiId, creator_notes: `预设 · ${group.apiId}` }, preset);
       });
     });
@@ -840,34 +836,6 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
     const headers = getSillyTavernAuthHeaders(aiSettings);
     let lastDownloadError = "";
 
-    const toolIds = new Set(
-      charsToFetch
-        .filter((item) => {
-          const kind = item.kind || 'character';
-          return kind !== 'character' && kind !== 'worldbook';
-        })
-        .map((item) => item.id),
-    );
-    let toolPayloadPromise: Promise<void> | null = null;
-    const ensureToolPayloads = async () => {
-      if (!auth || toolIds.size === 0) return;
-      if (toolPayloadPromise) return toolPayloadPromise;
-      toolPayloadPromise = (async () => {
-        addPullLog(`正在读取 ${toolIds.size} 项工具正文（只读一次设置）...`);
-        const dataRes = await tavernPostJson('/api/settings/get', {}, auth, 180000);
-        const data = await dataRes.json();
-        buildTavernToolCatalog(data, toolIds);
-        addPullLog(`工具正文已就绪：${tavernToolPayloadRef.current.size} 项`);
-      })();
-      try {
-        await toolPayloadPromise;
-      } catch (e) {
-        toolPayloadPromise = null;
-        throw e;
-      }
-    };
-    if (toolIds.size > 0) await ensureToolPayloads().catch(() => undefined);
-
     let completed = 0;
     let currentIndex = 0;
     const CONCURRENCY = 6;
@@ -893,11 +861,6 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               payload = await fetchTavernWorldbook(char.name, auth);
             } else {
               payload = tavernToolPayloadRef.current.get(char.id);
-              // 列表只存名字，正文在开拉前统一读过一次；真缺了才补读一次（不会每项都读）
-              if (!payload) {
-                await ensureToolPayloads();
-                payload = tavernToolPayloadRef.current.get(char.id);
-              }
             }
             if (!payload) throw new Error('没有取到内容，重新切换分类再试');
             const fileName = tavernToolFileName(char.name, kind);
@@ -3184,7 +3147,6 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               }}
               accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.json,.jsonl,.txt,.js,.zip,application/json,application/zip,application/x-zip-compressed,text/plain,text/javascript,*/*"
               className="hidden"
-              style={{ display: 'none' }}
               multiple
             />
           </motion.div>

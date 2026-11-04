@@ -499,14 +499,18 @@ export function CharacterVersionsSection({
     const saved = localStorage.getItem('tavern_version_inherit_source');
     return saved !== null ? saved === 'true' : true;
   });
+  const [inheritAvatarAfterLink, setInheritAvatarAfterLink] = useState(() => {
+    const saved = localStorage.getItem('tavern_version_inherit_avatar');
+    return saved !== null ? saved === 'true' : true;
+  });
   const [showLinkOptions, setShowLinkOptions] = useState(false);
 
   // Selective Inherit Modal for any snapshot
   const [inheritModalSnapshot, setInheritModalSnapshot] = useState<CardVersionSnapshot | null>(null);
   const [inheritQrChoice, setInheritQrChoice] = useState(true);
   const [inheritSourceChoice, setInheritSourceChoice] = useState(true);
-  const [inheritMemosChoice, setInheritMemosChoice] = useState(true);
-  const [snapshotMemoCount, setSnapshotMemoCount] = useState(0);
+  const [inheritAvatarChoice, setInheritAvatarChoice] = useState(true);
+  const [setAsMainAvatarChoice, setSetAsMainAvatarChoice] = useState(false);
 
   // Diff preview expansion
   const [expandedDiffId, setExpandedDiffId] = useState<string | null>(null);
@@ -1028,6 +1032,49 @@ export function CharacterVersionsSection({
           updatedAt: Date.now(),
         };
 
+        // 继承旧卡头像至当前主卡（将旧卡头像与所有表情差分并入头像库；若主卡无头像则设为主头像）
+        if (inheritAvatarAfterLink) {
+          const { getCharacterBlob } = await import('../lib/db');
+          let liveAvatar = updatedChar.avatarBlob;
+          let liveHistory = [...(updatedChar.avatarHistory || [])];
+          if (!liveAvatar && updatedChar.hasBlobsSeparated) {
+            try {
+              const b = await getCharacterBlob(updatedChar.id);
+              if (b?.avatarBlob) liveAvatar = b.avatarBlob;
+              if (b?.avatarHistory) liveHistory = [...b.avatarHistory];
+            } catch (e) {}
+          }
+
+          const seenSizes = new Set<number>();
+          if (liveAvatar) seenSizes.add(liveAvatar.size);
+          liveHistory.forEach(b => seenSizes.add(b.size));
+
+          const oldMainBlob = avatarBlob || completeCardPngBlob;
+          if (!liveAvatar && oldMainBlob) {
+            liveAvatar = oldMainBlob;
+            seenSizes.add(oldMainBlob.size);
+            (updatedChar as any)._isExplicitAvatarUpdate = true;
+          } else if (oldMainBlob && !seenSizes.has(oldMainBlob.size)) {
+            liveHistory.push(oldMainBlob);
+            seenSizes.add(oldMainBlob.size);
+          }
+
+          if (avatarHistory && avatarHistory.length > 0) {
+            for (const b of avatarHistory) {
+              if (b && !seenSizes.has(b.size)) {
+                liveHistory.push(b);
+                seenSizes.add(b.size);
+              }
+            }
+          }
+
+          updatedChar.avatarBlob = liveAvatar;
+          updatedChar.avatarHistory = liveHistory.length > 0 ? liveHistory : undefined;
+          if (!updatedChar.avatarUrlFallback && fullOldChar.avatarUrlFallback) {
+            updatedChar.avatarUrlFallback = fullOldChar.avatarUrlFallback;
+          }
+        }
+
         if (inheritQrAfterLink || inheritSourceAfterLink) {
           updatedChar = inheritQrAndSource(
             updatedChar, 
@@ -1084,85 +1131,141 @@ export function CharacterVersionsSection({
   };
 
   // Open Inherit Modal for a snapshot
-  const handleOpenInheritModal = async (snapshot: CardVersionSnapshot) => {
+  const handleOpenInheritModal = (snapshot: CardVersionSnapshot) => {
     const { hasQr } = extractCardQr(snapshot.data);
     const { hasSource } = extractCardSource(snapshot.data, snapshot.sourceUrlFallback);
+    const hasAvatar = Boolean(
+      snapshot.avatarBlob ||
+      snapshot.completeCardPngBlob ||
+      (snapshot.avatarHistory && snapshot.avatarHistory.length > 0) ||
+      snapshot.sourceCharId ||
+      snapshot.avatarUrlFallback
+    );
 
-    const { getMemosForCharacter } = await import('../lib/db');
-    let snapMemos: any[] = [];
-    if (snapshot.sourceCharId) {
-      snapMemos = await getMemosForCharacter(snapshot.sourceCharId);
-    } else if (snapshot.id) {
-      snapMemos = await getMemosForCharacter(snapshot.id);
-    }
-    const hasMemos = snapMemos.length > 0;
-
-    if (!hasQr && !hasSource && !hasMemos) {
-      alert(`版本「${snapshot.versionName || snapshot.cardName}」未检测到快速回复 (QR)、来源网址或备忘录笔记数据。`);
+    if (!hasQr && !hasSource && !hasAvatar) {
+      alert(`版本「${snapshot.versionName || snapshot.cardName}」未检测到可继承的头像、快速回复 (QR) 或来源网址数据。`);
       return;
     }
 
     setInheritQrChoice(hasQr);
     setInheritSourceChoice(hasSource);
-    setInheritMemosChoice(hasMemos);
-    setSnapshotMemoCount(snapMemos.length);
+    setInheritAvatarChoice(hasAvatar);
+    setSetAsMainAvatarChoice(false);
     setInheritModalSnapshot(snapshot);
   };
 
   // Confirm Inherit from Snapshot
   const handleConfirmInheritModal = async () => {
     if (!inheritModalSnapshot) return;
-    if (!inheritQrChoice && !inheritSourceChoice && !inheritMemosChoice) {
-      alert('请至少勾选一项要继承的内容（快速回复 QR、来源链接或备忘录）。');
+    if (!inheritQrChoice && !inheritSourceChoice && !inheritAvatarChoice && !setAsMainAvatarChoice) {
+      alert('请至少勾选一项要继承的内容（头像、快速回复 QR 或来源链接）。');
       return;
     }
 
     const snap = inheritModalSnapshot;
     const { hasQr, count: qrCount } = extractCardQr(snap.data);
-    const { hasSource } = extractCardSource(snap.data, snap.sourceUrlFallback);
+    const { hasSource, source } = extractCardSource(snap.data, snap.sourceUrlFallback);
 
-    const { getMemosForCharacter, saveMemo } = await import('../lib/db');
-    let sourceId = snap.sourceCharId || snap.id;
-    let snapMemos = sourceId ? await getMemosForCharacter(sourceId) : [];
-    const willInheritMemos = inheritMemosChoice && snapMemos.length > 0;
     const willInheritQr = inheritQrChoice && hasQr;
     const willInheritSource = inheritSourceChoice && hasSource;
+    const willInheritAvatar = inheritAvatarChoice || setAsMainAvatarChoice;
 
-    if (!willInheritQr && !willInheritSource && !willInheritMemos) {
+    if (!willInheritQr && !willInheritSource && !willInheritAvatar) {
       alert('所选项目在该版本中暂无有效数据可供继承。');
       return;
     }
 
-    if (willInheritMemos) {
-      for (const m of snapMemos) {
-        if (m.characterId !== character.id) {
-          await saveMemo({
-            ...m,
-            id: crypto.randomUUID(),
-            characterId: character.id,
-            createdAt: Date.now(),
-          });
+    let updatedChar = { ...character };
+
+    // 1. 头像继承
+    let avatarInheritMsg = '';
+    if (willInheritAvatar) {
+      let snapAvatar: Blob | undefined = snap.avatarBlob || snap.completeCardPngBlob;
+      if (!snapAvatar && snap.sourceCharId) {
+        try {
+          const { getCharacterBlob, getCharacter } = await import('../lib/db');
+          const sourceBlobs = await getCharacterBlob(snap.sourceCharId);
+          if (sourceBlobs?.avatarBlob) snapAvatar = sourceBlobs.avatarBlob;
+          else {
+            const sChar = await getCharacter(snap.sourceCharId);
+            if (sChar?.avatarBlob) snapAvatar = sChar.avatarBlob;
+          }
+        } catch (e) {}
+      }
+
+      let snapHistory = [...(snap.avatarHistory || [])];
+
+      const { getCharacterBlob } = await import('../lib/db');
+      let currAvatar = updatedChar.avatarBlob;
+      let currHistory = [...(updatedChar.avatarHistory || [])];
+      if (!currAvatar && updatedChar.hasBlobsSeparated) {
+        try {
+          const b = await getCharacterBlob(updatedChar.id);
+          if (b?.avatarBlob) currAvatar = b.avatarBlob;
+          if (b?.avatarHistory) currHistory = [...b.avatarHistory];
+        } catch (e) {}
+      }
+
+      const seenSizes = new Set<number>();
+      if (currAvatar) seenSizes.add(currAvatar.size);
+      currHistory.forEach(b => seenSizes.add(b.size));
+
+      if (inheritAvatarChoice) {
+        if (snapAvatar && !seenSizes.has(snapAvatar.size)) {
+          currHistory.push(snapAvatar);
+          seenSizes.add(snapAvatar.size);
         }
+        for (const b of snapHistory) {
+          if (b && !seenSizes.has(b.size)) {
+            currHistory.push(b);
+            seenSizes.add(b.size);
+          }
+        }
+      }
+
+      let newMainAvatar = currAvatar;
+      if (setAsMainAvatarChoice && snapAvatar) {
+        if (currAvatar && !seenSizes.has(currAvatar.size)) {
+          currHistory.unshift(currAvatar);
+          seenSizes.add(currAvatar.size);
+        }
+        newMainAvatar = snapAvatar;
+        (updatedChar as any)._isExplicitAvatarUpdate = true;
+        avatarInheritMsg = '头像已设为主封面并纳入差分库';
+      } else if (!currAvatar && snapAvatar) {
+        newMainAvatar = snapAvatar;
+        (updatedChar as any)._isExplicitAvatarUpdate = true;
+        avatarInheritMsg = '头像已设为主封面';
+      } else if (inheritAvatarChoice) {
+        avatarInheritMsg = '头像已成功并入差分表情库';
+      }
+
+      updatedChar.avatarBlob = newMainAvatar;
+      updatedChar.avatarHistory = currHistory.length > 0 ? currHistory : undefined;
+      if (snap.avatarUrlFallback && !updatedChar.avatarUrlFallback) {
+        updatedChar.avatarUrlFallback = snap.avatarUrlFallback;
       }
     }
 
-    let updatedChar = character;
+    // 2. QR 与来源继承
     if (willInheritQr || willInheritSource) {
       updatedChar = inheritQrAndSource(
-        character,
+        updatedChar,
         snap.data,
         snap.cardName || character.name,
         snap.sourceUrlFallback,
         { inheritQr: willInheritQr, inheritSource: willInheritSource }
       );
-      await saveCharacter(updatedChar);
-      onUpdateCharacter(updatedChar);
     }
 
+    updatedChar.updatedAt = Date.now();
+
+    await saveCharacter(updatedChar);
+    onUpdateCharacter(updatedChar);
     window.dispatchEvent(new CustomEvent('charactersUpdated'));
 
     const items: string[] = [];
-    if (willInheritMemos) items.push(`备忘录/口令 (${snapMemos.length}条)`);
+    if (avatarInheritMsg) items.push(avatarInheritMsg);
     if (willInheritQr) items.push(`快速回复 QR (${qrCount}条)`);
     if (willInheritSource) items.push('来源链接');
 
@@ -2477,7 +2580,7 @@ export function CharacterVersionsSection({
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <span className="font-semibold version-candidate-name shrink-0">高级关联设置</span>
                       <span className="text-[11px] version-candidate-sub opacity-60 truncate">
-                        ({deleteCandidateAfterLink ? '原卡移回收站' : '保留原卡'} · {inheritQrAfterLink ? '继承QR' : '不继承QR'} · {inheritSourceAfterLink ? '继承网址' : '不继承网址'})
+                        ({deleteCandidateAfterLink ? '原卡移回收站' : '保留原卡'} · {inheritAvatarAfterLink ? '继承头像' : '不继承头像'} · {inheritQrAfterLink ? '继承QR' : '不继承QR'})
                       </span>
                     </div>
                     <div className="flex items-center gap-1 text-slate-400 shrink-0 ml-1">
@@ -2518,6 +2621,32 @@ export function CharacterVersionsSection({
                             </div>
                             <span className="text-[11px] version-candidate-sub opacity-60 shrink-0 hidden sm:inline">
                               避免重复，解绑可恢复
+                            </span>
+                          </div>
+
+                          {/* Inherit Avatar checkbox */}
+                          <div 
+                            onClick={() => {
+                              const next = !inheritAvatarAfterLink;
+                              setInheritAvatarAfterLink(next);
+                              localStorage.setItem('tavern_version_inherit_avatar', String(next));
+                            }}
+                            className="flex items-center justify-between gap-2 p-1.5 sm:p-2 px-2.5 sm:px-3 rounded-xl select-none cursor-pointer transition hover:bg-black/5 dark:hover:bg-white/5"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div
+                                className={`w-4.5 h-4.5 rounded-md flex items-center justify-center transition shrink-0 version-checkbox-icon ${
+                                  inheritAvatarAfterLink ? 'is-checked' : ''
+                                }`}
+                              >
+                                {inheritAvatarAfterLink && <Check className="w-3 h-3 stroke-[2.5]" />}
+                              </div>
+                              <span className="text-xs sm:text-sm font-semibold version-candidate-name truncate">
+                                继承原卡头像与差分表情至头像库
+                              </span>
+                            </div>
+                            <span className="text-[11px] version-candidate-sub opacity-60 shrink-0 hidden sm:inline">
+                              免重新下载，随时切换
                             </span>
                           </div>
 
@@ -2655,10 +2784,10 @@ export function CharacterVersionsSection({
                     setVersionMenuState(null);
                     handleStartEditNote(snap);
                   }}
-                  className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer ${
+                  className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer select-none ${
                     isThemeLight
-                      ? 'text-[#0f172a] hover:bg-[#f1f5f9] active:bg-[#e2e8f0]'
-                      : 'text-white hover:bg-white/10'
+                      ? 'text-[#0f172a] hover:bg-[#f1f5f9] active:bg-[#e2e8f0] focus:bg-[#f1f5f9] focus:outline-none'
+                      : 'text-white hover:bg-white/10 active:bg-white/15 focus:bg-white/10 focus:outline-none'
                   }`}
                 >
                   修改版号与备注
@@ -2671,10 +2800,10 @@ export function CharacterVersionsSection({
                     setVersionMenuState(null);
                     handleExportSnapshot(snap);
                   }}
-                  className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer ${
+                  className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer select-none ${
                     isThemeLight
-                      ? 'text-[#0f172a] hover:bg-[#f1f5f9] active:bg-[#e2e8f0]'
-                      : 'text-white hover:bg-white/10'
+                      ? 'text-[#0f172a] hover:bg-[#f1f5f9] active:bg-[#e2e8f0] focus:bg-[#f1f5f9] focus:outline-none'
+                      : 'text-white hover:bg-white/10 active:bg-white/15 focus:bg-white/10 focus:outline-none'
                   }`}
                 >
                   导出 PNG 角色卡
@@ -2688,10 +2817,10 @@ export function CharacterVersionsSection({
                       setVersionMenuState(null);
                       handleOpenInheritModal(snap);
                     }}
-                    className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer ${
+                    className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer select-none ${
                       isThemeLight
-                        ? 'text-[#0f172a] hover:bg-[#f1f5f9] active:bg-[#e2e8f0]'
-                        : 'text-white hover:bg-white/10'
+                        ? 'text-[#0f172a] hover:bg-[#f1f5f9] active:bg-[#e2e8f0] focus:bg-[#f1f5f9] focus:outline-none'
+                        : 'text-white hover:bg-white/10 active:bg-white/15 focus:bg-white/10 focus:outline-none'
                     }`}
                   >
                     继承此卡挂载内容
@@ -2708,10 +2837,10 @@ export function CharacterVersionsSection({
                         setVersionMenuState(null);
                         handleUnbindSnapshot(snap);
                       }}
-                      className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer ${
+                      className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer select-none ${
                         isThemeLight
-                          ? 'text-[#0f172a] hover:bg-[#f1f5f9] active:bg-[#e2e8f0]'
-                          : 'text-white hover:bg-white/10'
+                          ? 'text-[#0f172a] hover:bg-[#f1f5f9] active:bg-[#e2e8f0] focus:bg-[#f1f5f9] focus:outline-none'
+                          : 'text-white hover:bg-white/10 active:bg-white/15 focus:bg-white/10 focus:outline-none'
                       }`}
                     >
                       解绑并还原至卡库
@@ -2724,10 +2853,10 @@ export function CharacterVersionsSection({
                         setVersionMenuState(null);
                         handleDeleteSnapshot(snap.id, snap.versionName);
                       }}
-                      className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer ${
+                      className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer select-none ${
                         isThemeLight
-                          ? 'text-[#ff3b30] hover:bg-[#ff3b30]/10 active:bg-[#ff3b30]/15'
-                          : 'text-red-400 hover:bg-red-500/10'
+                          ? 'text-[#ff3b30] hover:bg-[#ff3b30]/10 active:bg-[#ff3b30]/15 focus:bg-[#ff3b30]/10 focus:outline-none'
+                          : 'text-[#ff3b30] hover:bg-[#ff3b30]/15 active:bg-[#ff3b30]/25 focus:bg-[#ff3b30]/15 focus:outline-none'
                       }`}
                     >
                       删除此版本快照
@@ -2779,42 +2908,70 @@ export function CharacterVersionsSection({
                 {(() => {
                   const { hasQr, count: qrCount } = extractCardQr(inheritModalSnapshot.data);
                   const { hasSource, source } = extractCardSource(inheritModalSnapshot.data, inheritModalSnapshot.sourceUrlFallback);
-                  const hasMemos = snapshotMemoCount > 0;
+                  const hasAvatar = Boolean(
+                    inheritModalSnapshot.avatarBlob ||
+                    inheritModalSnapshot.completeCardPngBlob ||
+                    (inheritModalSnapshot.avatarHistory && inheritModalSnapshot.avatarHistory.length > 0) ||
+                    inheritModalSnapshot.sourceCharId ||
+                    inheritModalSnapshot.avatarUrlFallback
+                  );
+                  const avatarCount = (inheritModalSnapshot.avatarHistory?.length || 0) + (inheritModalSnapshot.avatarBlob || inheritModalSnapshot.completeCardPngBlob ? 1 : 0);
 
                   return (
                     <>
-                      {/* Memos Checkbox Option */}
+                      {/* Avatar Checkbox Option */}
                       <div
                         onClick={() => {
-                          if (hasMemos) setInheritMemosChoice(!inheritMemosChoice);
+                          if (hasAvatar) setInheritAvatarChoice(!inheritAvatarChoice);
                         }}
                         className={`flex items-start gap-3 p-3 rounded-2xl version-candidate-card select-none transition ${
-                          hasMemos ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'
+                          hasAvatar ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'
                         }`}
                       >
                         <div
                           className={`w-5 h-5 rounded-lg flex items-center justify-center transition shrink-0 mt-0.5 version-checkbox-icon ${
-                            hasMemos && inheritMemosChoice ? 'is-checked' : ''
+                            hasAvatar && inheritAvatarChoice ? 'is-checked' : ''
                           }`}
                         >
-                          {hasMemos && inheritMemosChoice && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
+                          {hasAvatar && inheritAvatarChoice && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="text-xs sm:text-sm font-bold version-candidate-name">
-                              备忘录与剧场笔记 (含口令/附件)
+                              头像与差分表情
                             </span>
-                            {hasMemos && (
+                            {hasAvatar && (
                               <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-purple-500/15 text-purple-600 dark:text-purple-400 font-semibold">
-                                {snapshotMemoCount}条
+                                {avatarCount > 0 ? `${avatarCount}张图` : '含头像'}
                               </span>
                             )}
                           </div>
                           <span className="text-xs version-candidate-sub block mt-0.5 leading-relaxed">
-                            {hasMemos
-                              ? `包含 ${snapshotMemoCount} 条备忘录/口令，勾选后将合并复制至当前活跃卡片`
-                              : '该版本未包含备忘录笔记数据'}
+                            {hasAvatar
+                              ? '将该版本的头像与全部表情无损合并至主卡差分库，免重新下载，随时切换'
+                              : '该版本未登记自定义头像数据'}
                           </span>
+
+                          {hasAvatar && inheritAvatarChoice && (
+                            <div 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSetAsMainAvatarChoice(!setAsMainAvatarChoice);
+                              }}
+                              className="mt-2 pt-2 border-t border-black/10 dark:border-white/10 flex items-center gap-2 cursor-pointer"
+                            >
+                              <div
+                                className={`w-4 h-4 rounded flex items-center justify-center transition shrink-0 version-checkbox-icon ${
+                                  setAsMainAvatarChoice ? 'is-checked' : ''
+                                }`}
+                              >
+                                {setAsMainAvatarChoice && <Check className="w-2.5 h-2.5 stroke-[2.5]" />}
+                              </div>
+                              <span className="text-[11px] font-semibold version-candidate-name">
+                                同时将此版本头像替换为当前主头像
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -2904,7 +3061,7 @@ export function CharacterVersionsSection({
                 <button
                   type="button"
                   onClick={handleConfirmInheritModal}
-                  disabled={!inheritQrChoice && !inheritSourceChoice}
+                  disabled={!inheritQrChoice && !inheritSourceChoice && !inheritAvatarChoice && !setAsMainAvatarChoice}
                   className={`flex-1 py-2.5 px-4 rounded-2xl font-bold text-xs sm:text-sm shadow-sm disabled:opacity-40 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer whitespace-nowrap ${
                     isThemeLight
                       ? 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-600 shadow-blue-500/20'

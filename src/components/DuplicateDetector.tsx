@@ -566,27 +566,69 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
   };
 
   const mergeAndSave = async (keptChar: CharacterCard, otherChars: CharacterCard[]) => {
-    let updatedData = { ...keptChar.data };
+    const { getCharacter } = await import('../lib/db');
+    const fullKept = (await getCharacter(keptChar.id)) || keptChar;
+    const fullOthers = await Promise.all(
+      otherChars.map(async (c) => (await getCharacter(c.id)) || c)
+    );
+
+    let updatedData = { ...fullKept.data };
     let targetData = updatedData.data ? updatedData.data : updatedData;
 
     if (!targetData.extensions) targetData.extensions = {};
 
     let mergedQRs = [...(targetData.extensions.quick_replies || [])];
     let mergedQRSets = [...(targetData.extensions.tavern_qr_sets || [])];
-    let rawSourceInit = targetData.extensions.source || targetData.source || '';
-    let mergedSource = typeof rawSourceInit === 'string' ? rawSourceInit : (typeof rawSourceInit === 'object' && rawSourceInit !== null ? (rawSourceInit.url || rawSourceInit.link || '') : '');
+    let mergedSource = targetData.extensions.source || targetData.source || '';
     let mergedTags = [...(targetData.tags || [])];
     let mergedQrFilename = targetData.extensions.qr_filename || '';
-    let mergedSummary = (keptChar.aiSummary || targetData.aiSummary || updatedData.aiSummary || '').trim();
+    let mergedSummary = (fullKept.aiSummary || targetData.aiSummary || updatedData.aiSummary || '').trim();
+    let mergedNotes = (targetData.creator_notes || fullKept.data?.creator_notes || '').trim();
     
-    let mergedHistory = [...(keptChar.avatarHistory || [])];
-    const seenBlobSizes = new Set(mergedHistory.map(b => b.size));
-    if (keptChar.avatarBlob) seenBlobSizes.add(keptChar.avatarBlob.size);
+    // 头像合并与继承：
+    // 1. 保留卡的主头像 finalAvatarBlob
+    // 2. 建立头像差分库 mergedHistory，副卡自己的主头像如果与保留卡不同，必须完整纳入差分库，防止被合并删除后头像丢失！
+    let finalAvatarBlob = fullKept.avatarBlob;
+    let mergedHistory = [...(fullKept.avatarHistory || [])];
+    const seenBlobSizes = new Set<number>();
+    if (finalAvatarBlob) seenBlobSizes.add(finalAvatarBlob.size);
+    mergedHistory.forEach(b => seenBlobSizes.add(b.size));
 
-    for (const other of otherChars) {
-      const otherTarget = other.data.data ? other.data.data : other.data;
+    let mergedVersionHistory = [...(fullKept.versionHistory || [])];
+    const seenVersionIds = new Set(mergedVersionHistory.map(v => v.id));
 
-      // 合并 AI 简介：若保留卡片没有简介或被合并卡片有更详尽的简介，则保留最佳简介
+    for (const other of fullOthers) {
+      const otherTarget = other.data?.data ? other.data.data : (other.data || {});
+
+      // 1. 头像继承：若保留卡没有头像而副卡有头像，直接设为保留卡主头像；若保留卡已有主头像，则将副卡头像无损保存至表情差分库
+      if (!finalAvatarBlob && other.avatarBlob) {
+        finalAvatarBlob = other.avatarBlob;
+        seenBlobSizes.add(other.avatarBlob.size);
+      } else if (other.avatarBlob && !seenBlobSizes.has(other.avatarBlob.size)) {
+        mergedHistory.push(other.avatarBlob);
+        seenBlobSizes.add(other.avatarBlob.size);
+      }
+
+      // 2. 将副卡自带的所有表情历史/差分头像全部合并进差分库
+      const otherHistory = other.avatarHistory || [];
+      for (const blob of otherHistory) {
+        if (blob && !seenBlobSizes.has(blob.size)) {
+          mergedHistory.push(blob);
+          seenBlobSizes.add(blob.size);
+        }
+      }
+
+      // 3. 继承作者备注 / 口令（拿卡口令、作者注释等）
+      const otherNotes = (otherTarget.creator_notes || other.data?.creator_notes || '').trim();
+      if (otherNotes) {
+        if (!mergedNotes) {
+          mergedNotes = otherNotes;
+        } else if (!mergedNotes.includes(otherNotes)) {
+          mergedNotes = `${mergedNotes}\n\n[合并自重复卡备注]:\n${otherNotes}`;
+        }
+      }
+
+      // 4. 合并 AI 简介：若保留卡片没有简介或被合并卡片有更详尽的简介，则保留最佳简介
       const otherSummary = (other.aiSummary || otherTarget.aiSummary || (other.data as any)?.aiSummary || '').trim();
       if (otherSummary) {
         if (!mergedSummary) {
@@ -596,6 +638,7 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
         }
       }
       
+      // 5. 快速回复 QR
       const otherQRSets = otherTarget.extensions?.tavern_qr_sets || [];
       for (const qrSet of otherQRSets) {
         if (!mergedQRSets.some(s => s.id === qrSet.id || s.sourceName === qrSet.sourceName)) {
@@ -615,24 +658,27 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
         mergedQrFilename = otherQrFilename;
       }
 
-      const otherSourceRaw = otherTarget.extensions?.source || otherTarget.source;
-      const otherSource = typeof otherSourceRaw === 'string' ? otherSourceRaw : (typeof otherSourceRaw === 'object' && otherSourceRaw !== null ? (otherSourceRaw.url || otherSourceRaw.link || '') : '');
+      // 6. 来源网址
+      const otherSource = otherTarget.extensions?.source || otherTarget.source;
       if (!mergedSource && otherSource) {
         mergedSource = otherSource;
       }
 
-      const otherTags = otherTarget.tags || [];
+      // 7. 标签
+      const otherTags = otherTarget.tags || other.tags || [];
       for (const tag of otherTags) {
         if (!mergedTags.includes(tag)) {
           mergedTags.push(tag);
         }
       }
 
-      const otherHistory = other.avatarHistory || [];
-      for (const blob of otherHistory) {
-        if (!seenBlobSizes.has(blob.size)) {
-          mergedHistory.push(blob);
-          seenBlobSizes.add(blob.size);
+      // 8. 继承历史版本（迭代快照）
+      if (other.versionHistory && other.versionHistory.length > 0) {
+        for (const snap of other.versionHistory) {
+          if (!seenVersionIds.has(snap.id)) {
+            mergedVersionHistory.push(snap);
+            seenVersionIds.add(snap.id);
+          }
         }
       }
     }
@@ -643,6 +689,9 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
     targetData.tags = mergedTags;
     if (mergedQrFilename) {
       targetData.extensions.qr_filename = mergedQrFilename;
+    }
+    if (mergedNotes) {
+      targetData.creator_notes = mergedNotes;
     }
     
     if (mergedSummary) {
@@ -656,22 +705,26 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
     if (!updatedData.data) {
       updatedData.source = mergedSource;
       updatedData.tags = mergedTags;
+      if (mergedNotes) updatedData.creator_notes = mergedNotes;
     }
 
-    let targetFolderId = keptChar.folderId;
+    let targetFolderId = fullKept.folderId;
     if (!targetFolderId) {
-      const folderCandidate = otherChars.find((c) => !!c.folderId);
+      const folderCandidate = fullOthers.find((c) => !!c.folderId);
       if (folderCandidate) {
         targetFolderId = folderCandidate.folderId;
       }
     }
 
     const finalChar = { 
-      ...keptChar, 
+      ...fullKept, 
       folderId: targetFolderId,
       data: updatedData,
-      aiSummary: mergedSummary || keptChar.aiSummary,
-      avatarHistory: mergedHistory.length > 0 ? mergedHistory : undefined
+      avatarBlob: finalAvatarBlob,
+      aiSummary: mergedSummary || fullKept.aiSummary,
+      avatarHistory: mergedHistory.length > 0 ? mergedHistory : undefined,
+      versionHistory: mergedVersionHistory.length > 0 ? mergedVersionHistory : undefined,
+      _isExplicitAvatarUpdate: Boolean(finalAvatarBlob),
     };
     await saveCharacter(finalChar);
   };
@@ -707,7 +760,7 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
     }
     const folderNotice = destFolder ? `\n📁 卡片将保留并归类在文件夹：「${destFolder}」` : '';
 
-    if (!confirm(`确定要保留此卡，合并其他未锁定卡片的快捷回复(QR)、替换头像、AI简介、来源链接和标签，并删除其他卡片吗？${lockNotice}${folderNotice}`)) return;
+    if (!confirm(`确定要保留此卡，合并其他未锁定卡片的头像与差分表情、快捷回复(QR)、备忘录、历史版本、AI简介、来源链接和标签，并删除其他卡片吗？${lockNotice}${folderNotice}`)) return;
 
     const delIds = otherChars.map(c => c.id);
     // 实时响应：立即将组内已合并的副版本卡片从界面清除，当前组直接标记已解决并消除！
@@ -716,17 +769,30 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
     try {
       await mergeAndSave(keptChar, otherChars);
 
-      const { deleteCharactersBulk, getChatsForCharacter, saveChat, getMemosForCharacter, saveMemo } = await import('../lib/db');
+      const { deleteCharactersBulk, getChatsForCharacter, saveChat, initDB } = await import('../lib/db');
+      const db = await initDB();
+
       for (const charToDel of otherChars) {
+         // 1. 迁移聊天记录
          const chats = await getChatsForCharacter(charToDel.id);
          for (const chat of chats) {
             chat.characterId = keptChar.id;
             await saveChat(chat);
          }
-         const memos = await getMemosForCharacter(charToDel.id);
-         for (const memo of memos) {
-            memo.characterId = keptChar.id;
-            await saveMemo(memo);
+
+         // 2. 迁移备忘录 / 笔记 (Memos)
+         try {
+           const oldMemos = await db.getAllFromIndex('memos', 'by-character', charToDel.id);
+           if (oldMemos && oldMemos.length > 0) {
+             const tx = db.transaction('memos', 'readwrite');
+             for (const memo of oldMemos) {
+               memo.characterId = keptChar.id;
+               await tx.objectStore('memos').put(memo);
+             }
+             await tx.done;
+           }
+         } catch (err) {
+           console.warn('迁移重复卡备忘录失败:', err);
          }
       }
       await deleteCharactersBulk(delIds);
@@ -825,7 +891,7 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
             const charsToKeep = group.characters.map(c => c.char).filter(c => !validSelectedSet.has(c.id));
 
             if (charsToDelete.length > 0) {
-              const { deleteCharactersBulk, getChatsForCharacter, saveChat, getMemosForCharacter, saveMemo } = await import('../lib/db');
+              const { deleteCharactersBulk, getChatsForCharacter, saveChat } = await import('../lib/db');
 
               if (charsToKeep.length > 0) {
                 const deleteBuckets = new Map<string, CharacterCard[]>();
@@ -851,10 +917,20 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
                       chat.characterId = keptId;
                       await saveChat(chat);
                     }
-                    const memos = await getMemosForCharacter(delChar.id);
-                    for (const memo of memos) {
-                      memo.characterId = keptId;
-                      await saveMemo(memo);
+                    try {
+                      const { initDB } = await import('../lib/db');
+                      const db = await initDB();
+                      const oldMemos = await db.getAllFromIndex('memos', 'by-character', delChar.id);
+                      if (oldMemos && oldMemos.length > 0) {
+                        const tx = db.transaction('memos', 'readwrite');
+                        for (const memo of oldMemos) {
+                          memo.characterId = keptId;
+                          await tx.objectStore('memos').put(memo);
+                        }
+                        await tx.done;
+                      }
+                    } catch (err) {
+                      console.warn('批量迁移备忘录失败:', err);
                     }
                   }
                 }
@@ -937,13 +1013,11 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
         const char = dupChar.char;
         if (map.has(char.id)) continue;
         const targetData: any = char.data?.data ? char.data.data : char.data;
-        const rawSrcStat = targetData?.extensions?.source || targetData?.source;
-        const cleanSrcStat = typeof rawSrcStat === 'string' ? rawSrcStat.trim() : (typeof rawSrcStat === 'object' && rawSrcStat !== null ? String(rawSrcStat.url || rawSrcStat.link || '').trim() : '');
         map.set(char.id, {
           sig: getCardContentSignature(char, group.resourceType),
           completeness: computeCompletenessScore(char, group.resourceType),
           hasQR: (targetData?.extensions?.quick_replies?.length || 0) > 0,
-          hasSource: Boolean(cleanSrcStat),
+          hasSource: !!(targetData?.extensions?.source || targetData?.source),
           hasNotes: !!targetData?.creator_notes,
         });
       }

@@ -11,8 +11,24 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="MIU" />
-    <link rel="preconnect" href="https://fonts.loli.net" crossorigin />
-    <link rel="stylesheet" href="https://fonts.loli.net/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" />
+    <style>
+      /* 基础防闪烁与隐藏兜底：防止任何移动端 WebView/极端环境下暴露原生文件选择框或无样式白屏/黑块 */
+      html, body {
+        margin: 0;
+        padding: 0;
+        background-color: #0a0a0c;
+        color: #f4f4f5;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+        -webkit-tap-highlight-color: transparent;
+      }
+      html.light-theme, html.light-theme body {
+        background-color: #eef4fe !important;
+        color: #1c1c1e !important;
+      }
+      [hidden], .hidden, input[type="file"].hidden {
+        display: none !important;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
