@@ -158,6 +158,9 @@ export function splitHtmlSegments(content: string): Segment[] {
   if (cleanContent.includes('\\n') && !cleanContent.includes('\n')) {
     cleanContent = cleanContent.replace(/\\n/g, '\n');
   }
+  // 修复卡片多个正则替换连续衔接时，闭合代码围栏 (`) 紧贴后方 HTML 标签（如 `<style>...）
+  // 导致 fenceRe 找不到换行而无法正确闭合围栏、整块状态栏被漏进 Markdown 的问题
+  cleanContent = cleanContent.replace(/(`{3,}|~{3,})([ \t]*<[a-zA-Z!/])/g, '$1\n$2');
 
   const out: Segment[] = [];
 

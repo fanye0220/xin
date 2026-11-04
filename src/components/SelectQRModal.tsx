@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, Check } from 'lucide-react';
-import { CharacterCard, getCharacters, getCharacterCategoryPrefix } from '../lib/db';
+import { X, Search, Check, Loader2 } from 'lucide-react';
+import { CharacterCard, getCharacters, getCharacter, getCharacterCategoryPrefix } from '../lib/db';
 import { useBackHandler } from '../lib/useBackHandler';
 
 interface Props {
@@ -29,6 +29,7 @@ export function SelectQRModal({ isOpen, onClose, onSelect }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const [characters, setCharacters] = useState<CharacterCard[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isLoading, setIsLoading] = useState(false);
 
   const [isLightMode, setIsLightMode] = useState(() => {
     return (
@@ -63,12 +64,60 @@ export function SelectQRModal({ isOpen, onClose, onSelect }: Props) {
   });
 
   useEffect(() => {
-    if (isOpen) {
-      // Get all characters to find QRs
-      getCharacters(1, 99999, undefined, "", [], "newest_import", false, true).then(res => setCharacters(res.characters));
-      setSelectedIds(new Set());
-      setSearchQuery('');
-    }
+    if (!isOpen) return;
+    let cancelled = false;
+    setSelectedIds(new Set());
+    setSearchQuery('');
+    setCharacters([]);
+    setIsLoading(true);
+
+    (async () => {
+      try {
+        // 只读轻量索引 char_meta（不含卡的大字段）：以前这里是 includeData=true + 全库读取，
+        // 几千张卡时等于把整个卡库整张读一遍，面板会长时间停在「暂无匹配」并且手机发烫。
+        const { characters: metas } = await getCharacters(
+          1, 99999, undefined, "", [], "newest_import", false, false,
+        );
+        if (cancelled) return;
+
+        const qrMetas = metas.filter(
+          (c) =>
+            (c as any).category === '快速回复' ||
+            (c as any).isQR === true ||
+            getCharacterCategoryPrefix(c) === '快速回复',
+        );
+        // 先按索引把列表显示出来（名字 / 时间 / 作者都在索引里）
+        setCharacters(qrMetas.map((m) => ({ ...m, data: {} }) as unknown as CharacterCard));
+        setIsLoading(false);
+        if (qrMetas.length === 0) return;
+
+        // 只有这几张快速回复才去补完整数据（列表上那个「N 条」要用），数量很少
+        const HYDRATE_CHUNK = 20;
+        for (let i = 0; i < qrMetas.length; i += HYDRATE_CHUNK) {
+          const slice = qrMetas.slice(i, i + HYDRATE_CHUNK);
+          const full = (await Promise.all(slice.map((m) => getCharacter(m.id)))).filter(
+            Boolean,
+          ) as CharacterCard[];
+          if (cancelled) return;
+          if (full.length > 0) {
+            setCharacters((prev) => {
+              const byId = new Map(full.map((c) => [c.id, c]));
+              return prev.map((c) => byId.get(c.id) || c);
+            });
+          }
+          if (i + HYDRATE_CHUNK < qrMetas.length) {
+            await new Promise((r) => setTimeout(r, 0));
+          }
+        }
+      } catch (err) {
+        console.warn('读取快速回复失败:', err);
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
 
   const validQRs = useMemo(() => {
@@ -140,7 +189,12 @@ export function SelectQRModal({ isOpen, onClose, onSelect }: Props) {
 
             {/* Candidate list */}
             <div className="flex-1 overflow-y-auto space-y-2 sm:space-y-2.5 pr-1 my-2 max-h-[46vh] custom-scrollbar relative z-10">
-              {filteredQRs.length === 0 ? (
+              {isLoading && characters.length === 0 ? (
+                <div className="py-12 text-center text-sm version-modal-desc flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  正在读取卡库…
+                </div>
+              ) : filteredQRs.length === 0 ? (
                 <div className="py-12 text-center text-sm version-modal-desc">
                   暂无匹配的快速回复
                 </div>

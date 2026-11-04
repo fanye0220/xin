@@ -33,6 +33,7 @@ import {
   Image as ImageIcon,
   Heart,
   Clock,
+  AlertCircle,
 } from "lucide-react";
 import { formatTokenCount, getCharacterTokenBreakdown, CharacterTokenBreakdown } from "../lib/tokens";
 import { TokenBreakdownModal } from "./TokenBreakdownModal";
@@ -63,7 +64,7 @@ import { useInView } from "../lib/useInView";
 import { useContinuousInView } from "../lib/useContinuousInView";
 import { peekCachedUrl, putCachedBlobUrl, isCachedBlobUrl } from "../lib/thumbCache";
 import { useBackHandler } from "../lib/useBackHandler";
-import { getCardBadgeInfo } from "../lib/cardBadge";
+import { getCardBadgeInfo, hasCardApologyError } from "../lib/cardBadge";
 import { MoveToFolderModal } from "./MoveToFolderModal";
 import { BindQRModal } from "./BindQRModal";
 import { ConfirmBindQRModal } from "./ConfirmBindQRModal";
@@ -402,14 +403,14 @@ export function CharacterList({
           mergedPreviews[fId] = oldItems;
           newItems.forEach((it) => {
             const u = typeof it === "string" ? it : it?.url;
-            if (u && u.startsWith("blob:")) urlsToRevoke.push(u);
+            if (u && u.startsWith("blob:") && !isCachedBlobUrl(u)) urlsToRevoke.push(u);
           });
         } else {
           // 真正的封面修改: 使用新 URL, 释放旧 URL
           mergedPreviews[fId] = newItems;
           oldItems.forEach((it) => {
             const u = typeof it === "string" ? it : it?.url;
-            if (u && u.startsWith("blob:")) urlsToRevoke.push(u);
+            if (u && u.startsWith("blob:") && !isCachedBlobUrl(u)) urlsToRevoke.push(u);
           });
         }
       }
@@ -2699,6 +2700,7 @@ export function CharacterList({
         type="file"
         ref={coverInputRef}
         className="hidden"
+        style={{ display: 'none' }}
         accept="image/png, image/jpeg, image/webp, image/gif, image/*"
         onChange={handleCoverUpload}
       />
@@ -4302,6 +4304,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   const charTags = (char as any).tags || char.data?.data?.tags || char.data?.tags;
   const hasTags = charTags && Array.isArray(charTags) && charTags.length > 0;
   const badgeInfo = getCardBadgeInfo(char);
+  const hasApologyError = hasCardApologyError(char);
 
   if (viewMode === "list") {
     return (
@@ -4369,6 +4372,15 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="font-medium text-white/90 truncate [.light-theme_&]:!text-[#0f172a]">{char.name}</h3>
+            {hasApologyError && (
+              <span
+                className="text-[10px] bg-[#ff3b30]/15 text-[#ff3b30] border border-[#ff3b30]/25 px-1.5 py-0.5 rounded-md flex-shrink-0 flex items-center gap-1 font-semibold select-none shadow-xs"
+                title="此卡片包含 AI 抱歉/报错/生成异常信息"
+              >
+                <AlertCircle className="w-3 h-3 text-[#ff3b30] shrink-0 stroke-[2.2]" />
+                <span>报错</span>
+              </span>
+            )}
             {badgeInfo && (
               <span className="text-[10px] bg-black/60 backdrop-blur-md border border-white/10 text-white/90 px-1.5 py-0.5 rounded-md flex-shrink-0 flex items-center gap-1 font-medium select-none">
                 <span className={`w-1.5 h-1.5 rounded-full ${badgeInfo.dotColor} shrink-0`} />
@@ -4542,36 +4554,54 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
         </button>
       )}
 
-      {/* Top right Heart favorite button - differentiated by layout */}
-      {!selectionMode && onToggleFavorite && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleFavorite(e);
-          }}
-          className={`absolute z-10 rounded-full flex items-center justify-center backdrop-blur-xs transition-all duration-200 cursor-pointer active:scale-85 ${
-            viewMode === "masonry"
-              ? "top-1.5 right-1.5 sm:top-2.5 sm:right-2.5 w-6 h-6 sm:w-7 sm:h-7"
-              : "top-1 right-1 sm:top-2 sm:right-2 w-5 h-5 sm:w-6.5 sm:h-6.5"
-          } ${
-            char.isFavorite
-              ? "bg-black/45 text-rose-500 shadow-xs opacity-100 border border-white/10"
-              : "bg-black/30 text-white/70 hover:text-rose-400 opacity-0 group-hover:opacity-100"
-          }`}
-          title={char.isFavorite ? "取消收藏" : "收藏"}
-        >
-          <Heart
-            className={`transition-transform duration-200 ${
-              viewMode === "masonry"
-                ? "w-3.5 h-3.5 sm:w-4 sm:h-4"
-                : "w-2.5 h-2.5 sm:w-3.5 sm:h-3.5"
-            } ${
-              char.isFavorite
-                ? "fill-rose-500 text-rose-500 drop-shadow-[0_1px_3px_rgba(244,63,94,0.5)]"
-                : "text-white/90 hover:text-white"
-            }`}
-          />
-        </button>
+      {/* Top right container for Error indicator & Heart favorite button */}
+      {!selectionMode && (
+        <div className={`absolute z-10 flex items-center gap-1 sm:gap-1.5 ${
+          viewMode === "masonry"
+            ? "top-1.5 right-1.5 sm:top-2.5 sm:right-2.5"
+            : "top-1 right-1 sm:top-2 sm:right-2"
+        }`}>
+          {hasApologyError && (
+            <div
+              className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold flex items-center gap-0.5 bg-[#ff3b30]/20 text-[#ff3b30] border border-[#ff3b30]/30 backdrop-blur-md shadow-xs select-none cursor-help pointer-events-auto"
+              title="此卡片包含 AI 抱歉/报错/生成异常信息"
+            >
+              <AlertCircle className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-[#ff3b30] shrink-0 stroke-[2.2]" />
+              <span className="leading-none text-[9px] sm:text-[10px]">报错</span>
+            </div>
+          )}
+
+          {onToggleFavorite && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFavorite(e);
+              }}
+              className={`rounded-full flex items-center justify-center backdrop-blur-xs transition-all duration-200 cursor-pointer active:scale-85 ${
+                viewMode === "masonry"
+                  ? "w-6 h-6 sm:w-7 sm:h-7"
+                  : "w-5 h-5 sm:w-6.5 sm:h-6.5"
+              } ${
+                char.isFavorite
+                  ? "bg-black/45 text-rose-500 shadow-xs opacity-100 border border-white/10"
+                  : "bg-black/30 text-white/70 hover:text-rose-400 opacity-0 group-hover:opacity-100"
+              }`}
+              title={char.isFavorite ? "取消收藏" : "收藏"}
+            >
+              <Heart
+                className={`transition-transform duration-200 ${
+                  viewMode === "masonry"
+                    ? "w-3.5 h-3.5 sm:w-4 sm:h-4"
+                    : "w-2.5 h-2.5 sm:w-3.5 sm:h-3.5"
+                } ${
+                  char.isFavorite
+                    ? "fill-rose-500 text-rose-500 drop-shadow-[0_1px_3px_rgba(244,63,94,0.5)]"
+                    : "text-white/90 hover:text-white"
+                }`}
+              />
+            </button>
+          )}
+        </div>
       )}
     </motion.div>
   );

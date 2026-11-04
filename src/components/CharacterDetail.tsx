@@ -5,13 +5,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, ChevronRight, Plus, Edit2, Power, X as XIcon, ChevronDown, ChevronUp, ExternalLink, Check, Upload, Send, Smartphone, Loader2, Share2, Folder as FolderIcon, History, AlertCircle, Maximize2, BookOpen, Sparkles, FileJson, Image as ImageIcon, Save, Heart, RefreshCw, FileText } from 'lucide-react';
 import { getCharacter, deleteCharacter, saveCharacter, toggleCharacterFavorite, CharacterCard, getFolders, resolveFolderPath, getCachedMeta, getCharacterCategoryPrefix, isActualCharacterCard, stripToolNameSuffix } from '../lib/db';
 import { getCardTypeBadgeInfo } from '../lib/cardType';
+import { getCardBadgeInfo, hasCardApologyError } from '../lib/cardBadge';
+import { isRefusalOrApologySummary } from '../lib/taggerState';
 import { parseTavernCard } from '../types/tavern';
 import { normalizeSourceUrl } from '../lib/sourceUrl';
 import { injectTavernData } from '../lib/png';
 import { normalizeWorldbookEntries } from '../lib/worldbook';
 import { getAISettings, normalizeSillyTavernUrl, getSillyTavernAuthHeaders } from '../lib/ai';
 import { AvatarViewer } from './AvatarViewer';
-import { GreetingReaderModal } from './GreetingReaderModal';
+import { GreetingReaderModal, CustomSectionItem } from './GreetingReaderModal';
 import { QuickRepliesSection } from './QuickRepliesSection';
 import { CharacterRegexSection } from './CharacterRegexSection';
 import { CharacterChatsSection } from './CharacterChatsSection';
@@ -113,6 +115,7 @@ interface Props {
 // 连带触发这个 1700+ 行的大组件整体重渲染。
 export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpenChat, onOpenImport, onOpenSettings, refreshKey, isLightMode: propIsLightMode }: Props) {
   const [character, setCharacter] = useState<CharacterCard | null>(null);
+  const [isLoadingData, setIsLoadingData] = useState(false); // data 字段是否正在后台补
   const [activeTab, setActiveTab] = useState<'profile' | 'greetings' | 'worldbook' | 'regex' | 'chats' | 'memos' | 'versions' | 'data_viewer'>('profile');
 
   const [isLightMode, setIsLightMode] = useState(() => {
@@ -170,6 +173,10 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   const [showGreetingReader, setShowGreetingReader] = useState(false);
   const [greetingReaderInitialIndex, setGreetingReaderInitialIndex] = useState(0);
   const [greetingReaderEditMode, setGreetingReaderEditMode] = useState(false);
+  const [activeProfileReader, setActiveProfileReader] = useState<{
+    initialIndex: number;
+    initialEditMode: boolean;
+  } | null>(null);
 
   const [avatarUrl, setAvatarUrl] = useState<string>('');
   const [resolvedModifiedDate, setResolvedModifiedDate] = useState<Date | null>(null);
@@ -215,10 +222,15 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     return getCharacterTokenBreakdown(character?.data ?? character);
   }, [character?.data]);
 
+  const hasApologyError = useMemo(() => {
+    return character ? hasCardApologyError(character) : false;
+  }, [character]);
+
   const hasDetailOverlay = Boolean(
     showTokenBreakdownModal ||
     showSummaryModal ||
     showGreetingReader ||
+    activeProfileReader ||
     isMoveFolderOpen ||
     showDeleteConfirm ||
     showDownloadChoice ||
@@ -236,6 +248,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   );
 
   const handleDetailBack = () => {
+    if (activeProfileReader) { setActiveProfileReader(null); return true; }
     if (showSummaryModal) { setShowSummaryModal(false); return true; }
     if (showGreetingReader) { setShowGreetingReader(false); return true; }
     if (isMoveFolderOpen) { setIsMoveFolderOpen(false); return true; }
@@ -267,8 +280,45 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   });
 
   useEffect(() => {
-    getCharacter(id).then(async (char) => {
-      setCharacter(char);
+    // 先用轻量索引快速显示骨架（名字/标签/token/分类/头像），data 后台补
+    const load = async () => {
+      try {
+        const { getCharacterMeta, getCharacter } = await import('../lib/db');
+        const meta = await getCharacterMeta(id);
+        if (!meta) {
+          const char = await getCharacter(id);
+          setCharacter(char);
+          return;
+        }
+        // 先用 meta 构造轻量卡对象（data 为空）
+        const lightChar: CharacterCard = {
+          ...meta,
+          data: {},
+        } as unknown as CharacterCard;
+        setCharacter(lightChar);
+
+        // 后台补完整 data
+        setIsLoadingData(true);
+        const full = await getCharacter(id);
+        if (full) {
+          setCharacter(full);
+        }
+      } catch (e) {
+        // 兜底：直接读整卡
+        const char = await getCharacter(id);
+        setCharacter(char);
+      } finally {
+        setIsLoadingData(false);
+      }
+    };
+    load();
+  }, [id]);
+
+  // data 补完后跑原有逻辑（分类/头像/修改时间等）
+  useEffect(() => {
+    if (!character) return;
+    (async () => {
+      const char = character;
       if (char) {
         const isActual = isActualCharacterCard(char.data || char);
         const category = isActual ? '未归类' : getCharacterCategoryPrefix(char);
@@ -335,8 +385,8 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
           }
         }
       }
-    });
-  }, [id]);
+    })();
+  }, [character?.id, isLoadingData]);
 
   const handleNameSave = async () => {
     if (!editNameValue.trim() || !character) return;
@@ -517,7 +567,12 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
 
   // 卡片「来源」：存的可能是 example.com/page 这种没带协议的，也可能就是一句话。
   // 统一整理成能点的干净链接；整理不出来就当作普通文字/无来源显示。
-  const rawSource = data.extensions?.source || data.source || character.sourceUrl || '';
+  const rawSourceVal = data.extensions?.source ?? data.source ?? character.sourceUrl ?? '';
+  const rawSource = typeof rawSourceVal === 'string' 
+    ? rawSourceVal 
+    : (typeof rawSourceVal === 'object' && rawSourceVal !== null 
+        ? (rawSourceVal.url || rawSourceVal.link || rawSourceVal.href || rawSourceVal.source || '') 
+        : String(rawSourceVal || ''));
   const sourceLink = normalizeSourceUrl(rawSource);
   const category = getCharacterCategoryPrefix(character);
   const isPreset = category === '预设';
@@ -527,6 +582,24 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   const isScript = category === '脚本' || category === '工具区';
   const isSpecialData = isTheme || isQR || isScript || isPreset;
   const isToolCard = isSpecialData || isStandaloneWorldbook || !isActualCharacterCard(rawData) || Boolean(getCardTypeBadgeInfo(character));
+
+  const profileSections: CustomSectionItem[] = [
+    { id: 'description', title: '描述 (Description)', content: data.description || '', onSave: (val: string) => updateField('description', val) },
+    { id: 'personality', title: '性格 (Personality)', content: data.personality || '', onSave: (val: string) => updateField('personality', val) },
+    { id: 'scenario', title: '场景 (Scenario)', content: data.scenario || '', onSave: (val: string) => updateField('scenario', val) },
+    { id: 'mes_example', title: '示例对话 (Mes Example)', content: data.mes_example || '', onSave: (val: string) => updateField('mes_example', val) },
+    { id: 'creator_notes', title: "作者备注 (Creator's Notes)", content: data.creator_notes || '', onSave: (val: string) => updateField('creator_notes', val) },
+    { id: 'system_prompt', title: '系统提示词 (System Prompt)', content: data.system_prompt || '', onSave: (val: string) => updateField('system_prompt', val) },
+    { id: 'post_history_instructions', title: '历史后提示词 (Post History Instructions)', content: data.post_history_instructions || '', onSave: (val: string) => updateField('post_history_instructions', val) },
+  ];
+
+  const openProfileReader = (sectionId: string, editMode: boolean = false) => {
+    const idx = profileSections.findIndex(s => s.id === sectionId);
+    setActiveProfileReader({
+      initialIndex: Math.max(0, idx),
+      initialEditMode: editMode,
+    });
+  };
 
   const getSafeFilename = (name: string) => {
     return name.replace(/[^a-zA-Z0-9_\u4e00-\u9fa5\-]/g, '_') || 'character';
@@ -1489,11 +1562,22 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               {/* 简介标志按钮 */}
               <button
                 onClick={() => setShowSummaryModal(true)}
-                className="group inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 text-xs text-white/90 transition cursor-pointer active:scale-95 backdrop-blur-md shadow-xs [.light-theme_&]:bg-stone-100 [.light-theme_&]:border-stone-200 [.light-theme_&]:text-stone-700 [.light-theme_&]:hover:bg-stone-200 shrink-0"
+                className={`group inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs transition cursor-pointer active:scale-95 backdrop-blur-md shadow-xs shrink-0 ${
+                  hasApologyError
+                    ? 'bg-[#ff3b30]/15 hover:bg-[#ff3b30]/25 border border-[#ff3b30]/30 text-[#ff3b30] font-semibold'
+                    : 'bg-white/10 hover:bg-white/15 border border-white/15 text-white/90 [.light-theme_&]:bg-stone-100 [.light-theme_&]:border-stone-200 [.light-theme_&]:text-stone-700 [.light-theme_&]:hover:bg-stone-200 font-medium'
+                }`}
                 title="查看与重新生成简介"
               >
-                <Sparkles className="w-3.5 h-3.5 text-white/70 [.light-theme_&]:text-stone-700 shrink-0 transition-transform group-hover:scale-105" />
+                <Sparkles className={`w-3.5 h-3.5 shrink-0 transition-transform group-hover:scale-105 ${
+                  hasApologyError ? 'text-[#ff3b30]' : 'text-white/70 [.light-theme_&]:text-stone-700'
+                }`} />
                 <span className="font-medium tracking-wide">简介</span>
+                {hasApologyError && (
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#ff3b30]/20 text-[#ff3b30] font-bold border border-[#ff3b30]/30">
+                    报错
+                  </span>
+                )}
               </button>
             </div>
           )}
@@ -1686,13 +1770,13 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                               <ExternalLink className="w-3 h-3 shrink-0 text-blue-400 [.light-theme_&]:!text-[#007aff]" />
                               <span className="truncate max-w-[200px] sm:max-w-[280px]">{sourceLink}</span>
                             </a>
-                          ) : rawSource ? (
+                          ) : (typeof rawSource === 'string' && rawSource.trim()) ? (
                             <span className="text-white/70 [.light-theme_&]:!text-[#0f172a] font-normal text-xs sm:text-sm truncate min-w-0" title={rawSource}>{rawSource}</span>
                           ) : (
                             <span className="text-white/60 [.light-theme_&]:!text-[#0f172a] font-normal text-xs sm:text-sm">无来源</span>
                           )}
                           <button 
-                            onClick={() => { setTempSource(sourceLink || rawSource); setIsEditingSource(true); }} 
+                            onClick={() => { setTempSource(sourceLink || (typeof rawSource === 'string' ? rawSource : '')); setIsEditingSource(true); }} 
                             className="p-1 text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a] transition cursor-pointer shrink-0"
                             title="修改来源网址"
                           >
@@ -1828,13 +1912,62 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                     </div>
                   ) : (
                     <>
-                      <Section title="描述 (Description)" content={data.description} character={character} onSave={(val) => updateField('description', val)} />
-                      <Section title="性格 (Personality)" content={data.personality} character={character} onSave={(val) => updateField('personality', val)} />
-                      <Section title="场景 (Scenario)" content={data.scenario} character={character} onSave={(val) => updateField('scenario', val)} />
-                      <Section title="示例对话 (Mes Example)" content={data.mes_example} character={character} onSave={(val) => updateField('mes_example', val)} />
-                      <Section title="作者备注 (Creator's Notes)" content={data.creator_notes} character={character} onSave={(val) => updateField('creator_notes', val)} />
-                      <Section title="系统提示词 (System Prompt)" content={data.system_prompt} character={character} onSave={(val) => updateField('system_prompt', val)} />
-                      <Section title="历史后提示词 (Post History Instructions)" content={data.post_history_instructions} character={character} onSave={(val) => updateField('post_history_instructions', val)} />
+                      <Section 
+                        title="描述 (Description)" 
+                        content={data.description} 
+                        character={character} 
+                        onSave={(val) => updateField('description', val)}
+                        onOpenReader={() => openProfileReader('description', false)}
+                        onOpenEdit={() => openProfileReader('description', true)}
+                      />
+                      <Section 
+                        title="性格 (Personality)" 
+                        content={data.personality} 
+                        character={character} 
+                        onSave={(val) => updateField('personality', val)}
+                        onOpenReader={() => openProfileReader('personality', false)}
+                        onOpenEdit={() => openProfileReader('personality', true)}
+                      />
+                      <Section 
+                        title="场景 (Scenario)" 
+                        content={data.scenario} 
+                        character={character} 
+                        onSave={(val) => updateField('scenario', val)}
+                        onOpenReader={() => openProfileReader('scenario', false)}
+                        onOpenEdit={() => openProfileReader('scenario', true)}
+                      />
+                      <Section 
+                        title="示例对话 (Mes Example)" 
+                        content={data.mes_example} 
+                        character={character} 
+                        onSave={(val) => updateField('mes_example', val)}
+                        onOpenReader={() => openProfileReader('mes_example', false)}
+                        onOpenEdit={() => openProfileReader('mes_example', true)}
+                      />
+                      <Section 
+                        title="作者备注 (Creator's Notes)" 
+                        content={data.creator_notes} 
+                        character={character} 
+                        onSave={(val) => updateField('creator_notes', val)}
+                        onOpenReader={() => openProfileReader('creator_notes', false)}
+                        onOpenEdit={() => openProfileReader('creator_notes', true)}
+                      />
+                      <Section 
+                        title="系统提示词 (System Prompt)" 
+                        content={data.system_prompt} 
+                        character={character} 
+                        onSave={(val) => updateField('system_prompt', val)}
+                        onOpenReader={() => openProfileReader('system_prompt', false)}
+                        onOpenEdit={() => openProfileReader('system_prompt', true)}
+                      />
+                      <Section 
+                        title="历史后提示词 (Post History Instructions)" 
+                        content={data.post_history_instructions} 
+                        character={character} 
+                        onSave={(val) => updateField('post_history_instructions', val)}
+                        onOpenReader={() => openProfileReader('post_history_instructions', false)}
+                        onOpenEdit={() => openProfileReader('post_history_instructions', true)}
+                      />
                       
                       {character && (
                         <QuickRepliesSection 
@@ -2180,6 +2313,18 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         />
       )}
 
+      {character && activeProfileReader && (
+        <GreetingReaderModal
+          isOpen={Boolean(activeProfileReader)}
+          onClose={() => setActiveProfileReader(null)}
+          character={character}
+          avatarUrl={avatarUrl}
+          initialIndex={activeProfileReader.initialIndex}
+          initialEditMode={activeProfileReader.initialEditMode}
+          customSections={profileSections}
+        />
+      )}
+
       <MoveToFolderModal
         isOpen={isMoveFolderOpen}
         onClose={() => setIsMoveFolderOpen(false)}
@@ -2352,6 +2497,7 @@ function TextPreview({
   const [isExpanded, setIsExpanded] = useState(initialEditMode || false);
   const [isEditing, setIsEditing] = useState(initialEditMode || false);
   const [editValue, setEditValue] = useState(content);
+  const isError = isRefusalOrApologySummary(content);
 
   const handleSave = () => {
     if (onSave) {
@@ -2379,7 +2525,11 @@ function TextPreview({
   };
 
   return (
-    <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
+    <div className={`w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2 ${
+      isError
+        ? '!bg-[#ff3b30]/10 !border-[#ff3b30]/30 text-[#ff3b30] [.light-theme_&]:!bg-[#ff3b30]/10 [.light-theme_&]:!border-[#ff3b30]/25 [.light-theme_&]:!text-[#dc2626]'
+        : ''
+    }`}>
       {/* Action bar for Editing */}
       {onSave && !isEditing && (
         <div className="flex justify-end items-center gap-1.5 mb-1.5">
@@ -2483,6 +2633,7 @@ function AlternateGreetingCard({
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(content);
+  const isError = isRefusalOrApologySummary(content);
 
   const handleSave = () => {
     onSave(editValue);
@@ -2505,11 +2656,25 @@ function AlternateGreetingCard({
   };
 
   return (
-    <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
+    <div className={`w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2 ${
+      isError
+        ? '!bg-[#ff3b30]/10 !border-[#ff3b30]/30 text-[#ff3b30] [.light-theme_&]:!bg-[#ff3b30]/10 [.light-theme_&]:!border-[#ff3b30]/25 [.light-theme_&]:!text-[#dc2626]'
+        : ''
+    }`}>
       <div className="flex flex-wrap sm:flex-nowrap justify-between items-center gap-2 mb-1.5">
-        <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 text-sm truncate">
-          备用开场白 {index + 1}
-        </h4>
+        <div className="flex items-center gap-2 truncate">
+          <h4 className={`font-semibold text-sm truncate ${
+            isError ? 'text-[#ff3b30] [.light-theme_&]:!text-[#ff3b30]' : 'text-blue-300 [.light-theme_&]:!text-blue-700'
+          }`}>
+            备用开场白 {index + 1}
+          </h4>
+          {isError && (
+            <span className="text-[10px] bg-[#ff3b30]/15 text-[#ff3b30] border border-[#ff3b30]/25 px-1.5 py-0.2 rounded-full font-semibold flex items-center gap-0.5 select-none">
+              <AlertCircle className="w-2.5 h-2.5 text-[#ff3b30] shrink-0" />
+              <span>报错</span>
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {!isEditing && (
             <button 
@@ -2590,11 +2755,22 @@ function Section({
   onOpenEdit?: () => void;
 }) {
   const [isAdding, setIsAdding] = useState(false);
+  const isError = isRefusalOrApologySummary(content);
 
   return (
     <div>
       <div className="flex items-center justify-between border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] pb-2 mb-3">
-        <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a]">{title}</h3>
+        <div className="flex items-center gap-2">
+          <h3 className={`text-lg font-semibold ${
+            isError ? 'text-[#ff3b30] [.light-theme_&]:!text-[#ff3b30]' : 'text-white/90 [.light-theme_&]:!text-[#0f172a]'
+          }`}>{title}</h3>
+          {isError && (
+            <span className="text-xs bg-[#ff3b30]/15 text-[#ff3b30] border border-[#ff3b30]/25 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 select-none">
+              <AlertCircle className="w-3 h-3 text-[#ff3b30] shrink-0 stroke-[2.2]" />
+              <span>含报错/道歉</span>
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1.5">
           {(!content || content.trim() === '') && onSave && (
             <button 

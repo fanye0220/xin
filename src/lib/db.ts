@@ -3,6 +3,7 @@ import { openDB, DBSchema, IDBPDatabase } from "idb";
 import { getLocalImageUrl, isAndroid } from "./appBridge";
 import { sanitizeChatMessages } from "./chatParse";
 import { getCharacterTokenBreakdown } from "./tokens";
+import { isStoredPlaceholderCopy } from "./placeholder";
 
 // 本地 Android 文件同步已按需求关闭，后续只使用 IndexedDB + 云端同步。
 const ENABLE_ANDROID_FILE_SYNC = false;
@@ -754,8 +755,7 @@ export async function getFolderPreviews(
 
   const previews: Record<string, FolderPreviewItem[]> = {};
 
-  // 每次都新开一次读取事务：上面那次查询一结束事务就已经提交，
-  // 再拿同一个事务的索引去查会直接抛 TransactionInactiveError（父文件夹预览就是这样悄悄变空的）
+  // 每次都新开一次读取事务，避免 TransactionInactiveError
   const readFolderMetas = async (id: string): Promise<CharMeta[]> => {
     const metas = await db.getAllFromIndex("char_meta", "by-folder", id);
     return metas.filter((m) => !m.deletedAt);
@@ -789,13 +789,10 @@ export async function getFolderPreviews(
         }
       }
 
-      // ── 封面挑选：相册式「顺位」 ────────────────────────────────────────
+      // ── 封面挑选：严格相册式「顺位」 ────────────────────────────────────
       // 1) 工具卡 / 机器人 / 预设 / 二维码永远沉底，绝不当封面
-      // 2) 其余按你在列表里看到的顺序（跟随 tavern_sortBy；手动排序就是拖出来的顺序）
-      // 3) 顺着这个顺序往下找「真的有图」的第一张当封面，第二张当后面探出来的那张；
-      //    整个文件夹一张有图的都没有 → 才用默认占位图（miu）
-      //    ★ 以前掺了「最近改过的优先 / 收藏优先」，所以你点开或编辑一张卡封面就跳一次，
-      //      看着就是"一直在刷新"；现在只有你自己改顺序 / 换封面它才会变。
+      // 2) 其余按当前列表展示排序：谁排在最前面，谁就是封面（第一顺位当主封面，第二顺位当副封面）
+      // 3) 排序主键相同时增加卡片 ID 稳定兜底，保证同一批卡在任何时候顺序绝对固定、绝不来回跳变
       const isToolMeta = (m: CharMeta) =>
         Boolean(
           m.isTool ||
@@ -817,34 +814,47 @@ export async function getFolderPreviews(
         const aTool = isToolMeta(a);
         const bTool = isToolMeta(b);
         if (aTool !== bTool) return aTool ? 1 : -1;
+
+        let diff = 0;
         switch (coverSortBy) {
           case 'custom': {
             const ao = a.sortOrder;
             const bo = b.sortOrder;
-            if (ao !== undefined && bo !== undefined) return ao - bo;
-            if (ao !== undefined) return -1;
-            if (bo !== undefined) return 1;
-            return (b.createdAt || 0) - (a.createdAt || 0);
+            if (ao !== undefined && bo !== undefined) diff = ao - bo;
+            else if (ao !== undefined) diff = -1;
+            else if (bo !== undefined) diff = 1;
+            else diff = (b.createdAt || 0) - (a.createdAt || 0);
+            break;
           }
           case 'oldest_import':
-            return (a.createdAt || 0) - (b.createdAt || 0);
+            diff = (a.createdAt || 0) - (b.createdAt || 0);
+            break;
           case 'recently_modified':
-            return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+            diff = (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+            break;
           case 'tokens_desc':
-            return (b.tokenCount || 0) - (a.tokenCount || 0);
+            diff = (b.tokenCount || 0) - (a.tokenCount || 0);
+            break;
           case 'tokens_asc':
-            return (a.tokenCount || 0) - (b.tokenCount || 0);
+            diff = (a.tokenCount || 0) - (b.tokenCount || 0);
+            break;
           case 'a_z':
-            return (a.name || '').localeCompare(b.name || '', 'zh-CN');
+            diff = (a.name || '').localeCompare(b.name || '', 'zh-CN');
+            break;
           case 'z_a':
-            return (b.name || '').localeCompare(a.name || '', 'zh-CN');
+            diff = (b.name || '').localeCompare(a.name || '', 'zh-CN');
+            break;
           case 'newest_import':
           default:
-            return (b.createdAt || 0) - (a.createdAt || 0);
+            diff = (b.createdAt || 0) - (a.createdAt || 0);
+            break;
         }
+        if (diff !== 0) return diff;
+        // 关键稳定键：相同时间戳或名称时，固定按 ID 排序，保证每次计算顺序绝对一致，绝不跳动
+        return (a.id || '').localeCompare(b.id || '');
       });
 
-      // 不用读库就能确定「这张有图」的地址：安卓本地图片文件 / 卡片自带的网络图
+      // 廉价同步能确定的真卡图：安卓本地图片文件 / 卡片自带网络头像
       const cheapImageUrl = (m: CharMeta): string | undefined => {
         if (m.localFilePath && /\.(png|jpe?g|webp|gif|bmp)$/i.test(m.localFilePath)) {
           return getLocalImageUrl(m.localFilePath, m.updatedAt || m.createdAt);
@@ -855,36 +865,36 @@ export async function getFolderPreviews(
         return undefined;
       };
 
-      // 图存在库里的 blob（读库才知道有没有）: 按需读缩略图, getCharacterThumb 对
-      // 「头像其实就是占位图」的老卡会返回 null, 正好当成"没图"。
-      // 复用一个已经生成过的 URL, 避免每次刷新都重建 blob 地址把页面上那张图 revoke 掉。
+      // 文件夹封面专用独立缓存：不与普通卡片列表的 120 挤占，杜绝被翻页淘汰 revoke 导致 onError 突然退回 miu
       const readThumbUrl = async (m: CharMeta): Promise<string | undefined> => {
         try {
-          const { peekCachedUrl, putCachedBlobUrl } = await import("./thumbCache");
-          const cacheKey = `folder_preview_${m.id}:${m.updatedAt || m.createdAt || 0}`;
-          const cached = peekCachedUrl(cacheKey);
+          const { peekFolderCoverUrl, putFolderCoverBlobUrl } = await import("./thumbCache");
+          const cacheKey = `folder_cover_${m.id}:${m.updatedAt || m.createdAt || 0}`;
+          const cached = peekFolderCoverUrl(cacheKey);
           if (cached) return cached;
           const thumbBlob = await getCharacterThumb(m.id);
           if (!thumbBlob) return undefined;
-          return putCachedBlobUrl(cacheKey, thumbBlob) || undefined;
+          return putFolderCoverBlobUrl(cacheKey, thumbBlob) || undefined;
         } catch {
           return undefined;
         }
       };
 
       const pickedItems: FolderPreviewItem[] = [];
-      let thumbBudget = 6; // 只有"不读库不知道有没有图"的卡才花额度, 本地图 / 网络图不花
       let firstMeta: CharMeta | undefined;
+      // 探查深度放宽至 50 张卡：只要文件夹内有带头像的卡，就坚定找出来作为封面，绝不轻易误判成全空 miu
+      let maxSearch = 50;
       for (const meta of sortedMetas) {
         if (!firstMeta) firstMeta = meta;
         if (pickedItems.length >= 2) break;
+        if (maxSearch-- <= 0) break;
+
         let url = cheapImageUrl(meta);
         if (!url) {
-          if (thumbBudget <= 0) continue;
-          thumbBudget--;
           url = await readThumbUrl(meta);
         }
         if (!url) continue;
+
         pickedItems.push({
           url,
           seed: meta.name || meta.id,
@@ -894,7 +904,7 @@ export async function getFolderPreviews(
         });
       }
 
-      // 一张有图的都没有: 顺位第一张卡走默认占位图(miu)
+      // 只有在全文件夹遍历完、真正没有任何一张卡拥有头像时，才使用第一张卡回退为默认占位图(miu)
       if (pickedItems.length === 0 && firstMeta) {
         pickedItems.push({
           url: getFallbackAvatar(
@@ -1244,6 +1254,11 @@ function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
   const isTool = cat !== "未归类";
   const isQR = cat === "快速回复";
   const fallbackAvatar = resolveAvatarUrl(val.avatarUrlFallback, val.name || val.id, cat);
+  // 默认占位图不再复制进索引：用户换过默认图之后它是一串几百 KB 的 data URL，
+  // 每张没图的卡都在索引里背一份 —— 库越大，冷启动读索引越慢、越占内存
+  // （也就是"进 App 要等一会儿"和越用越烫的来源）。显示时由 resolveAvatarUrl
+  // 现取当前默认图，换过默认图依然全局生效，图不会裂。
+  const storedFallbackAvatar = isStoredPlaceholderCopy(fallbackAvatar) ? undefined : fallbackAvatar;
   const isFav = Boolean(
     val.isFavorite ||
     val.favorite ||
@@ -1290,7 +1305,7 @@ function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
     aiSummary,
     localFilePath: val.localFilePath,
     hasBlobsSeparated: val.hasBlobsSeparated,
-    avatarUrlFallback: fallbackAvatar,
+    avatarUrlFallback: storedFallbackAvatar,
     tokenCount,
     permanentTokens,
     // 查重指纹（基础名 / 设定 / 开场白）在建索引时就顺手算好，查重时直接读索引，
@@ -1305,6 +1320,8 @@ let cachedMeta: CharMeta[] | null = null;
 let isBuildingCache = false;
 const REPAIR_CATEGORY_FLAG = "tavern_category_repair_v10_strict_worldbook_card_distinction";
 const REPAIR_TOKEN_FLAG = "tavern_meta_tokens_v4";
+// 一次性把索引里那份"默认占位图副本"清掉的标志位
+const SLIM_PLACEHOLDER_FLAG = "tavern_meta_slim_placeholder_v1";
 
 /** 老版拉工具时把 `名字.worldbook.json` 整个当成了名字，展示出来会带 `.worldbook` 这类尾巴，这里统一去掉。 */
 const TOOL_NAME_KIND_SUFFIX = /\.(worldbook|lorebook|preset|theme|qr|regex|script)$/i;
@@ -1553,6 +1570,35 @@ async function buildMetaCache(): Promise<CharMeta[]> {
     } catch (err) {
       console.warn("[MetaCache] 重建索引失败, 先用重建前的索引顶着：", err);
       return previousMeta;
+    }
+  }
+
+  // ---- 一次性瘦身：老版本把"默认占位图"整张复制进了索引（换过默认图的用户，
+  // 每张没图的卡都背着几百 KB 的 data URL，几千张卡就是几百 MB）。这里把这类副本
+  // 清掉并回写，只重写索引里那几条记录，不读卡内容。跑完置标志，之后不再重复。
+  if (typeof localStorage !== 'undefined' && newMeta && localStorage.getItem(SLIM_PLACEHOLDER_FLAG) !== 'true') {
+    try {
+      const slimmed: CharMeta[] = [];
+      newMeta = newMeta.map((m) => {
+        if (!isStoredPlaceholderCopy(m.avatarUrlFallback)) return m;
+        const next = { ...m, avatarUrlFallback: undefined };
+        slimmed.push(next);
+        return next;
+      });
+      if (slimmed.length > 0) {
+        const CHUNK = 200;
+        for (let i = 0; i < slimmed.length; i += CHUNK) {
+          const putTx = db.transaction("char_meta", "readwrite");
+          for (const meta of slimmed.slice(i, i + CHUNK)) {
+            putTx.store.put(meta);
+          }
+          await putTx.done;
+        }
+        console.log("[MetaCache] 索引瘦身: 清掉", slimmed.length, "张卡上的占位图副本");
+      }
+      localStorage.setItem(SLIM_PLACEHOLDER_FLAG, 'true');
+    } catch (err) {
+      console.warn("[MetaCache] 索引瘦身失败, 下次打开再试：", err);
     }
   }
 
@@ -1992,6 +2038,12 @@ export async function getCharacterThumb(id: string): Promise<Blob | null> {
     console.warn("Failed to persist generated HD thumbnail:", e);
   }
   return thumb;
+}
+
+/** 只读索引（不读 data 大字段），用于详情页快速骨架渲染 */
+export async function getCharacterMeta(id: string): Promise<CharMeta | undefined> {
+  const db = await initDB();
+  return db.get("char_meta", id);
 }
 
 export async function getCharacter(
@@ -3640,9 +3692,54 @@ export async function deleteChatsBulk(
 
 export async function getMemosForCharacter(
   characterId: string,
+  characterName?: string,
 ): Promise<CharacterMemo[]> {
   const db = await initDB();
-  const memos = await db.getAllFromIndex("memos", "by-character", characterId);
+  let memos = await db.getAllFromIndex("memos", "by-character", characterId);
+
+  // 自动修复与迁移历史孤儿备忘录：
+  // 如果之前合并/删除重复卡时遗留了所属卡片已被删除的孤儿备忘录（例如口令、笔记），
+  // 自动将其合并归属于当前保留的主卡片，确保用户备忘录数据永不丢失！
+  try {
+    let targetName = characterName;
+    if (!targetName) {
+      const targetChar = await db.get("characters", characterId);
+      targetName = targetChar?.name || targetChar?.data?.name || targetChar?.data?.data?.name;
+    }
+
+    const allMemos = await db.getAll("memos");
+    const charKeys = new Set(await db.getAllKeys("characters"));
+    const orphanMemosToMigrate: CharacterMemo[] = [];
+
+    for (const m of allMemos) {
+      if (m.characterId && m.characterId !== characterId) {
+        // 所属卡片 ID 不存在于当前卡库中（说明是在查重/合并中被删掉的副卡片）
+        if (!charKeys.has(m.characterId)) {
+          orphanMemosToMigrate.push(m);
+        }
+      }
+    }
+
+    if (orphanMemosToMigrate.length > 0) {
+      const tx = db.transaction("memos", "readwrite");
+      for (const m of orphanMemosToMigrate) {
+        m.characterId = characterId;
+        await tx.store.put(m);
+        memos.push(m);
+      }
+      await tx.done;
+    }
+  } catch (err) {
+    console.warn("[Memos] Orphan memo auto-migration skipped:", err);
+  }
+
+  // 去重（按 memo.id）
+  const uniqueMemosMap = new Map<string, CharacterMemo>();
+  for (const m of memos) {
+    uniqueMemosMap.set(m.id, m);
+  }
+  memos = Array.from(uniqueMemosMap.values());
+
   return memos.sort((a, b) => {
     if (a.isPinned && !b.isPinned) return -1;
     if (!a.isPinned && b.isPinned) return 1;

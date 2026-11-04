@@ -12,6 +12,7 @@ import {
   Check,
   Type,
   List,
+  MoveHorizontal,
 } from 'lucide-react';
 import { CharacterCard } from '../lib/db';
 import {getFallbackAvatar, safeCreateObjectURL, isFallbackMiuImage } from '../lib/avatar';
@@ -203,6 +204,23 @@ export function GreetingFullScreenModal({
       return false; // In P1 style, clean paragraph formatting without aggressive indent is default
     }
   });
+
+  const [sideMargin, setSideMargin] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('miu_reader_side_margin');
+      return saved !== null ? Number(saved) : 28;
+    } catch {
+      return 28;
+    }
+  });
+
+  const handleSetSideMargin = (val: number) => {
+    const clamped = Math.max(8, Math.min(64, val));
+    setSideMargin(clamped);
+    try {
+      localStorage.setItem('miu_reader_side_margin', String(clamped));
+    } catch {}
+  };
 
   const userName = 'User';
 
@@ -673,14 +691,18 @@ export function GreetingFullScreenModal({
             )}
           </AnimatePresence>
 
-          {/* 2. 主阅读内容区 (重点：曲面屏两边留白安全距离 px-8 sm:px-14 md:px-16，字不贴边) */}
+          {/* 2. 主阅读内容区 (支持自适应与屏幕左右边距调节) */}
           <main
             ref={scrollContainerRef}
-            style={{ overflowAnchor: 'none' }}
+            style={{ 
+              overflowAnchor: 'none',
+              paddingLeft: `${sideMargin}px`,
+              paddingRight: `${sideMargin}px`,
+            }}
             onClick={handleContentClick}
             onTouchStart={onTouchStart}
             onTouchEnd={onTouchEnd}
-            className="flex-1 overflow-y-auto px-8 sm:px-14 md:px-16 custom-scrollbar select-text"
+            className="flex-1 overflow-y-auto custom-scrollbar select-text transition-all duration-150"
           >
             <div className="w-full min-h-full flex flex-col justify-between">
               {/* 🌟 P1 同款美化头部排版 (Circular Avatar, Name, Chapter Label, Dashed Line) */}
@@ -926,6 +948,72 @@ export function GreetingFullScreenModal({
                   >
                     {indentFirstLine ? '已开' : '关'}
                   </button>
+                </div>
+
+                {/* 屏幕左右边距 (靠近屏幕距离调节) */}
+                <div className="flex flex-col gap-1.5 pt-2 border-t border-white/5 [.light-theme_&]:!border-black/5">
+                  <div className="flex items-center justify-between">
+                    <span style={{ color: currentTheme.muted }} className="text-xs font-medium flex items-center gap-1">
+                      <MoveHorizontal className="w-3.5 h-3.5 opacity-70" />
+                      <span>屏幕左右边距</span>
+                    </span>
+                    <span className="text-xs font-semibold tabular-nums" style={{ color: currentTheme.text }}>
+                      {sideMargin}px
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {[
+                      { label: '贴边', px: 12 },
+                      { label: '适中', px: 28 },
+                      { label: '宽松', px: 44 },
+                    ].map((preset) => {
+                      const isSelected = sideMargin === preset.px;
+                      return (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => handleSetSideMargin(preset.px)}
+                          className={`flex-1 py-1 rounded-xl text-xs font-medium transition cursor-pointer ${
+                            isSelected
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'opacity-70 hover:opacity-100 border border-white/5 dark:border-black/5'
+                          }`}
+                          style={{
+                            backgroundColor: isSelected ? currentTheme.accent : undefined,
+                          }}
+                        >
+                          {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => handleSetSideMargin(sideMargin - 2)}
+                      className="px-2 py-0.5 text-xs rounded-lg border border-white/10 dark:border-black/10 opacity-70 hover:opacity-100 cursor-pointer"
+                      title="靠近边缘 (-2px)"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="range"
+                      min={8}
+                      max={60}
+                      step={2}
+                      value={sideMargin}
+                      onChange={(e) => handleSetSideMargin(Number(e.target.value))}
+                      className="flex-1 accent-blue-500 h-1.5 bg-black/10 dark:bg-white/10 rounded-lg cursor-pointer"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleSetSideMargin(sideMargin + 2)}
+                      className="px-2 py-0.5 text-xs rounded-lg border border-white/10 dark:border-black/10 opacity-70 hover:opacity-100 cursor-pointer"
+                      title="远离边缘 (+2px)"
+                    >
+                      +
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             )}

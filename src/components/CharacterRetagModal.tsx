@@ -313,7 +313,7 @@ export function CharacterRetagModal({
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <div className={`flex items-center gap-1.5 text-xs sm:text-sm font-bold ${
-                isLight ? 'text-amber-600' : 'text-amber-400'
+                isLight ? 'text-[#007aff]' : 'text-blue-400'
               }`}>
                 <Sparkles className="w-4 h-4" />
                 <span>AI 推荐标签</span>
@@ -379,7 +379,7 @@ export function CharacterRetagModal({
                 /* 默认不自动生成，让用户主动点击生成 */
                 <div className="flex flex-col items-center justify-center py-5 text-center gap-2.5">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    isLight ? 'bg-amber-100/60 text-amber-600' : 'bg-amber-500/20 text-amber-400'
+                    isLight ? 'bg-[#007aff]/10 text-[#007aff]' : 'bg-blue-500/20 text-blue-300'
                   }`}>
                     <Sparkles className="w-5 h-5" />
                   </div>

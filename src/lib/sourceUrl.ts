@@ -37,8 +37,15 @@ function safeUrl(candidate: string): string {
 /**
  * 把来源字符串整理成能点的链接；整理不出来返回 ''（表示"这不是个链接"）。
  */
-export function normalizeSourceUrl(raw?: string | null): string {
+export function normalizeSourceUrl(raw?: any): string {
   if (raw === null || raw === undefined) return '';
+  if (typeof raw === 'object') {
+    if (typeof raw.url === 'string') return normalizeSourceUrl(raw.url);
+    if (typeof raw.link === 'string') return normalizeSourceUrl(raw.link);
+    if (typeof raw.href === 'string') return normalizeSourceUrl(raw.href);
+    if (typeof raw.source === 'string') return normalizeSourceUrl(raw.source);
+    return '';
+  }
   let s = String(raw);
 
   // 零宽字符 / 换行 / 制表符：粘贴过来时最常见

@@ -6,7 +6,7 @@ import {
   Sliders, Sun, Moon, Coffee, Palette, 
   Plus, Star, Trash2, CheckCircle2, BookOpen, Sparkles,
   Code, MessageSquareText, ArrowLeft, Undo, Redo, Eye, EyeOff,
-  Wand2, AlignLeft
+  Wand2, AlignLeft, MoveHorizontal
 } from 'lucide-react';
 import { CharacterCard } from '../lib/db';
 import {resolveAvatarUrl, getFallbackAvatar, isFallbackMiuImage } from '../lib/avatar';
@@ -24,6 +24,7 @@ export interface GreetingReaderSettings {
   enableMarkdown: boolean; // 是否启用 Markdown 与富文本渲染
   enableMacros: boolean; // 是否开启宏与角色正则 ({{char}}, {{user}})
   enableCustomTags: boolean; // 是否开启思维链与标签折叠 (<think>)
+  sideMargin: number; // 屏幕左右边距 (px): 8 ~ 64px, 默认 24px
 }
 
 const DEFAULT_SETTINGS: GreetingReaderSettings = {
@@ -36,6 +37,7 @@ const DEFAULT_SETTINGS: GreetingReaderSettings = {
   enableMarkdown: true,
   enableMacros: true,
   enableCustomTags: true,
+  sideMargin: 24,
 };
 
 const STORAGE_KEY = 'miu_greeting_reader_settings';
@@ -44,7 +46,12 @@ function loadSettings(): GreetingReaderSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      const parsed = JSON.parse(raw);
+      return {
+        ...DEFAULT_SETTINGS,
+        ...parsed,
+        sideMargin: typeof parsed.sideMargin === 'number' ? parsed.sideMargin : 24,
+      };
     }
   } catch (e) {
     // Ignore error
@@ -196,6 +203,14 @@ function ThemedSwitch({
   );
 }
 
+export interface CustomSectionItem {
+  id: string;
+  title: string;
+  label?: string;
+  content: string;
+  onSave?: (newContent: string) => Promise<void> | void;
+}
+
 interface GreetingReaderModalProps {
   isOpen: boolean;
   character: CharacterCard;
@@ -204,6 +219,7 @@ interface GreetingReaderModalProps {
   initialEditMode?: boolean;
   onClose: () => void;
   onUpdateGreeting?: (firstMes: string, altGreetings: string[]) => Promise<void> | void;
+  customSections?: CustomSectionItem[];
 }
 
 export function GreetingReaderModal({
@@ -214,6 +230,7 @@ export function GreetingReaderModal({
   initialEditMode = false,
   onClose,
   onUpdateGreeting,
+  customSections,
 }: GreetingReaderModalProps) {
   // Read current greetings from character card data
   const dataObj = character.data || {};
@@ -225,14 +242,26 @@ export function GreetingReaderModal({
     return Array.isArray(list) ? list : [];
   }, [charData.alternate_greetings]);
 
-  // Combined greetings list: [first_mes, ...altGreetings]
+  // Combined content list: either customSections or [first_mes, ...altGreetings]
   const greetingsList = useMemo(() => {
+    if (customSections && customSections.length > 0) {
+      return customSections.map((sec, idx) => ({
+        isFirst: idx === 0,
+        altIndex: idx,
+        label: sec.label || sec.title,
+        title: sec.title,
+        content: sec.content || '',
+        onSave: sec.onSave,
+      }));
+    }
+
     const list: {
       isFirst: boolean;
       altIndex: number;
       label: string;
       title: string;
       content: string;
+      onSave?: (val: string) => Promise<void> | void;
     }[] = [];
 
     // Always push first message (even if empty)
@@ -256,7 +285,7 @@ export function GreetingReaderModal({
     });
 
     return list;
-  }, [firstMes, altGreetings]);
+  }, [firstMes, altGreetings, customSections]);
 
   // Current active greeting index
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
@@ -633,6 +662,15 @@ export function GreetingReaderModal({
 
   // Save edit
   const handleSaveEdit = async () => {
+    if (currentGreeting.onSave) {
+      await currentGreeting.onSave(editValue);
+      setIsEditing(false);
+      setIsPreviewMode(false);
+      setActionFeedback('已保存正文修改');
+      setTimeout(() => setActionFeedback(null), 2000);
+      return;
+    }
+
     if (!onUpdateGreeting) {
       setIsEditing(false);
       return;
@@ -999,13 +1037,18 @@ export function GreetingReaderModal({
     settings.lineHeight === 'loose' ? 'leading-[2.2]' :
     settings.lineHeight === 'normal' ? 'leading-[1.65]' : 'leading-[1.9]';
 
+  // Screen horizontal margin (distance between text and left/right screen edges)
+  const effectiveSideMargin = Math.max(8, Math.min(64, typeof settings.sideMargin === 'number' ? settings.sideMargin : 24));
+
   // Resolved avatar image
   const displayAvatar = avatarUrl || resolveAvatarUrl(character.avatarUrlFallback, character.name || character.id);
 
   // Formatted footer end note matching user's image:
-  const endOrnamentText = currentGreeting.isFirst 
-    ? '—— 开场白 完 ——'
-    : `—— 备用开场白 #${currentGreeting.altIndex + 1} 完 ——`;
+  const endOrnamentText = customSections && customSections.length > 0
+    ? `—— ${currentGreeting.title} 完 ——`
+    : currentGreeting.isFirst 
+      ? '—— 开场白 完 ——'
+      : `—— 备用开场白 #${currentGreeting.altIndex + 1} 完 ——`;
 
   // Extract character custom styles
   const characterStyles = useMemo(() => {
@@ -1466,8 +1509,12 @@ export function GreetingReaderModal({
         {/* Main Content Area */}
         <div
           ref={containerRef}
-          style={{ overflowAnchor: 'none' }}
-          className={`flex-1 overflow-y-auto pb-28 sm:pb-32 px-4 sm:px-8 md:px-12 custom-scrollbar flex flex-col items-center cursor-default ${
+          style={{ 
+            overflowAnchor: 'none',
+            paddingLeft: `${effectiveSideMargin}px`,
+            paddingRight: `${effectiveSideMargin}px`,
+          }}
+          className={`flex-1 overflow-y-auto pb-28 sm:pb-32 custom-scrollbar flex flex-col items-center cursor-default transition-all duration-150 ${
             isEditing 
               ? 'pt-[max(7.5rem,calc(env(safe-area-inset-top)+6.25rem))] sm:pt-[max(8rem,calc(env(safe-area-inset-top)+6.75rem))]' 
               : 'pt-[max(4.5rem,calc(env(safe-area-inset-top)+3rem))] sm:pt-[max(5rem,calc(env(safe-area-inset-top)+3.5rem))]'
@@ -1566,7 +1613,18 @@ export function GreetingReaderModal({
             </div>
           ) : (
             /* Centered Reading Column with comfortable readability */
-            <div className="w-full max-w-2xl sm:max-w-3xl flex flex-col items-center my-4 sm:my-8">
+            <div 
+              className="w-full flex flex-col items-center my-4 sm:my-8 transition-all duration-150"
+              style={{
+                maxWidth: effectiveSideMargin <= 12 
+                  ? '100%' 
+                  : effectiveSideMargin <= 18 
+                    ? '56rem' 
+                    : effectiveSideMargin >= 44 
+                      ? '42rem' 
+                      : '48rem',
+              }}
+            >
               
               {/* Top Section: Avatar, Character Name, Opening Subtitle, Dashed Line */}
               <div className="flex flex-col items-center text-center w-full">
@@ -1595,12 +1653,14 @@ export function GreetingReaderModal({
                   {character.name || '无名'}
                 </h1>
 
-                {/* Subtitle - matching screenshot "开场白1" */}
+                {/* Subtitle - matching screenshot "开场白1" or section name */}
                 <div className="mt-3 flex items-center gap-2">
                   <span className="text-sm sm:text-base tracking-widest font-semibold" style={{ color: themeStyles.subtitle }}>
-                    {currentGreeting.isFirst ? '开场白1' : `开场白${safeIndex + 1}`}
+                    {customSections && customSections.length > 0 
+                      ? currentGreeting.title 
+                      : (currentGreeting.isFirst ? '开场白1' : `开场白${safeIndex + 1}`)}
                   </span>
-                  {!currentGreeting.isFirst && (
+                  {!customSections && !currentGreeting.isFirst && (
                     <span
                       className="text-[11px] px-1.5 py-0.5 rounded font-medium"
                       style={{
@@ -1727,7 +1787,7 @@ export function GreetingReaderModal({
 
         {/* Bottom Floating Navigation Toolbar: < 1 / 10 > | + (Only in reader mode) */}
         <AnimatePresence>
-          {(showControls && !isEditing) && (
+          {(showControls && !isEditing && (!customSections || customSections.length > 1)) && (
             <motion.footer
               initial={{ y: 60, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -1755,7 +1815,7 @@ export function GreetingReaderModal({
                       : themeStyles.floatingBarBtnHover
                   }`}
                   style={{ color: themeStyles.floatingBarText }}
-                  title="上一条开场白 (←)"
+                  title={customSections ? "上一章节 (←)" : "上一条开场白 (←)"}
                 >
                   <ChevronLeft className="w-4.5 h-4.5" />
                 </button>
@@ -1765,7 +1825,7 @@ export function GreetingReaderModal({
                   onClick={() => setShowGreetingPicker((v) => !v)}
                   className={`px-2.5 py-1 rounded-full text-xs sm:text-sm font-semibold tracking-wider transition-colors cursor-pointer font-mono ${themeStyles.floatingBarBtnHover}`}
                   style={{ color: themeStyles.floatingBarText }}
-                  title="点击查看全部开场白列表"
+                  title={customSections ? "点击查看全部目录列表" : "点击查看全部开场白列表"}
                 >
                   <span>{safeIndex + 1}</span>
                   <span className="opacity-40 mx-1">/</span>
@@ -1782,23 +1842,23 @@ export function GreetingReaderModal({
                       : themeStyles.floatingBarBtnHover
                   }`}
                   style={{ color: themeStyles.floatingBarText }}
-                  title="下一条开场白 (→)"
+                  title={customSections ? "下一章节 (→)" : "下一条开场白 (→)"}
                 >
                   <ChevronRight className="w-4.5 h-4.5" />
                 </button>
 
-                {/* Divider | */}
-                <div className="w-[1px] h-4 mx-1" style={{ backgroundColor: themeStyles.floatingBarDivider }} />
-
-                {/* Add button + */}
-                {onUpdateGreeting && (
-                  <button
-                    onClick={handleAddNew}
-                    className={`p-1.5 rounded-full transition-colors cursor-pointer active:scale-95 ${themeStyles.floatingBarAddBtn}`}
-                    title="添加新的备用开场白"
-                  >
-                    <Plus className="w-4.5 h-4.5" />
-                  </button>
+                {/* Divider | & Add button + (only for greetings) */}
+                {!customSections && onUpdateGreeting && (
+                  <>
+                    <div className="w-[1px] h-4 mx-1" style={{ backgroundColor: themeStyles.floatingBarDivider }} />
+                    <button
+                      onClick={handleAddNew}
+                      className={`p-1.5 rounded-full transition-colors cursor-pointer active:scale-95 ${themeStyles.floatingBarAddBtn}`}
+                      title="添加新的备用开场白"
+                    >
+                      <Plus className="w-4.5 h-4.5" />
+                    </button>
+                  </>
                 )}
               </div>
             </motion.footer>
@@ -2074,7 +2134,7 @@ export function GreetingReaderModal({
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => updateSetting('fontSize', Math.max(14, settings.fontSize - 1))}
-                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${themeStyles.drawerBtnHover}`}
+                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap shrink-0 ${themeStyles.drawerBtnHover}`}
                         style={{
                           backgroundColor: themeStyles.drawerBtnBg,
                           borderColor: themeStyles.drawerBtnBorder,
@@ -2090,7 +2150,7 @@ export function GreetingReaderModal({
                             <button
                               key={size}
                               onClick={() => updateSetting('fontSize', size)}
-                              className="px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-all"
+                              className="flex-1 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-all whitespace-nowrap text-center"
                               style={{
                                 backgroundColor: isSelected ? themeStyles.themeAccentColor : themeStyles.drawerBtnBg,
                                 color: isSelected ? (isLight ? '#ffffff' : '#000000') : themeStyles.drawerText,
@@ -2105,7 +2165,7 @@ export function GreetingReaderModal({
                       </div>
                       <button
                         onClick={() => updateSetting('fontSize', Math.min(24, settings.fontSize + 1))}
-                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${themeStyles.drawerBtnHover}`}
+                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap shrink-0 ${themeStyles.drawerBtnHover}`}
                         style={{
                           backgroundColor: themeStyles.drawerBtnBg,
                           borderColor: themeStyles.drawerBtnBorder,
@@ -2114,6 +2174,107 @@ export function GreetingReaderModal({
                       >
                         A+ 放大
                       </button>
+                    </div>
+                  </div>
+
+                  {/* Screen Side Margin Adjustments - 100% Horizontal & Identical Clean Template */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold uppercase tracking-wider" style={{ color: themeStyles.drawerSubText }}>
+                        屏幕左右边距
+                      </label>
+                      <span className="text-xs font-mono font-bold" style={{ color: themeStyles.drawerText }}>
+                        {effectiveSideMargin}px
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateSetting('sideMargin', Math.max(8, effectiveSideMargin - 2))}
+                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-colors active:scale-95 whitespace-nowrap shrink-0 ${themeStyles.drawerBtnHover}`}
+                        style={{
+                          backgroundColor: themeStyles.drawerBtnBg,
+                          borderColor: themeStyles.drawerBtnBorder,
+                          color: themeStyles.drawerText,
+                        }}
+                        title="靠近屏幕边缘 (-2px)"
+                      >
+                        靠边 -
+                      </button>
+                      <div className="flex-1 flex justify-center gap-1.5">
+                        {[
+                          { label: '紧凑', px: 16 },
+                          { label: '适中', px: 24 },
+                          { label: '宽松', px: 36 },
+                        ].map((m) => {
+                          const isSelected = effectiveSideMargin === m.px;
+                          return (
+                            <button
+                              key={m.label}
+                              type="button"
+                              onClick={() => updateSetting('sideMargin', m.px)}
+                              className="flex-1 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-all active:scale-95 whitespace-nowrap text-center"
+                              style={{
+                                backgroundColor: isSelected ? themeStyles.themeAccentColor : themeStyles.drawerBtnBg,
+                                color: isSelected ? (isLight ? '#ffffff' : '#000000') : themeStyles.drawerText,
+                                border: isSelected ? `1px solid ${themeStyles.themeAccentColor}` : `1px solid ${themeStyles.drawerBtnBorder}`,
+                                boxShadow: isSelected ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                              }}
+                            >
+                              {m.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => updateSetting('sideMargin', Math.min(64, effectiveSideMargin + 2))}
+                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-colors active:scale-95 whitespace-nowrap shrink-0 ${themeStyles.drawerBtnHover}`}
+                        style={{
+                          backgroundColor: themeStyles.drawerBtnBg,
+                          borderColor: themeStyles.drawerBtnBorder,
+                          color: themeStyles.drawerText,
+                        }}
+                        title="远离屏幕边缘 (+2px)"
+                      >
+                        离边 +
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Line Height Adjustments */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold uppercase tracking-wider" style={{ color: themeStyles.drawerSubText }}>
+                        行间距
+                      </label>
+                      <span className="text-xs font-medium opacity-80" style={{ color: themeStyles.drawerText }}>
+                        {settings.lineHeight === 'loose' ? '宽松 (2.2x)' : settings.lineHeight === 'normal' ? '紧凑 (1.65x)' : '舒适 (1.9x)'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[
+                        { id: 'normal', label: '紧凑' },
+                        { id: 'relaxed', label: '舒适 (默认)' },
+                        { id: 'loose', label: '宽松' },
+                      ].map((lh) => {
+                        const isSelected = settings.lineHeight === lh.id;
+                        return (
+                          <button
+                            key={lh.id}
+                            type="button"
+                            onClick={() => updateSetting('lineHeight', lh.id as any)}
+                            className="py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all text-center active:scale-95"
+                            style={{
+                              backgroundColor: isSelected ? themeStyles.themeAccentColor : themeStyles.drawerBtnBg,
+                              color: isSelected ? (isLight ? '#ffffff' : '#000000') : themeStyles.drawerText,
+                              border: isSelected ? `1px solid ${themeStyles.themeAccentColor}` : `1px solid ${themeStyles.drawerBtnBorder}`,
+                            }}
+                          >
+                            {lh.label}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -2131,10 +2292,10 @@ export function GreetingReaderModal({
                         color: themeStyles.drawerText,
                       }}
                     >
-                      <Copy className="w-4 h-4 opacity-75" /> 复制当前开场白正文
+                      <Copy className="w-4 h-4 opacity-75" /> 复制当前{customSections ? '正文内容' : '开场白正文'}
                     </button>
 
-                    {!currentGreeting.isFirst && onUpdateGreeting && (
+                    {!customSections && !currentGreeting.isFirst && onUpdateGreeting && (
                       <button
                         onClick={() => {
                           setShowSettingsDrawer(false);
@@ -2151,7 +2312,7 @@ export function GreetingReaderModal({
                       </button>
                     )}
 
-                    {!currentGreeting.isFirst && onUpdateGreeting && (
+                    {!customSections && !currentGreeting.isFirst && onUpdateGreeting && (
                       <button
                         onClick={() => {
                           setShowSettingsDrawer(false);

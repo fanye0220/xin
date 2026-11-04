@@ -573,7 +573,8 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
 
     let mergedQRs = [...(targetData.extensions.quick_replies || [])];
     let mergedQRSets = [...(targetData.extensions.tavern_qr_sets || [])];
-    let mergedSource = targetData.extensions.source || targetData.source || '';
+    let rawSourceInit = targetData.extensions.source || targetData.source || '';
+    let mergedSource = typeof rawSourceInit === 'string' ? rawSourceInit : (typeof rawSourceInit === 'object' && rawSourceInit !== null ? (rawSourceInit.url || rawSourceInit.link || '') : '');
     let mergedTags = [...(targetData.tags || [])];
     let mergedQrFilename = targetData.extensions.qr_filename || '';
     let mergedSummary = (keptChar.aiSummary || targetData.aiSummary || updatedData.aiSummary || '').trim();
@@ -614,7 +615,8 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
         mergedQrFilename = otherQrFilename;
       }
 
-      const otherSource = otherTarget.extensions?.source || otherTarget.source;
+      const otherSourceRaw = otherTarget.extensions?.source || otherTarget.source;
+      const otherSource = typeof otherSourceRaw === 'string' ? otherSourceRaw : (typeof otherSourceRaw === 'object' && otherSourceRaw !== null ? (otherSourceRaw.url || otherSourceRaw.link || '') : '');
       if (!mergedSource && otherSource) {
         mergedSource = otherSource;
       }
@@ -714,12 +716,17 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
     try {
       await mergeAndSave(keptChar, otherChars);
 
-      const { deleteCharactersBulk, getChatsForCharacter, saveChat } = await import('../lib/db');
+      const { deleteCharactersBulk, getChatsForCharacter, saveChat, getMemosForCharacter, saveMemo } = await import('../lib/db');
       for (const charToDel of otherChars) {
          const chats = await getChatsForCharacter(charToDel.id);
          for (const chat of chats) {
             chat.characterId = keptChar.id;
             await saveChat(chat);
+         }
+         const memos = await getMemosForCharacter(charToDel.id);
+         for (const memo of memos) {
+            memo.characterId = keptChar.id;
+            await saveMemo(memo);
          }
       }
       await deleteCharactersBulk(delIds);
@@ -818,7 +825,7 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
             const charsToKeep = group.characters.map(c => c.char).filter(c => !validSelectedSet.has(c.id));
 
             if (charsToDelete.length > 0) {
-              const { deleteCharactersBulk, getChatsForCharacter, saveChat } = await import('../lib/db');
+              const { deleteCharactersBulk, getChatsForCharacter, saveChat, getMemosForCharacter, saveMemo } = await import('../lib/db');
 
               if (charsToKeep.length > 0) {
                 const deleteBuckets = new Map<string, CharacterCard[]>();
@@ -843,6 +850,11 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
                     for (const chat of chats) {
                       chat.characterId = keptId;
                       await saveChat(chat);
+                    }
+                    const memos = await getMemosForCharacter(delChar.id);
+                    for (const memo of memos) {
+                      memo.characterId = keptId;
+                      await saveMemo(memo);
                     }
                   }
                 }
@@ -925,11 +937,13 @@ export function DuplicateDetector({ onClose, onSelectChar, refreshTrigger }: Pro
         const char = dupChar.char;
         if (map.has(char.id)) continue;
         const targetData: any = char.data?.data ? char.data.data : char.data;
+        const rawSrcStat = targetData?.extensions?.source || targetData?.source;
+        const cleanSrcStat = typeof rawSrcStat === 'string' ? rawSrcStat.trim() : (typeof rawSrcStat === 'object' && rawSrcStat !== null ? String(rawSrcStat.url || rawSrcStat.link || '').trim() : '');
         map.set(char.id, {
           sig: getCardContentSignature(char, group.resourceType),
           completeness: computeCompletenessScore(char, group.resourceType),
           hasQR: (targetData?.extensions?.quick_replies?.length || 0) > 0,
-          hasSource: !!(targetData?.extensions?.source || targetData?.source),
+          hasSource: Boolean(cleanSrcStat),
           hasNotes: !!targetData?.creator_notes,
         });
       }

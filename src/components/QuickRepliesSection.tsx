@@ -1,4 +1,3 @@
-import { getFallbackAvatar } from '../lib/avatar';
 import React, { useRef, useState, useEffect } from 'react';
 import { Upload, FileJson, QrCode, Trash2, Download, Library, Share2 } from 'lucide-react';
 import { CharacterCard, saveCharacter, saveCharacters, getOrCreateNestedFolder, resolveFolderPath, stripToolNameSuffix } from '../lib/db';
@@ -173,7 +172,7 @@ export function QuickRepliesSection({ character, onUpdate, isLightMode: propIsLi
         charsToSave.push({
           id: crypto.randomUUID(),
           name: charName,
-          avatarUrlFallback: getFallbackAvatar(charName),
+          avatarUrlFallback: "",
           data: json,
           createdAt: Date.now(),
           folderId: targetFolderId,

@@ -235,6 +235,63 @@ export async function callAI(prompt: string, expectJson: boolean = false, maxRet
   throw lastError;
 }
 
+function sanitizeGeneratedTags(rawTags: string[], character: any): string[] {
+  if (!Array.isArray(rawTags)) return [];
+  const data = character?.data?.data || character?.data || character || {};
+  const fullText = [
+    character?.name,
+    data.name,
+    data.description,
+    data.personality,
+    data.scenario,
+    data.first_mes,
+    data.creator_notes,
+    Array.isArray(data.tags) ? data.tags.join(' ') : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  const isMaleMale = /bl|耽美|男男|双男主|纯爱|主受|强受|弱受|诱受|美受|年下受|年上受|强攻|弱攻|腹黑攻|犬系攻|帝王攻|忠犬攻|攻受|双男|男\/男|user\(男\)|user为男|user是男|男角色.*男user|gay|男主受|男受/.test(fullText);
+  const isExplicitFemaleTop = /女攻|乙女攻|女尊|女攻男受|female top|girl top/.test(fullText);
+
+  let clean = rawTags.map(t => String(t).trim()).filter(Boolean);
+
+  // 如果旧分类 BGB 在生成结果里，自动规范化为 全性向
+  clean = clean.map(t => (t.toUpperCase() === 'BGB' ? '全性向' : t));
+
+  // 如果人设与剧情呈现明确的男男/BL/耽美特征，且并非显式的女攻男受(GB)
+  if (isMaleMale && !isExplicitFemaleTop) {
+    // 将误判的 GB 纠正为 BL
+    clean = clean.map(t => (t.toUpperCase() === 'GB' ? 'BL' : t));
+    // 若缺失 BL 标签则补上
+    const hasBL = clean.some(t => t.toUpperCase() === 'BL');
+    if (!hasBL) {
+      clean.unshift('BL');
+    }
+  }
+
+  // 若同时包含 BL 与 GB，但并非显式女攻，则剔除 GB
+  const hasBL = clean.some(t => t.toUpperCase() === 'BL');
+  const hasGB = clean.some(t => t.toUpperCase() === 'GB');
+  if (hasBL && hasGB && !isExplicitFemaleTop) {
+    clean = clean.filter(t => t.toUpperCase() !== 'GB');
+  }
+
+  // 区分大小写进行去重
+  const uniqueTags: string[] = [];
+  const seen = new Set<string>();
+  for (const tag of clean) {
+    const key = tag.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueTags.push(tag);
+    }
+  }
+
+  return uniqueTags;
+}
+
 export async function generateTagsForCharacters(characters: any[]): Promise<string[][]> {
   const settings = getAISettings();
   const endpoint = settings.customEndpoints.find(e => e.id === settings.activeCustomId) || settings.customEndpoints[0];
@@ -246,16 +303,18 @@ export async function generateTagsForCharacters(characters: any[]): Promise<stri
 请根据以下角色卡的详细信息，深入理解其核心魅力与人设特征，为每个角色提取 3 到 7 个最核心、最贴切的中文标签（Tag）。
 
 【标签提取规范与偏好】
-1. 性向与情感取向（极度重要，只要文中/人设/开场白有体现或兼容就必提取）：
-   - 明确取向：BG、BL、GL、GB、无性恋；
-   - 不限/杂食/通吃：BGB（BG/BL/GB通吃）、全性向、性别不限、性向不限、杂食；
-   - 情感倾向：如【直掰弯】（Char对User/或逆向）、弯掰直、双向暗恋、单向奔赴。
+1. 性向与性别取向（极度重要！必须严谨准确区分，绝不可混淆！）：
+   - BL（男男 / 耽美 / 纯爱 / 双男主）：男性角色与男性互动（Male x Male），或人设涉及男攻、男受、攻受、双男。只要是双男或 Male x Male 互动（无论是强攻弱受、主受还是主攻），必须打【BL】，绝对禁止打成 GB！
+   - GB（女攻男受 / 乙女攻 / 女尊）：女性角色攻 x 男性（Female Top x Male Bottom / 女主攻男主受）。只有在明确为女攻男受/乙女攻题材时打【GB】，绝对不能给双男/男男（BL）角色打 GB！
+   - BG（男女 / 正常向）：男性角色与女性互动（Male x Female）。
+   - GL（女女 / 百合 / 双女主）：女性角色与女性互动（Female x Female）。
+   - 全性向（通吃 / 杂食 / 不限性别）：角色不限制 {{user}} 的性别，无论 {{user}} 是男是女（男u/女u均可）均能展开剧情与恋爱关系。
 2. 核心人设与萌点：如傲娇、腹黑、病娇、爹系、高岭之花、忠犬、疯批、清冷白月光、阳光开朗、暴躁别扭、切黑、极致温柔等。
 3. 身份与职业特征：如摄政王、同桌、养父、总裁、师尊、锦衣卫、AI女仆、刺客、偶像、金主、竹马等。
-4. 关系与互动题材：如直掰弯、强取豪夺、追妻火葬场、双向暗恋、假戏真做、先婚后爱、师徒、宿敌、修罗场、养成、双向奔赴、破镜重圆、双洁、主仆等。
+4. 情感关系与互动题材：如直掰弯、弯掰直、双向暗恋、单向奔赴、强取豪夺、追妻火葬场、假戏真做、先婚后爱、师徒、宿敌、修罗场、养成、双向奔赴、破镜重圆、双洁、主仆等。
 5. 世界观与题材背景：如古代架空、现代都市、玄幻仙侠、赛博朋克、末世科幻、西幻魔幻、校园等。
 6. 标签格式规范：
-   - 每个标签 2 到 4 个汉字或标准英文缩写（如 BG/BL/GL/GB/BGB 可直接保留），精准凝练，符合中文酒馆玩家与网文分类习惯；
+   - 每个标签 2 到 4 个汉字或标准英文缩写（如 BG/BL/GL/GB 可直接保留），精准凝练，符合中文酒馆玩家与网文分类习惯；
    - 严禁空泛或无意义标签（如“男角色”、“人类”、“剧情”等）；
    - 杜绝重复同义标签；
    - 必须输出纯 JSON 格式。
@@ -302,7 +361,8 @@ ${existingTags ? `已有标签(供参考): ${existingTags}\n` : ''}人设与外�
       return characters.map(c => {
         const charId = c.id || c.data?.data?.id || c.data?.id;
         const item = parsed.results.find((r: any) => r.id === charId || String(r.id) === String(charId));
-        return item && Array.isArray(item.tags) ? item.tags : [];
+        const rawTags = item && Array.isArray(item.tags) ? item.tags : [];
+        return sanitizeGeneratedTags(rawTags, c);
       });
     }
     return characters.map(() => []);

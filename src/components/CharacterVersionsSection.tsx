@@ -505,6 +505,8 @@ export function CharacterVersionsSection({
   const [inheritModalSnapshot, setInheritModalSnapshot] = useState<CardVersionSnapshot | null>(null);
   const [inheritQrChoice, setInheritQrChoice] = useState(true);
   const [inheritSourceChoice, setInheritSourceChoice] = useState(true);
+  const [inheritMemosChoice, setInheritMemosChoice] = useState(true);
+  const [snapshotMemoCount, setSnapshotMemoCount] = useState(0);
 
   // Diff preview expansion
   const [expandedDiffId, setExpandedDiffId] = useState<string | null>(null);
@@ -1082,53 +1084,85 @@ export function CharacterVersionsSection({
   };
 
   // Open Inherit Modal for a snapshot
-  const handleOpenInheritModal = (snapshot: CardVersionSnapshot) => {
+  const handleOpenInheritModal = async (snapshot: CardVersionSnapshot) => {
     const { hasQr } = extractCardQr(snapshot.data);
     const { hasSource } = extractCardSource(snapshot.data, snapshot.sourceUrlFallback);
 
-    if (!hasQr && !hasSource) {
-      alert(`版本「${snapshot.versionName || snapshot.cardName}」未检测到快速回复 (QR) 或来源网址数据。`);
+    const { getMemosForCharacter } = await import('../lib/db');
+    let snapMemos: any[] = [];
+    if (snapshot.sourceCharId) {
+      snapMemos = await getMemosForCharacter(snapshot.sourceCharId);
+    } else if (snapshot.id) {
+      snapMemos = await getMemosForCharacter(snapshot.id);
+    }
+    const hasMemos = snapMemos.length > 0;
+
+    if (!hasQr && !hasSource && !hasMemos) {
+      alert(`版本「${snapshot.versionName || snapshot.cardName}」未检测到快速回复 (QR)、来源网址或备忘录笔记数据。`);
       return;
     }
 
     setInheritQrChoice(hasQr);
     setInheritSourceChoice(hasSource);
+    setInheritMemosChoice(hasMemos);
+    setSnapshotMemoCount(snapMemos.length);
     setInheritModalSnapshot(snapshot);
   };
 
   // Confirm Inherit from Snapshot
   const handleConfirmInheritModal = async () => {
     if (!inheritModalSnapshot) return;
-    if (!inheritQrChoice && !inheritSourceChoice) {
-      alert('请至少勾选一项要继承的内容（快速回复 QR 或来源链接）。');
+    if (!inheritQrChoice && !inheritSourceChoice && !inheritMemosChoice) {
+      alert('请至少勾选一项要继承的内容（快速回复 QR、来源链接或备忘录）。');
       return;
     }
 
     const snap = inheritModalSnapshot;
     const { hasQr, count: qrCount } = extractCardQr(snap.data);
-    const { hasSource, source } = extractCardSource(snap.data, snap.sourceUrlFallback);
+    const { hasSource } = extractCardSource(snap.data, snap.sourceUrlFallback);
 
+    const { getMemosForCharacter, saveMemo } = await import('../lib/db');
+    let sourceId = snap.sourceCharId || snap.id;
+    let snapMemos = sourceId ? await getMemosForCharacter(sourceId) : [];
+    const willInheritMemos = inheritMemosChoice && snapMemos.length > 0;
     const willInheritQr = inheritQrChoice && hasQr;
     const willInheritSource = inheritSourceChoice && hasSource;
 
-    if (!willInheritQr && !willInheritSource) {
+    if (!willInheritQr && !willInheritSource && !willInheritMemos) {
       alert('所选项目在该版本中暂无有效数据可供继承。');
       return;
     }
 
-    const updatedChar = inheritQrAndSource(
-      character,
-      snap.data,
-      snap.cardName || character.name,
-      snap.sourceUrlFallback,
-      { inheritQr: willInheritQr, inheritSource: willInheritSource }
-    );
+    if (willInheritMemos) {
+      for (const m of snapMemos) {
+        if (m.characterId !== character.id) {
+          await saveMemo({
+            ...m,
+            id: crypto.randomUUID(),
+            characterId: character.id,
+            createdAt: Date.now(),
+          });
+        }
+      }
+    }
 
-    await saveCharacter(updatedChar);
-    onUpdateCharacter(updatedChar);
+    let updatedChar = character;
+    if (willInheritQr || willInheritSource) {
+      updatedChar = inheritQrAndSource(
+        character,
+        snap.data,
+        snap.cardName || character.name,
+        snap.sourceUrlFallback,
+        { inheritQr: willInheritQr, inheritSource: willInheritSource }
+      );
+      await saveCharacter(updatedChar);
+      onUpdateCharacter(updatedChar);
+    }
+
     window.dispatchEvent(new CustomEvent('charactersUpdated'));
 
     const items: string[] = [];
+    if (willInheritMemos) items.push(`备忘录/口令 (${snapMemos.length}条)`);
     if (willInheritQr) items.push(`快速回复 QR (${qrCount}条)`);
     if (willInheritSource) items.push('来源链接');
 
@@ -2623,7 +2657,7 @@ export function CharacterVersionsSection({
                   }}
                   className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer ${
                     isThemeLight
-                      ? 'text-[#0f172a] hover:bg-slate-100'
+                      ? 'text-[#0f172a] hover:bg-[#f1f5f9] active:bg-[#e2e8f0]'
                       : 'text-white hover:bg-white/10'
                   }`}
                 >
@@ -2639,7 +2673,7 @@ export function CharacterVersionsSection({
                   }}
                   className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer ${
                     isThemeLight
-                      ? 'text-[#0f172a] hover:bg-slate-100'
+                      ? 'text-[#0f172a] hover:bg-[#f1f5f9] active:bg-[#e2e8f0]'
                       : 'text-white hover:bg-white/10'
                   }`}
                 >
@@ -2656,11 +2690,11 @@ export function CharacterVersionsSection({
                     }}
                     className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer ${
                       isThemeLight
-                        ? 'text-[#0f172a] hover:bg-slate-100'
+                        ? 'text-[#0f172a] hover:bg-[#f1f5f9] active:bg-[#e2e8f0]'
                         : 'text-white hover:bg-white/10'
                     }`}
                   >
-                    继承此版本 QR 与来源
+                    继承此卡挂载内容
                   </button>
                 )}
 
@@ -2676,7 +2710,7 @@ export function CharacterVersionsSection({
                       }}
                       className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer ${
                         isThemeLight
-                          ? 'text-[#0f172a] hover:bg-slate-100'
+                          ? 'text-[#0f172a] hover:bg-[#f1f5f9] active:bg-[#e2e8f0]'
                           : 'text-white hover:bg-white/10'
                       }`}
                     >
@@ -2692,7 +2726,7 @@ export function CharacterVersionsSection({
                       }}
                       className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition cursor-pointer ${
                         isThemeLight
-                          ? 'text-[#dc2626] hover:bg-red-50'
+                          ? 'text-[#ff3b30] hover:bg-[#ff3b30]/10 active:bg-[#ff3b30]/15'
                           : 'text-red-400 hover:bg-red-500/10'
                       }`}
                     >
@@ -2745,9 +2779,45 @@ export function CharacterVersionsSection({
                 {(() => {
                   const { hasQr, count: qrCount } = extractCardQr(inheritModalSnapshot.data);
                   const { hasSource, source } = extractCardSource(inheritModalSnapshot.data, inheritModalSnapshot.sourceUrlFallback);
+                  const hasMemos = snapshotMemoCount > 0;
 
                   return (
                     <>
+                      {/* Memos Checkbox Option */}
+                      <div
+                        onClick={() => {
+                          if (hasMemos) setInheritMemosChoice(!inheritMemosChoice);
+                        }}
+                        className={`flex items-start gap-3 p-3 rounded-2xl version-candidate-card select-none transition ${
+                          hasMemos ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'
+                        }`}
+                      >
+                        <div
+                          className={`w-5 h-5 rounded-lg flex items-center justify-center transition shrink-0 mt-0.5 version-checkbox-icon ${
+                            hasMemos && inheritMemosChoice ? 'is-checked' : ''
+                          }`}
+                        >
+                          {hasMemos && inheritMemosChoice && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs sm:text-sm font-bold version-candidate-name">
+                              备忘录与剧场笔记 (含口令/附件)
+                            </span>
+                            {hasMemos && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-purple-500/15 text-purple-600 dark:text-purple-400 font-semibold">
+                                {snapshotMemoCount}条
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs version-candidate-sub block mt-0.5 leading-relaxed">
+                            {hasMemos
+                              ? `包含 ${snapshotMemoCount} 条备忘录/口令，勾选后将合并复制至当前活跃卡片`
+                              : '该版本未包含备忘录笔记数据'}
+                          </span>
+                        </div>
+                      </div>
+
                       {/* QR Checkbox Option */}
                       <div
                         onClick={() => {

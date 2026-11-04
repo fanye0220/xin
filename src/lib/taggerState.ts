@@ -23,6 +23,44 @@ export interface RetagReviewItem {
   newTags: string[];
 }
 
+/**
+ * 校验某个简介/总结内容是否为 AI 的拒绝/道歉回复（例如之前未加破限词时的拒答）
+ */
+export function isRefusalOrApologySummary(text: string | null | undefined): boolean {
+  if (!text || typeof text !== 'string') return false;
+  const s = text.trim().toLowerCase();
+  if (!s) return false;
+
+  const refusalPatterns = [
+    /i('m|\s+am)\s+sorry/,
+    /sorry,\s*but\s*i/,
+    /i\s+cannot\s+(fulfill|generate|assist|create|provide|process)/,
+    /i\s+am\s+(unable|not\s+able)\s+to/,
+    /as\s+an\s+ai/,
+    /safety\s+guidelines/,
+    /content\s+policy/,
+    /inappropriate\s+content/,
+    /抱歉[，,!\s]*我?(无法|不能|无法提供|不能协助|无法生成|无法满足|不能生成|处理)/,
+    /非常抱歉[，,!\s]*/,
+    /十分抱歉[，,!\s]*/,
+    /作为一个(ai|人工智能|语言模型)/,
+    /违反了(安全|内容)策略/,
+    /无法为您生成/,
+    /不能为您生成/,
+    /无法处理此类内容/,
+    /不适宜的内容/,
+    /生成失败/,
+    /请求失败/,
+    /网络错误/,
+    /500\s+internal\s+server\s+error/i,
+    /400\s+bad\s+request/i,
+    /request\s+failed/i,
+    /rate\s+limit\s+exceeded/i,
+  ];
+
+  return refusalPatterns.some(pattern => pattern.test(s));
+}
+
 class TaggerState {
   isTagging = false;
   taggingMode: 'untagged' | 'tagged' | 'summary' | null = null;
@@ -111,15 +149,24 @@ class TaggerState {
       }
 
       const summary = typeof m.aiSummary === 'string' ? m.aiSummary.trim() : '';
-      if (!summary) {
+      if (!summary || isRefusalOrApologySummary(summary)) {
+        // 无简介或之前生成的是 AI 道歉/拒绝语：归入「未总结/待重新生成」队列！
         this.unsummarizedCharacters.push(lightweightChar);
       } else {
         this.summarizedCharacters.push(lightweightChar);
       }
     });
 
-    // 默认新导入/最新创建的角色卡排在最前，导入新卡后点击总结第一时间处理新卡！
+    // 优先把上次包含道歉/拒绝回复的失败卡片排在最前面，其次按导入/创建时间倒序！
     this.unsummarizedCharacters.sort((a, b) => {
+      const aSummary = a.aiSummary || a.data?.aiSummary;
+      const bSummary = b.aiSummary || b.data?.aiSummary;
+      const aIsRefusal = isRefusalOrApologySummary(aSummary);
+      const bIsRefusal = isRefusalOrApologySummary(bSummary);
+
+      if (aIsRefusal && !bIsRefusal) return -1;
+      if (!aIsRefusal && bIsRefusal) return 1;
+
       const timeA = a.createdAt || a.fileModifiedAt || a.updatedAt || 0;
       const timeB = b.createdAt || b.fileModifiedAt || b.updatedAt || 0;
       return timeB - timeA;

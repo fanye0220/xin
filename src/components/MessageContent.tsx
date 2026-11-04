@@ -89,8 +89,11 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
       :root {
         color-scheme: ${isLight ? 'light' : 'dark'};
       }
+      *, *::before, *::after {
+        box-sizing: border-box;
+      }
       html {
-        background: transparent !important;
+        background-color: transparent;
         margin: 0 !important;
         padding: 0 !important;
         width: 100% !important;
@@ -98,7 +101,7 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
         overflow-anchor: none !important;
       }
       body {
-        background: transparent !important;
+        background-color: transparent;
         margin: 0 !important;
         padding: 4px 0 16px 0 !important;
         box-sizing: border-box !important;
@@ -119,6 +122,42 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
       html, body {
         min-height: 0 !important;
         height: auto !important;
+      }
+
+      /* 针对日记本、卡片、手机框等具有固定宽度或自定义布局的外层容器：
+         1. 自动在视口中水平居中 (margin-left/right: auto)
+         2. 最大宽度不超过 100%，防止超出小屏手机视口被右侧硬裁切
+      */
+      body > div:not([style*="position: absolute"]):not([style*="position: fixed"]):not(.fixed):not(.absolute),
+      body > section,
+      body > main,
+      body > article,
+      body > form,
+      body > table {
+        margin-left: auto !important;
+        margin-right: auto !important;
+        max-width: 100% !important;
+      }
+      
+      /* 针对状态栏、多列面板卡片（如两列 flex/grid）：
+         手机端或大屏幕间距（如“标准/宽松”）下视口较窄时，卡片内部固定的 24px 大 padding 和 gap
+         加上内部固定内容宽度容易导致整体宽度超出容器并被 overflow: hidden 截断右半部分。
+         通过弹性自适应边距并允许列容器 min-width 缩窄，确保右侧边距对齐不被吃掉。 */
+      @media (max-width: 440px) {
+        [class*="-content-wrapper"], [class*="-wrapper"], [class*="-container"] {
+          padding-left: clamp(8px, 3vw, 14px) !important;
+          padding-right: clamp(8px, 3vw, 14px) !important;
+        }
+        [class*="-main-content"], [class*="-flex"], [class*="-grid"], [class*="-row"] {
+          gap: clamp(8px, 2.5vw, 12px) !important;
+        }
+        [class*="-panel"], [class*="-col"], [class*="-column"] {
+          min-width: 0 !important;
+        }
+        [class*="-summary"] {
+          padding-left: clamp(10px, 3vw, 14px) !important;
+          padding-right: clamp(10px, 3vw, 14px) !important;
+        }
       }
       
       /* SillyTavern / TavernHelper Choice & Branching Card Defaults */
@@ -567,10 +606,11 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = ({
   `;
 
   let finalHtml = cleanHtml;
-  if (/<\/head>/i.test(finalHtml)) {
-    finalHtml = finalHtml.replace(/<\/head>/i, `${scriptContent}</head>`);
-  } else if (/<head[^>]*>/i.test(finalHtml)) {
+  if (/<head[^>]*>/i.test(finalHtml)) {
+    // 注入在 <head> 起始位置：让卡片自带的 <style> 在后方自然生效覆盖默认底色
     finalHtml = finalHtml.replace(/<head[^>]*>/i, `$&${scriptContent}`);
+  } else if (/<\/head>/i.test(finalHtml)) {
+    finalHtml = finalHtml.replace(/<\/head>/i, `${scriptContent}</head>`);
   } else if (/<\/body>/i.test(finalHtml)) {
     finalHtml = finalHtml.replace(/<\/body>/i, `${scriptContent}</body>`);
   } else if (/<\/html>/i.test(finalHtml)) {

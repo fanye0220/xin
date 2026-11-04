@@ -21,6 +21,23 @@ export interface TavernCardV2 {
   };
 }
 
+function toSafeString(val: any): string {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  if (typeof val === 'object') {
+    if (typeof val.url === 'string') return val.url;
+    if (typeof val.link === 'string') return val.link;
+    if (typeof val.href === 'string') return val.href;
+    if (typeof val.source === 'string') return val.source;
+    if (typeof val.text === 'string') return val.text;
+    if (typeof val.content === 'string') return val.content;
+    if (typeof val.name === 'string') return val.name;
+    if (typeof val.message === 'string') return val.message;
+  }
+  return '';
+}
+
 export function parseTavernCard(rawData: any): TavernCardV2 {
   if (!rawData || typeof rawData !== 'object') {
     return {
@@ -96,9 +113,9 @@ export function parseTavernCard(rawData: any): TavernCardV2 {
   if (typeof rawTags === 'string') {
     rawTags = rawTags.split(',').map((t: string) => t.trim()).filter(Boolean);
   }
-  const tags = Array.isArray(rawTags) ? rawTags.map(String).filter(Boolean) : [];
+  const tags = Array.isArray(rawTags) ? rawTags.map((t: any) => toSafeString(t)).filter(Boolean) : [];
 
-  const name =
+  const name = toSafeString(
     innerData.name ||
     rawData.name ||
     innerData.char_name ||
@@ -106,33 +123,33 @@ export function parseTavernCard(rawData: any): TavernCardV2 {
     innerData.character_name ||
     rawData.character_name ||
     innerData.title ||
-    rawData.title ||
-    '';
+    rawData.title
+  );
 
-  const description =
+  const description = toSafeString(
     innerData.description ||
     rawData.description ||
     innerData.char_persona ||
     rawData.char_persona ||
     innerData.persona ||
-    rawData.persona ||
-    '';
+    rawData.persona
+  );
 
-  const personality =
+  const personality = toSafeString(
     innerData.personality ||
     rawData.personality ||
     innerData.personality_summary ||
-    rawData.personality_summary ||
-    '';
+    rawData.personality_summary
+  );
 
-  const scenario =
+  const scenario = toSafeString(
     innerData.scenario ||
     rawData.scenario ||
     innerData.world_scenario ||
-    rawData.world_scenario ||
-    '';
+    rawData.world_scenario
+  );
 
-  const firstMes =
+  const firstMes = toSafeString(
     innerData.first_mes ||
     rawData.first_mes ||
     innerData.char_greeting ||
@@ -140,19 +157,19 @@ export function parseTavernCard(rawData: any): TavernCardV2 {
     innerData.greeting ||
     rawData.greeting ||
     innerData.first_message ||
-    rawData.first_message ||
-    '';
+    rawData.first_message
+  );
 
-  const mesExample =
+  const mesExample = toSafeString(
     innerData.mes_example ||
     rawData.mes_example ||
     innerData.example_dialogue ||
     rawData.example_dialogue ||
     innerData.dialogue_examples ||
-    rawData.dialogue_examples ||
-    '';
+    rawData.dialogue_examples
+  );
 
-  const creatorNotes =
+  const creatorNotes = toSafeString(
     innerData.creator_notes ||
     rawData.creator_notes ||
     innerData.creatorcomment ||
@@ -160,43 +177,43 @@ export function parseTavernCard(rawData: any): TavernCardV2 {
     innerData.creator_comment ||
     rawData.creator_comment ||
     innerData.comment ||
-    rawData.comment ||
-    '';
+    rawData.comment
+  );
 
-  const systemPrompt =
+  const systemPrompt = toSafeString(
     innerData.system_prompt ||
     rawData.system_prompt ||
     innerData.main_prompt ||
-    rawData.main_prompt ||
-    '';
+    rawData.main_prompt
+  );
 
-  const postHistoryInstructions =
+  const postHistoryInstructions = toSafeString(
     innerData.post_history_instructions ||
     rawData.post_history_instructions ||
     innerData.jailbreak ||
-    rawData.jailbreak ||
-    '';
+    rawData.jailbreak
+  );
 
-  const creator =
+  const creator = toSafeString(
     innerData.creator ||
     rawData.creator ||
     innerData.author ||
-    rawData.author ||
-    '';
+    rawData.author
+  );
 
-  const characterVersion =
+  const characterVersion = toSafeString(
     innerData.character_version ||
     rawData.character_version ||
     innerData.version ||
-    rawData.version ||
-    '';
+    rawData.version
+  );
 
-  const source =
+  const source = toSafeString(
     innerData.source ||
     rawData.source ||
     innerData.extensions?.source ||
-    rawData.extensions?.source ||
-    '';
+    rawData.extensions?.source
+  );
 
   const extensions =
     innerData.extensions ||
