@@ -1302,7 +1302,7 @@ export function CloudSyncTab({ isLightMode: propIsLightMode }: { isLightMode?: b
                             </>
                           );
                         })()}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-60 group-hover:opacity-80 transition pointer-events-none" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent opacity-60 group-hover:opacity-80 transition pointer-events-none" />
                       </div>
                       
                       <div className={`p-2 sm:p-3 border-t flex flex-col justify-between flex-1 ${

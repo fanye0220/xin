@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Upload, Download, Share2, Trash2, Edit2, Check, X as XIcon, ChevronDown, ChevronUp, Plus, Save } from 'lucide-react';
+import { Upload, Download, Share2, Trash2, Edit2, Check, X as XIcon, ChevronDown, ChevronUp, Plus, Save, ArrowUp, ArrowDown } from 'lucide-react';
 import { CharacterCard, saveCharacter } from '../lib/db';
 import { useBackHandler } from '../lib/useBackHandler';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -114,12 +114,27 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
     }
   };
 
+  const handleMove = (index: number, direction: number) => {
+    const targetIdx = index + direction;
+    if (targetIdx < 0 || targetIdx >= regexScripts.length) return;
+    const newScripts = [...regexScripts];
+    const temp = newScripts[index];
+    newScripts[index] = newScripts[targetIdx];
+    newScripts[targetIdx] = temp;
+    saveRegexScripts(newScripts);
+    if (expandedIndex === index) {
+      setExpandedIndex(targetIdx);
+    } else if (expandedIndex === targetIdx) {
+      setExpandedIndex(index);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center mb-2">
+      <div className="flex items-center justify-between border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] pb-2 mb-3">
         <div>
-          <h2 className="text-xl font-bold text-white [.light-theme_&]:!text-[#0f172a] mb-1">正则替换</h2>
-          <p className="text-sm text-white/60 [.light-theme_&]:!text-slate-500">
+          <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a]">正则替换</h3>
+          <p className="text-xs text-white/60 [.light-theme_&]:!text-slate-500 mt-0.5">
             用于对聊天内容进行自动替换的正则表达式
           </p>
         </div>
@@ -183,24 +198,39 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                 key={script.id || index} 
                 className={`w-full detail-card p-3.5 rounded-2xl ${isEnabled ? '' : 'opacity-60'} flex flex-col transition-all overflow-hidden mb-2`}
               >
-                <div className="flex flex-wrap sm:flex-nowrap justify-between items-start gap-2 mb-1 w-full">
+                <div className="flex justify-between items-center gap-2 mb-1.5 w-full">
                   <div 
                     className="flex flex-col min-w-0 flex-1 cursor-pointer group"
                     onClick={() => setExpandedIndex(isExpanded ? null : index)}
                   >
-                    <h4 className="font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a] truncate">
+                    <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 text-sm truncate">
                       {title}
                     </h4>
                   </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+                  <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
                     <button
+                      type="button"
+                      disabled={index === 0}
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleToggleEnable(index);
+                        handleMove(index, -1);
                       }}
-                      className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition whitespace-nowrap border ${isEnabled ? 'bg-green-500/10 text-green-400 border-green-500/20 [.light-theme_&]:!bg-[#E7F9EE] [.light-theme_&]:!text-[#1DB954] [.light-theme_&]:!border-[#1DB954]/20' : 'bg-white/5 text-white/30 border-white/5 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#8E8E93] [.light-theme_&]:!border-transparent'}`}
+                      className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+                      title="上移规则"
                     >
-                      {isEnabled ? '已启用' : '已禁用'}
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={index === regexScripts.length - 1}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMove(index, 1);
+                      }}
+                      className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+                      title="下移规则"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
                     </button>
                     <button 
                       onClick={(e) => {
@@ -218,12 +248,30 @@ export function CharacterRegexSection({ character, onUpdate, isLightMode = false
                         e.stopPropagation();
                         handleDelete(index);
                       }}
-                      className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-red-400 transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-red-500 cursor-pointer"
+                      className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-red-500 cursor-pointer"
                       title="删除"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleToggleEnable(index);
+                    }}
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition whitespace-nowrap border cursor-pointer ${isEnabled ? 'bg-green-500/10 text-green-400 border-green-500/20 [.light-theme_&]:!bg-[#E7F9EE] [.light-theme_&]:!text-[#1DB954] [.light-theme_&]:!border-[#1DB954]/20' : 'bg-white/5 text-white/30 border-white/5 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#8E8E93] [.light-theme_&]:!border-transparent'}`}
+                    title={isEnabled ? "点击禁用" : "点击启用"}
+                  >
+                    {isEnabled ? '已启用' : '已禁用'}
+                  </button>
+                  {script.placement && Array.isArray(script.placement) && script.placement.length > 0 && (
+                    <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-white/70 border border-white/10 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#3A3A3C] font-medium">
+                      位置: {script.placement.join(', ')}
+                    </span>
+                  )}
                 </div>
 
                 <div 

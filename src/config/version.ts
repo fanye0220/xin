@@ -67,3 +67,4 @@ export async function checkForAppUpdates(customUrl?: string): Promise<{
     };
   }
 }
+

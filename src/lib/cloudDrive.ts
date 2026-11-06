@@ -308,11 +308,7 @@ function extractSourceUrl(rawData: any): string {
     rawData?.extensions?.source ||
     rawData?.source ||
     '';
-  if (typeof value === 'string') return value.trim();
-  if (typeof value === 'object' && value !== null) {
-    return String(value.url || value.link || value.href || value.source || '').trim();
-  }
-  return '';
+  return typeof value === 'string' ? value.trim() : String(value || '');
 }
 
 function hasQuickReplies(rawData: any): boolean {

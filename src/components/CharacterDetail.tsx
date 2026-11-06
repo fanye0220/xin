@@ -2,11 +2,9 @@ import {getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL, isFallbackMiuI
 import { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, ChevronRight, Plus, Edit2, Power, X as XIcon, ChevronDown, ChevronUp, ExternalLink, Check, Upload, Send, Smartphone, Loader2, Share2, Folder as FolderIcon, History, AlertCircle, Maximize2, BookOpen, Sparkles, FileJson, Image as ImageIcon, Save, Heart, RefreshCw, FileText } from 'lucide-react';
+import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, ChevronRight, Plus, Edit2, Power, X as XIcon, ChevronDown, ChevronUp, ExternalLink, Check, Upload, Send, Smartphone, Loader2, Share2, Folder as FolderIcon, History, AlertCircle, Maximize2, BookOpen, Sparkles, FileJson, Image as ImageIcon, Save, Heart, RefreshCw, FileText, ArrowUp, ArrowDown } from 'lucide-react';
 import { getCharacter, deleteCharacter, saveCharacter, toggleCharacterFavorite, CharacterCard, getFolders, resolveFolderPath, getCachedMeta, getCharacterCategoryPrefix, isActualCharacterCard, stripToolNameSuffix } from '../lib/db';
 import { getCardTypeBadgeInfo } from '../lib/cardType';
-import { getCardBadgeInfo, hasCardApologyError } from '../lib/cardBadge';
-import { isRefusalOrApologySummary } from '../lib/taggerState';
 import { parseTavernCard } from '../types/tavern';
 import { normalizeSourceUrl } from '../lib/sourceUrl';
 import { injectTavernData } from '../lib/png';
@@ -115,7 +113,6 @@ interface Props {
 // 连带触发这个 1700+ 行的大组件整体重渲染。
 export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpenChat, onOpenImport, onOpenSettings, refreshKey, isLightMode: propIsLightMode }: Props) {
   const [character, setCharacter] = useState<CharacterCard | null>(null);
-  const [isLoadingData, setIsLoadingData] = useState(false); // data 字段是否正在后台补
   const [activeTab, setActiveTab] = useState<'profile' | 'greetings' | 'worldbook' | 'regex' | 'chats' | 'memos' | 'versions' | 'data_viewer'>('profile');
 
   const [isLightMode, setIsLightMode] = useState(() => {
@@ -222,10 +219,6 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     return getCharacterTokenBreakdown(character?.data ?? character);
   }, [character?.data]);
 
-  const hasApologyError = useMemo(() => {
-    return character ? hasCardApologyError(character) : false;
-  }, [character]);
-
   const hasDetailOverlay = Boolean(
     showTokenBreakdownModal ||
     showSummaryModal ||
@@ -280,45 +273,8 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   });
 
   useEffect(() => {
-    // 先用轻量索引快速显示骨架（名字/标签/token/分类/头像），data 后台补
-    const load = async () => {
-      try {
-        const { getCharacterMeta, getCharacter } = await import('../lib/db');
-        const meta = await getCharacterMeta(id);
-        if (!meta) {
-          const char = await getCharacter(id);
-          setCharacter(char);
-          return;
-        }
-        // 先用 meta 构造轻量卡对象（data 为空）
-        const lightChar: CharacterCard = {
-          ...meta,
-          data: {},
-        } as unknown as CharacterCard;
-        setCharacter(lightChar);
-
-        // 后台补完整 data
-        setIsLoadingData(true);
-        const full = await getCharacter(id);
-        if (full) {
-          setCharacter(full);
-        }
-      } catch (e) {
-        // 兜底：直接读整卡
-        const char = await getCharacter(id);
-        setCharacter(char);
-      } finally {
-        setIsLoadingData(false);
-      }
-    };
-    load();
-  }, [id]);
-
-  // data 补完后跑原有逻辑（分类/头像/修改时间等）
-  useEffect(() => {
-    if (!character) return;
-    (async () => {
-      const char = character;
+    getCharacter(id).then(async (char) => {
+      setCharacter(char);
       if (char) {
         const isActual = isActualCharacterCard(char.data || char);
         const category = isActual ? '未归类' : getCharacterCategoryPrefix(char);
@@ -385,8 +341,8 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
           }
         }
       }
-    })();
-  }, [character?.id, isLoadingData]);
+    });
+  }, [id]);
 
   const handleNameSave = async () => {
     if (!editNameValue.trim() || !character) return;
@@ -567,12 +523,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
 
   // 卡片「来源」：存的可能是 example.com/page 这种没带协议的，也可能就是一句话。
   // 统一整理成能点的干净链接；整理不出来就当作普通文字/无来源显示。
-  const rawSourceVal = data.extensions?.source ?? data.source ?? character.sourceUrl ?? '';
-  const rawSource = typeof rawSourceVal === 'string' 
-    ? rawSourceVal 
-    : (typeof rawSourceVal === 'object' && rawSourceVal !== null 
-        ? (rawSourceVal.url || rawSourceVal.link || rawSourceVal.href || rawSourceVal.source || '') 
-        : String(rawSourceVal || ''));
+  const rawSource = data.extensions?.source || data.source || character.sourceUrl || '';
   const sourceLink = normalizeSourceUrl(rawSource);
   const category = getCharacterCategoryPrefix(character);
   const isPreset = category === '预设';
@@ -1562,22 +1513,11 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               {/* 简介标志按钮 */}
               <button
                 onClick={() => setShowSummaryModal(true)}
-                className={`group inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs transition cursor-pointer active:scale-95 backdrop-blur-md shadow-xs shrink-0 ${
-                  hasApologyError
-                    ? 'bg-[#ff3b30]/15 hover:bg-[#ff3b30]/25 border border-[#ff3b30]/30 text-[#ff3b30] font-semibold'
-                    : 'bg-white/10 hover:bg-white/15 border border-white/15 text-white/90 [.light-theme_&]:bg-stone-100 [.light-theme_&]:border-stone-200 [.light-theme_&]:text-stone-700 [.light-theme_&]:hover:bg-stone-200 font-medium'
-                }`}
+                className="group inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 text-xs text-white/90 transition cursor-pointer active:scale-95 backdrop-blur-md shadow-xs [.light-theme_&]:bg-stone-100 [.light-theme_&]:border-stone-200 [.light-theme_&]:text-stone-700 [.light-theme_&]:hover:bg-stone-200 shrink-0"
                 title="查看与重新生成简介"
               >
-                <Sparkles className={`w-3.5 h-3.5 shrink-0 transition-transform group-hover:scale-105 ${
-                  hasApologyError ? 'text-[#ff3b30]' : 'text-white/70 [.light-theme_&]:text-stone-700'
-                }`} />
+                <Sparkles className="w-3.5 h-3.5 text-white/70 [.light-theme_&]:text-stone-700 shrink-0 transition-transform group-hover:scale-105" />
                 <span className="font-medium tracking-wide">简介</span>
-                {hasApologyError && (
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#ff3b30]/20 text-[#ff3b30] font-bold border border-[#ff3b30]/30">
-                    报错
-                  </span>
-                )}
               </button>
             </div>
           )}
@@ -1770,13 +1710,13 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                               <ExternalLink className="w-3 h-3 shrink-0 text-blue-400 [.light-theme_&]:!text-[#007aff]" />
                               <span className="truncate max-w-[200px] sm:max-w-[280px]">{sourceLink}</span>
                             </a>
-                          ) : (typeof rawSource === 'string' && rawSource.trim()) ? (
+                          ) : rawSource ? (
                             <span className="text-white/70 [.light-theme_&]:!text-[#0f172a] font-normal text-xs sm:text-sm truncate min-w-0" title={rawSource}>{rawSource}</span>
                           ) : (
                             <span className="text-white/60 [.light-theme_&]:!text-[#0f172a] font-normal text-xs sm:text-sm">无来源</span>
                           )}
                           <button 
-                            onClick={() => { setTempSource(sourceLink || (typeof rawSource === 'string' ? rawSource : '')); setIsEditingSource(true); }} 
+                            onClick={() => { setTempSource(sourceLink || rawSource); setIsEditingSource(true); }} 
                             className="p-1 text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a] transition cursor-pointer shrink-0"
                             title="修改来源网址"
                           >
@@ -1991,6 +1931,19 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                     content={data.first_mes} 
                     character={character}
                     onSave={(val) => updateField('first_mes', val)} 
+                    onMoveDown={data.alternate_greetings && data.alternate_greetings.length > 0 ? () => {
+                      const newGreetings = [...data.alternate_greetings];
+                      const oldFirst = data.first_mes || '';
+                      const alt0 = newGreetings[0];
+                      newGreetings[0] = oldFirst;
+
+                      const updatedChar = { ...character };
+                      updatedChar.data = JSON.parse(JSON.stringify(updatedChar.data || {}));
+                      let tData = updatedChar.data.data ? updatedChar.data.data : updatedChar.data;
+                      tData.first_mes = alt0;
+                      tData.alternate_greetings = newGreetings;
+                      saveCharacter(updatedChar).then(() => setCharacter(updatedChar));
+                    } : undefined}
                     onOpenReader={() => {
                       setGreetingReaderInitialIndex(0);
                       setGreetingReaderEditMode(false);
@@ -2029,6 +1982,38 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             index={i}
                             content={msg}
                             character={character}
+                            canMoveUp={i > 0 || Boolean(data.first_mes)}
+                            canMoveDown={i < (data.alternate_greetings?.length || 0) - 1}
+                            onMoveUp={() => {
+                              if (i === 0) {
+                                const newGreetings = [...data.alternate_greetings];
+                                const oldFirst = data.first_mes || '';
+                                const alt0 = newGreetings[0];
+                                newGreetings[0] = oldFirst;
+
+                                const updatedChar = { ...character };
+                                updatedChar.data = JSON.parse(JSON.stringify(updatedChar.data || {}));
+                                let tData = updatedChar.data.data ? updatedChar.data.data : updatedChar.data;
+                                tData.first_mes = alt0;
+                                tData.alternate_greetings = newGreetings;
+                                saveCharacter(updatedChar).then(() => setCharacter(updatedChar));
+                              } else {
+                                const newGreetings = [...data.alternate_greetings];
+                                const temp = newGreetings[i];
+                                newGreetings[i] = newGreetings[i - 1];
+                                newGreetings[i - 1] = temp;
+                                updateField('alternate_greetings', newGreetings);
+                              }
+                            }}
+                            onMoveDown={() => {
+                              if (i < data.alternate_greetings.length - 1) {
+                                const newGreetings = [...data.alternate_greetings];
+                                const temp = newGreetings[i];
+                                newGreetings[i] = newGreetings[i + 1];
+                                newGreetings[i + 1] = temp;
+                                updateField('alternate_greetings', newGreetings);
+                              }
+                            }}
                             onOpenReader={() => {
                               setGreetingReaderInitialIndex(i + 1);
                               setGreetingReaderEditMode(false);
@@ -2482,6 +2467,7 @@ function TextPreview({
   content, 
   character,
   onSave, 
+  onMoveDown,
   initialEditMode, 
   onOpenReader,
   onOpenEdit 
@@ -2490,6 +2476,7 @@ function TextPreview({
   content: string; 
   character?: CharacterCard | null;
   onSave?: (val: string) => void; 
+  onMoveDown?: () => void;
   initialEditMode?: boolean; 
   onOpenReader?: () => void;
   onOpenEdit?: () => void;
@@ -2497,7 +2484,6 @@ function TextPreview({
   const [isExpanded, setIsExpanded] = useState(initialEditMode || false);
   const [isEditing, setIsEditing] = useState(initialEditMode || false);
   const [editValue, setEditValue] = useState(content);
-  const isError = isRefusalOrApologySummary(content);
 
   const handleSave = () => {
     if (onSave) {
@@ -2525,14 +2511,23 @@ function TextPreview({
   };
 
   return (
-    <div className={`w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2 ${
-      isError
-        ? '!bg-[#ff3b30]/10 !border-[#ff3b30]/30 text-[#ff3b30] [.light-theme_&]:!bg-[#ff3b30]/10 [.light-theme_&]:!border-[#ff3b30]/25 [.light-theme_&]:!text-[#dc2626]'
-        : ''
-    }`}>
+    <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
       {/* Action bar for Editing */}
       {onSave && !isEditing && (
         <div className="flex justify-end items-center gap-1.5 mb-1.5">
+          {onMoveDown && (
+            <button 
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveDown();
+              }}
+              className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] cursor-pointer"
+              title="下移（与备用开场白 1 互换）"
+            >
+              <ArrowDown className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button 
             onClick={handleEdit}
             className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] cursor-pointer"
@@ -2617,6 +2612,10 @@ function AlternateGreetingCard({
   index, 
   content, 
   character,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
   onSave, 
   onDelete, 
   onOpenReader,
@@ -2626,6 +2625,10 @@ function AlternateGreetingCard({
   index: number; 
   content: string; 
   character?: CharacterCard | null;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
   onSave: (val: string) => void; 
   onDelete: () => void; 
   onOpenReader?: () => void;
@@ -2633,7 +2636,6 @@ function AlternateGreetingCard({
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(content);
-  const isError = isRefusalOrApologySummary(content);
 
   const handleSave = () => {
     onSave(editValue);
@@ -2656,26 +2658,36 @@ function AlternateGreetingCard({
   };
 
   return (
-    <div className={`w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2 ${
-      isError
-        ? '!bg-[#ff3b30]/10 !border-[#ff3b30]/30 text-[#ff3b30] [.light-theme_&]:!bg-[#ff3b30]/10 [.light-theme_&]:!border-[#ff3b30]/25 [.light-theme_&]:!text-[#dc2626]'
-        : ''
-    }`}>
+    <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
       <div className="flex flex-wrap sm:flex-nowrap justify-between items-center gap-2 mb-1.5">
-        <div className="flex items-center gap-2 truncate">
-          <h4 className={`font-semibold text-sm truncate ${
-            isError ? 'text-[#ff3b30] [.light-theme_&]:!text-[#ff3b30]' : 'text-blue-300 [.light-theme_&]:!text-blue-700'
-          }`}>
-            备用开场白 {index + 1}
-          </h4>
-          {isError && (
-            <span className="text-[10px] bg-[#ff3b30]/15 text-[#ff3b30] border border-[#ff3b30]/25 px-1.5 py-0.2 rounded-full font-semibold flex items-center gap-0.5 select-none">
-              <AlertCircle className="w-2.5 h-2.5 text-[#ff3b30] shrink-0" />
-              <span>报错</span>
-            </span>
-          )}
-        </div>
+        <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 text-sm truncate">
+          备用开场白 {index + 1}
+        </h4>
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          <button 
+            type="button"
+            disabled={!canMoveUp}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMoveUp?.();
+            }}
+            className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+            title={index === 0 ? "上移（与首条消息互换）" : "上移开场白"}
+          >
+            <ArrowUp className="w-3.5 h-3.5" />
+          </button>
+          <button 
+            type="button"
+            disabled={!canMoveDown}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMoveDown?.();
+            }}
+            className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+            title="下移开场白"
+          >
+            <ArrowDown className="w-3.5 h-3.5" />
+          </button>
           {!isEditing && (
             <button 
               onClick={handleEdit} 
@@ -2744,6 +2756,7 @@ function Section({
   content, 
   character,
   onSave, 
+  onMoveDown,
   onOpenReader,
   onOpenEdit 
 }: { 
@@ -2751,26 +2764,16 @@ function Section({
   content?: string; 
   character?: CharacterCard | null;
   onSave?: (val: string) => void; 
+  onMoveDown?: () => void;
   onOpenReader?: () => void;
   onOpenEdit?: () => void;
 }) {
   const [isAdding, setIsAdding] = useState(false);
-  const isError = isRefusalOrApologySummary(content);
 
   return (
     <div>
       <div className="flex items-center justify-between border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] pb-2 mb-3">
-        <div className="flex items-center gap-2">
-          <h3 className={`text-lg font-semibold ${
-            isError ? 'text-[#ff3b30] [.light-theme_&]:!text-[#ff3b30]' : 'text-white/90 [.light-theme_&]:!text-[#0f172a]'
-          }`}>{title}</h3>
-          {isError && (
-            <span className="text-xs bg-[#ff3b30]/15 text-[#ff3b30] border border-[#ff3b30]/25 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 select-none">
-              <AlertCircle className="w-3 h-3 text-[#ff3b30] shrink-0 stroke-[2.2]" />
-              <span>含报错/道歉</span>
-            </span>
-          )}
-        </div>
+        <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a]">{title}</h3>
         <div className="flex items-center gap-1.5">
           {(!content || content.trim() === '') && onSave && (
             <button 
@@ -2795,6 +2798,7 @@ function Section({
           content={content || ''} 
           character={character} 
           onSave={onSave} 
+          onMoveDown={onMoveDown}
           onOpenReader={onOpenReader}
           onOpenEdit={onOpenEdit}
         />
@@ -2886,6 +2890,42 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
          newBook.entries = obj;
       }
       onUpdate(newBook);
+    }
+  };
+
+  const handleMove = (i: number, direction: number) => {
+    const targetIdx = i + direction;
+    if (targetIdx < 0 || targetIdx >= entries.length) return;
+    const newEntries = [...entries];
+    const itemA = { ...newEntries[i] };
+    const itemB = { ...newEntries[targetIdx] };
+
+    // Swap order values if distinct
+    const orderA = itemA.order ?? itemA.insertion_order;
+    const orderB = itemB.order ?? itemB.insertion_order;
+    if (orderA !== undefined && orderB !== undefined && orderA !== orderB) {
+      if (itemA.order !== undefined) itemA.order = orderB;
+      if (itemA.insertion_order !== undefined) itemA.insertion_order = orderB;
+      if (itemB.order !== undefined) itemB.order = orderA;
+      if (itemB.insertion_order !== undefined) itemB.insertion_order = orderA;
+    }
+
+    newEntries[i] = itemB;
+    newEntries[targetIdx] = itemA;
+
+    const newBook = { ...book };
+    if (Array.isArray(book.entries)) {
+       newBook.entries = newEntries;
+    } else {
+       const obj: any = {};
+       newEntries.forEach((e: any, idx: number) => { obj[String(idx)] = { ...e, uid: e.uid !== undefined ? e.uid : idx }; });
+       newBook.entries = obj;
+    }
+    onUpdate(newBook);
+    if (viewingEntryIndex === i) {
+      setViewingEntryIndex(targetIdx);
+    } else if (viewingEntryIndex === targetIdx) {
+      setViewingEntryIndex(i);
     }
   };
 
@@ -3054,14 +3094,16 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
 
   return (
     <div className="flex flex-col gap-4 w-full h-full relative">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] pb-2 mb-3">
         <div>
-          <h2 className="text-xl font-bold text-white/90 [.light-theme_&]:!text-[#0f172a] mb-1">
+          <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a]">
             {book.name || (book.data && book.data.name) || 'Worldbook'}
-          </h2>
-          <p className="text-sm text-white/60 [.light-theme_&]:!text-[#64748b]">
-            {book.description || (book.data && book.data.description) || '包含世界观、设定和背景信息'}
-          </p>
+          </h3>
+          {(book.description || (book.data && book.data.description)) && (
+            <p className="text-xs text-white/60 [.light-theme_&]:!text-[#64748b] mt-0.5">
+              {book.description || (book.data && book.data.description)}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
 
@@ -3149,34 +3191,77 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
             return (
               <div key={i} className={`w-full detail-card p-3.5 rounded-2xl ${isEnabled ? '' : 'opacity-60'} flex gap-3 transition-opacity overflow-hidden mb-2`}>
                 <div className="flex-1 min-w-0 w-full">
-                  <div className="flex flex-wrap sm:flex-nowrap justify-between items-start gap-2 mb-1 w-full">
-                    <div className="flex flex-col min-w-0 flex-1">
-                      <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 truncate">
-                        {title}
-                      </h4>
-                      {keysDisplay && keysDisplay !== title && (
-                        <p className="text-xs text-white/40 [.light-theme_&]:!text-slate-400 truncate mt-0.5">
-                          关键词: {keysDisplay}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+                  <div className="flex justify-between items-center gap-2 mb-1.5 w-full">
+                    <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 text-sm truncate flex-1 min-w-0">
+                      {title}
+                    </h4>
+                    <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
                       <button
-                        onClick={() => handleToggleEnable(i)}
-                        className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition whitespace-nowrap border ${isEnabled ? 'bg-green-500/10 text-green-400 border-green-500/20 [.light-theme_&]:!bg-[#E7F9EE] [.light-theme_&]:!text-[#1DB954] [.light-theme_&]:!border-[#1DB954]/20' : 'bg-white/5 text-white/30 border-white/5 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#8E8E93] [.light-theme_&]:!border-transparent'}`}
+                        type="button"
+                        disabled={i === 0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMove(i, -1);
+                        }}
+                        className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+                        title="上移条目"
                       >
-                        {isEnabled ? '已启用' : '已禁用'}
+                        <ArrowUp className="w-3.5 h-3.5" />
                       </button>
-                      <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-white/70 border border-white/10 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#3A3A3C] [.light-theme_&]:!border-transparent whitespace-nowrap font-bold shadow-sm">
-                        顺序: {order}
-                      </span>
-                      <button onClick={() => handleEdit(i)} className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a]">
+                      <button
+                        type="button"
+                        disabled={i === entries.length - 1}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMove(i, 1);
+                        }}
+                        className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+                        title="下移条目"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEdit(i);
+                        }} 
+                        className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] cursor-pointer"
+                        title="编辑"
+                      >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
-                      <button onClick={() => handleDelete(i)} className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-red-500">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(i);
+                        }} 
+                        className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-red-500 cursor-pointer"
+                        title="删除"
+                      >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleEnable(i);
+                      }}
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition whitespace-nowrap border cursor-pointer ${isEnabled ? 'bg-green-500/10 text-green-400 border-green-500/20 [.light-theme_&]:!bg-[#E7F9EE] [.light-theme_&]:!text-[#1DB954] [.light-theme_&]:!border-[#1DB954]/20' : 'bg-white/5 text-white/30 border-white/5 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#8E8E93] [.light-theme_&]:!border-transparent'}`}
+                      title={isEnabled ? "点击禁用" : "点击启用"}
+                    >
+                      {isEnabled ? '已启用' : '已禁用'}
+                    </button>
+                    <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-white/70 border border-white/10 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#3A3A3C] [.light-theme_&]:!border-transparent whitespace-nowrap font-medium shadow-2xs">
+                      顺序: {order}
+                    </span>
+                    {keysDisplay && keysDisplay !== title && (
+                      <span className="text-[11px] text-white/40 [.light-theme_&]:!text-slate-400 truncate max-w-[180px] sm:max-w-xs" title={`关键词: ${keysDisplay}`}>
+                        关键词: {keysDisplay}
+                      </span>
+                    )}
                   </div>
                   <div 
                     className="group cursor-pointer mt-2 w-full"

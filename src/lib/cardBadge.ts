@@ -1,35 +1,9 @@
 import { getCharacterCategoryPrefix } from "./db";
-import { isRefusalOrApologySummary } from "./taggerState";
 
 export interface CardBadgeInfo {
   label: string;
   dotColor: string;
   type: string;
-}
-
-/**
- * Detects if a character card contains AI apology, refusal, or generation error messages.
- */
-export function hasCardApologyError(char: any): boolean {
-  if (!char) return false;
-
-  // 1. Check AI summary
-  const summary = char.aiSummary || char.data?.aiSummary || char.data?.data?.aiSummary;
-  if (summary && isRefusalOrApologySummary(summary)) return true;
-
-  // 2. Check main text fields (description, first message, personality, creator notes)
-  const data = char.data?.data || char.data || {};
-  const desc = char.description || data.description || "";
-  const firstMes = char.first_mes || data.first_mes || "";
-  const personality = char.personality || data.personality || "";
-  const creatorNotes = char.creator_notes || data.creator_notes || "";
-
-  if (isRefusalOrApologySummary(desc)) return true;
-  if (isRefusalOrApologySummary(firstMes)) return true;
-  if (isRefusalOrApologySummary(personality)) return true;
-  if (isRefusalOrApologySummary(creatorNotes)) return true;
-
-  return false;
 }
 
 /**

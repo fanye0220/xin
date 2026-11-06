@@ -4,6 +4,12 @@ import { getLocalImageUrl, isAndroid } from "./appBridge";
 import { sanitizeChatMessages } from "./chatParse";
 import { getCharacterTokenBreakdown } from "./tokens";
 import { isStoredPlaceholderCopy } from "./placeholder";
+import {
+  containsPositiveMatch,
+  normalizeSearchString,
+  matchesCharacterSearchUtil,
+  getCharacterSearchScoreUtil,
+} from "./searchUtils";
 
 // 本地 Android 文件同步已按需求关闭，后续只使用 IndexedDB + 云端同步。
 const ENABLE_ANDROID_FILE_SYNC = false;
@@ -755,7 +761,8 @@ export async function getFolderPreviews(
 
   const previews: Record<string, FolderPreviewItem[]> = {};
 
-  // 每次都新开一次读取事务，避免 TransactionInactiveError
+  // 每次都新开一次读取事务：上面那次查询一结束事务就已经提交，
+  // 再拿同一个事务的索引去查会直接抛 TransactionInactiveError（父文件夹预览就是这样悄悄变空的）
   const readFolderMetas = async (id: string): Promise<CharMeta[]> => {
     const metas = await db.getAllFromIndex("char_meta", "by-folder", id);
     return metas.filter((m) => !m.deletedAt);
@@ -789,10 +796,13 @@ export async function getFolderPreviews(
         }
       }
 
-      // ── 封面挑选：严格相册式「顺位」 ────────────────────────────────────
+      // ── 封面挑选：相册式「顺位」 ────────────────────────────────────────
       // 1) 工具卡 / 机器人 / 预设 / 二维码永远沉底，绝不当封面
-      // 2) 其余按当前列表展示排序：谁排在最前面，谁就是封面（第一顺位当主封面，第二顺位当副封面）
-      // 3) 排序主键相同时增加卡片 ID 稳定兜底，保证同一批卡在任何时候顺序绝对固定、绝不来回跳变
+      // 2) 其余按你在列表里看到的顺序（跟随 tavern_sortBy；手动排序就是拖出来的顺序）
+      // 3) 顺着这个顺序往下找「真的有图」的第一张当封面，第二张当后面探出来的那张；
+      //    整个文件夹一张有图的都没有 → 才用默认占位图（miu）
+      //    ★ 以前掺了「最近改过的优先 / 收藏优先」，所以你点开或编辑一张卡封面就跳一次，
+      //      看着就是"一直在刷新"；现在只有你自己改顺序 / 换封面它才会变。
       const isToolMeta = (m: CharMeta) =>
         Boolean(
           m.isTool ||
@@ -814,7 +824,6 @@ export async function getFolderPreviews(
         const aTool = isToolMeta(a);
         const bTool = isToolMeta(b);
         if (aTool !== bTool) return aTool ? 1 : -1;
-
         let diff = 0;
         switch (coverSortBy) {
           case 'custom': {
@@ -903,8 +912,6 @@ export async function getFolderPreviews(
           isFallback: false,
         });
       }
-
-      // 只有在全文件夹遍历完、真正没有任何一张卡拥有头像时，才使用第一张卡回退为默认占位图(miu)
       if (pickedItems.length === 0 && firstMeta) {
         pickedItems.push({
           url: getFallbackAvatar(
@@ -1606,12 +1613,15 @@ async function buildMetaCache(): Promise<CharMeta[]> {
   return cachedMeta;
 }
 let _invalidateTimer: ReturnType<typeof setTimeout> | null = null;
+let _cachedFolderPathMap: { timestamp: number; map: Record<string, string> } | null = null;
+
 export function invalidateCache() {
   // 立刻清空内存缓存,保证"存盘后马上读"不会读到旧数据(比如移动卡片到文件夹后
   // 立刻刷新列表)。后面这段只是清理磁盘上的缓存快照 + 标签缓存,不影响正确性,
   // 用防抖避免批量操作时被反复触发导致重复的全量重建。
   cachedMeta = null;
   tagsCache = null;
+  _cachedFolderPathMap = null;
   if (_invalidateTimer) return;
   _invalidateTimer = setTimeout(() => {
     _invalidateTimer = null;
@@ -1619,6 +1629,53 @@ export function invalidateCache() {
       db.delete("blobs", "_char_meta_cache_v2_").catch(() => {});
     });
   }, 100);
+}
+
+export async function getCachedFolderPathMap(): Promise<Record<string, string>> {
+  const now = Date.now();
+  if (_cachedFolderPathMap && now - _cachedFolderPathMap.timestamp < 10000) {
+    return _cachedFolderPathMap.map;
+  }
+  const folders = await getFolders();
+  const folderMap = new Map<string, Folder>();
+  folders.forEach((f) => folderMap.set(f.id, f));
+
+  const pathMap: Record<string, string> = {};
+  for (const f of folders) {
+    const parts: string[] = [];
+    let curr: Folder | undefined = f;
+    const visited = new Set<string>();
+    while (curr && !visited.has(curr.id)) {
+      visited.add(curr.id);
+      parts.unshift(curr.name);
+      curr = curr.parentId ? folderMap.get(curr.parentId) : undefined;
+    }
+    pathMap[f.id] = parts.join("/");
+  }
+  _cachedFolderPathMap = { timestamp: now, map: pathMap };
+  return pathMap;
+}
+
+export function normalizeSearchPath(str: string): string {
+  return normalizeSearchString(str);
+}
+
+export function matchesCharacterSearch(
+  c: CharMeta,
+  rawQuery: string,
+  folderPathMap: Record<string, string>
+): boolean {
+  const rawFolderPath = (c.folderId && folderPathMap[c.folderId]) ? folderPathMap[c.folderId] : "";
+  return matchesCharacterSearchUtil(c.name || "", c.tags || [], rawFolderPath, rawQuery);
+}
+
+export function getCharacterSearchScore(
+  c: CharMeta,
+  rawQuery: string,
+  folderPathMap: Record<string, string>
+): number {
+  const rawFolderPath = (c.folderId && folderPathMap[c.folderId]) ? folderPathMap[c.folderId] : "";
+  return getCharacterSearchScoreUtil(c.name || "", c.tags || [], rawFolderPath, rawQuery);
 }
 
 export async function getFilteredCharacterCount(
@@ -1629,17 +1686,14 @@ export async function getFilteredCharacterCount(
   let allMeta = await getCachedMeta();
   allMeta = allMeta.filter((c) => !c.deletedAt);
 
+  const folderPathMap = await getCachedFolderPathMap();
+
   if (searchQuery) {
-    const query = searchQuery.toLowerCase();
-    allMeta = allMeta.filter(
-      (c) =>
-        c.name.toLowerCase().includes(query) ||
-        c.tags.some((t) => t.toLowerCase().includes(query)),
-    );
+    allMeta = allMeta.filter((c) => matchesCharacterSearch(c, searchQuery, folderPathMap));
   }
 
   if (tags.length > 0) {
-    allMeta = allMeta.filter((c) => tags.every((t) => c.tags.includes(t)));
+    allMeta = allMeta.filter((c) => tags.every((t) => (c.tags || []).includes(t)));
   }
 
   if (folderId === "favorites") {
@@ -1649,7 +1703,22 @@ export async function getFilteredCharacterCount(
       allMeta = allMeta.filter((c) => !c.folderId);
     }
   } else if (folderId && folderId !== "all") {
-    allMeta = allMeta.filter((c) => c.folderId === folderId);
+    if (searchQuery) {
+      const folders = await getFolders();
+      const descendantIds = new Set<string>([folderId]);
+      const addDescendants = (pid: string) => {
+        for (const f of folders) {
+          if (f.parentId === pid && !descendantIds.has(f.id)) {
+            descendantIds.add(f.id);
+            addDescendants(f.id);
+          }
+        }
+      };
+      addDescendants(folderId);
+      allMeta = allMeta.filter((c) => c.folderId && descendantIds.has(c.folderId));
+    } else {
+      allMeta = allMeta.filter((c) => c.folderId === folderId);
+    }
   }
 
   return allMeta.length;
@@ -1672,17 +1741,14 @@ export async function getCharacters(
   let allMeta = await getCachedMeta();
   allMeta = allMeta.filter((c) => !c.deletedAt);
 
+  const folderPathMap = await getCachedFolderPathMap();
+
   if (searchQuery) {
-    const query = searchQuery.toLowerCase();
-    allMeta = allMeta.filter(
-      (c) =>
-        c.name.toLowerCase().includes(query) ||
-        c.tags.some((t) => t.toLowerCase().includes(query)),
-    );
+    allMeta = allMeta.filter((c) => matchesCharacterSearch(c, searchQuery, folderPathMap));
   }
 
   if (tags.length > 0) {
-    allMeta = allMeta.filter((c) => tags.every((t) => c.tags.includes(t)));
+    allMeta = allMeta.filter((c) => tags.every((t) => (c.tags || []).includes(t)));
   }
 
   if (folderId === "favorites") {
@@ -1692,12 +1758,27 @@ export async function getCharacters(
       allMeta = allMeta.filter((c) => !c.folderId);
     }
   } else if (folderId && folderId !== "all") {
-    allMeta = allMeta.filter((c) => c.folderId === folderId);
+    if (searchQuery) {
+      const folders = await getFolders();
+      const descendantIds = new Set<string>([folderId]);
+      const addDescendants = (pid: string) => {
+        for (const f of folders) {
+          if (f.parentId === pid && !descendantIds.has(f.id)) {
+            descendantIds.add(f.id);
+            addDescendants(f.id);
+          }
+        }
+      };
+      addDescendants(folderId);
+      allMeta = allMeta.filter((c) => c.folderId && descendantIds.has(c.folderId));
+    } else {
+      allMeta = allMeta.filter((c) => c.folderId === folderId);
+    }
   }
 
   // Apply sorting
-  allMeta.sort((a, b) => {
-    switch (sortBy) {
+  const applyStandardSort = (a: CharMeta, b: CharMeta, sortOption: SortOption) => {
+    switch (sortOption) {
       case "custom":
         if (a.sortOrder !== undefined && b.sortOrder !== undefined) {
           return a.sortOrder - b.sortOrder;
@@ -1722,7 +1803,20 @@ export async function getCharacters(
       default:
         return b.createdAt - a.createdAt;
     }
-  });
+  };
+
+  if (searchQuery) {
+    allMeta.sort((a, b) => {
+      const scoreA = getCharacterSearchScore(a, searchQuery, folderPathMap);
+      const scoreB = getCharacterSearchScore(b, searchQuery, folderPathMap);
+      if (scoreA !== scoreB) {
+        return scoreB - scoreA;
+      }
+      return applyStandardSort(a, b, sortBy);
+    });
+  } else {
+    allMeta.sort((a, b) => applyStandardSort(a, b, sortBy));
+  }
 
   const total = allMeta.length;
   const paginatedMeta = (offset !== undefined && limit !== undefined)
@@ -2038,12 +2132,6 @@ export async function getCharacterThumb(id: string): Promise<Blob | null> {
     console.warn("Failed to persist generated HD thumbnail:", e);
   }
   return thumb;
-}
-
-/** 只读索引（不读 data 大字段），用于详情页快速骨架渲染 */
-export async function getCharacterMeta(id: string): Promise<CharMeta | undefined> {
-  const db = await initDB();
-  return db.get("char_meta", id);
 }
 
 export async function getCharacter(
@@ -3692,54 +3780,9 @@ export async function deleteChatsBulk(
 
 export async function getMemosForCharacter(
   characterId: string,
-  characterName?: string,
 ): Promise<CharacterMemo[]> {
   const db = await initDB();
-  let memos = await db.getAllFromIndex("memos", "by-character", characterId);
-
-  // 自动修复与迁移历史孤儿备忘录：
-  // 如果之前合并/删除重复卡时遗留了所属卡片已被删除的孤儿备忘录（例如口令、笔记），
-  // 自动将其合并归属于当前保留的主卡片，确保用户备忘录数据永不丢失！
-  try {
-    let targetName = characterName;
-    if (!targetName) {
-      const targetChar = await db.get("characters", characterId);
-      targetName = targetChar?.name || targetChar?.data?.name || targetChar?.data?.data?.name;
-    }
-
-    const allMemos = await db.getAll("memos");
-    const charKeys = new Set(await db.getAllKeys("characters"));
-    const orphanMemosToMigrate: CharacterMemo[] = [];
-
-    for (const m of allMemos) {
-      if (m.characterId && m.characterId !== characterId) {
-        // 所属卡片 ID 不存在于当前卡库中（说明是在查重/合并中被删掉的副卡片）
-        if (!charKeys.has(m.characterId)) {
-          orphanMemosToMigrate.push(m);
-        }
-      }
-    }
-
-    if (orphanMemosToMigrate.length > 0) {
-      const tx = db.transaction("memos", "readwrite");
-      for (const m of orphanMemosToMigrate) {
-        m.characterId = characterId;
-        await tx.store.put(m);
-        memos.push(m);
-      }
-      await tx.done;
-    }
-  } catch (err) {
-    console.warn("[Memos] Orphan memo auto-migration skipped:", err);
-  }
-
-  // 去重（按 memo.id）
-  const uniqueMemosMap = new Map<string, CharacterMemo>();
-  for (const m of memos) {
-    uniqueMemosMap.set(m.id, m);
-  }
-  memos = Array.from(uniqueMemosMap.values());
-
+  const memos = await db.getAllFromIndex("memos", "by-character", characterId);
   return memos.sort((a, b) => {
     if (a.isPinned && !b.isPinned) return -1;
     if (!a.isPinned && b.isPinned) return 1;

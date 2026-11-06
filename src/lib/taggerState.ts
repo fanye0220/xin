@@ -49,13 +49,6 @@ export function isRefusalOrApologySummary(text: string | null | undefined): bool
     /不能为您生成/,
     /无法处理此类内容/,
     /不适宜的内容/,
-    /生成失败/,
-    /请求失败/,
-    /网络错误/,
-    /500\s+internal\s+server\s+error/i,
-    /400\s+bad\s+request/i,
-    /request\s+failed/i,
-    /rate\s+limit\s+exceeded/i,
   ];
 
   return refusalPatterns.some(pattern => pattern.test(s));

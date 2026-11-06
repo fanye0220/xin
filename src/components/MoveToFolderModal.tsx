@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { getFolders, saveFolder, deleteFolder, Folder } from '../lib/db';
 import { useBackHandler } from '../lib/useBackHandler';
+import { matchesFolderSearch, getFolderSearchScore } from '../lib/searchUtils';
 
 interface Props {
   isOpen: boolean;
@@ -125,8 +126,8 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
     getFolders().then(f => {
       const sorted = f.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
       setFolders(sorted);
-      // Auto expand folders by default so sub-levels are clearly visible
-      setExpandedFolders(new Set(sorted.map(item => item.id)));
+      // Default collapsed so folder list stays clean and uncluttered until expanded or searched
+      setExpandedFolders(new Set());
     });
   };
 
@@ -246,12 +247,17 @@ export function MoveToFolderModal({ isOpen, onClose, onMove, isLightMode: propIs
   }, [folders]);
 
   const filteredFolders = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     if (!q) return null;
-    return folders.filter(f => 
-      f.name.toLowerCase().includes(q) || 
-      (folderPathMap[f.id] || '').toLowerCase().includes(q)
+    const matches = folders.filter(f =>
+      matchesFolderSearch(f.name, folderPathMap[f.id] || f.name, q)
     );
+    return matches.sort((a, b) => {
+      const scoreA = getFolderSearchScore(a.name, folderPathMap[a.id] || a.name, q);
+      const scoreB = getFolderSearchScore(b.name, folderPathMap[b.id] || b.name, q);
+      if (scoreA !== scoreB) return scoreB - scoreA;
+      return a.name.localeCompare(b.name, 'zh-CN');
+    });
   }, [folders, search, folderPathMap]);
 
   if (!isOpen) return null;

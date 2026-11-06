@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Sparkles, ChevronRight, RefreshCw, Loader2, ArrowLeft, Eye, EyeOff, Tag, Save } from 'lucide-react';
+import { X, Sparkles, ChevronRight, RefreshCw, Loader2, ArrowLeft, Eye, EyeOff, Tag } from 'lucide-react';
 import { CharacterCard, saveCharacter, getCharacter } from '../lib/db';
 import { generateSummaryForCharacter } from '../lib/ai';
 import {getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL, isFallbackMiuImage } from '../lib/avatar';
@@ -25,17 +25,10 @@ export function CharacterSummaryModal({
   isLightMode,
 }: Props) {
   const [showRetagModal, setShowRetagModal] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editingText, setEditingText] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
 
   useBackHandler(true, () => {
     if (showRetagModal) {
       setShowRetagModal(false);
-      return true;
-    }
-    if (isEditing) {
-      setIsEditing(false);
       return true;
     }
     onClose();
@@ -127,41 +120,11 @@ export function CharacterSummaryModal({
         await saveCharacter(fullChar);
         setCurrentSummary(newSummary);
         onSummaryUpdated?.();
-        window.dispatchEvent(new CustomEvent('charactersUpdated'));
       }
     } catch (err) {
       console.error('Failed to regenerate summary:', err);
     } finally {
       setIsGenerating(false);
-    }
-  };
-
-  const handleStartEdit = () => {
-    setEditingText(currentSummary || '');
-    setIsEditing(true);
-  };
-
-  const handleSaveEditedSummary = async () => {
-    setIsSaving(true);
-    try {
-      const fullChar = await getCharacter(character.id) || character;
-      const trimmed = editingText.trim();
-      fullChar.aiSummary = trimmed;
-      if (fullChar.data?.data) {
-        fullChar.data.data.aiSummary = trimmed;
-      } else if (fullChar.data) {
-        fullChar.data.aiSummary = trimmed;
-      }
-      await saveCharacter(fullChar);
-      setCurrentSummary(trimmed);
-      setIsEditing(false);
-      onSummaryUpdated?.();
-      window.dispatchEvent(new CustomEvent('charactersUpdated'));
-    } catch (err) {
-      console.error('Failed to save edited summary:', err);
-      alert('保存简介失败，请重试');
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -272,39 +235,21 @@ export function CharacterSummaryModal({
         {/* Card Body - AI Summary Content matching Detail Card */}
         <div className="p-4 sm:p-6 space-y-3 sm:space-y-4">
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-amber-400 [.light-theme_&]:!text-amber-600">
+            <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-amber-400 [.light-theme_&]:!text-amber-600">
               <span>角色简介</span>
-              {isEditing ? (
-                <span className="text-[11px] font-normal text-amber-400/80 [.light-theme_&]:!text-amber-600/80">
-                  (编辑中)
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleStartEdit}
-                  className="px-2 py-0.5 hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 rounded-lg text-white/60 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a] transition cursor-pointer text-xs font-normal"
-                  title="手动编辑简介内容"
-                >
-                  编辑
-                </button>
-              )}
             </div>
             <div className="flex items-center gap-2">
-              {!isEditing && (
-                <>
-                  <button
-                    onClick={handleRegenerateSummary}
-                    disabled={isGenerating}
-                    className="text-xs text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a] transition-colors cursor-pointer disabled:opacity-40 border-0 outline-none bg-transparent p-0 flex items-center gap-1 hover:underline"
-                    title="重新生成总结"
-                  >
-                    {isGenerating && <Loader2 className="w-3 h-3 animate-spin" />}
-                    <span>{isGenerating ? "正在重新总结..." : "重新总结"}</span>
-                  </button>
+              <button
+                onClick={handleRegenerateSummary}
+                disabled={isGenerating}
+                className="text-xs text-white/50 hover:text-white [.light-theme_&]:!text-slate-500 [.light-theme_&]:hover:!text-[#0f172a] transition-colors cursor-pointer disabled:opacity-40 border-0 outline-none bg-transparent p-0 flex items-center gap-1 hover:underline"
+                title="重新生成总结"
+              >
+                {isGenerating && <Loader2 className="w-3 h-3 animate-spin" />}
+                <span>{isGenerating ? "正在重新总结..." : "重新总结"}</span>
+              </button>
 
-                  <span className="text-white/20 [.light-theme_&]:!text-slate-300 text-xs select-none">·</span>
-                </>
-              )}
+              <span className="text-white/20 [.light-theme_&]:!text-slate-300 text-xs select-none">·</span>
 
               {/* 简介菜单开关：控制卡库点击卡片时是否优先弹出简介弹窗 */}
               <button
@@ -335,79 +280,39 @@ export function CharacterSummaryModal({
             </div>
           </div>
 
-          {isEditing ? (
-            <div className="space-y-2.5">
-              <div className="relative">
-                <textarea
-                  value={editingText}
-                  onChange={(e) => setEditingText(e.target.value)}
-                  placeholder="输入或修改角色简介总结..."
-                  rows={5}
-                  className="w-full p-3.5 text-xs sm:text-sm leading-relaxed rounded-2xl resize-none outline-none transition border bg-black/30 text-white border-white/20 focus:border-amber-400/80 focus:ring-2 focus:ring-amber-400/30 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:focus:!border-amber-500 custom-scrollbar"
-                  autoFocus
-                />
+          <div className="detail-card p-4 rounded-2xl min-h-[100px] max-h-[220px] overflow-y-auto custom-scrollbar relative">
+            {isGenerating ? (
+              <div className="flex flex-col items-center justify-center py-6 text-white/50 [.light-theme_&]:!text-slate-500">
+                <Loader2 className="w-6 h-6 animate-spin mb-2" />
+                <p className="text-xs">正在围绕人设与开场白重新总结...</p>
               </div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] text-white/45 [.light-theme_&]:!text-slate-500">
-                  字数: {editingText.length}
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsEditing(false)}
-                    className="px-3 py-1.5 rounded-xl text-xs font-medium text-white/70 hover:text-white hover:bg-white/10 [.light-theme_&]:!text-slate-600 [.light-theme_&]:hover:!bg-slate-100 transition cursor-pointer"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isSaving}
-                    onClick={handleSaveEditedSummary}
-                    className="px-4 py-1.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition active:scale-95 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  >
-                    {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                    <span>保存简介</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="detail-card p-4 rounded-2xl min-h-[100px] max-h-[220px] overflow-y-auto custom-scrollbar relative">
-              {isGenerating ? (
-                <div className="flex flex-col items-center justify-center py-6 text-white/50 [.light-theme_&]:!text-slate-500">
-                  <Loader2 className="w-6 h-6 animate-spin mb-2" />
-                  <p className="text-xs">正在围绕人设与开场白重新总结...</p>
-                </div>
-              ) : currentSummary ? (
-                <div className="space-y-2.5">
-                  {isRefusalOrApologySummary(currentSummary) && (
-                    <div className="p-2.5 rounded-xl text-xs flex items-center justify-between gap-2 bg-[#007aff]/10 text-blue-300 border border-[#007aff]/25 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!text-[#1d4ed8] [.light-theme_&]:!border-[#bfdbfe]">
-                      <span className="leading-snug flex items-center gap-1.5">
-                        <span className="text-xs">💡</span> 上次总结为 AI 拒绝/道歉回复，可重新生成或点击上方“编辑”自行输入。
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleRegenerateSummary}
-                        disabled={isGenerating}
-                        className="px-2.5 py-1 rounded-lg font-medium shrink-0 bg-[#007aff] text-white hover:bg-[#0066d6] cursor-pointer border-none text-[11px] transition active:scale-95 shadow-xs"
-                      >
-                        重新生成
-                      </button>
-                    </div>
-                  )}
-                  <div className="detail-card-text text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words">
-                    {currentSummary}
+            ) : currentSummary ? (
+              <div className="space-y-2.5">
+                {isRefusalOrApologySummary(currentSummary) && (
+                  <div className="p-2.5 rounded-xl text-xs flex items-center justify-between gap-2 bg-[#007aff]/10 text-blue-300 border border-[#007aff]/25 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!text-[#1d4ed8] [.light-theme_&]:!border-[#bfdbfe]">
+                    <span className="leading-snug flex items-center gap-1.5">
+                      <span className="text-xs">💡</span> 上次总结为 AI 拒绝/道歉回复，已为您排入重新打标优先队列。
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleRegenerateSummary}
+                      disabled={isGenerating}
+                      className="px-2.5 py-1 rounded-lg font-medium shrink-0 bg-[#007aff] text-white hover:bg-[#0066d6] cursor-pointer border-none text-[11px] transition active:scale-95 shadow-xs"
+                    >
+                      重新生成
+                    </button>
                   </div>
+                )}
+                <div className="detail-card-text text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words">
+                  {currentSummary}
                 </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-6 text-center">
-                  <p className="detail-card-text-muted italic text-xs leading-relaxed">
-                    暂无简介总结，可点击上方“重新总结”让 AI 生成，或点击上方“编辑”手动编写。
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
+              </div>
+            ) : (
+              <p className="detail-card-text-muted italic text-xs">
+                暂无简介总结，点击上方“重新总结”即可生成 1-300 字简介。
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Action Footer */}

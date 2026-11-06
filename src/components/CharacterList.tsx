@@ -33,7 +33,6 @@ import {
   Image as ImageIcon,
   Heart,
   Clock,
-  AlertCircle,
 } from "lucide-react";
 import { formatTokenCount, getCharacterTokenBreakdown, CharacterTokenBreakdown } from "../lib/tokens";
 import { TokenBreakdownModal } from "./TokenBreakdownModal";
@@ -59,12 +58,15 @@ import {
   getFilteredCharacterCount,
   getCharacterCategoryPrefix,
   invalidateCache,
+  normalizeSearchPath,
+  matchesCharacterSearch,
 } from "../lib/db";
+import { matchesFolderSearch, getFolderSearchScore as calcFolderSearchScore } from "../lib/searchUtils";
 import { useInView } from "../lib/useInView";
 import { useContinuousInView } from "../lib/useContinuousInView";
 import { peekCachedUrl, putCachedBlobUrl, isCachedBlobUrl } from "../lib/thumbCache";
 import { useBackHandler } from "../lib/useBackHandler";
-import { getCardBadgeInfo, hasCardApologyError } from "../lib/cardBadge";
+import { getCardBadgeInfo } from "../lib/cardBadge";
 import { MoveToFolderModal } from "./MoveToFolderModal";
 import { BindQRModal } from "./BindQRModal";
 import { ConfirmBindQRModal } from "./ConfirmBindQRModal";
@@ -403,14 +405,14 @@ export function CharacterList({
           mergedPreviews[fId] = oldItems;
           newItems.forEach((it) => {
             const u = typeof it === "string" ? it : it?.url;
-            if (u && u.startsWith("blob:") && !isCachedBlobUrl(u)) urlsToRevoke.push(u);
+            if (u && u.startsWith("blob:")) urlsToRevoke.push(u);
           });
         } else {
           // 真正的封面修改: 使用新 URL, 释放旧 URL
           mergedPreviews[fId] = newItems;
           oldItems.forEach((it) => {
             const u = typeof it === "string" ? it : it?.url;
-            if (u && u.startsWith("blob:") && !isCachedBlobUrl(u)) urlsToRevoke.push(u);
+            if (u && u.startsWith("blob:")) urlsToRevoke.push(u);
           });
         }
       }
@@ -1325,15 +1327,16 @@ export function CharacterList({
 
       let currentFolders: Folder[] = [];
       const hasSearch = !!debouncedSearchQuery.trim();
-      const q = debouncedSearchQuery.trim().toLowerCase();
+      const rawQ = debouncedSearchQuery.trim();
+
+      const matchesFolder = (f: Folder): boolean => {
+        return matchesFolderSearch(f.name, pathMap[f.id] || f.name, rawQ);
+      };
 
       if (folderId === null) {
         if (hasSearch) {
-          // 在根目录搜索时：全局跨文件夹搜索所有匹配的文件夹（匹配名称或完整路径）
-          currentFolders = allFoldersData.filter((f) => {
-            const p = pathMap[f.id]?.toLowerCase() || "";
-            return f.name.toLowerCase().includes(q) || p.includes(q);
-          });
+          // 在根目录搜索时：全局跨文件夹搜索所有匹配的文件夹
+          currentFolders = allFoldersData.filter(matchesFolder);
         } else {
           currentFolders = allFoldersData.filter((f) => !f.parentId);
         }
@@ -1359,18 +1362,18 @@ export function CharacterList({
           collectDescendants(folderId);
 
           currentFolders = allFoldersData.filter((f) =>
-            descendantIds.has(f.id) && (
-              f.name.toLowerCase().includes(q) ||
-              (pathMap[f.id]?.toLowerCase() || "").includes(q)
-            )
+            descendantIds.has(f.id) && matchesFolder(f)
           );
         } else {
           currentFolders = allFoldersData.filter((f) => f.parentId === folderId);
         }
       }
 
-      // 彻底修复：文件夹必须全面适配所有排序模式（新旧、名称、最近修改、自定义等）！
-      currentFolders.sort((a, b) => {
+      const getFolderSearchScore = (f: Folder): number => {
+        return calcFolderSearchScore(f.name, pathMap[f.id] || f.name, rawQ);
+      };
+
+      const applyFolderSort = (a: Folder, b: Folder) => {
         switch (sortBy) {
           case "custom":
             if (a.sortOrder !== undefined && b.sortOrder !== undefined)
@@ -1394,6 +1397,17 @@ export function CharacterList({
           default:
             return b.createdAt - a.createdAt;
         }
+      };
+
+      currentFolders.sort((a, b) => {
+        if (hasSearch) {
+          const scoreA = getFolderSearchScore(a);
+          const scoreB = getFolderSearchScore(b);
+          if (scoreA !== scoreB) {
+            return scoreB - scoreA;
+          }
+        }
+        return applyFolderSort(a, b);
       });
 
       if (reqId !== loadDataReqIdRef.current) return;
@@ -1588,16 +1602,13 @@ export function CharacterList({
     let allMeta = await getCachedMeta();
     allMeta = allMeta.filter((c) => !c.deletedAt);
     if (debouncedSearchQuery) {
-      const query = debouncedSearchQuery.toLowerCase();
-      allMeta = allMeta.filter(
-        (c) =>
-          c.name.toLowerCase().includes(query) ||
-          c.tags.some((t) => t.toLowerCase().includes(query))
+      allMeta = allMeta.filter((c) =>
+        matchesCharacterSearch(c, debouncedSearchQuery, folderPaths)
       );
     }
     if (selectedTags.length > 0) {
       allMeta = allMeta.filter((c) =>
-        selectedTags.every((t) => c.tags.includes(t))
+        selectedTags.every((t) => (c.tags || []).includes(t))
       );
     }
     if (folderId === "favorites") {
@@ -1607,13 +1618,31 @@ export function CharacterList({
         allMeta = allMeta.filter((c) => !c.folderId);
       }
     } else if (folderId && folderId !== "all") {
-      allMeta = allMeta.filter((c) => c.folderId === folderId);
+      if (debouncedSearchQuery) {
+        const allFoldersData = await getFolders();
+        const descendantIds = new Set<string>([folderId]);
+        const addDescendants = (pid: string) => {
+          for (const f of allFoldersData) {
+            if (f.parentId === pid && !descendantIds.has(f.id)) {
+              descendantIds.add(f.id);
+              addDescendants(f.id);
+            }
+          }
+        };
+        addDescendants(folderId);
+        allMeta = allMeta.filter((c) => c.folderId && descendantIds.has(c.folderId));
+      } else {
+        allMeta = allMeta.filter((c) => c.folderId === folderId);
+      }
     }
 
+    const cleanQ = normalizeSearchPath(debouncedSearchQuery);
     const visibleFolders = debouncedSearchQuery
-      ? folders.filter((f) =>
-          f.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()),
-        )
+      ? folders.filter((f) => {
+          const cleanName = f.name.trim().toLowerCase();
+          const cleanPath = normalizeSearchPath(folderPaths[f.id] || f.name);
+          return cleanName.includes(cleanQ) || cleanPath.includes(cleanQ);
+        })
       : (selectedTags.length > 0 ? [] : folders);
 
     const totalSelectable = allMeta.length + visibleFolders.length;
@@ -2700,7 +2729,6 @@ export function CharacterList({
         type="file"
         ref={coverInputRef}
         className="hidden"
-        style={{ display: 'none' }}
         accept="image/png, image/jpeg, image/webp, image/gif, image/*"
         onChange={handleCoverUpload}
       />
@@ -2886,7 +2914,7 @@ export function CharacterList({
                     autoCapitalize="none"
                     autoCorrect="off"
                     spellCheck="false"
-                    placeholder="搜索..."
+                    placeholder="搜索角色、标签或 文件夹/卡名..."
                     value={searchQuery}
                     onFocus={() => setIsSearchFocused(true)}
                     onClick={() => setIsSearchFocused(true)}
@@ -4304,7 +4332,6 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   const charTags = (char as any).tags || char.data?.data?.tags || char.data?.tags;
   const hasTags = charTags && Array.isArray(charTags) && charTags.length > 0;
   const badgeInfo = getCardBadgeInfo(char);
-  const hasApologyError = hasCardApologyError(char);
 
   if (viewMode === "list") {
     return (
@@ -4372,15 +4399,6 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="font-medium text-white/90 truncate [.light-theme_&]:!text-[#0f172a]">{char.name}</h3>
-            {hasApologyError && (
-              <span
-                className="text-[10px] bg-[#ff3b30]/15 text-[#ff3b30] border border-[#ff3b30]/25 px-1.5 py-0.5 rounded-md flex-shrink-0 flex items-center gap-1 font-semibold select-none shadow-xs"
-                title="此卡片包含 AI 抱歉/报错/生成异常信息"
-              >
-                <AlertCircle className="w-3 h-3 text-[#ff3b30] shrink-0 stroke-[2.2]" />
-                <span>报错</span>
-              </span>
-            )}
             {badgeInfo && (
               <span className="text-[10px] bg-black/60 backdrop-blur-md border border-white/10 text-white/90 px-1.5 py-0.5 rounded-md flex-shrink-0 flex items-center gap-1 font-medium select-none">
                 <span className={`w-1.5 h-1.5 rounded-full ${badgeInfo.dotColor} shrink-0`} />
@@ -4419,11 +4437,6 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
                 by {char.data.creator}
               </p>
             )}
-            {/* {char.autoImportFilename && (
-              <span className="text-[10px] text-slate-500 truncate flex-shrink-1">
-                {char.autoImportFilename}
-              </span>
-            )} */}
           </div>
         </div>
 
@@ -4515,8 +4528,8 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
       {isSelected && (
         <div className="absolute inset-0 bg-black/45 pointer-events-none z-[2] transition-opacity" />
       )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-3 pointer-events-none z-[3]">
-        <h3 className="font-semibold !text-white text-sm sm:text-base leading-tight drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)] break-words truncate">
+      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent flex flex-col justify-end p-3 pointer-events-none z-[3]">
+        <h3 className="font-semibold !text-white text-sm sm:text-base leading-tight drop-shadow-[0_1.5px_4px_rgba(0,0,0,0.95)] break-words truncate">
           {char.name}
         </h3>
         {hasTags && (
@@ -4524,7 +4537,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
             {charTags.map((t: string) => (
               <span
                 key={t}
-                className="text-[9.5px] bg-black/60 backdrop-blur-md !text-white/95 border border-white/20 px-1.5 py-0.5 rounded-md truncate max-w-[75px] font-medium leading-tight shadow-xs"
+                className="text-[9.5px] bg-black/45 backdrop-blur-md !text-white/95 border border-white/20 px-1.5 py-0.5 rounded-md truncate max-w-[75px] font-medium leading-tight shadow-xs"
               >
                 {t}
               </span>
@@ -4534,7 +4547,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
       </div>
 
       {badgeInfo && (
-        <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-md text-[10px] font-medium text-white/90 border border-white/10 flex items-center gap-1.5 shadow-sm pointer-events-none select-none">
+        <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/45 backdrop-blur-md rounded-md text-[10px] font-medium text-white/90 border border-white/15 flex items-center gap-1.5 shadow-sm pointer-events-none select-none">
           <span className={`w-1.5 h-1.5 rounded-full ${badgeInfo.dotColor} shrink-0`} />
           <span>{badgeInfo.label}</span>
         </div>
@@ -4547,61 +4560,43 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
             e.stopPropagation();
             onOpenTokenBreakdown?.(char);
           }}
-          className={`absolute ${badgeInfo ? "top-8.5" : "top-2"} left-2 z-10 px-1.5 py-0.5 bg-black/60 hover:bg-black/80 backdrop-blur-md rounded-md text-[10px] font-mono font-medium text-white/90 hover:text-white border border-white/20 flex items-center shadow-xs transition cursor-pointer select-none active:scale-95`}
+          className={`absolute ${badgeInfo ? "top-8.5" : "top-2"} left-2 z-10 px-1.5 py-0.5 bg-black/45 hover:bg-black/65 backdrop-blur-md rounded-md text-[10px] font-mono font-medium text-white/90 hover:text-white border border-white/20 flex items-center shadow-xs transition cursor-pointer select-none active:scale-95`}
           title={`Token 数量: ${char.tokenCount.toLocaleString()} (常驻: ${formatTokenCount(char.permanentTokens || 0)})，点击查看拆解`}
         >
           <span>{formatTokenCount(char.tokenCount)} T</span>
         </button>
       )}
 
-      {/* Top right container for Error indicator & Heart favorite button */}
-      {!selectionMode && (
-        <div className={`absolute z-10 flex items-center gap-1 sm:gap-1.5 ${
-          viewMode === "masonry"
-            ? "top-1.5 right-1.5 sm:top-2.5 sm:right-2.5"
-            : "top-1 right-1 sm:top-2 sm:right-2"
-        }`}>
-          {hasApologyError && (
-            <div
-              className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold flex items-center gap-0.5 bg-[#ff3b30]/20 text-[#ff3b30] border border-[#ff3b30]/30 backdrop-blur-md shadow-xs select-none cursor-help pointer-events-auto"
-              title="此卡片包含 AI 抱歉/报错/生成异常信息"
-            >
-              <AlertCircle className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-[#ff3b30] shrink-0 stroke-[2.2]" />
-              <span className="leading-none text-[9px] sm:text-[10px]">报错</span>
-            </div>
-          )}
-
-          {onToggleFavorite && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleFavorite(e);
-              }}
-              className={`rounded-full flex items-center justify-center backdrop-blur-xs transition-all duration-200 cursor-pointer active:scale-85 ${
-                viewMode === "masonry"
-                  ? "w-6 h-6 sm:w-7 sm:h-7"
-                  : "w-5 h-5 sm:w-6.5 sm:h-6.5"
-              } ${
-                char.isFavorite
-                  ? "bg-black/45 text-rose-500 shadow-xs opacity-100 border border-white/10"
-                  : "bg-black/30 text-white/70 hover:text-rose-400 opacity-0 group-hover:opacity-100"
-              }`}
-              title={char.isFavorite ? "取消收藏" : "收藏"}
-            >
-              <Heart
-                className={`transition-transform duration-200 ${
-                  viewMode === "masonry"
-                    ? "w-3.5 h-3.5 sm:w-4 sm:h-4"
-                    : "w-2.5 h-2.5 sm:w-3.5 sm:h-3.5"
-                } ${
-                  char.isFavorite
-                    ? "fill-rose-500 text-rose-500 drop-shadow-[0_1px_3px_rgba(244,63,94,0.5)]"
-                    : "text-white/90 hover:text-white"
-                }`}
-              />
-            </button>
-          )}
-        </div>
+      {/* Top right Heart favorite button - differentiated by layout */}
+      {!selectionMode && onToggleFavorite && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite(e);
+          }}
+          className={`absolute z-10 rounded-full flex items-center justify-center backdrop-blur-xs transition-all duration-200 cursor-pointer active:scale-85 ${
+            viewMode === "masonry"
+              ? "top-1.5 right-1.5 sm:top-2.5 sm:right-2.5 w-6 h-6 sm:w-7 sm:h-7"
+              : "top-1 right-1 sm:top-2 sm:right-2 w-5 h-5 sm:w-6.5 sm:h-6.5"
+          } ${
+            char.isFavorite
+              ? "bg-black/45 text-rose-500 shadow-xs opacity-100 border border-white/10"
+              : "bg-black/30 text-white/70 hover:text-rose-400 opacity-0 group-hover:opacity-100"
+          }`}
+          title={char.isFavorite ? "取消收藏" : "收藏"}
+        >
+          <Heart
+            className={`transition-transform duration-200 ${
+              viewMode === "masonry"
+                ? "w-3.5 h-3.5 sm:w-4 sm:h-4"
+                : "w-2.5 h-2.5 sm:w-3.5 sm:h-3.5"
+            } ${
+              char.isFavorite
+                ? "fill-rose-500 text-rose-500 drop-shadow-[0_1px_3px_rgba(244,63,94,0.5)]"
+                : "text-white/90 hover:text-white"
+            }`}
+          />
+        </button>
       )}
     </motion.div>
   );

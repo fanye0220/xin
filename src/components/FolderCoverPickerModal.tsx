@@ -88,8 +88,8 @@ const CoverPickerItem = React.memo(function CoverPickerItem({
             e.currentTarget.src = defaultFallback;
           }}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent flex items-end p-2 opacity-95 group-hover:opacity-100 transition">
-          <span className="text-xs font-semibold text-white truncate w-full drop-shadow-sm">
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent flex items-end p-2 opacity-95 group-hover:opacity-100 transition">
+          <span className="text-xs font-semibold text-white truncate w-full drop-shadow-[0_1.5px_3px_rgba(0,0,0,0.95)]">
             {char.name}
           </span>
         </div>

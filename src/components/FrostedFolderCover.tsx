@@ -149,7 +149,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
                 style={{ transform: "rotate(-5deg) translateX(-3px)", willChange: "transform" }}
               >
                 <CoverImage item={items[1]} padClass="p-1" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/30 to-transparent [.light-theme_&]:from-black/50 [.light-theme_&]:via-black/15 [.light-theme_&]:to-transparent pointer-events-none rounded-lg" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent [.light-theme_&]:from-black/40 [.light-theme_&]:via-black/10 [.light-theme_&]:to-transparent pointer-events-none rounded-lg" />
               </div>
             )}
             {/* Front Card */}
@@ -207,7 +207,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
           >
             <CoverImage item={items[1]} padClass="p-4" />
             {/* 卡片同款渐变沉浸遮罩 (底部渐变过渡, 拒绝呆板实色) */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent [.light-theme_&]:from-black/50 [.light-theme_&]:via-black/20 [.light-theme_&]:to-transparent pointer-events-none rounded-2xl transition-opacity" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent [.light-theme_&]:from-black/40 [.light-theme_&]:via-black/10 [.light-theme_&]:to-transparent pointer-events-none rounded-2xl transition-opacity" />
             {isSelected && (
               <div className="absolute inset-0 bg-black/45 rounded-2xl pointer-events-none z-10 transition-opacity" />
             )}
