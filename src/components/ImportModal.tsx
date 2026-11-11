@@ -424,6 +424,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
   const [tavernChars, setTavernChars] = useState<any[]>([]);
   const [selectedTavernChars, setSelectedTavernChars] = useState<Set<string>>(new Set());
   const [isPulling, setIsPulling] = useState(false);
+  const [isFetchingCatalog, setIsFetchingCatalog] = useState(false);
   const [tavernSearchQuery, setTavernSearchQuery] = useState("");
   const [pullLogs, setPullLogs] = useState<string[]>([]);
   const [currentPullChar, setCurrentPullChar] = useState<{ name: string; avatar: any; kind?: TavernPullCategory } | null>(null);
@@ -450,7 +451,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
       return;
     }
 
-    setIsPulling(true);
+    setIsFetchingCatalog(true);
     setTavernMode(true);
     tavernCategoryRef.current = "character";
     setTavernCategory("character");
@@ -461,8 +462,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
     setError(null);
     setPullLogs([]);
     setCurrentPullChar(null);
-    addPullLog(`正在与酒馆服务器发起连接: ${stUrl}`);
-    setProgress({ current: 0, total: 0, message: "正在连接酒馆并获取角色列表..." });
+    setProgress(null);
 
     try {
       const headers = getSillyTavernAuthHeaders(aiSettings);
@@ -604,9 +604,8 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
     } catch (e: any) {
       setError(`获取列表失败: ${e.message}`);
       addPullLog(`获取失败: ${e.message}`);
-      setProgress(null);
     } finally {
-      setIsPulling(false);
+      setIsFetchingCatalog(false);
     }
   };
 
@@ -740,12 +739,10 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
   };
 
   const fetchTavernTools = async (category: TavernPullCategory) => {
-    setIsPulling(true);
+    setIsFetchingCatalog(true);
     setError(null);
     setPullLogs([]);
     setCurrentPullChar(null);
-    addPullLog(`正在读取酒馆的${TAVERN_PULL_TABS.find((item) => item.key === category)?.label || '工具'}目录...`);
-    setProgress({ current: 0, total: 0, message: '正在读取酒馆目录...' });
     try {
       const auth = await tavernAuth();
       const res = await tavernPostJson('/api/settings/get', {}, auth);
@@ -770,25 +767,21 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
       if (tavernCategoryRef.current === category) {
         setTavernChars(list);
         setSelectedTavernChars(new Set(list.map((item) => item.avatar)));
-        addPullLog(`读取完成：${TAVERN_PULL_TABS.find((item) => item.key === category)?.label || category} ${list.length} 项`);
-        setProgress(null);
       }
     } catch (e: any) {
       const message = e?.message || String(e);
       setError(`读取酒馆工具目录失败: ${message}`);
-      addPullLog(`读取失败: ${message}`);
-      setProgress(null);
       if (tavernCategoryRef.current === category) {
         setTavernChars([]);
         setSelectedTavernChars(new Set());
       }
     } finally {
-      setIsPulling(false);
+      setIsFetchingCatalog(false);
     }
   };
 
   const switchTavernCategory = (category: TavernPullCategory) => {
-    if (isPulling) return;
+    if (isPulling || isFetchingCatalog) return;
     tavernCategoryRef.current = category;
     setTavernCategory(category);
     setTavernSearchQuery('');
@@ -864,7 +857,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
             }
             if (!payload) throw new Error('没有取到内容，重新切换分类再试');
             const fileName = tavernToolFileName(char.name, kind);
-            const text = JSON.stringify(payload, null, 2);
+            const text = JSON.stringify(payload);
             files[index] = new File([text], fileName, { type: 'application/json' });
           }
           addPullLog(`√ 完成: ${char.name}`);
@@ -2867,7 +2860,14 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                     }}
                     className="flex-1 overflow-y-auto custom-scrollbar p-1 min-h-0"
                   >
-                    {tavernChars.length === 0 && !isPulling && (
+                    {isFetchingCatalog ? (
+                      <div className="flex flex-col items-center justify-center py-20 text-center space-y-3">
+                        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                        <p className={`text-xs sm:text-sm font-medium ${isLightMode ? "text-slate-600" : "text-white/70"}`}>
+                          正在读取{TAVERN_PULL_TABS.find((item) => item.key === tavernCategory)?.label || '酒馆'}列表...
+                        </p>
+                      </div>
+                    ) : tavernChars.length === 0 && !isPulling ? (
                       <div className="flex flex-col items-center justify-center py-16 text-center text-white/40 [.light-theme_&]:!text-slate-500 space-y-3">
                         <Cloud className="w-12 h-12 opacity-30 text-blue-400" />
                         <p className="text-sm font-semibold">未加载到{TAVERN_PULL_TABS.find((item) => item.key === tavernCategory)?.label || '内容'}或 API 未连通</p>
@@ -2878,7 +2878,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                           点击试运行连接酒馆
                         </button>
                       </div>
-                    )}
+                    ) : null}
 
                     {tavernChars.length > 0 && filteredTavernChars.length === 0 && (
                       <div className="text-center text-white/40 [.light-theme_&]:!text-slate-500 py-16 text-xs sm:text-sm">
@@ -2949,24 +2949,24 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                   <div className="flex items-center gap-3 mt-4 pt-3 border-t border-white/10 [.light-theme_&]:!border-[#f1f5f9] version-modal-border shrink-0">
                     <button
                       onClick={() => { setTavernMode(false); setTavernSearchQuery(""); }}
-                      className="py-3 px-5 border rounded-2xl font-semibold text-xs sm:text-sm transition-colors cursor-pointer bg-white/5 hover:bg-white/15 border-white/10 text-white [.light-theme_&]:!bg-white [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:active:!bg-[#e2e8f0] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-2xs"
+                      className="py-3 px-3.5 sm:px-5 shrink-0 whitespace-nowrap border rounded-2xl font-semibold text-xs sm:text-sm transition-colors cursor-pointer bg-white/5 hover:bg-white/15 border-white/10 text-white [.light-theme_&]:!bg-white [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:active:!bg-[#e2e8f0] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-2xs"
                     >
                       返回本地上传
                     </button>
                     <button
                       onClick={pullSelectedTavernChars}
-                      disabled={selectedTavernChars.size === 0 || isPulling}
-                      className="flex-1 py-3 px-5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold text-xs sm:text-sm transition-all shadow-md disabled:opacity-50 flex justify-center items-center gap-2 cursor-pointer"
+                      disabled={selectedTavernChars.size === 0 || isPulling || isFetchingCatalog}
+                      className="flex-1 min-w-0 py-3 px-3 sm:px-5 whitespace-nowrap bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold text-xs sm:text-sm transition-all shadow-md disabled:opacity-50 flex justify-center items-center gap-1.5 sm:gap-2 cursor-pointer"
                     >
-                      {isPulling ? (
+                      {isPulling || isFetchingCatalog ? (
                         <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>正在同步拉取中...</span>
+                          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                          <span className="truncate">同步中...</span>
                         </>
                       ) : (
                         <>
-                          <Cloud className="w-4 h-4" />
-                          <span>拉取选中 ({selectedTavernChars.size})</span>
+                          <Cloud className="w-4 h-4 shrink-0" />
+                          <span className="truncate">拉取选中 ({selectedTavernChars.size})</span>
                         </>
                       )}
                     </button>

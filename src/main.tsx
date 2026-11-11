@@ -65,10 +65,55 @@ function showCrashInfo(title: string, detail: string) {
     if (!box) {
       box = document.createElement('div');
       box.id = 'miu-crash-info';
-      box.style.cssText = 'position:fixed;left:0;right:0;top:0;bottom:0;z-index:2147483647;background:#0b0b0d;color:#ff9b9b;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;padding:14px;overflow:auto;white-space:pre-wrap;word-break:break-word;-webkit-user-select:text;user-select:text';
+      box.style.cssText = 'position:fixed;left:0;right:0;top:0;bottom:0;z-index:2147483647;background:#0b0b0d;color:#ff9b9b;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;padding:14px;padding-top:52px;overflow:auto;white-space:pre-wrap;word-break:break-word;-webkit-user-select:text;user-select:text';
+      const text = document.createElement('div');
+      text.id = 'miu-crash-text';
+      box.appendChild(text);
       (document.body || document.documentElement).appendChild(box);
+
+      const close = document.createElement('button');
+      close.id = 'miu-crash-close';
+      close.textContent = '关闭 ×';
+      close.style.cssText = 'position:fixed;right:12px;top:calc(env(safe-area-inset-top, 0px) + 10px);z-index:2147483647;background:#3a2020;color:#ffb4b4;border:1px solid #7a3b3b;border-radius:10px;padding:6px 12px;font:600 12px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;cursor:pointer';
+      close.addEventListener('click', () => {
+        document.getElementById('miu-crash-info')?.remove();
+        close.remove();
+      });
+      (document.body || document.documentElement).appendChild(close);
     }
-    box.textContent = '[MIU 出错信息 · 请把这一段截图发给开发者]\n' + title + '\n\n' + detail;
+    const text = box.querySelector('#miu-crash-text') || box;
+    text.textContent = '[MIU 出错信息 · 请把这一段截图发给开发者]\n' + title + '\n\n' + detail;
+  } catch {}
+}
+
+// AbortError = 浏览器把某次 IndexedDB 事务/请求中止了（空间满、无痕、多标签页、
+// 页面被系统回收）。它不代表应用崩了，所以不再用全屏兜底层盖住界面，
+// 只给一条可以关掉的提示，别让一次后台事务失败看起来像整页挂掉。
+function isAbortError(reason: any): boolean {
+  try {
+    const name = String((reason && reason.name) || '');
+    const message = String((reason && reason.message) || '');
+    return /abort/i.test(name) || /abort/i.test(message);
+  } catch {
+    return false;
+  }
+}
+
+function showStorageNotice() {
+  try {
+    if (document.getElementById('miu-storage-notice')) return;
+    const box = document.createElement('div');
+    box.id = 'miu-storage-notice';
+    box.style.cssText = 'position:fixed;left:10px;right:10px;top:calc(env(safe-area-inset-top, 0px) + 10px);z-index:2147483646;background:#2a1c1c;color:#ffd7d7;border:1px solid #7a3b3b;border-radius:12px;padding:10px 40px 10px 12px;font:500 12px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.35)';
+    const msg = document.createElement('div');
+    msg.textContent = '本地存储写入被中止：可能是浏览器空间已满、无痕模式，或 MIU 同时开在别的标签页。刚才那次写入没有保存。';
+    const close = document.createElement('button');
+    close.textContent = '×';
+    close.style.cssText = 'position:absolute;right:6px;top:5px;width:28px;height:28px;border:0;background:transparent;color:#ffd7d7;font-size:18px;line-height:1;cursor:pointer';
+    close.addEventListener('click', () => box.remove());
+    box.appendChild(msg);
+    box.appendChild(close);
+    (document.body || document.documentElement).appendChild(box);
   } catch {}
 }
 
@@ -82,7 +127,15 @@ window.addEventListener('error', (e: any) => {
 
 window.addEventListener('unhandledrejection', (e: any) => {
   const r = e && e.reason;
-  showCrashInfo('UnhandledRejection: ' + ((r && r.message) || String(r)), (r && r.stack) || '');
+  if (isAbortError(r)) {
+    console.warn('[MIU] 存储操作被中止（AbortError），不阻断界面：', r);
+    showStorageNotice();
+    return;
+  }
+  showCrashInfo(
+    'UnhandledRejection: ' + ((r && r.message) || String(r)),
+    ((r && r.stack) || '') + (r && r.name ? '\n\nname: ' + r.name : '')
+  );
 });
 
 class CrashBoundary extends Component<{children: ReactNode}, {crashed: boolean}> {

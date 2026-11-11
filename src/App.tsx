@@ -36,7 +36,7 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
         setErrorToast(msg);
         setTimeout(() => setErrorToast(null), 5000);
       });
-    });
+    }).catch((e) => console.error('taggerState 加载失败:', e));
   }, []);
 
   useEffect(() => {
@@ -45,7 +45,7 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
       const timer = setTimeout(() => {
         import('./lib/taggerState').then(({ taggerState }) => {
           taggerState.clearCompleted();
-        });
+        }).catch((e) => console.error('taggerState 加载失败:', e));
       }, 60000);
       return () => clearTimeout(timer);
     }
@@ -134,7 +134,7 @@ function TaggerWidget({ onClick }: { onClick: () => void }) {
                       taggerState.stopTagging();
                     }
                   }
-                });
+                }).catch((e) => console.error('taggerState 加载失败:', e));
               }}
               className="p-1 hover:bg-white/20 rounded-full transition text-white/50 hover:text-white shrink-0 ml-0.5 tagger-floating-close [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/5 cursor-pointer"
               title={isCompleted ? "关闭提示" : `停止${actionLabel}任务`}
@@ -371,7 +371,7 @@ export default function App() {
           getFolders().then(allFolders => {
             const current = allFolders.find(f => f.id === state.selectedFolderId);
             setSelectedFolderId(current?.parentId || null);
-          });
+          }).catch((e) => console.error('getFolders 失败:', e));
         }
       }
 
@@ -395,7 +395,7 @@ export default function App() {
           console.error('写入 .nomedia 失败:', e);
         });
       }
-    });
+    }).catch((e) => console.error('appBridge 加载失败:', e));
 
     let cleanupVisibility: (() => void) | null = null;
     let cleanupFocus: (() => void) | null = null;
@@ -407,14 +407,17 @@ export default function App() {
       // Run background maintenance asynchronously without blocking app startup
       setTimeout(() => {
         import('./lib/db').then(({ cleanupEmptyFolders, cleanupGhostCards }) => {
-          cleanupEmptyFolders();
+          cleanupEmptyFolders().catch((e) => console.error('[Startup] cleanupEmptyFolders 失败:', e));
           cleanupGhostCards().then(({ cleanedCount }) => {
             if (cleanedCount > 0) {
               console.log(`[Startup] Cleaned ${cleanedCount} ghost card entries from database.`);
             }
-          });
-        });
+          }).catch((e) => console.error('[Startup] cleanupGhostCards 失败:', e));
+        }).catch((e) => console.error('[Startup] 维护模块加载失败:', e));
       }, 500);
+    }).catch((err) => {
+      console.error('[Startup] 数据库迁移失败:', err);
+      setIsMigrating(false);
     });
 
     return () => {
@@ -453,7 +456,7 @@ export default function App() {
                 getFolders().then(allFolders => {
                   const current = allFolders.find(f => f.id === state.selectedFolderId);
                   setSelectedFolderId(current?.parentId || null);
-                });
+                }).catch((e) => console.error('getFolders 失败:', e));
               }
             }
 
@@ -466,7 +469,7 @@ export default function App() {
             }
           });
         }
-      });
+      }).catch(() => {});
     }).catch(() => {});
     
     return () => {
