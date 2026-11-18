@@ -11,6 +11,13 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="MIU" />
+    <script>
+      try {
+        if (localStorage.getItem('tavern_theme') === 'light') {
+          document.documentElement.classList.add('light-theme');
+        }
+      } catch (e) {}
+    </script>
     <style>
       /* 基础防闪烁与隐藏兜底：防止任何移动端 WebView/极端环境下暴露原生文件选择框或无样式白屏/黑块 */
       html, body {
