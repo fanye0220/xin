@@ -1,3 +1,52 @@
+【2026-11-18 合并 手机端20260419 (2) 的标签一致性修复（安卓 + 网页同一份代码，versionName 3.1.6 / versionCode 22）】
+  · 用 (1) 的解压目录做同源对比，(2) 相对 (1) 只有 9 个源码文件不同：CharacterDetail.tsx、CharacterList.tsx、CharacterRetagModal.tsx、CharacterSummaryModal.tsx、CharacterVersionsSection.tsx、lib/ai.ts、lib/taggerState.ts、lib/thumbCache.ts、types/tavern.ts，这 9 个原样合入，逐文件 SHA-256 一致。
+  · lib/db.ts 补齐 (2) 引用但缺失的三个函数：extractCharacterTags、syncTagsAcrossCard、syncMetaTagsFromCharactersIfNeeded；buildCharMeta / renameTag / deleteTag 改成统一走同一套标签读写，卡片外层和 data 里的标签不再各写各的。
+  · thumbCache 增加 forceReplace 参数，FrostedFolderCover 重试封面时传 forceReplace: true，避免命中缓存里的旧 URL 导致重试没反应。
+  · 没有采纳 (2) 里的旧版本号（3.1.4）、旧 build.gradle（versionCode 20）、旧 TT 扩展 index.js（84KB，会覆盖当前 1.4.5 的人设接收修复）、旧 UserPersonaManager / ImportModal 头像实现和 0 字节图片；(2) 根目录的乱码文件同样没合。
+  · 版本升到 3.1.6 / versionCode 22，src/config/version.ts、package.json、android/app/build.gradle 三处一致。
+  · 安卓 APK：7,307,036 字节，SHA-256 E5991AC42705B86ED25A0081F76F3FF164BB381A6A1D6618D2EB4B24EC1EF1CE，versionCode 22 / versionName 3.1.6，证书不变，可覆盖安装。
+  · 网页版：必传的 src 与完整源码逐文件一致（90 个文件），public 只保留 aistudio 占位图，dist 产物一律不放（平台靠 npm run build 自己生成）；可选的 App.tsx / index.css 同步到同一份，fonts 保留。
+  · TT 扩展这一轮没动，仍是 1.4.5（99,576 字节，哈希 67E087FB…），三处 index.js 一致，换扩展请用 1_TT扩展_传到GitHub仓库根目录 里的那份。
+【2026-11-18 修复「App 推送人设到 TT 报错 unknown_json」（安卓 + 网页同一份代码，versionName 3.1.5 / versionCode 21）】
+  · 根因在 TT 扩展：接收 MIU 推送的分支只认世界书/预设/美化/快速回复/正则，没有 persona，.persona.json 被 sniffJsonPayload 判成 unknown_json 直接抛错，所以 TT 面板显示「认不出这份 JSON 是哪一类数据」，卡片还留在队列里。
+  · 扩展 index.js 新增 personaPayloadFrom / importPersonaToTavern：识别人设 JSON（format=miu-persona-v1、kind=persona），头像转 PNG 走 /api/avatars/upload（404 回退 /uploaduseravatar），再把 power_user.personas + persona_descriptions 写回 /api/settings/save；已有的人设不覆盖，只有卡片标记 isDefault 才切当前人设。
+  · hintFromFileName / stripExtension / sniffJsonPayload 三处补上 persona；receiveFromMiu 增加人设分支；新增错误码 persona_import_failed，失败原因写进 TT 面板日志。
+  · 反向（TT → MIU）顺手加固：取正文改成单张现取，一张失败不再拖垮整批；人设头像请求加 2.5 秒超时且只接受 image/*；人设列表为空时扩展主动回报原因（多半是 TT 里装的还是旧版扩展）；拉取失败会把前 3 条原因写进提示。
+  · BUILD_TAG 改为「11-18 人设修复」，三处 index.js 哈希一致 CE122D6A…（96,550 字节）。TT 面板展开「怎么用」能看到版号，对不上就是文件没换。
+  · 安卓 APK：7,305,908 字节，SHA-256 6833C770034A8ACBC2E96BD6A8B326999CC4841CF85F5BE28100BA24B89C50E2，versionCode 21 / versionName 3.1.5，V2 证书 1d8f08b6… 与上一版一致，可覆盖安装。
+  · 打包前已清空 dist 与 android assets，旧 chunk 没有残留（所以体积比上一版小 52KB）。
+【2026-11-18 合入 手机端20260419 (1) 的拉取弹窗修复（安卓 + 网页同一份代码，versionName 3.1.5 / versionCode 21）】
+  · 以 手机端20260419 (1) 为准合并 TtPullModal.tsx、UserPersonaManager.tsx；文件夹加载修复、ImportModal 头像兜底、版本号保持上一版不动。
+  · 拉取人设弹窗：全选 / 清空 收成右侧一组，已选数量改成蓝色加粗，按钮 px-3 且 whitespace-nowrap，不再被 row 撑散。
+  · 两个等待弹窗的底部按钮统一 flex items-center justify-center + whitespace-nowrap，图标 shrink-0，加载文案固定一行，不再把按钮顶高或折行。
+  · TT 拉取等待文案统一成「载入中」，不再出现「正在等 TauriTavern…」长句。
+  · UserPersonaManager 里联动版自己的酒馆人设头像逻辑（原生桥 + /User%20Avatars 编码 + <img> 直连）保留，没有被 (1) 里的旧实现覆盖。
+  · 安卓 APK：7,357,828 字节，SHA-256 ef542584b8b8128b276d9bb67f8a64c1d6ff09982a66da760cf2ba3ab1e34150，versionCode 21 / versionName 3.1.5，证书与上一版一致，可覆盖安装。
+【2026-11-18 合入 手机端20260419 的文件夹加载修复（安卓 + 网页同一份代码，versionName 3.1.5 / versionCode 21）】
+  · 20260419 和 50 只差 4 个文件：CharacterList.tsx、FrostedFolderCover.tsx、lib/db.ts、lib/thumbCache.ts，这 4 个只合入改动，其余不动；MainActivity 保留联动版的原生桥，没有被覆盖。
+  · db.ts / getFolderPreviews：先把所有卡片按 folderId 一次性分组，空文件夹递归拿子孙文件夹的卡做候选并排好序，再把需要读缩略图的卡片 ID 汇总，用单个 readonly 事务批量读 thumbs 表。原先是每个文件夹各开事务，几十上百个文件夹会把 IndexedDB 压满，这是文件夹加载不动的主因。
+  · 封面缓存键改为 folder_cover_{卡片ID}:{更新时间}，同一张卡只有更新后才换图；排序在时间戳/名称相同时再按卡片 ID 兜底，顺序永远稳定，不会跳。
+  · CharacterList：判断「文件夹预览没变」改成严格比较 URL + isFallback + charId，旧 blob URL 失效就重算；回收 blob 之前再核对一次当前活跃 URL 集合，避免把仍在用的封面 revoke 掉（封面变白/闪烁的根因）。
+  · thumbCache：文件夹封面用独立缓存，不会被列表滚动淘汰；新增 peekFolderCoverUrl / putFolderCoverBlobUrl / isFolderCoverBlobUrl。
+  · db.ts 缩略图：空 Blob（size === 0）不再当作有效缩略图，避免读到 0 字节导致封面空白。
+  · 安卓 APK：7,357,828 字节，SHA-256 f64a7ff1283053a7bbc5e804dbbe43b3889b56045ab66dd98f126398e67dad73，versionCode 21 / versionName 3.1.5，证书与上一版一致，可覆盖安装。
+【2026-11-18 合并 50 版 UI（安卓 + 网页同一份代码，versionName 3.1.5 / versionCode 21）】
+  · 以 49 为基线、50 的改动为准，三方合并进联动版；只取 UI/渲染部分，联动版自己的取图与原生桥改动全部保留。
+  · MessageContent.tsx：整份采用 50 的 iframe 渲染重写（vh 换算、sharedHeadTags 共享头、注入库顺序对齐 JS-Slash-Runner）。
+  · htmlSegments.ts：补上 header / footer / nav / fieldset / figure 的段落识别。
+  · SettingsModal.tsx：用 50 自带的 StConfigCopyBlock（常显复制按钮）替换上一轮临时的 CopyCodeBlock。
+  · TtPullModal.tsx：persona 分类显示头像，PullAvatar 增加 kind 参数。
+  · ImportModal.tsx：采用 50 的 TavernPersonaAvatar，并补回角色卡头像四层兜底；人设头像改走 原生桥 → <img> 直连（/thumbnail?type=persona → /User%20Avatars）→ fetch 兜底，失败可复位重试。
+  · CharacterList / CharacterDetail / CharacterChatsSection / CharacterRegexSection / ChatViewer / GreetingReaderModal / GreetingFullScreenModal / ThemeRendererSection / App.tsx / index.css / db.ts：按 50 合并，无冲突。
+  · TT 扩展沿用联动版版本（BUILD_TAG「11-17 人设头像」），已包含 50 的人设拉取与按需取正文，三处 index.js 哈希一致 50901420…。
+  · 网页版源码同步到同一份 src，和完整源码逐字节一致。
+  · 清缓存：dist 和 android assets/public 全部删掉重建，去掉上一次构建残留的 34 个旧 chunk（含 268 KB 的旧 index-*.js、307 KB 的旧 index-*.css），APK 内资源与 dist 逐文件一致，只剩 36 个构建产物 + cordova.js / cordova_plugins.js 两个占位文件。
+  · 安卓 APK：7,357,828 字节，SHA-256 2c25a8f0aa6c3f40cf0a024fd418e742658f91aadab5d0938535544e18b4682f，versionCode 21 / versionName 3.1.5，证书与上一版一致，可覆盖安装。
+【2026-11-18 酒馆配置教程增加常显复制按钮（安卓 + 网页同一份代码，versionName 3.1.5 / versionCode 21）】
+  · 设置 → 酒馆 →「配置教程 (需要修改的地方)」里的两段配置现在都带右上角复制按钮，样式和 TT 互联里点一下复制的地址条一致，显示「复制 / 已复制」。
+  · 原来的 CORS 那段用的是 group-hover 才显示的「点击复制」，手机上没有 hover，提示永远看不见；现在改成常显按钮，安卓和网页都能直接点。
+  · 复制走 navigator.clipboard，失败时回退 document.execCommand('copy')，安卓 WebView 的 http 页面也能复制。
+  · 安卓 APK：7,362,742 字节，SHA-256 5d42645228fd79b8aa5d3580c8626b8822d2a898cb76bc8dc43fc25bca4576bf，versionCode 21 / versionName 3.1.5，证书与上一版一致，可覆盖安装。
 【2026-11-18 酒馆角色卡头像四层兜底（安卓 + 网页同一份代码，versionName 3.1.5 / versionCode 21）】
   · 一直显示蓝色默认图的原因：卡片取图只有两个固定地址（/thumbnail?type=avatar、/characters/），两条都失败就直接回落内置占位图，而且失败状态一旦置位就不再复位。人设那边有 <img> 直连兜底，所以人设能出、卡片不出。
   · 网页版：改成 <img> 直连探测优先。图片标签不受酒馆默认 CORS 限制，这是跨域环境下唯一能出图的读法；fetch 读 blob 只作为同源/放开 CORS 时的兜底。
