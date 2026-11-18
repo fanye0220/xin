@@ -1,0 +1,288 @@
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { X, Image as ImageIcon, Sparkles, Upload, RotateCcw, Loader2, Search } from "lucide-react";
+import { Folder, CharacterCard, getCharacters, getCharacterThumb } from "../lib/db";
+import { getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL, isFallbackMiuImage } from "../lib/avatar";
+import { peekCachedUrl, putCachedBlobUrl } from "../lib/thumbCache";
+import { useBackHandler } from "../lib/useBackHandler";
+
+interface Props {
+  isOpen: boolean;
+  folder: Folder | null;
+  onClose: () => void;
+  onSelectCharacterCover: (char: CharacterCard) => void;
+  onUploadCustomImage: () => void;
+  onResetCover: () => void;
+}
+
+// Memoized individual item for optimal grid performance
+const CoverPickerItem = React.memo(function CoverPickerItem({
+  char,
+  onSelect,
+}: {
+  char: CharacterCard;
+  onSelect: (char: CharacterCard) => void;
+}) {
+  const defaultFallback = getFallbackAvatar(
+    char.name || char.id,
+    char.tags?.join(",") || (char.isTool ? "tool" : undefined),
+  );
+  const initialUrl = resolveAvatarUrl(
+    char.avatarUrlFallback,
+    char.name || char.id,
+    char.tags?.join(",") || (char.isTool ? "tool" : undefined),
+  );
+  const [url, setUrl] = useState<string>(initialUrl);
+  const blobUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (char.avatarBlob) {
+      const objUrl = safeCreateObjectURL(char.avatarBlob);
+      if (objUrl) {
+        blobUrlRef.current = objUrl;
+        setUrl(objUrl);
+      }
+    } else if (char.hasBlobsSeparated) {
+      const thumbKey = `${char.id}:${char.updatedAt || 0}`;
+      const cached = peekCachedUrl(thumbKey);
+      if (cached) {
+        setUrl(cached);
+      } else {
+        getCharacterThumb(char.id).then((thumbBlob) => {
+          if (thumbBlob && isMounted) {
+            const cachedUrl = putCachedBlobUrl(thumbKey, thumbBlob);
+            setUrl(cachedUrl);
+          }
+        });
+      }
+    }
+
+    return () => {
+      isMounted = false;
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+      }
+    };
+  }, [char.id, char.avatarBlob, char.hasBlobsSeparated, char.updatedAt]);
+
+  return (
+    <motion.div
+      whileHover={{ scale: 1.03 }}
+      whileTap={{ scale: 0.96 }}
+      onClick={() => onSelect(char)}
+      className="group flex flex-col items-center cursor-pointer select-none"
+    >
+      <div className="w-full aspect-[2/3] rounded-2xl overflow-hidden bg-slate-800 [.light-theme_&]:!bg-[#f1f5f9] shadow-sm group-hover:shadow-md transition-all relative border-0 border-none">
+        <img
+          src={url}
+          alt={char.name}
+          loading="lazy"
+          decoding="async"
+          className={`w-full h-full pointer-events-none group-hover:scale-105 transition duration-300 ${
+            isFallbackMiuImage(url)
+              ? 'object-contain p-2 bg-white'
+              : 'object-cover'
+          }`}
+          onError={(e) => {
+            e.currentTarget.src = defaultFallback;
+          }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent flex items-end p-2 opacity-95 group-hover:opacity-100 transition">
+          <span className="text-xs font-semibold text-white truncate w-full drop-shadow-[0_1.5px_3px_rgba(0,0,0,0.95)]">
+            {char.name}
+          </span>
+        </div>
+      </div>
+    </motion.div>
+  );
+});
+
+export function FolderCoverPickerModal({
+  isOpen,
+  folder,
+  onClose,
+  onSelectCharacterCover,
+  onUploadCustomImage,
+  onResetCover,
+}: Props) {
+  const [characters, setCharacters] = useState<CharacterCard[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [search, setSearch] = useState("");
+
+  useBackHandler(isOpen, () => {
+    onClose();
+    return true;
+  });
+
+  useEffect(() => {
+    if (isOpen && folder) {
+      setIsLoading(true);
+      setSearch("");
+      // Fetch characters belonging to this folder (paginated chunk to protect memory)
+      getCharacters(1, 200, folder.id, "", [], "newest_import", true, false)
+        .then(({ characters: chars }) => {
+          setCharacters(chars);
+        })
+        .catch((err) => {
+          console.error("Failed to load folder characters for cover picker:", err);
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+    } else {
+      setCharacters([]);
+    }
+  }, [isOpen, folder]);
+
+  const filteredCharacters = useMemo(() => {
+    let list = characters;
+    if (search.trim()) {
+      const query = search.toLowerCase().trim();
+      list = list.filter(
+        (c) =>
+          c.name?.toLowerCase().includes(query) ||
+          c.tags?.some((t) => t.toLowerCase().includes(query)),
+      );
+    }
+    return list.slice().sort((a, b) => {
+      const aIsTool = Boolean(a.isTool || a.isQR);
+      const bIsTool = Boolean(b.isTool || b.isQR);
+      if (aIsTool !== bIsTool) return aIsTool ? 1 : -1;
+      return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+    });
+  }, [characters, search]);
+
+  if (!isOpen || !folder) return null;
+
+  return (
+    <AnimatePresence>
+      <div
+        className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-6 bg-black/60 backdrop-blur-md pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+        onClick={onClose}
+        onTouchStart={(e) => e.stopPropagation()}
+      >
+        <motion.div
+          initial={{ opacity: 0, scale: 0.96, y: 15 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.96, y: 15 }}
+          onClick={(e) => e.stopPropagation()}
+          className="bg-slate-900 [.light-theme_&]:!bg-[#ffffff] rounded-3xl w-full max-w-xl flex flex-col shadow-2xl overflow-hidden max-h-[90vh] text-white [.light-theme_&]:!text-[#0f172a] border-0 border-none"
+        >
+          {/* Header */}
+          <div className="p-4 sm:p-5 border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] flex items-center justify-between bg-white/[0.03] [.light-theme_&]:!bg-transparent shrink-0">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={onClose}
+                className="w-8.5 h-8.5 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] border-0 border-none cursor-pointer"
+                title="关闭"
+              >
+                <X className="w-5 h-5 stroke-[2]" />
+              </button>
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a] flex items-center gap-2 leading-tight">
+                  <ImageIcon className="w-4.5 h-4.5 text-blue-400 [.light-theme_&]:!text-[#007aff]" />
+                  <span>更换文件夹封面</span>
+                </h3>
+                <p className="text-xs text-white/60 [.light-theme_&]:!text-[#64748b] mt-0.5">
+                  当前文件夹：<span className="text-blue-400 [.light-theme_&]:!text-[#007aff] font-semibold">{folder.name}</span>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Action Bar (Upload or Reset) */}
+          <div className="p-3 sm:px-5 sm:py-3.5 bg-white/[0.02] [.light-theme_&]:!bg-[#f8fafc] border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] flex items-center gap-2.5 shrink-0">
+            <button
+              onClick={() => {
+                onClose();
+                onUploadCustomImage();
+              }}
+              className="flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs sm:text-sm transition shadow-sm cursor-pointer border-0 border-none"
+            >
+              <Upload className="w-4 h-4" />
+              <span>上传本地图片作为封面</span>
+            </button>
+
+            {folder.avatarBlob && (
+              <button
+                onClick={() => {
+                  onResetCover();
+                  onClose();
+                }}
+                className="flex items-center justify-center gap-1.5 py-2 px-3 sm:px-4 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 hover:text-white [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#334155] font-medium text-xs sm:text-sm transition shrink-0 cursor-pointer border-0 border-none"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>恢复默认</span>
+              </button>
+            )}
+          </div>
+
+          {/* Search bar inside picker if many cards */}
+          {characters.length > 6 && (
+            <div className="px-4 sm:px-5 pt-3 pb-1 shrink-0">
+              <div className="relative w-full">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/40 [.light-theme_&]:!text-[#64748b]" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="搜索文件夹内的卡片名称..."
+                  className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-full bg-white/5 border-0 border-none text-white placeholder:text-white/40 focus:outline-none focus:bg-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#8e8e93] [.light-theme_&]:focus:!bg-[#e4e7eb]"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Folder Characters Selection Grid */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5 custom-scrollbar min-h-0">
+            <div className="flex items-center justify-between mb-3.5 px-0.5">
+              <span className="text-xs sm:text-sm font-bold text-white/90 [.light-theme_&]:!text-[#1e293b]">
+                从文件夹内角色选择 ({filteredCharacters.length})
+              </span>
+              <span className="text-[11px] text-white/50 [.light-theme_&]:!text-[#64748b]">点击直接设为封面</span>
+            </div>
+
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center py-20 text-white/60 [.light-theme_&]:!text-[#64748b]">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-2.5" />
+                <span className="text-xs font-medium">正在读取文件夹内卡片...</span>
+              </div>
+            ) : filteredCharacters.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-white/50 [.light-theme_&]:!text-[#64748b] bg-white/[0.02] [.light-theme_&]:!bg-[#f8fafc] rounded-2xl">
+                <Sparkles className="w-10 h-10 opacity-30 mb-2 text-blue-400" />
+                <p className="text-xs font-semibold text-white/70 [.light-theme_&]:!text-[#334155]">
+                  {characters.length === 0 ? "该文件夹内暂无角色卡片" : "未搜索到匹配的卡片"}
+                </p>
+                <p className="text-[11px] text-white/40 [.light-theme_&]:!text-[#94a3b8] mt-1">您可以点击上方“上传本地图片”为文件夹设定专属封面</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-4 pb-2">
+                {filteredCharacters.map((char) => (
+                  <CoverPickerItem
+                    key={char.id}
+                    char={char}
+                    onSelect={(selectedChar) => {
+                      onSelectCharacterCover(selectedChar);
+                      onClose();
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="p-3 sm:px-5 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0] bg-white/[0.02] [.light-theme_&]:!bg-[#f8fafc] flex items-center justify-end shrink-0">
+            <button
+              onClick={onClose}
+              className="px-5 py-2 bg-white/5 hover:bg-white/10 text-white/80 font-medium rounded-xl text-xs sm:text-sm transition [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#334155] border-0 border-none cursor-pointer"
+            >
+              取消
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+}

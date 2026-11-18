@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, CheckCircle, AlertCircle, Cloud } from 'lucide-react';
-import { onSyncStateChange, SyncState } from '../lib/drive';
+import { Loader2, CheckCircle2, AlertCircle, Cloud, X } from 'lucide-react';
+import { onSyncStateChange, SyncState, clearSyncState } from '../lib/syncState';
+import { useTaggerState } from '../lib/taggerState';
 
-export function SyncWidget() {
+export function SyncWidget({ isLightMode, onOpenSync }: { isLightMode: boolean; onOpenSync?: () => void }) {
   const [syncState, setSyncState] = useState<SyncState | null>(null);
+  const { isTagging, isPaused, isCompleted } = useTaggerState();
+
+  const isTaggerActive = isTagging || isPaused || isCompleted;
 
   useEffect(() => {
     const unsub = onSyncStateChange((s) => {
@@ -25,23 +29,55 @@ export function SyncWidget() {
         initial={{ opacity: 0, y: -20, x: '-50%', scale: 0.95 }}
         animate={{ opacity: 1, y: 0, x: '-50%', scale: 1 }}
         exit={{ opacity: 0, y: -20, x: '-50%', scale: 0.95 }}
-        className="fixed top-16 left-1/2 z-[60] flex items-center gap-3 bg-slate-800/90 backdrop-blur-md border border-white/10 shadow-xl px-5 py-2.5 rounded-full max-w-[90vw] whitespace-nowrap"
+        transition={{ type: "spring", stiffness: 400, damping: 30 }}
+        onClick={onOpenSync}
+        style={{
+          top: isTaggerActive 
+            ? 'max(4.75rem, calc(env(safe-area-inset-top, 0px) + 3.75rem))' 
+            : 'max(1.25rem, calc(env(safe-area-inset-top, 0px) + 0.5rem))'
+        }}
+        className={`tagger-floating-pill fixed left-1/2 z-[600] flex items-center gap-2.5 rounded-full px-4 py-2 sm:px-4.5 sm:py-2.5 max-w-[92vw] whitespace-nowrap shadow-2xl transition-all select-none overflow-hidden ${
+          onOpenSync ? 'cursor-pointer hover:scale-[1.02] active:scale-[0.98]' : ''
+        }`}
+        title={onOpenSync ? "点击打开云端同步面板" : undefined}
       >
         {syncState.isActive ? (
-          <Loader2 className="w-5 h-5 text-blue-400 animate-spin shrink-0" />
+          <Loader2 className="w-4 h-4 animate-spin shrink-0 text-blue-400 [.light-theme_&]:!text-blue-600" />
         ) : syncState.completed ? (
-          <CheckCircle className="w-5 h-5 text-green-400 shrink-0" />
+          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 [.light-theme_&]:!text-emerald-600" />
         ) : syncState.isError ? (
-          <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+          <AlertCircle className="w-4 h-4 shrink-0 text-red-400 [.light-theme_&]:!text-red-500" />
         ) : (
-          <Cloud className="w-5 h-5 text-blue-400 shrink-0" />
+          <Cloud className="w-4 h-4 shrink-0 text-blue-400 [.light-theme_&]:!text-blue-600" />
         )}
-        <div className="flex items-center truncate">
-          <span className="text-sm font-medium text-white truncate">
-            {syncState.taskName ? <span className="text-white/60 mr-1">{syncState.taskName}:</span> : ''}
+        
+        <div className="flex items-center truncate min-w-0">
+          <span className="text-xs sm:text-sm font-medium truncate tagger-floating-text [.light-theme_&]:!text-[#0f172a]">
+            {syncState.taskName ? (
+              <span className={`mr-1.5 font-bold ${
+                syncState.completed 
+                  ? 'text-emerald-400 [.light-theme_&]:!text-emerald-600' 
+                  : syncState.isError 
+                  ? 'text-red-400 [.light-theme_&]:!text-red-500' 
+                  : isLightMode ? 'text-[#64748b]' : 'text-white/60'
+              }`}>
+                {syncState.taskName}:
+              </span>
+            ) : null}
             {syncState.message}
           </span>
         </div>
+
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            clearSyncState();
+          }}
+          className="p-1 hover:bg-white/20 rounded-full transition text-white/50 hover:text-white shrink-0 ml-0.5 tagger-floating-close [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/5 cursor-pointer"
+          title="关闭提示"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
       </motion.div>
     </AnimatePresence>
   );

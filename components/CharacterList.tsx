@@ -1,6 +1,7 @@
 import { Capacitor } from "@capacitor/core";
-import { getFallbackAvatar, resolveAvatarUrl } from "../lib/avatar";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import { CURRENT_APP_VERSION } from "../config/version";
+import { getFallbackAvatar, isFallbackMiuImage, resolveAvatarUrl, safeCreateObjectURL } from "../lib/avatar";
+import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Masonry from 'react-masonry-css';
 import {
@@ -13,11 +14,13 @@ import {
   Cloud,
   X,
   FolderInput,
+  FolderPlus,
+  UploadCloud,
   Search,
   LayoutGrid,
   List,
   Filter,
-  Folder as FolderIcon,
+  Home,
   Menu,
   Edit2,
   MoreVertical,
@@ -25,9 +28,14 @@ import {
   ArrowUpDown,
   LayoutDashboard,
   Link,
+  Link2,
   Loader2,
   Image as ImageIcon,
+  Heart,
+  Clock,
+  ArrowLeftRight,
 } from "lucide-react";
+import { formatTokenCount, getCharacterTokenBreakdown, CharacterTokenBreakdown } from "../lib/tokens";
 import {
   getCharacters,
   deleteCharacter,
@@ -39,6 +47,7 @@ import {
   getCharacterThumb,
   updateCharacterCover,
   updateCharacterSortOrder,
+  toggleCharacterFavorite,
   Folder,
   getFolders,
   getAllTags,
@@ -46,23 +55,30 @@ import {
   deleteFolder,
   SortOption,
   getCachedMeta,
-  getFilteredCharacterCount,
+  getFolderPreviews,
   getCharacterCategoryPrefix,
+  invalidateCache,
+  normalizeSearchPath,
+  SearchScope,
+  filterCharacterMetasBySearch,
+  renameTag,
+  deleteTag,
+  getCharacterListSummaryAndSlice,
+  isCharacterNoImage,
 } from "../lib/db";
+import { getLocalImageUrl } from "../lib/appBridge";
+import { matchesFolderSearch, getFolderSearchScore as calcFolderSearchScore } from "../lib/searchUtils";
 import { useInView } from "../lib/useInView";
 import { useContinuousInView } from "../lib/useContinuousInView";
-import { peekCachedUrl, putCachedBlobUrl } from "../lib/thumbCache";
-import { MoveToFolderModal } from "./MoveToFolderModal";
-import { BindQRModal } from "./BindQRModal";
-import { ConfirmBindQRModal } from "./ConfirmBindQRModal";
-import JSZip from "jszip";
-import { injectTavernData } from "../lib/png";
-import { uploadCharacterToCloud } from "../lib/cloudDrive";
-import Cropper from "react-easy-crop";
+import { peekCachedUrl, putCachedBlobUrl, isCachedBlobUrl } from "../lib/thumbCache";
+import { useBackHandler } from "../lib/useBackHandler";
+import { getCardBadgeInfo } from "../lib/cardBadge";
+import type JSZip from "jszip";
 import {
   DndContext,
   closestCenter,
   KeyboardSensor,
+  PointerSensor,
   MouseSensor,
   TouchSensor,
   useSensor,
@@ -77,79 +93,22 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { FrostedFolderCover, FrostedNewFolderCover } from "./FrostedFolderCover";
 
-function FolderCover({
-  folder,
-  previews,
-  viewMode,
-}: {
-  folder: Folder;
-  previews: any[];
-  viewMode: string;
-}) {
-  const [url, setUrl] = useState<string | null>(null);
+const TokenBreakdownModal = lazy(() => import("./TokenBreakdownModal").then((m) => ({ default: m.TokenBreakdownModal })));
+const MoveToFolderModal = lazy(() => import("./MoveToFolderModal").then((m) => ({ default: m.MoveToFolderModal })));
+const BindQRModal = lazy(() => import("./BindQRModal").then((m) => ({ default: m.BindQRModal })));
+const ConfirmBindQRModal = lazy(() => import("./ConfirmBindQRModal").then((m) => ({ default: m.ConfirmBindQRModal })));
+const FolderCoverPickerModal = lazy(() => import("./FolderCoverPickerModal").then((m) => ({ default: m.FolderCoverPickerModal })));
+const CardCompareModal = lazy(() => import("./CardCompareModal").then((m) => ({ default: m.CardCompareModal })));
+const Cropper = lazy(() => import("react-easy-crop"));
 
+function useEverTrue(active: boolean) {
+  const [ever, setEver] = useState(active);
   useEffect(() => {
-    if (folder.avatarBlob) {
-      const objectUrl = URL.createObjectURL(folder.avatarBlob);
-      setUrl(objectUrl);
-      return () => URL.revokeObjectURL(objectUrl);
-    } else {
-      setUrl(null);
-    }
-  }, [folder.avatarBlob]);
-
-  if (url) {
-    return (
-      <div className="w-full h-full bg-black/20 flex items-center justify-center relative overflow-hidden pointer-events-none">
-        <img
-          src={url}
-          alt=""
-          className="w-full h-full object-cover relative z-10 pointer-events-none"
-        />
-      </div>
-    );
-  }
-
-  if (previews.length > 0) {
-    return (
-      <div
-        className={`w-full h-full grid grid-cols-2 grid-rows-2 gap-1 pointer-events-none ${viewMode === "list" ? "p-1.5" : "p-3"}`}
-      >
-        {[0, 1, 2, 3].map((i) => (
-          <div
-            key={i}
-            className="w-full h-full bg-black/20 rounded-md overflow-hidden pointer-events-none"
-          >
-            {previews[i] && (
-              <img
-                src={typeof previews[i] === 'string' ? previews[i] : previews[i].url}
-                alt=""
-                className="w-full h-full object-cover pointer-events-none"
-                onError={(e) => {
-                    const item = previews[i];
-                    if (item && typeof item !== 'string' && item.seed) {
-                       const category = item.tags?.join(',') || (item.isTool ? 'tool' : undefined);
-                       e.currentTarget.src = getFallbackAvatar(item.seed, category);
-                       e.currentTarget.style.display = 'block';
-                    } else if (!e.currentTarget.src.startsWith('data:image/svg+xml')) {
-                       e.currentTarget.src = getFallbackAvatar(folder.id + i);
-                       e.currentTarget.style.display = 'block';
-                   } else {
-                       e.currentTarget.style.display = 'none';
-                   }
-                }}
-              />
-            )}
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <FolderIcon className="w-1/2 h-1/2 text-white/50 pointer-events-none" />
-  );
+    if (active && !ever) setEver(true);
+  }, [active, ever]);
+  return ever || active;
 }
 
 function SortableItemWrapper({
@@ -157,11 +116,17 @@ function SortableItemWrapper({
   children,
   disabled,
   className = "",
+  isQR = false,
+  activeDragIsQR = false,
+  activeDragCharId = null,
 }: {
   id: string;
   children: React.ReactNode;
   disabled?: boolean;
   className?: string;
+  isQR?: boolean;
+  activeDragIsQR?: boolean;
+  activeDragCharId?: string | null;
 }) {
   const {
     attributes,
@@ -170,17 +135,45 @@ function SortableItemWrapper({
     transform,
     transition,
     isDragging,
+    isOver,
   } = useSortable({ id, disabled });
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 10 : undefined,
-    position: "relative" as const,
-    userSelect: "none" as const,
-    WebkitUserSelect: "none" as const,
-    WebkitTouchCallout: "none" as const,
+  // 判断是否处于 QR 与普通角色的拖拽绑定交互中
+  // 情况 1: 拖拽的是 QR 卡片，而当前卡片是普通角色卡（目标卡）
+  // 情况 2: 拖拽的是普通角色卡，而当前卡片是 QR 卡片（目标卡）
+  const isQRBindingTarget =
+    !isDragging &&
+    ((activeDragIsQR && !isQR) || (!!activeDragCharId && !activeDragIsQR && isQR));
+
+  // 判断是否拖拽角色卡到文件夹目标上
+  const isFolderDropTarget =
+    !isDragging &&
+    !!activeDragCharId &&
+    id.startsWith("folder-");
+
+  // 跨类型拖拽（绑定或移动进文件夹）交互时，禁止目标卡片和同屏其他卡片位移（禁止卡片逃跑）
+  const shouldSuppressDisplacement =
+    !isDragging &&
+    (activeDragIsQR || (!!activeDragCharId && isQR) || isFolderDropTarget);
+
+  const style: React.CSSProperties = {
+    transform: isDragging
+      ? CSS.Transform.toString(transform)
+      : shouldSuppressDisplacement
+        ? undefined
+        : CSS.Transform.toString(transform),
+    transition: isDragging ? 'none' : (shouldSuppressDisplacement ? undefined : transition),
+    opacity: isDragging ? 0.7 : 1,
+    zIndex: isDragging ? 50 : isOver && (isQRBindingTarget || isFolderDropTarget) ? 30 : undefined,
+    position: "relative",
+    userSelect: "none",
+    WebkitUserSelect: "none",
+    WebkitTouchCallout: "none",
+    willChange: isDragging ? "transform" : undefined,
   };
+
+  const showDropHighlight = isOver && isQRBindingTarget;
+  const showFolderDropHighlight = isOver && isFolderDropTarget;
 
   return (
     <div
@@ -188,9 +181,35 @@ function SortableItemWrapper({
       style={style}
       {...attributes}
       {...listeners}
-      className={`select-none ${className}`}
+      className={`select-none relative transition-transform duration-150 ${className} ${
+        showDropHighlight
+          ? "ring-4 ring-blue-500 ring-offset-2 ring-offset-[#1c1c1e] [.light-theme_&]:ring-offset-white rounded-2xl shadow-[0_0_25px_rgba(59,130,246,0.6)] scale-[1.04]"
+          : showFolderDropHighlight
+            ? "ring-4 ring-blue-500 ring-offset-2 ring-offset-[#1c1c1e] [.light-theme_&]:ring-offset-white rounded-2xl shadow-[0_0_25px_rgba(59,130,246,0.6)] scale-[1.04]"
+            : ""
+      }`}
     >
       {children}
+      {showDropHighlight && (
+        <div className="absolute inset-0 z-30 bg-blue-600/30 backdrop-blur-[2px] rounded-2xl flex flex-col items-center justify-center border-2 border-blue-400 pointer-events-none animate-pulse shadow-inner">
+          <div className="w-10 h-10 rounded-2xl bg-blue-500/90 backdrop-blur-md flex items-center justify-center text-white shadow-lg mb-1.5 border border-white/20">
+            <Link2 className="w-5 h-5 stroke-[2.2]" />
+          </div>
+          <span className="text-[11px] font-bold text-white bg-slate-900 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!text-white px-3 py-1 rounded-full shadow-lg border border-blue-400/40 tracking-tight">
+            松手立即绑定
+          </span>
+        </div>
+      )}
+      {showFolderDropHighlight && (
+        <div className="absolute inset-0 z-30 bg-blue-600/30 backdrop-blur-[2px] rounded-3xl sm:rounded-2xl flex flex-col items-center justify-center border-2 border-blue-400 pointer-events-none animate-pulse shadow-inner">
+          <div className="w-10 h-10 rounded-2xl bg-blue-500/90 backdrop-blur-md flex items-center justify-center text-white shadow-lg mb-1.5 border border-white/20">
+            <FolderInput className="w-5 h-5 stroke-[2.2]" />
+          </div>
+          <span className="text-[11px] font-bold text-white bg-slate-900 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!text-white px-3 py-1 rounded-full shadow-lg border border-blue-400/40 tracking-tight">
+            松手移入文件夹
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -243,6 +262,71 @@ interface Props {
   onSelectFolder?: (id: string | null) => void;
   onOpenSidebar?: () => void;
   refreshTrigger?: number;
+  isDetailOpen?: boolean;
+  isLightMode?: boolean;
+}
+
+// 记忆每个文件夹所在的分页位置（在内存与 sessionStorage 中打通），避免在卡片详情或子文件夹返回时丢失第5页等当前页码
+const folderPageMemory = new Map<string, number>();
+
+function getFolderPage(folderKey: string): number {
+  const inMem = folderPageMemory.get(folderKey);
+  if (inMem && inMem > 0) return inMem;
+  try {
+    const raw = sessionStorage.getItem(`miu_folder_page_${folderKey}`);
+    if (raw) {
+      const parsed = parseInt(raw, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        folderPageMemory.set(folderKey, parsed);
+        return parsed;
+      }
+    }
+  } catch (e) {}
+  return 1;
+}
+
+function setFolderPage(folderKey: string, pageNum: number): void {
+  if (pageNum <= 0) return;
+  folderPageMemory.set(folderKey, pageNum);
+  try {
+    sessionStorage.setItem(`miu_folder_page_${folderKey}`, pageNum.toString());
+  } catch (e) {}
+}
+
+const STARTUP_SNAPSHOT_KEY = "miu_startup_snapshot_v1";
+
+interface StartupSnapshot {
+  v: 1;
+  sortBy: SortOption;
+  pageSize: number;
+  folders: Folder[];
+  paginatedFolders: Folder[];
+  folderPaths: Record<string, string>;
+  folderCounts: Record<string, { chars: number; subfolders: number }>;
+  folderAncestors: Record<string, Array<{ id: string; name: string }>>;
+  characters: CharacterCard[];
+  totalCharacters: number;
+  totalAllCharacters: number;
+  totalItems: number;
+}
+
+function readStartupSnapshot(
+  folderId: string | null | undefined,
+  page: number,
+  sortBy: SortOption,
+  pageSize: number,
+): StartupSnapshot | null {
+  if (folderId || page !== 1 || typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(STARTUP_SNAPSHOT_KEY);
+    if (!raw) return null;
+    const snap = JSON.parse(raw);
+    if (!snap || snap.v !== 1 || snap.sortBy !== sortBy || snap.pageSize !== pageSize) return null;
+    if (!Array.isArray(snap.characters) || !Array.isArray(snap.folders)) return null;
+    return snap as StartupSnapshot;
+  } catch {
+    return null;
+  }
 }
 
 export function CharacterList({
@@ -252,40 +336,198 @@ export function CharacterList({
   onSelectFolder,
   onOpenSidebar,
   refreshTrigger,
+  isDetailOpen = false,
+  isLightMode: propIsLightMode = false,
 }: Props) {
-  const [characters, setCharacters] = useState<CharacterCard[]>([]);
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const [paginatedFolders, setPaginatedFolders] = useState<Folder[]>([]);
-  const [totalItems, setTotalItems] = useState(0);
+  const [isLightMode, setIsLightMode] = useState(() => {
+    if (typeof propIsLightMode === "boolean" && propIsLightMode) return true;
+    return (
+      typeof document !== "undefined" &&
+      (document.documentElement.classList.contains("light-theme") ||
+        document.body.classList.contains("light-theme") ||
+        localStorage.getItem("tavern_theme") === "light")
+    );
+  });
+
+  useEffect(() => {
+    const checkTheme = () => {
+      const isLight =
+        Boolean(propIsLightMode) ||
+        (typeof document !== "undefined" &&
+          (document.documentElement.classList.contains("light-theme") ||
+            document.body.classList.contains("light-theme") ||
+            localStorage.getItem("tavern_theme") === "light"));
+      setIsLightMode(isLight);
+    };
+    checkTheme();
+    const observer = new MutationObserver(checkTheme);
+    if (typeof document !== "undefined") {
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["class"],
+      });
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ["class"],
+      });
+      window.addEventListener("storage", checkTheme);
+    }
+    return () => {
+      observer.disconnect();
+      if (typeof window !== "undefined") {
+        window.removeEventListener("storage", checkTheme);
+      }
+    };
+  }, [propIsLightMode]);
+  const [showMainTokens, setShowMainTokens] = useState<boolean>(() => {
+    return typeof localStorage !== "undefined" && localStorage.getItem("miu_show_main_page_tokens") !== "false";
+  });
+
+  useEffect(() => {
+    const handleTokenVisChanged = (e: any) => {
+      if (e.detail && typeof e.detail.show === "boolean") {
+        setShowMainTokens(e.detail.show);
+      } else if (typeof localStorage !== "undefined") {
+        setShowMainTokens(localStorage.getItem("miu_show_main_page_tokens") !== "false");
+      }
+    };
+    window.addEventListener("mainPageTokensVisibilityChanged", handleTokenVisChanged);
+    return () => {
+      window.removeEventListener("mainPageTokensVisibilityChanged", handleTokenVisChanged);
+    };
+  }, []);
+
+  const folderKey = folderId || "root";
+  const startupSnapRef = useRef<StartupSnapshot | null | undefined>(undefined);
+  if (startupSnapRef.current === undefined) {
+    const initPage = getFolderPage(folderKey);
+    const initPageSize = Number(localStorage.getItem("tavern_pageSize")) || 50;
+    const initSortBy = (localStorage.getItem("tavern_sortBy") as SortOption) || "newest_import";
+    startupSnapRef.current = readStartupSnapshot(folderId, initPage, initSortBy, initPageSize);
+  }
+  const startupSnap = startupSnapRef.current;
+
+  const [characters, setCharacters] = useState<CharacterCard[]>(() => startupSnap?.characters ?? []);
+  const [folders, setFolders] = useState<Folder[]>(() => startupSnap?.folders ?? []);
+  const [paginatedFolders, setPaginatedFolders] = useState<Folder[]>(
+    () => startupSnap?.paginatedFolders ?? [],
+  );
+  const [folderPaths, setFolderPaths] = useState<Record<string, string>>(
+    () => startupSnap?.folderPaths ?? {},
+  );
+  const [folderCounts, setFolderCounts] = useState<
+    Record<string, { chars: number; subfolders: number }>
+  >(() => startupSnap?.folderCounts ?? {});
+  const [folderAncestors, setFolderAncestors] = useState<
+    Record<string, Array<{ id: string; name: string }>>
+  >(() => startupSnap?.folderAncestors ?? {});
+  const [totalItems, setTotalItems] = useState(() => startupSnap?.totalItems ?? 0);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(() => Boolean(startupSnap));
   const [folderPreviews, setFolderPreviews] = useState<
     Record<string, any[]>
   >({});
   // 每次刷新文件夹预览图都会重新生成一批 blob URL, 这里记一份"当前挂着的"
   // 引用, 下次覆盖前先批量释放旧的, 避免每次翻页/切换文件夹都泄漏一批。
   const folderPreviewUrlsRef = useRef<string[]>([]);
-  const setFolderPreviewsWithCleanup = (previews: Record<string, any[]>) => {
-    const oldUrls = folderPreviewUrlsRef.current;
-    const newUrls = Object.values(previews).flat().map(p => typeof p === 'string' ? p : p.url);
-    folderPreviewUrlsRef.current = newUrls;
-    setFolderPreviews(previews);
-    if (oldUrls.length > 0) {
-      requestAnimationFrame(() => {
-        oldUrls.forEach((u) => {
-          if (u && u.startsWith("blob:")) URL.revokeObjectURL(u);
+  const setFolderPreviewsWithCleanup = (newPreviews: Record<string, any[]>) => {
+    setFolderPreviews((prevPreviews) => {
+      const mergedPreviews: Record<string, any[]> = {};
+      const urlsToRevoke: string[] = [];
+
+      const allFolderIds = new Set([
+        ...Object.keys(prevPreviews || {}),
+        ...Object.keys(newPreviews || {}),
+      ]);
+
+      for (const fId of allFolderIds) {
+        const oldItems = prevPreviews[fId] || [];
+        const newItems = newPreviews[fId] || [];
+
+        if (newItems.length === 0) {
+          oldItems.forEach((it) => {
+            const u = typeof it === "string" ? it : it?.url;
+            if (u && u.startsWith("blob:") && !isCachedBlobUrl(u)) urlsToRevoke.push(u);
+          });
+          continue;
+        }
+
+        if (oldItems.length === 0) {
+          mergedPreviews[fId] = newItems;
+          continue;
+        }
+
+        // 检查新旧预览项的特征/Seed/路径是否完全一致
+        const isIdentical =
+          oldItems.length === newItems.length &&
+          oldItems.every((oldIt, idx) => {
+            const newIt = newItems[idx];
+            const oldSeed = typeof oldIt === "string" ? oldIt : oldIt?.seed || oldIt?.url;
+            const newSeed = typeof newIt === "string" ? newIt : newIt?.seed || newIt?.url;
+            return oldSeed && newSeed && oldSeed === newSeed;
+          });
+
+        if (isIdentical) {
+          // 文件夹预览无变化: 保留原 URL 引用, 绝不触发相邻文件夹封面的刷新/闪烁!
+          mergedPreviews[fId] = oldItems;
+          newItems.forEach((it) => {
+            const u = typeof it === "string" ? it : it?.url;
+            if (u && u.startsWith("blob:")) urlsToRevoke.push(u);
+          });
+        } else {
+          // 真正的封面修改: 使用新 URL, 释放旧 URL
+          mergedPreviews[fId] = newItems;
+          oldItems.forEach((it) => {
+            const u = typeof it === "string" ? it : it?.url;
+            if (u && u.startsWith("blob:")) urlsToRevoke.push(u);
+          });
+        }
+      }
+
+      const allCurrentUrls = Object.values(mergedPreviews)
+        .flat()
+        .map((p) => (typeof p === "string" ? p : p.url));
+      folderPreviewUrlsRef.current = allCurrentUrls;
+
+      if (urlsToRevoke.length > 0) {
+        requestAnimationFrame(() => {
+          urlsToRevoke.forEach((u) => {
+            if (u && u.startsWith("blob:") && !isCachedBlobUrl(u)) URL.revokeObjectURL(u);
+          });
         });
-      });
-    }
+      }
+
+      return mergedPreviews;
+    });
   };
   useEffect(() => {
     return () => {
       folderPreviewUrlsRef.current.forEach((u) => {
-        if (u.startsWith("blob:")) URL.revokeObjectURL(u);
+        // 缩略图缓存持有的 URL 交给 LRU 自己释放(否则会把缓存里的图释放掉, 图会裂)
+        if (u.startsWith("blob:") && !isCachedBlobUrl(u)) URL.revokeObjectURL(u);
       });
     };
   }, []);
-  const [totalCharacters, setTotalCharacters] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageInputValue, setPageInputValue] = useState("1");
+  const [totalCharacters, setTotalCharacters] = useState(() => startupSnap?.totalCharacters ?? 0);
+  const [totalAllCharacters, setTotalAllCharacters] = useState(() => startupSnap?.totalAllCharacters ?? 0);
+
+  const prevFolderKeyRef = useRef<string>(folderKey);
+
+  const [page, setPage] = useState<number>(() => {
+    return getFolderPage(folderKey);
+  });
+  const [pageInputValue, setPageInputValue] = useState(() =>
+    String(getFolderPage(folderKey)),
+  );
+
+  // 文件夹切换或从详情页/子文件夹返回时，同步恢复对应 folderKey 记忆的页码
+  useEffect(() => {
+    if (prevFolderKeyRef.current !== folderKey) {
+      prevFolderKeyRef.current = folderKey;
+      const targetPage = getFolderPage(folderKey);
+      setPage(targetPage);
+      setPageInputValue(targetPage.toString());
+    }
+  }, [folderKey]);
 
   useEffect(() => {
     setPageInputValue(page.toString());
@@ -295,9 +537,85 @@ export function CharacterList({
     () => Number(localStorage.getItem("tavern_pageSize")) || 50,
   );
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchScope, setSearchScope] = useState<SearchScope>("basic");
   // 搜索框本身要立即响应输入(不然打字会卡顿感), 但真正触发查询用防抖后的值,
   // 避免每敲一个字就对全部角色做一次全量过滤+排序。
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+
+  const searchScopeOptions: { id: SearchScope; label: string; placeholder: string }[] = [
+    { id: "basic", label: "卡名/标签", placeholder: "搜索角色、标签或 文件夹/卡名..." },
+    { id: "all", label: "全部内容", placeholder: "搜卡名、作者、备注、开场白、备忘录..." },
+    { id: "creator", label: "作者", placeholder: "搜索作者名称..." },
+    { id: "creator_notes", label: "作者备注", placeholder: "搜索作者备注..." },
+    { id: "greetings", label: "开场白", placeholder: "搜索开场白内容..." },
+    { id: "memos", label: "备忘录", placeholder: "搜索备忘录内容..." },
+    { id: "content", label: "设定/世界书", placeholder: "搜索设定、描述、世界书..." },
+  ];
+  const activeScopeOption = searchScopeOptions.find((o) => o.id === searchScope) || searchScopeOptions[0];
+
+  // 搜索历史记录 (保留 3-5 条，支持删除和全部清除)
+  const [searchHistory, setSearchHistory] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem("miu_search_history");
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed.slice(0, 5) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  const saveSearchToHistory = useCallback((query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    setSearchHistory((prev) => {
+      const filtered = prev.filter((item) => item !== trimmed);
+      const updated = [trimmed, ...filtered].slice(0, 5);
+      try {
+        localStorage.setItem("miu_search_history", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  }, []);
+
+  const deleteSearchHistoryItem = useCallback((itemToDelete: string, e?: React.MouseEvent | React.PointerEvent) => {
+    e?.stopPropagation();
+    setSearchHistory((prev) => {
+      const updated = prev.filter((item) => item !== itemToDelete);
+      try {
+        localStorage.setItem("miu_search_history", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  }, []);
+
+  const clearAllSearchHistory = useCallback((e?: React.MouseEvent | React.PointerEvent) => {
+    e?.stopPropagation();
+    setSearchHistory([]);
+    try {
+      localStorage.removeItem("miu_search_history");
+    } catch {}
+  }, []);
+
+  // 搜索历史只在「离开搜索框」时存一次（回车 / 点历史项 / 点清空按钮也会存）。
+  // 之前是打字停 1 秒就存，手机上打字一停顿就会把「阿 / 阿波 / 阿波菲斯」这种半截词
+  // 也写进历史，只留 5 条，很快被自己的输入挤满。
+  const handleSearchBlur = useCallback(() => {
+    saveSearchToHistory(searchQuery);
+  }, [searchQuery, saveSearchToHistory]);
+
+  useEffect(() => {
+    const handlePointerDownOutside = (e: PointerEvent | MouseEvent | TouchEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setIsSearchFocused(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDownOutside);
+    return () => document.removeEventListener("pointerdown", handlePointerDownOutside);
+  }, []);
   const [viewMode, setViewMode] = useState<"grid" | "list" | "masonry">(
     () =>
       (localStorage.getItem("tavern_viewMode") as
@@ -312,33 +630,92 @@ export function CharacterList({
       (localStorage.getItem("tavern_sortBy") as SortOption) || "newest_import",
   );
   const [isSortOpen, setIsSortOpen] = useState(false);
+  const [tokenModalChar, setTokenModalChar] = useState<{
+    name: string;
+    breakdown: CharacterTokenBreakdown;
+  } | null>(null);
+
+  const handleOpenTokenBreakdown = useCallback(async (char: CharacterCard) => {
+    try {
+      let data = char.data;
+      if (!data || Object.keys(data).length === 0) {
+        const fullChar = await getCharacter(char.id);
+        if (fullChar?.data) data = fullChar.data;
+      }
+      const breakdown = getCharacterTokenBreakdown(data);
+      setTokenModalChar({
+        name: char.name,
+        breakdown,
+      });
+    } catch (err) {
+      console.error("Failed to load token breakdown", err);
+    }
+  }, []);
 
   const [allTags, setAllTags] = useState<string[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [isEditingTags, setIsEditingTags] = useState(false);
-  const [editingTagValue, setEditingTagValue] = useState<{
-    old: string;
-    new: string;
-  } | null>(null);
+
+  useEffect(() => {
+    if (prevFolderKeyRef.current === folderKey && !debouncedSearchQuery && selectedTags.length === 0) {
+      setFolderPage(folderKey, page);
+    }
+  }, [folderKey, page, debouncedSearchQuery, selectedTags.length]);
+
+  const [tagActionModal, setTagActionModal] = useState<string | null>(null);
+  const [renamingTagData, setRenamingTagData] = useState<{ old: string; new: string } | null>(null);
+  const [isTagEditMode, setIsTagEditMode] = useState(false);
+  const [isTagMutating, setIsTagMutating] = useState(false);
+  const tagLongPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const tagLongPressTriggeredRef = useRef(false);
+
+  const handleTagTouchStart = (tag: string) => {
+    tagLongPressTriggeredRef.current = false;
+    if (tagLongPressTimerRef.current) clearTimeout(tagLongPressTimerRef.current);
+    tagLongPressTimerRef.current = setTimeout(() => {
+      tagLongPressTriggeredRef.current = true;
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        try { navigator.vibrate(40); } catch (e) {}
+      }
+      setTagActionModal(tag);
+    }, 550);
+  };
+
+  const handleTagTouchEnd = () => {
+    if (tagLongPressTimerRef.current) {
+      clearTimeout(tagLongPressTimerRef.current);
+      tagLongPressTimerRef.current = null;
+    }
+  };
+
   const [tagSearchQuery, setTagSearchQuery] = useState("");
   const [isTagSearchOpen, setIsTagSearchOpen] = useState(false);
 
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
+  const [comparePairIds, setComparePairIds] = useState<[string, string] | null>(null);
   const [pendingQRBinding, setPendingQRBinding] = useState<{
     qrChar: CharacterCard;
     targetChar: CharacterCard;
   } | null>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
-  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const touchStartRef = useRef<{
+    x: number;
+    y: number;
+    time: number;
+    isEdge: boolean;
+  } | null>(null);
+  const isDraggingRef = useRef(false);
+  const lastDragEndTimeRef = useRef(0);
 
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
   const [isCropping, setIsCropping] = useState(false);
+  const [coverPickerFolder, setCoverPickerFolder] = useState<Folder | null>(null);
 
   const getCroppedImgBlob = async (
     imageSrc: string,
@@ -487,13 +864,80 @@ export function CharacterList({
     },
     [],
   );
+
+  const handleSetCharacterAsFolderCover = async (folder: Folder, char: CharacterCard) => {
+    try {
+      let avatarBlob = char.avatarBlob;
+      if (!avatarBlob && char.hasBlobsSeparated) {
+        const blobs = await getCharacterBlob(char.id);
+        avatarBlob = blobs?.avatarBlob;
+      }
+      if (!avatarBlob && char.avatarUrlFallback) {
+        try {
+          const res = await fetch(char.avatarUrlFallback);
+          if (res.ok) avatarBlob = await res.blob();
+        } catch (e) {}
+      }
+      // 卡片本身没有真图(取到的是默认占位图)时不许当封面 ——
+      // 否则文件夹封面会被占位图顶掉, 而且永远显示不出来是"哪张卡"
+      if (avatarBlob) {
+        try {
+          const { isPlaceholderImageBlob } = await import('../lib/placeholder');
+          if (await isPlaceholderImageBlob(avatarBlob)) {
+            avatarBlob = undefined;
+          }
+        } catch {}
+      }
+      if (!avatarBlob) {
+        alert('这张卡没有自己的图，不能作为文件夹封面');
+        return;
+      }
+      if (avatarBlob) {
+        let compressedBlob = avatarBlob;
+        try {
+          compressedBlob = await compressImage(new File([avatarBlob], "cover.png", { type: avatarBlob.type || "image/png" }), 400);
+        } catch (e) {}
+        const updatedFolder: Folder = { ...folder, avatarBlob: compressedBlob };
+        await saveFolder(updatedFolder);
+        setFolders((prev) => prev.map((f) => (f.id === folder.id ? updatedFolder : f)));
+        setCoverPickerFolder(null);
+        setSelectionMode(false);
+        setSelectedIds(new Set());
+        loadData();
+      }
+    } catch (err) {
+      console.error("Failed to set character as folder cover:", err);
+    }
+  };
+
+  const handleResetFolderCover = async (folder: Folder) => {
+    try {
+      const updatedFolder: Folder = { ...folder, avatarBlob: undefined };
+      await saveFolder(updatedFolder);
+      setFolders((prev) => prev.map((f) => (f.id === folder.id ? updatedFolder : f)));
+      setCoverPickerFolder(null);
+      setSelectionMode(false);
+      setSelectedIds(new Set());
+      loadData();
+    } catch (err) {
+      console.error("Failed to reset folder cover:", err);
+    }
+  };
   const [currentFolderName, setCurrentFolderName] = useState<string | null>(
     null,
   );
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
   const [isBindModalOpen, setIsBindModalOpen] = useState(false);
+
+  const everMoveModalOpen = useEverTrue(isMoveModalOpen);
+  const everBindModalOpen = useEverTrue(isBindModalOpen);
+  const everConfirmBindOpen = useEverTrue(!!pendingQRBinding);
+  const everCoverPickerOpen = useEverTrue(!!coverPickerFolder);
+  const everTokenModalOpen = useEverTrue(!!tokenModalChar);
+  const everCompareModalOpen = useEverTrue(!!comparePairIds);
   const [progress, setProgress] = useState<{
     current: number;
     total: number;
@@ -502,17 +946,62 @@ export function CharacterList({
   const longPressRef = useRef<{
     timer: NodeJS.Timeout | null;
     triggered: boolean;
+    startX?: number;
     startY?: number;
   }>({ timer: null, triggered: false });
+
+  const [googleUser, setGoogleUser] = useState<any>(() => {
+    if (typeof localStorage === "undefined") return null;
+    try {
+      const raw = localStorage.getItem("google_drive_user_info");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    const handleAuthChange = (e: any) => {
+      if (e.detail) setGoogleUser(e.detail.user);
+    };
+    window.addEventListener('google_auth_changed', handleAuthChange);
+    return () => window.removeEventListener('google_auth_changed', handleAuthChange);
+  }, []);
 
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const [isFoldersExpanded, setIsFoldersExpanded] = useState(
     () => localStorage.getItem("tavern_foldersExpanded") !== "false",
   );
-  const lastScrollY = useRef(0);
   const filterRef = useRef<HTMLDivElement>(null);
   const sortRef = useRef<HTMLDivElement>(null);
+
+  // 如果进入了子文件夹，按返回键（网页后退/安卓返回键/侧滑手势）时返回上一级目录
+  // 核心安全保障：如果角色卡详情正处于打开状态，必须由详情自身处理返回，严禁穿透触发退出文件夹！
+  useBackHandler(!!folderId && !isDetailOpen, () => {
+    handleBack();
+    return true;
+  });
+
+  // 如果正处于多选模式，按返回键直接退出多选模式（由于后注册，优先级高于返回上一级目录）
+  useBackHandler(selectionMode && !comparePairIds, () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+    return true;
+  });
+
+  useBackHandler(Boolean(tagActionModal || renamingTagData), () => {
+    if (renamingTagData) setRenamingTagData(null);
+    else if (tagActionModal) setTagActionModal(null);
+    return true;
+  });
+
+  // 进入多选模式时，立即唤起并展示顶部操作栏
+  useEffect(() => {
+    if (selectionMode) {
+      setIsHeaderVisible(true);
+    }
+  }, [selectionMode]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -531,25 +1020,56 @@ export function CharacterList({
 
   useEffect(() => {
     const scrollContainer = document.getElementById("main-scroll-container");
-    if (!scrollContainer) return;
+    let lastScroll = scrollContainer
+      ? scrollContainer.scrollTop
+      : window.scrollY || document.documentElement.scrollTop || 0;
+    let upAccumulator = 0;
+    let downAccumulator = 0;
 
     const handleScroll = () => {
-      const currentScrollY = scrollContainer.scrollTop;
+      const currentScrollY = scrollContainer
+        ? scrollContainer.scrollTop
+        : window.scrollY || document.documentElement.scrollTop || 0;
+
       setShowScrollTop(currentScrollY > 500);
 
-      if (currentScrollY > lastScrollY.current + 10 && currentScrollY > 100) {
-        setIsHeaderVisible(false);
-      } else if (
-        currentScrollY < lastScrollY.current - 10 ||
-        currentScrollY < 100
-      ) {
+      const delta = currentScrollY - lastScroll;
+
+      // 靠近页面顶部（<=80px）时始终保持显示
+      if (currentScrollY <= 80) {
         setIsHeaderVisible(true);
+        upAccumulator = 0;
+        downAccumulator = 0;
+      } else if (delta < 0) {
+        // 向上滑动（手指往下拉或回滑浏览）：哪怕只滑一点点（累计>=8px），立即弹出顶部操作栏
+        downAccumulator = 0;
+        upAccumulator += Math.abs(delta);
+        if (upAccumulator >= 8) {
+          setIsHeaderVisible(true);
+        }
+      } else if (delta > 0) {
+        // 向下滑动浏览（页面往下滚）：累计滑动超过24px才隐藏，避免微小抖动误触
+        upAccumulator = 0;
+        downAccumulator += delta;
+        if (downAccumulator >= 24) {
+          setIsHeaderVisible(false);
+        }
       }
-      lastScrollY.current = currentScrollY;
+
+      lastScroll = currentScrollY;
     };
 
-    scrollContainer.addEventListener("scroll", handleScroll);
-    return () => scrollContainer.removeEventListener("scroll", handleScroll);
+    if (scrollContainer) {
+      scrollContainer.addEventListener("scroll", handleScroll, { passive: true });
+    }
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      if (scrollContainer) {
+        scrollContainer.removeEventListener("scroll", handleScroll);
+      }
+      window.removeEventListener("scroll", handleScroll);
+    };
   }, []);
 
   const scrollToTop = () => {
@@ -561,32 +1081,74 @@ export function CharacterList({
 
   const handleBack = async () => {
     if (!folderId) return;
+    if (folderId === "favorites" || folderId === "all") {
+      onSelectFolder?.(null);
+      return;
+    }
     const allFolders = await getFolders();
     const current = allFolders.find((f) => f.id === folderId);
     onSelectFolder?.(current?.parentId || null);
   };
   const handleRootTouchStart = (e: React.TouchEvent) => {
+    // 拖拽中、弹窗打开、多选模式时不记录手势
+    if (
+      isDraggingRef.current ||
+      activeDragId ||
+      pendingQRBinding ||
+      isBindModalOpen ||
+      isMoveModalOpen ||
+      selectionMode
+    ) {
+      touchStartRef.current = null;
+      return;
+    }
+
+    // 如果触摸起始于卡片、按钮、输入框等可交互元素，属于卡片操作或拖拽准备，绝不当作返回手势
+    const target = e.target as HTMLElement | null;
+    if (target?.closest("button, a, input, [data-sortable-id], [role='button']")) {
+      touchStartRef.current = null;
+      return;
+    }
+
     const touch = e.touches[0];
-    if (touch) {
+    // 允许从左侧边缘及边距空白区域（<= 75px）舒适起划，不再受限于极窄25px
+    if (touch && touch.clientX <= 75) {
       touchStartRef.current = {
         x: touch.clientX,
         y: touch.clientY,
         time: Date.now(),
+        isEdge: true,
       };
+    } else {
+      touchStartRef.current = null;
     }
   };
 
   const handleRootTouchEnd = (e: React.TouchEvent) => {
     const start = touchStartRef.current;
+    touchStartRef.current = null;
     const touch = e.changedTouches[0];
     if (!start || !touch) return;
-    touchStartRef.current = null;
 
+    // 拖拽中、刚结束拖拽（600ms内）或处于多选/弹窗状态时严禁触发手势返回
+    if (
+      isDraggingRef.current ||
+      activeDragId ||
+      Date.now() - lastDragEndTimeRef.current < 600 ||
+      selectionMode ||
+      pendingQRBinding ||
+      isBindModalOpen ||
+      isMoveModalOpen
+    ) {
+      return;
+    }
+
+    const elapsed = Date.now() - start.time;
     const dx = touch.clientX - start.x;
     const dy = touch.clientY - start.y;
 
-    // 进入子文件夹后, 从屏幕左边缘向右轻扫即可返回上一级。
-    if (!selectionMode && folderId && dx > 90 && start.x < 80 && Math.abs(dy) < 70) {
+    // 起始于左侧非卡片区域、快速轻扫(<=400ms)、水平右滑明显(>70px)且垂直偏移小(<60px)才返回上一级
+    if (folderId && elapsed <= 400 && dx > 70 && Math.abs(dy) < 60) {
       handleBack();
     }
   };
@@ -651,7 +1213,7 @@ export function CharacterList({
     useSensor(TouchSensor, {
       activationConstraint: {
         delay: 250,
-        tolerance: 5,
+        tolerance: 8,
       },
     }),
     useSensor(KeyboardSensor, {
@@ -667,6 +1229,20 @@ export function CharacterList({
     return false;
   };
 
+  const characterMap = useMemo(() => {
+    const map = new Map<string, CharacterCard>();
+    for (const c of characters) {
+      map.set(c.id, c);
+    }
+    return map;
+  }, [characters]);
+
+  const activeChar =
+    activeDragId && activeDragId.startsWith("char-")
+      ? characterMap.get(activeDragId.replace("char-", "")) || null
+      : null;
+  const activeIsQR = activeChar ? checkIsQR(activeChar) : false;
+
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -677,28 +1253,71 @@ export function CharacterList({
     const isFolder = activeIdStr.startsWith("folder-");
 
     if (isFolder) {
-      if (sortBy !== "custom") {
-        setSortBy("custom");
-      }
-
       const activeId = activeIdStr.replace("folder-", "");
       const overId = overIdStr.replace("folder-", "");
 
+      // 1. Immediately update paginatedFolders state synchronously for real-time UI response
+      const oldPagIndex = paginatedFolders.findIndex((f) => f.id === activeId);
+      const newPagIndex = paginatedFolders.findIndex((f) => f.id === overId);
+
+      if (oldPagIndex !== -1 && newPagIndex !== -1 && oldPagIndex !== newPagIndex) {
+        const newPag = arrayMove(paginatedFolders, oldPagIndex, newPagIndex);
+        setPaginatedFolders(newPag);
+      }
+
+      // 2. Immediately update full folders array and persist sortOrder
       const oldIndex = folders.findIndex((f) => f.id === activeId);
       const newIndex = folders.findIndex((f) => f.id === overId);
 
-      if (oldIndex !== -1 && newIndex !== -1) {
+      if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
         const newFolders = arrayMove(folders, oldIndex, newIndex);
-        setFolders(newFolders);
-        // Save new order to db
         newFolders.forEach((f, i) => {
           f.sortOrder = i;
-          saveFolder(f);
         });
+        setFolders(newFolders);
+        // Persist new orders to db
+        await Promise.all(newFolders.map((f) => saveFolder(f)));
       }
+
+      if (sortBy !== "custom") {
+        setSortBy("custom");
+      }
+      return;
     } else {
       const activeId = activeIdStr.replace("char-", "");
       const overId = overIdStr.replace("char-", "");
+
+      // 拖拽角色卡到文件夹上：直接移动到该文件夹
+      if (overIdStr.startsWith("folder-")) {
+        const targetFolderId = overIdStr.replace("folder-", "");
+        const targetFolder = folders.find((f) => f.id === targetFolderId);
+        if (targetFolder) {
+          const idsToMove =
+            selectedIds.has(activeId) && selectedIds.size > 0
+              ? Array.from(selectedIds).filter(
+                  (id) => !folders.some((f) => f.id === id),
+                )
+              : [activeId];
+
+          const movedCharIds = new Set(idsToMove);
+          setCharacters((prev) => prev.filter((c) => !movedCharIds.has(c.id)));
+          setTotalCharacters((prev) => Math.max(0, prev - movedCharIds.size));
+          setTotalItems((prev) => Math.max(0, prev - movedCharIds.size));
+          setSelectedIds(new Set());
+          setSelectionMode(false);
+
+          for (const cId of idsToMove) {
+            const char = await getCharacter(cId);
+            if (char) {
+              char.folderId = targetFolderId;
+              await saveCharacter(char);
+            }
+          }
+          invalidateCache();
+          loadData();
+        }
+        return;
+      }
 
       const charA = characters.find((c) => c.id === activeId);
       const charB = characters.find((c) => c.id === overId);
@@ -736,106 +1355,222 @@ export function CharacterList({
     }
   };
 
+  const loadDataReqIdRef = useRef(0);
+  const skipClampedPageRef = useRef<number | null>(null);
   const loadData = async () => {
+    const reqId = ++loadDataReqIdRef.current;
     try {
       const allFoldersData = await getFolders();
-      let currentFolders: Folder[] = [];
-      if (folderId === null) {
-        currentFolders = allFoldersData.filter((f) => !f.parentId);
-        setCurrentFolderName(null);
-      } else {
-        currentFolders = allFoldersData.filter((f) => f.parentId === folderId);
-        const currentFolder = allFoldersData.find((f) => f.id === folderId);
-        if (currentFolder) setCurrentFolderName(currentFolder.name);
+      if (reqId !== loadDataReqIdRef.current) return;
+
+      const folderMap = new Map<string, Folder>();
+      allFoldersData.forEach((f) => folderMap.set(f.id, f));
+
+      const pathMap: Record<string, string> = {};
+      const ancestorMap: Record<string, Array<{ id: string; name: string }>> = {};
+      const subfolderCountMap: Record<string, number> = {};
+
+      for (const f of allFoldersData) {
+        if (f.parentId) {
+          subfolderCountMap[f.parentId] = (subfolderCountMap[f.parentId] || 0) + 1;
+        }
+        const parts: string[] = [];
+        const ancestors: Array<{ id: string; name: string }> = [];
+        let curr: Folder | undefined = f;
+        const visited = new Set<string>();
+        while (curr && !visited.has(curr.id)) {
+          visited.add(curr.id);
+          parts.unshift(curr.name);
+          ancestors.unshift({ id: curr.id, name: curr.name });
+          curr = curr.parentId ? folderMap.get(curr.parentId) : undefined;
+        }
+        pathMap[f.id] = parts.join(" / ");
+        ancestorMap[f.id] = ancestors;
       }
 
-      currentFolders.sort((a, b) => {
-        if (sortBy === "custom") {
-          if (a.sortOrder !== undefined && b.sortOrder !== undefined)
-            return a.sortOrder - b.sortOrder;
-          if (a.sortOrder !== undefined) return -1;
-          if (b.sortOrder !== undefined) return 1;
+      setFolderPaths(pathMap);
+      setFolderAncestors(ancestorMap);
+
+      let currentFolders: Folder[] = [];
+      const hasSearch = !!debouncedSearchQuery.trim();
+      const rawQ = debouncedSearchQuery.trim();
+
+      const matchesFolder = (f: Folder): boolean => {
+        return matchesFolderSearch(f.name, pathMap[f.id] || f.name, rawQ);
+      };
+
+      const allowFolderResults = hasSearch && (searchScope === "basic" || searchScope === "all");
+
+      if (folderId === null) {
+        if (hasSearch) {
+          currentFolders = allowFolderResults ? allFoldersData.filter(matchesFolder) : [];
+        } else {
+          currentFolders = allFoldersData.filter((f) => !f.parentId);
         }
-        return b.createdAt - a.createdAt;
+        setCurrentFolderName(null);
+      } else if (folderId === "favorites") {
+        currentFolders = [];
+        setCurrentFolderName("我的收藏");
+      } else {
+        const currentFolder = folderMap.get(folderId);
+        if (currentFolder) setCurrentFolderName(currentFolder.name);
+
+        if (hasSearch) {
+          if (allowFolderResults) {
+            const descendantIds = new Set<string>();
+            const collectDescendants = (pid: string) => {
+              for (const f of allFoldersData) {
+                if (f.parentId === pid && !descendantIds.has(f.id)) {
+                  descendantIds.add(f.id);
+                  collectDescendants(f.id);
+                }
+              }
+            };
+            collectDescendants(folderId);
+            currentFolders = allFoldersData.filter(
+              (f) => descendantIds.has(f.id) && matchesFolder(f),
+            );
+          } else {
+            currentFolders = [];
+          }
+        } else {
+          currentFolders = allFoldersData.filter((f) => f.parentId === folderId);
+        }
+      }
+
+      const applyFolderSort = (a: Folder, b: Folder) => {
+        switch (sortBy) {
+          case "custom":
+            if (a.sortOrder !== undefined && b.sortOrder !== undefined)
+              return a.sortOrder - b.sortOrder;
+            if (a.sortOrder !== undefined) return -1;
+            if (b.sortOrder !== undefined) return 1;
+            return b.createdAt - a.createdAt;
+          case "newest_import":
+            return b.createdAt - a.createdAt;
+          case "oldest_import":
+            return a.createdAt - b.createdAt;
+          case "recently_modified": {
+            const timeA = (a as any).updatedAt || a.createdAt;
+            const timeB = (b as any).updatedAt || b.createdAt;
+            return timeB - timeA;
+          }
+          case "a_z":
+            return a.name.localeCompare(b.name, "zh-CN");
+          case "z_a":
+            return b.name.localeCompare(a.name, "zh-CN");
+          default:
+            return b.createdAt - a.createdAt;
+        }
+      };
+
+      currentFolders.sort((a, b) => {
+        if (hasSearch) {
+          const scoreA = calcFolderSearchScore(a.name, pathMap[a.id] || a.name, rawQ);
+          const scoreB = calcFolderSearchScore(b.name, pathMap[b.id] || b.name, rawQ);
+          if (scoreA !== scoreB) {
+            return scoreB - scoreA;
+          }
+        }
+        return applyFolderSort(a, b);
       });
 
       setFolders(currentFolders);
 
-      let currentVisibleFolders = currentFolders;
-      if (debouncedSearchQuery) {
-        const q = debouncedSearchQuery.toLowerCase();
-        currentVisibleFolders = currentFolders.filter((f) =>
-          f.name.toLowerCase().includes(q),
-        );
-      } else if (selectedTags.length > 0) {
-        currentVisibleFolders = [];
-      }
-
+      const currentVisibleFolders = selectedTags.length > 0 ? [] : currentFolders;
       const totalFolderCount = currentVisibleFolders.length;
-      const totalChars = await getFilteredCharacterCount(
-        folderId,
-        debouncedSearchQuery,
-        selectedTags,
-      );
-      setTotalCharacters(totalChars);
 
-      const itemsTotal = totalFolderCount + totalChars;
+      const summary = await getCharacterListSummaryAndSlice({
+        folderId,
+        searchQuery: debouncedSearchQuery,
+        tags: selectedTags,
+        searchScope,
+        sortBy,
+        page,
+        pageSize,
+        visibleFolderCount: totalFolderCount,
+      });
+      if (reqId !== loadDataReqIdRef.current) return;
+
+      const countsMap: Record<string, { chars: number; subfolders: number }> = {};
+      for (const f of allFoldersData) {
+        countsMap[f.id] = {
+          chars: summary.folderCharCounts[f.id] || 0,
+          subfolders: subfolderCountMap[f.id] || 0,
+        };
+      }
+      setFolderCounts(countsMap);
+
+      setTotalCharacters(summary.totalChars);
+      setTotalAllCharacters(summary.totalAllChars);
+      const itemsTotal = totalFolderCount + summary.totalChars;
       setTotalItems(itemsTotal);
 
-      const calculatedTotalPages = Math.max(1, Math.ceil(itemsTotal / pageSize));
-      let currentPage = page;
-      if (page > calculatedTotalPages) {
-        currentPage = calculatedTotalPages;
-        setPage(calculatedTotalPages);
+      if (summary.effectivePage !== page) {
+        skipClampedPageRef.current = summary.effectivePage;
+        setPage(summary.effectivePage);
       }
 
-      const pageStart = (currentPage - 1) * pageSize;
-      const pageEnd = currentPage * pageSize;
-
-      // Slice folders for this page
+      const pageStart = (summary.effectivePage - 1) * pageSize;
+      const pageEnd = summary.effectivePage * pageSize;
       const folderStart = Math.max(0, Math.min(totalFolderCount, pageStart));
       const folderEnd = Math.max(0, Math.min(totalFolderCount, pageEnd));
       const pageFolders = currentVisibleFolders.slice(folderStart, folderEnd);
+
       setPaginatedFolders(pageFolders);
+      setCharacters(summary.characters);
+      const nextChars = summary.characters;
 
-      // Slice characters for this page
-      const charStart = Math.max(0, pageStart - totalFolderCount);
-      const charEnd = Math.max(0, Math.min(totalChars, pageEnd - totalFolderCount));
-      const charLimit = Math.max(0, charEnd - charStart);
-
-      if (charLimit > 0) {
-        const { characters: fetchedChars } = await getCharacters(
-          1,
-          charLimit,
-          folderId,
-          debouncedSearchQuery,
-          selectedTags,
-          sortBy,
-          false,
-          false,
-          charStart,
-          charLimit,
-        );
-        setCharacters(fetchedChars);
-      } else {
-        setCharacters([]);
+      if (!folderId && summary.effectivePage === 1 && !debouncedSearchQuery.trim() && selectedTags.length === 0) {
+        try {
+          const compactChars = nextChars.map((c) => {
+            const copy: any = { ...c };
+            delete copy.data;
+            delete copy.avatarBlob;
+            delete copy.thumbBlob;
+            if (typeof copy.avatar === "string" && copy.avatar.length > 512) {
+              delete copy.avatar;
+            }
+            return copy;
+          });
+          const snapshot: StartupSnapshot = {
+            v: 1,
+            sortBy,
+            pageSize,
+            folders: currentFolders,
+            paginatedFolders: pageFolders,
+            folderPaths: pathMap,
+            folderCounts: countsMap,
+            folderAncestors: ancestorMap,
+            characters: compactChars,
+            totalCharacters: summary.totalChars,
+            totalAllCharacters: summary.totalAllChars,
+            totalItems: itemsTotal,
+          };
+          localStorage.setItem(STARTUP_SNAPSHOT_KEY, JSON.stringify(snapshot));
+        } catch {}
       }
 
-      // Fetch previews for visible folders on current page only
+      // 文件夹封面缩略图异步后台加载，绝不阻塞列表和卡片首屏展示
       if (pageFolders.length > 0) {
-        try {
-          const { getFolderPreviews } = await import("../lib/db");
-          const folderIds = pageFolders.map((f) => f.id);
-          const previews = await getFolderPreviews(folderIds);
-          setFolderPreviewsWithCleanup(previews);
-        } catch (err) {
-          console.error("Failed to load folder previews", err);
-        }
+        const previewFolderIds = pageFolders.map((f) => f.id);
+        void getFolderPreviews(previewFolderIds, allFoldersData)
+          .then((previews) => {
+            if (reqId !== loadDataReqIdRef.current) return;
+            setFolderPreviewsWithCleanup(previews);
+          })
+          .catch((err) => {
+            console.error("Failed to load folder previews", err);
+          });
       } else {
         setFolderPreviewsWithCleanup({});
       }
     } catch (err) {
       console.error("Failed to load data in CharacterList", err);
+    } finally {
+      if (reqId === loadDataReqIdRef.current) {
+        setHasLoadedOnce(true);
+      }
     }
   };
 
@@ -848,9 +1583,45 @@ export function CharacterList({
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearchQuery, selectedTags]);
+  }, [debouncedSearchQuery, selectedTags, searchScope]);
+
+  const prevLoadDepsRef = useRef<{
+    pageSize: number;
+    folderId: string | null | undefined;
+    debouncedSearchQuery: string;
+    selectedTags: string[];
+    sortBy: SortOption;
+    searchScope: SearchScope;
+    refreshTrigger: number | undefined;
+  } | null>(null);
 
   useEffect(() => {
+    const prev = prevLoadDepsRef.current;
+    const onlyPageChanged =
+      prev !== null &&
+      prev.pageSize === pageSize &&
+      prev.folderId === folderId &&
+      prev.debouncedSearchQuery === debouncedSearchQuery &&
+      prev.selectedTags === selectedTags &&
+      prev.sortBy === sortBy &&
+      prev.searchScope === searchScope &&
+      prev.refreshTrigger === refreshTrigger;
+
+    prevLoadDepsRef.current = {
+      pageSize,
+      folderId,
+      debouncedSearchQuery,
+      selectedTags,
+      sortBy,
+      searchScope,
+      refreshTrigger,
+    };
+
+    if (onlyPageChanged && skipClampedPageRef.current === page) {
+      skipClampedPageRef.current = null;
+      return;
+    }
+    skipClampedPageRef.current = null;
     loadData();
   }, [
     page,
@@ -859,6 +1630,7 @@ export function CharacterList({
     debouncedSearchQuery,
     selectedTags,
     sortBy,
+    searchScope,
     refreshTrigger,
   ]);
 
@@ -875,22 +1647,45 @@ export function CharacterList({
     debouncedSearchQuery,
     selectedTags,
     sortBy,
+    searchScope,
   ]);
 
   useEffect(() => {
-    getAllTags().then(setAllTags);
-  }, [refreshTrigger, folderId]); // We can just fetch it when folder triggers, though realistically it only needs refreshTrigger. I will keep it as refreshTrigger.
+    let cancelled = false;
+    const run = () => {
+      if (!cancelled) {
+        getAllTags().then((tags) => {
+          if (!cancelled) setAllTags(tags);
+        });
+      }
+    };
+    if (isFilterOpen || selectedTags.length > 0) {
+      run();
+      return () => { cancelled = true; };
+    }
+    if (typeof (window as any).requestIdleCallback === "function") {
+      const id = (window as any).requestIdleCallback(run, { timeout: 1500 });
+      return () => { cancelled = true; (window as any).cancelIdleCallback?.(id); };
+    }
+    const t = setTimeout(run, 1200);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [refreshTrigger, folderId, isFilterOpen, selectedTags.length]);
+
+  useEffect(() => {
+    if (!isFilterOpen) {
+      setIsTagEditMode(false);
+    }
+  }, [isFilterOpen]);
 
   useEffect(() => {
     const handleGlobalClick = (e: MouseEvent | TouchEvent) => {
+      if (tagActionModal || renamingTagData) return;
       if (filterRef.current && filterRef.current.contains(e.target as Node))
         return;
       if (sortRef.current && sortRef.current.contains(e.target as Node)) return;
 
       setIsFilterOpen(false);
       setIsSortOpen(false);
-      setIsEditingTags(false);
-      setEditingTagValue(null);
     };
 
     if (isFilterOpen || isSortOpen) {
@@ -904,16 +1699,18 @@ export function CharacterList({
       document.removeEventListener("mousedown", handleGlobalClick);
       document.removeEventListener("touchstart", handleGlobalClick);
     };
-  }, [isFilterOpen, isSortOpen]);
+  }, [isFilterOpen, isSortOpen, tagActionModal, renamingTagData]);
 
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
-  const toggleSelection = (id: string) => {
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
-    setSelectedIds(newSet);
-  };
+  const toggleSelection = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const handleSelectPage = () => {
     let allPageSelected = true;
@@ -938,31 +1735,65 @@ export function CharacterList({
   };
 
   const handleSelectAll = async () => {
-    const { characters: allChars } = await getCharacters(
-      1,
-      100000,
-      folderId,
-      debouncedSearchQuery,
-      selectedTags,
-      sortBy,
-      false,
-      false,
-      0,
-      100000,
-    );
+    const { getCachedMeta } = await import("../lib/db");
+    let allMeta = await getCachedMeta();
+    allMeta = allMeta.filter((c) => !c.deletedAt);
+    if (debouncedSearchQuery) {
+      allMeta = await filterCharacterMetasBySearch(
+        allMeta,
+        debouncedSearchQuery,
+        folderPaths,
+        searchScope,
+      );
+    }
+    if (selectedTags.length > 0) {
+      allMeta = allMeta.filter((c) =>
+        selectedTags.every((t) => (c.tags || []).includes(t))
+      );
+    }
+    if (folderId === "favorites") {
+      allMeta = allMeta.filter((c) => c.isFavorite);
+    } else if (folderId === null) {
+      if (!debouncedSearchQuery && selectedTags.length === 0) {
+        allMeta = allMeta.filter((c) => !c.folderId);
+      }
+    } else if (folderId && folderId !== "all") {
+      if (debouncedSearchQuery) {
+        const allFoldersData = await getFolders();
+        const descendantIds = new Set<string>([folderId]);
+        const addDescendants = (pid: string) => {
+          for (const f of allFoldersData) {
+            if (f.parentId === pid && !descendantIds.has(f.id)) {
+              descendantIds.add(f.id);
+              addDescendants(f.id);
+            }
+          }
+        };
+        addDescendants(folderId);
+        allMeta = allMeta.filter((c) => c.folderId && descendantIds.has(c.folderId));
+      } else {
+        allMeta = allMeta.filter((c) => c.folderId === folderId);
+      }
+    }
+
+    const cleanQ = normalizeSearchPath(debouncedSearchQuery);
     const visibleFolders = debouncedSearchQuery
-      ? folders.filter((f) =>
-          f.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()),
-        )
+      ? (searchScope === "basic" || searchScope === "all"
+          ? folders.filter((f) => {
+              const cleanName = f.name.trim().toLowerCase();
+              const cleanPath = normalizeSearchPath(folderPaths[f.id] || f.name);
+              return cleanName.includes(cleanQ) || cleanPath.includes(cleanQ);
+            })
+          : [])
       : (selectedTags.length > 0 ? [] : folders);
 
-    const totalSelectable = allChars.length + visibleFolders.length;
+    const totalSelectable = allMeta.length + visibleFolders.length;
 
     if (selectedIds.size === totalSelectable) {
       setSelectedIds(new Set());
     } else {
       const newSet = new Set<string>();
-      allChars.forEach((c) => newSet.add(c.id));
+      allMeta.forEach((c) => newSet.add(c.id));
       visibleFolders.forEach((f) => newSet.add(f.id));
       setSelectedIds(newSet);
     }
@@ -989,7 +1820,8 @@ export function CharacterList({
       setFolders((prev) => prev.filter((f) => !folderIds.includes(f.id)));
       setCharacters((prev) => prev.filter((c) => !charIds.includes(c.id)));
       setTotalCharacters((prev) => prev - charIds.length);
-            setSelectedIds(new Set());
+      setTotalAllCharacters((prev) => Math.max(0, prev - charIds.length));
+      setSelectedIds(new Set());
       setProgress({
         current: 0,
         total: targetCount,
@@ -1124,7 +1956,15 @@ export function CharacterList({
       setPendingQRBinding(null);
       setSelectionMode(false);
       setSelectedIds(new Set());
-      await new Promise((r) => setTimeout(r, 100));
+      setActiveDragId(null);
+
+      // Optimistically remove the QR card from local state immediately if deleting
+      if (deleteSource) {
+        setCharacters((prev) => prev.filter((c) => c.id !== fullQrChar.id));
+        setTotalCharacters((prev) => Math.max(0, prev - 1));
+        setTotalAllCharacters((prev) => Math.max(0, prev - 1));
+        setTotalItems((prev) => Math.max(0, prev - 1));
+      }
 
       await saveCharacter(updatedChar);
 
@@ -1132,6 +1972,7 @@ export function CharacterList({
         await deleteCharacter(fullQrChar.id);
       }
 
+      invalidateCache();
       await loadData();
     } catch (e) {
       console.error("绑定失败:", e);
@@ -1147,6 +1988,35 @@ export function CharacterList({
     const qrCharId = Array.from(selectedIds)[0];
     if (!qrCharId) return;
     await executeBindQR(qrCharId, targetCharId, false);
+  };
+
+  const cleanExportFolderParts = (folderName: string, charName: string, uniqueName?: string): string[] => {
+    if (!folderName || folderName === "未归类") return [];
+    const charLower = getSafeFilename(charName).toLowerCase().trim();
+    const uniqueLower = (uniqueName ? getSafeFilename(uniqueName) : charLower).toLowerCase().trim();
+    const ignored = new Set([
+      charLower,
+      uniqueLower,
+      "替换头像",
+      "替换卡面",
+      "版本历史",
+      "聊天记录",
+      "alt_avatars",
+      "avatars",
+      "chats",
+    ]);
+
+    const rawParts = folderName.split("/").map((p) => getSafeFilename(p.trim())).filter(Boolean);
+    const cleanParts: string[] = [];
+
+    for (const p of rawParts) {
+      const pLower = p.toLowerCase();
+      if (ignored.has(pLower)) continue;
+      if (cleanParts.length > 0 && cleanParts[cleanParts.length - 1].toLowerCase() === pLower) continue;
+      cleanParts.push(p);
+    }
+
+    return cleanParts;
   };
 
   const addCharacterToZip = async (
@@ -1376,7 +2246,11 @@ export function CharacterList({
   const handleBatchCloudBackup = async () => {
     if (selectedIds.size === 0) return;
 
-    const { getAccessToken } = await import("../lib/drive");
+    const { getAccessToken, updateSyncState, isSyncTaskBusy } = await import("../lib/drive");
+    if (isSyncTaskBusy()) {
+      alert("已有同步或备份任务正在进行中，请等它跑完再点。");
+      return;
+    }
     const token = await getAccessToken();
     if (!token) {
       alert("请先前往「云端同步」页面登录 Google 账号。");
@@ -1391,18 +2265,22 @@ export function CharacterList({
       const allFolders = await getFolders();
       const charIdsToExport = new Set<string>();
 
+      const { getCachedMeta } = await import("../lib/db");
+      const allMeta = await getCachedMeta();
+
       for (const id of idsToProcess) {
         const folder = allFolders.find((f) => f.id === id);
         if (folder) {
-          const addFolderChars = async (fId: string) => {
-            const { characters: fc } = await getCharacters(1, 10000, fId, "", [], "newest_import", false, false);
-            fc.forEach((c) => charIdsToExport.add(c.id));
+          const addFolderChars = (fId: string) => {
+            allMeta.forEach((c) => {
+              if (!c.deletedAt && c.folderId === fId) charIdsToExport.add(c.id);
+            });
             const subs = allFolders.filter((f) => f.parentId === fId);
             for (const sub of subs) {
-              await addFolderChars(sub.id);
+              addFolderChars(sub.id);
             }
           };
-          await addFolderChars(folder.id);
+          addFolderChars(folder.id);
         } else {
           charIdsToExport.add(id);
         }
@@ -1417,15 +2295,21 @@ export function CharacterList({
       let success = 0;
       let moved = 0;
       let skipped = 0;
+      let failed = 0;
+      const failedSamples: string[] = [];
       let completed = 0;
       const CONCURRENCY = Capacitor.isNativePlatform() ? 3 : 5;
       let currentIndex = 0;
 
-      setProgress({
-        current: 0,
-        total: charsArray.length,
-        message: `正在准备批量同步至云端...`,
+      updateSyncState({
+        isActive: true,
+        taskName: '批量同步',
+        message: `准备上传 ${charsArray.length} 个角色...`,
+        isError: false,
+        completed: false,
       });
+
+      const { uploadCharacterToCloud } = await import("../lib/cloudDrive");
 
       const uploadWorker = async () => {
         while (currentIndex < charsArray.length) {
@@ -1435,14 +2319,18 @@ export function CharacterList({
             if (res === 'uploaded') success++;
             else if (res === 'moved') moved++;
             else skipped++;
-          } catch (e) {
+          } catch (e: any) {
             console.error("Upload failed for char:", charsArray[i], e);
+            failed++;
+            if (failedSamples.length < 5) {
+              failedSamples.push(`${e?.message || String(e)}`);
+            }
           } finally {
             completed++;
-            setProgress({
-              current: completed,
-              total: charsArray.length,
-              message: `正在批量同步至云端...`,
+            updateSyncState({
+              isActive: true,
+              taskName: '批量同步',
+              message: `正在同步至云端 (${completed}/${charsArray.length})...`,
             });
             await new Promise(r => setTimeout(r, Capacitor.isNativePlatform() ? 200 : 50));
           }
@@ -1455,11 +2343,24 @@ export function CharacterList({
       }
       await Promise.all(workers);
 
-      setProgress(null);
-      alert(`云端同步完成！\n新上传: ${success} 个\n同步文件夹嵌套: ${moved} 个${skipped > 0 ? `\n分类未变已跳过: ${skipped} 个` : ''}`);
+      updateSyncState({
+        isActive: false,
+        completed: failed === 0,
+        isError: failed > 0,
+        taskName: '批量同步',
+        message: failed > 0
+          ? `同步完成，但有 ${failed} 个失败：${failedSamples.join('；')}`
+          : `云端同步完成！新上传 ${success}，嵌套更新 ${moved}，跳过 ${skipped}`,
+      });
+      alert(`云端同步完成！\n新上传: ${success} 个\n同步文件夹嵌套: ${moved} 个${skipped > 0 ? `\n分类未变已跳过: ${skipped} 个` : ''}${failed > 0 ? `\n\n⚠️ 失败: ${failed} 个\n${failedSamples.join('\n')}` : ''}`);
     } catch (err: any) {
       console.error(err);
-      setProgress(null);
+      updateSyncState({
+        isActive: false,
+        isError: true,
+        taskName: '批量同步',
+        message: `同步失败: ${err.message}`,
+      });
       alert("备份失败: " + err.message);
     }
   };
@@ -1573,7 +2474,8 @@ export function CharacterList({
                     const newBuffer = injectTavernData(buffer, exportData);
                     const exportFileName = `${safeName}.png`;
                     const { downloadOrShareFile } = await import("../lib/appBridge");
-                    await downloadOrShareFile(exportFileName, newBuffer, 'image/png', true);
+                    // 单卡导出（只选中了一张卡）：额外往系统相册放一份，方便在相册里直接找到
+                    await downloadOrShareFile(exportFileName, newBuffer, 'image/png', true, { toAlbum: true });
                     return; // Done
                 } catch (e) {
                     console.error("Failed to inject PNG in single export", e);
@@ -1593,82 +2495,95 @@ export function CharacterList({
         const pad = (n: number) => n.toString().padStart(2, "0");
         const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 
-        // Native Android Streaming Zip
+        // 1. 原生安卓 Streaming ZIP 分卷模式（使用 500 张一卷，原生文件流写盘）
         if ((window as any).Android && (window as any).Android.startZip) {
-          const zipName = `批量导出/Tavern_Export_${timestamp}.zip`;
-          const started = await startAndroidZip(zipName);
-          if (!started) {
-            alert("无法启动原生ZIP导出引擎");
-            return;
-          }
+          try {
+            const NATIVE_CHUNK_SIZE = 500;
+            const nativeTotalParts = Math.ceil(charsArray.length / NATIVE_CHUNK_SIZE);
+            let nativeSuccessParts = 0;
+            const getUniqueName = createUniqueNameAllocator();
 
-          let successCount = 0;
-          const getUniqueName = createUniqueNameAllocator();
-          for (const cid of charsArray) {
-            const char = await getCharacter(cid);
-            if (!char) continue;
+            for (let partIdx = 0; partIdx < nativeTotalParts; partIdx++) {
+              const chunk = charsArray.slice(partIdx * NATIVE_CHUNK_SIZE, (partIdx + 1) * NATIVE_CHUNK_SIZE);
+              const partNumber = partIdx + 1;
+              const zipName =
+                nativeTotalParts > 1
+                  ? `批量导出/Tavern_Export_${timestamp}_卷${partNumber}.zip`
+                  : `批量导出/Tavern_Export_${timestamp}.zip`;
 
-            const uniqueName = getUniqueName(char.name);
+              const started = await startAndroidZip(zipName).catch(() => false);
+              if (!started) throw new Error(`startAndroidZip failed for part ${partNumber}`);
 
-            const { resolveFolderPath, getCharacterCategoryPrefix } =
-              await import("../lib/db");
-            const folderName = await resolveFolderPath(char.folderId);
-            let prefix = "";
-            if (folderName === "未归类" || !folderName) {
-              const autoCategory = getCharacterCategoryPrefix(char);
-              prefix = autoCategory === "未归类" ? "" : `${autoCategory}/`;
-            } else {
-              prefix =
-                folderName.split("/").map(getSafeFilename).join("/") + "/";
+              for (const cid of chunk) {
+                const char = await getCharacter(cid);
+                if (!char) continue;
+
+                const uniqueName = getUniqueName(char.name);
+
+                const { resolveFolderPath, getCharacterCategoryPrefix } =
+                  await import("../lib/db");
+                const folderName = await resolveFolderPath(char.folderId);
+                let prefix = "";
+                if (folderName === "未归类" || !folderName) {
+                  const autoCategory = getCharacterCategoryPrefix(char);
+                  prefix = autoCategory === "未归类" ? "" : `${autoCategory}/`;
+                } else {
+                  const parts = cleanExportFolderParts(folderName, char.name, uniqueName);
+                  prefix = parts.length > 0 ? parts.join("/") + "/" : "";
+                }
+
+                await addCharacterToZip(
+                  char,
+                  null,
+                  {
+                    zipName,
+                    prefix,
+                    addEntry: addAndroidZipEntry,
+                  },
+                  uniqueName,
+                );
+              }
+
+              const finalPath = await finishAndroidZip(zipName);
+              if (finalPath) {
+                nativeSuccessParts++;
+                if (nativeTotalParts === 1) {
+                  const { shareLocalFileOnAndroid } = await import("../lib/appBridge");
+                  try {
+                    await shareLocalFileOnAndroid(finalPath, "application/zip");
+                  } catch (e) {}
+                }
+              }
             }
 
-            await addCharacterToZip(
-              char,
-              null,
-              {
-                zipName,
-                prefix,
-                addEntry: addAndroidZipEntry,
-              },
-              uniqueName,
-            );
-            successCount++;
-          }
-
-          const finalPath = await finishAndroidZip(zipName);
-          if (finalPath) {
-            const { shareLocalFileOnAndroid } = await import("../lib/appBridge");
-            let shared = false;
-            try {
-              shared = await shareLocalFileOnAndroid(finalPath, "application/zip");
-            } catch (e) {
-              console.warn("Failed to share zip:", e);
-            }
-            if (!shared) {
+            if (nativeSuccessParts === nativeTotalParts) {
               alert(
-                `批量导出成功！共导出 ${successCount} 个角色资料。\n文件已存至：Download/MIU/${zipName}`,
+                nativeTotalParts > 1
+                  ? `批量导出成功！共 ${charsArray.length} 张卡片，已按每包上限500张自动切分为 ${nativeTotalParts} 个分卷包，文件均保存在：Download/MIU/批量导出/`
+                  : `批量导出成功！文件已存至：Download/MIU/批量导出/`
               );
+              return;
             }
-          } else {
-            alert("导出结束时发生错误！");
+          } catch (e) {
+            console.warn("Native Android Zip export failed, falling back to JSZip chunked:", e);
           }
-
-          return;
         }
 
-        // Fallback: JSZip Chunked approach
-        const CHUNK_SIZE = 999999;
-        const totalParts = Math.ceil(charsArray.length / CHUNK_SIZE);
-
+        // 2. 通用 JSZip 分卷导出 (网页端模式：限制为 100 张一卷，完美保护网页浏览器内存不爆不卡)
+        const WEB_CHUNK_SIZE = 100;
+        const webTotalParts = Math.ceil(charsArray.length / WEB_CHUNK_SIZE);
         let successCountChunks = 0;
         let failedChunks: number[] = [];
         const getUniqueName = createUniqueNameAllocator();
+        const { downloadOrShareFile } = await import("../lib/appBridge");
+        const { default: JSZip } = await import("jszip");
 
-        for (let i = 0; i < charsArray.length; i += CHUNK_SIZE) {
-          const chunk = charsArray.slice(i, i + CHUNK_SIZE);
+        for (let partIdx = 0; partIdx < webTotalParts; partIdx++) {
+          const chunk = charsArray.slice(partIdx * WEB_CHUNK_SIZE, (partIdx + 1) * WEB_CHUNK_SIZE);
           const zip = new JSZip();
 
-          for (const cid of chunk) {
+          for (let cIdx = 0; cIdx < chunk.length; cIdx++) {
+            const cid = chunk[cIdx];
             const char = await getCharacter(cid);
             if (!char) continue;
 
@@ -1684,12 +2599,17 @@ export function CharacterList({
               await addCharacterToZip(char, uZip || zip, undefined, uniqueName);
             } else {
               let currentZip: JSZip = zip;
-              const parts = folderName.split("/");
+              const parts = cleanExportFolderParts(folderName, char.name, uniqueName);
               for (const p of parts) {
                 currentZip =
-                  currentZip.folder(getSafeFilename(p)) || currentZip;
+                  currentZip.folder(p) || currentZip;
               }
               await addCharacterToZip(char, currentZip, undefined, uniqueName);
+            }
+
+            // 每添加5张卡片让出一次 UI 主线程，防止网页卡死报警
+            if (cIdx % 5 === 0) {
+              await new Promise((resolve) => setTimeout(resolve, 0));
             }
           }
 
@@ -1698,32 +2618,32 @@ export function CharacterList({
             compression: "STORE",
           });
           const buffer = await zipBlob.arrayBuffer();
-          const chunkIndex = i / CHUNK_SIZE + 1;
+          const partNumber = partIdx + 1;
           const fileName =
-            totalParts > 1
-              ? `批量导出/Tavern_Export_${timestamp}_卷${chunkIndex}.zip`
-              : `批量导出/Tavern_Export_${timestamp}.zip`;
+            webTotalParts > 1
+              ? `Tavern_Export_${timestamp}_卷${partNumber}.zip`
+              : `Tavern_Export_${timestamp}.zip`;
 
-          const result = await saveToGallery(fileName, buffer);
-          if (result) {
+          const res = await downloadOrShareFile(fileName, buffer, "application/zip", webTotalParts === 1);
+          if (res.success) {
             successCountChunks++;
           } else {
-            failedChunks.push(chunkIndex);
+            failedChunks.push(partNumber);
           }
 
-          // 添加延迟等待安卓端落盘，释放内存限制导致前序任务被抛弃。
-          if (i + CHUNK_SIZE < charsArray.length) {
-            await new Promise((resolve) => setTimeout(resolve, 3500));
+          // 添加短暂停顿让手机浏览器 GC 进行垃圾回收，释放内存
+          if (partIdx + 1 < webTotalParts) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
           }
         }
 
         if (failedChunks.length > 0) {
-          alert(
-            `导出失败！由于文件过大，导致安卓内存过载。\n强烈建议：请下载最新源码重新打包安装您的安卓App（APK），升级后将开启底层原生 ZIP 引擎，支持上千张卡片无限制一次性导出且无内存报错！`,
-          );
+          alert(`部分分卷导出失败（第 ${failedChunks.join(", ")} 卷）。如果手机内存不足，建议分批勾选卡片导出。`);
         } else {
           alert(
-            `批量导出成功！本次为传统JS导出引擎。保存在 Download/MIU/批量导出/ 目录下。\n如果遇到导出不全、闪退问题，请重新编译更新您的 Android App (APK) 获取最新原生无限制导出引擎！`,
+            webTotalParts > 1
+              ? `批量导出成功！共 ${charsArray.length} 张卡片，已按网页端安全限制自动切分为 ${webTotalParts} 个压缩包（每包 100 张），文件均已准备完成！`
+              : `批量导出成功！压缩包文件已准备完成。`
           );
         }
 
@@ -1742,32 +2662,33 @@ export function CharacterList({
         });
       };
 
+      const { getCachedMeta } = await import("../lib/db");
+      const allMeta = await getCachedMeta();
+
       for (const id of Array.from(idsToProcess)) {
         const folder = allFolders.find((f) => f.id === id);
         if (folder) {
-          const collectFolderRecursive = async (
+          const collectFolderRecursive = (
             currentFolderId: string,
             currentPath: string[],
           ) => {
-            const { characters: folderChars } = await getCharacters(
-              1,
-              10000,
-              currentFolderId,
+            const folderChars = allMeta.filter(
+              (c) => !c.deletedAt && c.folderId === currentFolderId
             );
             for (const char of folderChars) {
-              await pushCharTask(char.id, currentPath);
+              pushCharTask(char.id, currentPath);
             }
             const subFolders = allFolders.filter(
               (f) => f.parentId === currentFolderId,
             );
             for (const subFolder of subFolders) {
-              await collectFolderRecursive(subFolder.id, [
+              collectFolderRecursive(subFolder.id, [
                 ...currentPath,
                 subFolder.name,
               ]);
             }
           };
-          await collectFolderRecursive(folder.id, [folder.name]);
+          collectFolderRecursive(folder.id, [folder.name]);
         } else {
           const char = await getCharacter(id);
           if (!char) continue;
@@ -1789,7 +2710,8 @@ export function CharacterList({
                 autoCategory === "未归类" ? [] : [autoCategory],
               );
             } else {
-              await pushCharTask(id, folderName.split("/"));
+              const cleanParts = cleanExportFolderParts(folderName, char.name);
+              await pushCharTask(id, cleanParts);
             }
           }
         }
@@ -1801,6 +2723,7 @@ export function CharacterList({
       const pad = (n: number) => n.toString().padStart(2, "0");
       const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
       const getUniqueName = createUniqueNameAllocator();
+      const { default: JSZip } = await import("jszip");
 
       let chunkIndex = 1;
       for (let i = 0; i < exportTasks.length; i += CHUNK_SIZE) {
@@ -1812,8 +2735,9 @@ export function CharacterList({
           if (!char) continue;
 
           const uniqueName = getUniqueName(char.name);
+          const parts = cleanExportFolderParts(task.path.join("/"), char.name, uniqueName);
           let currentZip: JSZip = zip;
-          for (const part of task.path) {
+          for (const part of parts) {
             currentZip = currentZip.folder(getSafeFilename(part)) || currentZip;
           }
           await addCharacterToZip(char, currentZip, undefined, uniqueName);
@@ -1926,20 +2850,39 @@ export function CharacterList({
     loadData();
   };
 
+  const handleToggleFavorite = async (e: React.MouseEvent, charId: string) => {
+    e.stopPropagation();
+    try {
+      const newFav = await toggleCharacterFavorite(charId);
+      setCharacters((prev) =>
+        prev.map((c) =>
+          c.id === charId
+            ? { ...c, isFavorite: newFav, updatedAt: Date.now() }
+            : c
+        )
+      );
+      if (folderId === "favorites" && !newFav) {
+        setCharacters((prev) => prev.filter((c) => c.id !== charId));
+      }
+    } catch (err) {
+      console.error("Failed to toggle favorite:", err);
+    }
+  };
+
   return (
-    <div className="pb-32 min-h-full bg-gradient-to-br from-slate-900 to-slate-800 text-white" onTouchStart={handleRootTouchStart} onTouchEnd={handleRootTouchEnd}>
+    <div className="pb-32 min-h-full bg-gradient-to-br from-slate-900 to-slate-800 text-white [.light-theme_&]:!bg-transparent [.light-theme_&]:!text-[#0f172a]" onTouchStart={handleRootTouchStart} onTouchEnd={handleRootTouchEnd}>
       <input
         type="file"
         ref={coverInputRef}
         className="hidden"
-        accept="image/png, image/jpeg, image/webp, image/gif,*/*"
+        accept="image/png, image/jpeg, image/webp, image/gif, image/*"
         onChange={handleCoverUpload}
       />
       <motion.header
         initial={{ y: 0 }}
-        animate={{ y: isHeaderVisible ? 0 : "-100%" }}
-        transition={{ duration: 0.3, ease: "easeInOut" }}
-        className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur-xl border-b border-white/10 px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-4 mb-6 cursor-pointer"
+        animate={{ y: (isHeaderVisible || selectionMode) ? 0 : "-100%" }}
+        transition={{ duration: 0.22, ease: "easeOut" }}
+        className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur-xl border-b border-white/10 px-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] pb-4 mb-6 cursor-pointer [.light-theme_&]:!bg-[#ffffff]/90 [.light-theme_&]:!border-none"
         onClick={(e) => {
           if (e.target === e.currentTarget) {
             scrollToTop();
@@ -1948,32 +2891,43 @@ export function CharacterList({
       >
         {selectionMode ? (
           <motion.div
-            initial={{ opacity: 0, y: -20 }}
+            initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="w-full flex items-center justify-between bg-slate-800/90 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-xl"
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.15 }}
+            className="flex items-center justify-between w-full"
           >
-            <button
-              onClick={() => {
-                setSelectionMode(false);
-                setSelectedIds(new Set());
-              }}
-              className="p-2 -ml-2 rounded-full hover:bg-white/10 transition"
-            >
-              <X className="w-6 h-6" />
-            </button>
-            <span className="font-bold text-lg flex-1 text-center">
-              已选择 {selectedIds.size} 项
-            </span>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                onClick={() => {
+                  setSelectionMode(false);
+                  setSelectedIds(new Set());
+                }}
+                className="p-2 rounded-xl transition shrink-0 cursor-pointer active:scale-95 bg-white/5 hover:bg-white/10 text-slate-300 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#0f172a]"
+                title="退出选择"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <div className="min-w-0">
+                <h2 className="text-base sm:text-lg font-bold truncate leading-tight tracking-tight text-white [.light-theme_&]:!text-[#0f172a]">
+                  已选中 {selectedIds.size} 项
+                </h2>
+                <p className="text-xs truncate mt-0.5 text-slate-400 [.light-theme_&]:!text-[#64748b]">
+                  请确认对选中项的操作
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 onClick={handleSelectPage}
-                className="text-purple-400 font-medium px-3 py-1.5 hover:bg-purple-400/10 rounded-lg transition text-sm whitespace-nowrap"
+                className="px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 bg-white/5 hover:bg-white/10 text-slate-200 border-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-none"
               >
                 全选本页
               </button>
               <button
                 onClick={handleSelectAll}
-                className="text-pink-400 font-medium px-3 py-1.5 hover:bg-pink-400/10 rounded-lg transition text-sm whitespace-nowrap"
+                className="px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 bg-white/5 hover:bg-white/10 text-slate-200 border-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-none"
               >
                 全选所有
               </button>
@@ -1987,48 +2941,370 @@ export function CharacterList({
           >
             <div className="flex-1 min-w-0 px-1">
               {folderId ? (
-                <div className="flex items-center gap-2 mb-1">
-                  <button
-                    onClick={handleBack}
-                    className="p-1 -ml-1 rounded-lg hover:bg-white/10 transition text-white/60 hover:text-white"
-                  >
-                    <ChevronLeft className="w-6 h-6" />
-                  </button>
-                  <h1 className="text-2xl font-bold text-white truncate">
-                    {folderId === "all" ? "全部角色" : currentFolderName}
-                  </h1>
+                <div className="flex flex-col gap-1 mb-1">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleBack}
+                      className="p-1 -ml-1 rounded-lg hover:bg-white/10 transition text-white/60 hover:text-white [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/5"
+                      title="返回上一层"
+                    >
+                      <ChevronLeft className="w-6 h-6" />
+                    </button>
+                    <h1 className="text-2xl font-bold text-white truncate [.light-theme_&]:!text-[#0f172a]">
+                      {folderId === "all" ? "全部角色" : folderId === "favorites" ? "我的收藏" : currentFolderName}
+                    </h1>
+                  </div>
+
+                  {folderId !== "all" && folderAncestors[folderId] && folderAncestors[folderId].length > 0 && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-xs text-white/50 [.light-theme_&]:!text-[#64748b]">
+                      <button
+                        onClick={() => {
+                          if (searchQuery) {
+                            setSearchQuery("");
+                            setDebouncedSearchQuery("");
+                          }
+                          onSelectFolder?.(null);
+                        }}
+                        className="hover:text-blue-400 transition flex items-center gap-1 shrink-0 [.light-theme_&]:hover:!text-blue-600"
+                      >
+                        <Home className="w-3.5 h-3.5" />
+                        <span>主页</span>
+                      </button>
+                      {folderAncestors[folderId].map((crumb, idx) => (
+                        <React.Fragment key={crumb.id || idx}>
+                          <ChevronRight className="w-3 h-3 text-white/30 shrink-0 [.light-theme_&]:!text-[#94a3b8]" />
+                          {idx === folderAncestors[folderId].length - 1 ? (
+                            <span className="font-semibold text-white/90 truncate max-w-[150px] sm:max-w-[220px] [.light-theme_&]:!text-[#0f172a]">
+                              {crumb.name}
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                if (searchQuery) {
+                                  setSearchQuery("");
+                                  setDebouncedSearchQuery("");
+                                }
+                                onSelectFolder?.(crumb.id);
+                              }}
+                              className="hover:text-white [.light-theme_&]:hover:!text-[#0f172a] transition truncate max-w-[120px] shrink-0"
+                            >
+                              {crumb.name}
+                            </button>
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ) : (
-                <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600 truncate">
-                  SillyTavern管理器
-                </h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl font-black text-white [.light-theme_&]:!text-[#1c1c1e] truncate tracking-wide">
+                    MIU
+                  </h1>
+                  <span className="text-[10px] font-semibold tracking-wider text-white/70 [.light-theme_&]:!text-[#1c1c1e]/70 bg-white/10 [.light-theme_&]:!bg-black/5 border border-white/15 [.light-theme_&]:!border-black/10 px-2 py-0.5 rounded-full select-none shadow-xs">
+                    v{CURRENT_APP_VERSION}
+                  </span>
+                </div>
               )}
-              <p className="text-slate-400 text-xs mt-0.5 truncate">
-                {folders.length > 0 && totalCharacters > 0
-                  ? `${folders.length} 个文件夹 · ${totalCharacters} 个角色`
-                  : folders.length > 0
-                    ? `${folders.length} 个文件夹`
-                    : `管理你的角色卡片 (${totalCharacters})`}
+              <p className="text-slate-400 text-xs mt-0.5 truncate [.light-theme_&]:!text-[#64748b]">
+                {folderId ? (
+                  folders.length > 0 && totalCharacters > 0
+                    ? `${folders.length} 个子文件夹 · ${totalCharacters} 个角色`
+                    : folders.length > 0
+                      ? `${folders.length} 个子文件夹`
+                      : `${totalCharacters} 个角色`
+                ) : (
+                  folders.length > 0 && totalAllCharacters > 0
+                    ? `${folders.length} 个文件夹 · ${totalAllCharacters} 个角色`
+                    : folders.length > 0
+                      ? `${folders.length} 个文件夹`
+                      : `管理你的角色卡片 (${totalAllCharacters})`
+                )}
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <button
                 onClick={onOpenSidebar}
-                className="p-2 rounded-xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition shrink-0"
+                className="w-8 h-8 sm:w-8.5 sm:h-8.5 rounded-full bg-white/10 hover:bg-white/15 text-white/80 hover:text-white transition shrink-0 flex items-center justify-center border-0 border-none [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#cbd5e1] cursor-pointer shadow-xs"
+                title="打开导航菜单"
               >
-                <Menu className="w-5 h-5" />
+                {googleUser?.photoURL ? (
+                  <img 
+                    src={googleUser.photoURL} 
+                    alt="User" 
+                    referrerPolicy="no-referrer" 
+                    className="w-5 h-5 sm:w-5.5 sm:h-5.5 rounded-full object-cover" 
+                  />
+                ) : (
+                  <Menu className="w-4.5 h-4.5 stroke-[1.75]" />
+                )}
               </button>
 
-              <div className="relative flex-1 min-w-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-                <input
-                  type="text"
-                  placeholder="搜索..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/50 transition"
-                />
+              <div ref={searchContainerRef} className="relative flex-1 min-w-0">
+                <div
+                  className={`flex items-center gap-1.5 w-full rounded-full ${
+                    searchScope !== "basic" ? "pl-1.5" : "pl-3"
+                  } ${searchQuery ? "pr-2" : "pr-3.5"} py-1.5 sm:py-2 transition shadow-xs ${
+                    isLightMode
+                      ? 'bg-[#e2e8f0] hover:bg-[#cbd5e1]/70 focus-within:bg-[#cbd5e1]/70 text-[#0f172a]'
+                      : 'bg-white/10 hover:bg-white/15 focus-within:bg-white/15 text-white'
+                  }`}
+                >
+                  {searchScope !== "basic" ? (
+                    <button
+                      type="button"
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        setIsSearchFocused(true);
+                      }}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold shrink-0 max-w-[84px] bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-[#007aff] transition cursor-pointer"
+                      title="点击切换搜索范围"
+                    >
+                      <span className="truncate">{activeScopeOption.label}</span>
+                      <span
+                        role="button"
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setSearchScope("basic");
+                        }}
+                        className="opacity-70 hover:opacity-100 leading-none"
+                        title="恢复默认搜索"
+                      >
+                        <X className="w-3 h-3" />
+                      </span>
+                    </button>
+                  ) : (
+                    <Search className="w-4 h-4 text-white/50 [.light-theme_&]:!text-[#64748b] stroke-[1.75] shrink-0 pointer-events-none" />
+                  )}
+
+                  <form
+                    action=""
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      saveSearchToHistory(searchQuery);
+                      setIsSearchFocused(false);
+                      (document.activeElement as HTMLElement)?.blur();
+                    }}
+                    className="flex-1 min-w-0"
+                  >
+                    <input
+                      type="text"
+                      inputMode="search"
+                      enterKeyHint="search"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck="false"
+                      placeholder={activeScopeOption.placeholder}
+                      value={searchQuery}
+                      onFocus={() => setIsSearchFocused(true)}
+                      onClick={() => setIsSearchFocused(true)}
+                      onPointerDown={() => setIsSearchFocused(true)}
+                      onTouchStart={() => setIsSearchFocused(true)}
+                      onBlur={handleSearchBlur}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        if (!isSearchFocused) setIsSearchFocused(true);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          saveSearchToHistory(searchQuery);
+                          setIsSearchFocused(false);
+                          (e.target as HTMLInputElement).blur();
+                        }
+                      }}
+                      className={`w-full bg-transparent border-0 border-none text-sm focus:outline-none [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-cancel-button]:appearance-none ${
+                        isLightMode
+                          ? 'text-[#0f172a] placeholder:text-[#8e8e93]'
+                          : 'text-white placeholder:text-white/40'
+                      }`}
+                    />
+                  </form>
+
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                      }}
+                      onClick={() => {
+                        setSearchQuery("");
+                        setDebouncedSearchQuery("");
+                      }}
+                      className={`p-1 rounded-full transition cursor-pointer shrink-0 ${
+                        isLightMode
+                          ? 'text-slate-400 hover:text-slate-700 hover:bg-black/5 active:bg-black/10'
+                          : 'text-white/40 hover:text-white hover:bg-white/10 active:bg-white/20'
+                      }`}
+                      title="清空输入"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* 搜索范围 + 搜索历史记录浮窗 - 只要选中/点击输入框即立即弹出 */}
+                <AnimatePresence>
+                  {isSearchFocused && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 6, scale: 0.98 }}
+                      transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                      className={`absolute -left-[38px] w-[calc(100vw-2rem)] max-w-[380px] sm:left-0 sm:w-full sm:min-w-[310px] sm:max-w-none top-full mt-2 z-50 rounded-2xl overflow-hidden shadow-xl border-0 border-none outline-none ${
+                        isLightMode
+                          ? 'bg-[#ffffff] [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-none [.light-theme_&]:!shadow-xl text-[#0f172a] [.light-theme_&]:!text-[#0f172a]'
+                          : 'bg-slate-800 text-white border-0 border-none shadow-2xl'
+                      }`}
+                    >
+                      {/* 搜索范围选择区 */}
+                      <div className="px-3.5 pt-2.5 pb-2.5 border-b border-white/10 [.light-theme_&]:!border-[#f1f5f9]">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 [.light-theme_&]:!text-[#64748b]">
+                            <Search className="w-3.5 h-3.5 stroke-[1.75]" />
+                            <span>搜索范围</span>
+                          </div>
+                          {searchScope !== "basic" && (
+                            <button
+                              type="button"
+                              onPointerDown={(e) => {
+                                e.preventDefault();
+                                setSearchScope("basic");
+                              }}
+                              className="text-[11px] font-medium text-blue-400 hover:text-blue-300 [.light-theme_&]:!text-[#007aff] cursor-pointer"
+                            >
+                              恢复默认
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {searchScopeOptions.map((opt) => {
+                            const isActive = searchScope === opt.id;
+                            return (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                onPointerDown={(e) => {
+                                  e.preventDefault();
+                                  setSearchScope(opt.id);
+                                }}
+                                className={`px-2.5 py-1 rounded-full text-xs font-medium transition cursor-pointer active:scale-95 border-none ${
+                                  isActive
+                                    ? 'bg-blue-500/20 text-blue-300 font-semibold [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-[#007aff]'
+                                    : 'bg-white/5 hover:bg-white/10 text-white/75 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:!text-[#2c3e50]'
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* 历史头部 - 无边框纯净设计 */}
+                      <div className="flex items-center justify-between px-3.5 pt-2.5 pb-1.5 border-0 border-none">
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 [.light-theme_&]:!text-slate-400">
+                          <Clock className="w-3.5 h-3.5 stroke-[1.75]" />
+                          <span>历史搜索</span>
+                          {searchHistory.length > 0 && (
+                            <span className="text-[10px] font-normal text-slate-400/80">
+                              ({searchHistory.length}/5)
+                            </span>
+                          )}
+                        </div>
+                        {searchHistory.length > 0 && (
+                          <button
+                            type="button"
+                            onPointerDown={(e) => {
+                              e.preventDefault();
+                              clearAllSearchHistory(e);
+                            }}
+                            className="text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1 p-1 -mr-1 border-0 border-none text-slate-400 hover:text-red-500 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-red-500"
+                            title="清除全部搜索记录"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>全部清除</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* 历史项列表与空状态 */}
+                      <div className="p-1 max-h-[45vh] overflow-y-auto">
+                        {(() => {
+                          const matchingItems = searchQuery.trim()
+                            ? searchHistory.filter((item) =>
+                                item.toLowerCase().includes(searchQuery.trim().toLowerCase())
+                              )
+                            : searchHistory;
+
+                          if (matchingItems.length > 0) {
+                            return matchingItems.map((item) => (
+                              <div
+                                key={item}
+                                onPointerDown={(e) => {
+                                  e.preventDefault();
+                                  setSearchQuery(item);
+                                  setDebouncedSearchQuery(item);
+                                  saveSearchToHistory(item);
+                                  setIsSearchFocused(false);
+                                }}
+                                className={`group flex items-center justify-between px-3 py-2 rounded-xl text-xs sm:text-sm cursor-pointer transition-colors active:scale-[0.99] border-0 border-none ${
+                                  isLightMode
+                                    ? 'hover:bg-slate-100 [.light-theme_&]:hover:!bg-[#f1f2f6] text-[#0f172a] [.light-theme_&]:!text-[#0f172a]'
+                                    : 'hover:bg-white/10 text-white'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                  <Clock
+                                    className={`w-3.5 h-3.5 shrink-0 ${
+                                      isLightMode
+                                        ? 'text-slate-400 group-hover:text-slate-600'
+                                        : 'text-white/40 group-hover:text-white/70'
+                                    }`}
+                                  />
+                                  <span className="truncate font-medium text-white [.light-theme_&]:!text-[#0f172a]">
+                                    {item}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onPointerDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    deleteSearchHistoryItem(item, e);
+                                  }}
+                                  className={`p-1 rounded-lg transition shrink-0 ml-2 cursor-pointer border-0 border-none ${
+                                    isLightMode
+                                      ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 active:bg-slate-300'
+                                      : 'text-white/40 hover:text-white hover:bg-white/10 active:bg-white/20'
+                                  }`}
+                                  title="删除此条记录"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ));
+                          }
+
+                          if (searchQuery.trim() && searchHistory.length > 0) {
+                            return (
+                              <div className="py-3 px-3.5 text-center text-xs text-slate-400 [.light-theme_&]:!text-slate-400 select-none font-normal">
+                                无匹配的历史搜索记录
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="py-3 px-3.5 text-center text-xs text-slate-400 [.light-theme_&]:!text-slate-400 select-none font-normal">
+                              暂无历史搜索记录 (每次搜索将自动保存)
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               <button
@@ -2041,14 +3317,15 @@ export function CharacterList({
                         : "grid",
                   )
                 }
-                className="p-2 bg-white/5 border border-white/10 rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition shrink-0"
+                className="w-8 h-8 sm:w-8.5 sm:h-8.5 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/15 text-white/80 hover:text-white transition shrink-0 border-0 border-none [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:!border-none cursor-pointer shadow-xs"
+                title="切换布局"
               >
                 {viewMode === "grid" ? (
-                  <LayoutGrid className="w-5 h-5" />
+                  <LayoutGrid className="w-4.5 h-4.5 stroke-[1.75]" />
                 ) : viewMode === "masonry" ? (
-                  <LayoutDashboard className="w-5 h-5" />
+                  <LayoutDashboard className="w-4.5 h-4.5 stroke-[1.75]" />
                 ) : (
-                  <List className="w-5 h-5" />
+                  <List className="w-4.5 h-4.5 stroke-[1.75]" />
                 )}
               </button>
 
@@ -2059,9 +3336,10 @@ export function CharacterList({
                     setIsSortOpen(!isSortOpen);
                     setIsFilterOpen(false);
                   }}
-                  className={`p-2 border rounded-xl transition ${isSortOpen ? "bg-purple-500/20 text-purple-400 border-purple-500/50" : "bg-white/5 text-white/60 border-white/10 hover:text-white hover:bg-white/10"}`}
+                  className={`w-8 h-8 sm:w-8.5 sm:h-8.5 rounded-full flex items-center justify-center transition cursor-pointer border-0 border-none [.light-theme_&]:!border-none shadow-xs ${isSortOpen ? "bg-blue-500/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-[#007aff]" : "bg-white/10 hover:bg-white/15 text-white/80 hover:text-white [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a]"}`}
+                  title="排序"
                 >
-                  <ArrowUpDown className="w-5 h-5" />
+                  <ArrowUpDown className="w-4.5 h-4.5 stroke-[1.75]" />
                 </button>
 
                 <AnimatePresence>
@@ -2070,12 +3348,14 @@ export function CharacterList({
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 10 }}
-                      className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-white/10 rounded-2xl shadow-xl z-50 p-2 overflow-hidden"
+                      className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border-0 border-none rounded-2xl shadow-xl z-50 p-2 overflow-hidden [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-none [.light-theme_&]:!shadow-xl"
                     >
                       {[
                         { value: "newest_import", label: "最新导入" },
                         { value: "oldest_import", label: "最旧导入" },
                         { value: "recently_modified", label: "最近修改" },
+                        { value: "tokens_desc", label: "Token 数量 (多到少)" },
+                        { value: "tokens_asc", label: "Token 数量 (少到多)" },
                         { value: "a_z", label: "A - Z" },
                         { value: "z_a", label: "Z - A" },
                       ].map((option) => (
@@ -2085,10 +3365,10 @@ export function CharacterList({
                             setSortBy(option.value as SortOption);
                             setIsSortOpen(false);
                           }}
-                          className={`w-full text-left px-4 py-2.5 rounded-xl text-sm transition ${
+                          className={`w-full text-left px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-medium transition cursor-pointer border-0 border-none ${
                             sortBy === option.value
-                              ? "bg-purple-500/20 text-purple-400 font-medium"
-                              : "text-white/70 hover:bg-white/5 hover:text-white"
+                              ? "bg-blue-500/20 text-blue-400 font-semibold [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-blue-600"
+                              : "text-white/70 hover:bg-white/5 hover:text-white [.light-theme_&]:!text-[#334155] [.light-theme_&]:hover:!bg-[#f1f2f6] [.light-theme_&]:hover:!text-[#0f172a]"
                           }`}
                         >
                           {option.label}
@@ -2109,9 +3389,10 @@ export function CharacterList({
                     setIsFilterOpen(!isFilterOpen);
                     setIsSortOpen(false);
                   }}
-                  className={`p-2 border rounded-xl transition ${selectedTags.length > 0 ? "bg-purple-500/20 text-purple-400 border-purple-500/50" : "bg-white/5 text-white/60 border-white/10 hover:text-white hover:bg-white/10"}`}
+                  className={`w-8 h-8 sm:w-8.5 sm:h-8.5 rounded-full flex items-center justify-center transition cursor-pointer border-0 border-none [.light-theme_&]:!border-none shadow-xs ${selectedTags.length > 0 || isFilterOpen ? "bg-blue-500/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-[#007aff]" : "bg-white/10 hover:bg-white/15 text-white/80 hover:text-white [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a]"}`}
+                  title="筛选"
                 >
-                  <Filter className="w-5 h-5" />
+                  <Filter className="w-4.5 h-4.5 stroke-[1.75]" />
                 </button>
 
                 <AnimatePresence>
@@ -2120,40 +3401,44 @@ export function CharacterList({
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 10 }}
-                      className="absolute right-0 top-full mt-2 w-72 bg-slate-800 border border-white/10 rounded-2xl shadow-xl z-50 p-4 max-h-[60vh] overflow-y-auto overscroll-contain touch-pan-y"
+                      className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-slate-800 border border-white/10 rounded-3xl shadow-2xl z-50 p-5 sm:p-6 max-h-[65vh] overflow-y-auto overscroll-contain touch-pan-y miu-skin [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-none [.light-theme_&]:!shadow-2xl"
                     >
-                      <div className="flex items-center justify-between mb-3 relative h-6">
+                      <div className="flex items-center justify-between mb-4 relative h-7">
                         {!isTagSearchOpen ? (
                           <div className="absolute inset-0 flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <h3 className="font-semibold text-white">
+                              <h3 className="font-bold text-sm sm:text-base text-white [.light-theme_&]:!text-[#0f172a]">
                                 按标签筛选
                               </h3>
                               <button
                                 onClick={() => setIsTagSearchOpen(true)}
-                                className="text-white/40 hover:text-white transition"
+                                className="text-white/40 hover:text-white transition p-1 [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] cursor-pointer"
+                                title="搜索标签"
                               >
                                 <Search className="w-4 h-4" />
                               </button>
                             </div>
-                            <div className="flex items-center gap-2">
-                              {selectedTags.length > 0 && (
+                            <div className="flex items-center gap-2.5">
+                              {selectedTags.length > 0 && !isTagEditMode && (
                                 <button
                                   onClick={() => setSelectedTags([])}
-                                  className="text-xs text-red-400 hover:text-red-300 transition"
+                                  className="text-xs font-semibold text-red-400 hover:text-red-300 transition [.light-theme_&]:!text-red-500 [.light-theme_&]:hover:!text-red-600 cursor-pointer"
                                 >
                                   清除选中
                                 </button>
                               )}
                               {allTags.length > 0 && (
                                 <button
-                                  onClick={() => {
-                                    setIsEditingTags(!isEditingTags);
-                                    setEditingTagValue(null);
-                                  }}
-                                  className="text-xs text-purple-400 hover:text-purple-300 transition"
+                                  type="button"
+                                  onClick={() => setIsTagEditMode((prev) => !prev)}
+                                  className={`text-xs font-semibold px-2.5 py-0.5 rounded-full transition cursor-pointer ${
+                                    isTagEditMode
+                                      ? "bg-blue-500/20 text-blue-300 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!text-[#007aff]"
+                                      : "text-white/55 hover:text-white [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a]"
+                                  }`}
+                                  title={isTagEditMode ? "退出标签编辑" : "编辑或删除标签"}
                                 >
-                                  {isEditingTags ? "完成" : "编辑"}
+                                  {isTagEditMode ? "完成" : "编辑"}
                                 </button>
                               )}
                             </div>
@@ -2162,9 +3447,9 @@ export function CharacterList({
                           <motion.div
                             initial={{ width: 0, opacity: 0 }}
                             animate={{ width: "100%", opacity: 1 }}
-                            className="absolute right-0 flex items-center bg-white/10 rounded-lg overflow-hidden h-full"
+                            className="absolute right-0 flex items-center bg-white/10 rounded-xl overflow-hidden h-full px-2 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none"
                           >
-                            <Search className="w-3.5 h-3.5 text-white/40 ml-2 shrink-0" />
+                            <Search className="w-4 h-4 text-white/40 shrink-0 [.light-theme_&]:!text-[#64748b]" />
                             <input
                               autoFocus
                               type="text"
@@ -2173,24 +3458,29 @@ export function CharacterList({
                               onChange={(e) =>
                                 setTagSearchQuery(e.target.value)
                               }
-                              className="w-full bg-transparent text-sm text-white px-2 py-1 outline-none min-w-0"
+                              className="w-full bg-transparent text-xs sm:text-sm text-white placeholder:text-white/40 [.light-theme_&]:placeholder:!text-[#94a3b8] px-2 py-1 outline-none min-w-0 [.light-theme_&]:bg-transparent [.light-theme_&]:!text-[#0f172a]"
                             />
                             <button
                               onClick={() => {
                                 setIsTagSearchOpen(false);
                                 setTagSearchQuery("");
                               }}
-                              className="p-1 hover:bg-white/10 rounded-md mr-0.5 text-white/60 hover:text-white transition shrink-0"
+                              className="p-1 hover:bg-white/10 rounded-md text-white/60 hover:text-white transition shrink-0 [.light-theme_&]:hover:!bg-black/10 [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] cursor-pointer"
                             >
-                              <X className="w-3 h-3" />
+                              <X className="w-3.5 h-3.5" />
                             </button>
                           </motion.div>
                         )}
                       </div>
+                      {isTagEditMode && allTags.length > 0 && (
+                        <p className="text-[11px] text-white/45 [.light-theme_&]:!text-[#64748b] mb-2.5">
+                          点击任意标签可重命名或删除
+                        </p>
+                      )}
                       {allTags.length === 0 ? (
-                        <p className="text-sm text-white/40">无可用标签</p>
+                        <p className="text-xs sm:text-sm text-white/40 py-4 [.light-theme_&]:!text-[#64748b]">无可用标签</p>
                       ) : (
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pt-1">
                           {allTags
                             .filter((tag) =>
                               tag
@@ -2200,135 +3490,30 @@ export function CharacterList({
                             .map((tag) => {
                               const isSelected = selectedTags.includes(tag);
 
-                              if (isEditingTags) {
-                                if (editingTagValue?.old === tag) {
-                                  return (
-                                    <div
-                                      key={tag}
-                                      className="flex items-center gap-1 w-full bg-black/20 p-1 rounded-lg border border-purple-500/50"
-                                    >
-                                      <input
-                                        autoFocus
-                                        type="text"
-                                        value={editingTagValue.new}
-                                        onChange={(e) =>
-                                          setEditingTagValue({
-                                            ...editingTagValue,
-                                            new: e.target.value,
-                                          })
-                                        }
-                                        className="flex-1 bg-transparent text-sm text-white px-2 py-1 outline-none"
-                                        onKeyDown={async (e) => {
-                                          if (
-                                            e.key === "Enter" &&
-                                            editingTagValue.new.trim() &&
-                                            editingTagValue.new.trim() !== tag
-                                          ) {
-                                            await import("../lib/db").then(
-                                              (m) =>
-                                                m.renameTag(
-                                                  tag,
-                                                  editingTagValue.new.trim(),
-                                                ),
-                                            );
-                                            setEditingTagValue(null);
-                                            loadData();
-                                            import("../lib/db").then((m) =>
-                                              m.getAllTags().then(setAllTags),
-                                            );
-                                          } else if (e.key === "Escape") {
-                                            setEditingTagValue(null);
-                                          }
-                                        }}
-                                      />
-                                      <button
-                                        onClick={async () => {
-                                          if (
-                                            editingTagValue.new.trim() &&
-                                            editingTagValue.new.trim() !== tag
-                                          ) {
-                                            await import("../lib/db").then(
-                                              (m) =>
-                                                m.renameTag(
-                                                  tag,
-                                                  editingTagValue.new.trim(),
-                                                ),
-                                            );
-                                            setEditingTagValue(null);
-                                            loadData();
-                                            import("../lib/db").then((m) =>
-                                              m.getAllTags().then(setAllTags),
-                                            );
-                                          } else {
-                                            setEditingTagValue(null);
-                                          }
-                                        }}
-                                        className="p-1.5 text-green-400 hover:bg-green-400/20 rounded-md transition"
-                                      >
-                                        <CheckCircle2 className="w-4 h-4" />
-                                      </button>
-                                      <button
-                                        onClick={() => setEditingTagValue(null)}
-                                        className="p-1.5 text-white/40 hover:bg-white/10 rounded-md transition"
-                                      >
-                                        <X className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  );
-                                }
-
-                                return (
-                                  <div
-                                    key={tag}
-                                    className="flex items-center gap-1 bg-white/5 rounded-lg pl-3 pr-1 py-1 border border-white/10"
-                                  >
-                                    <span className="text-sm text-white/80">
-                                      {tag}
-                                    </span>
-                                    <button
-                                      onClick={() =>
-                                        setEditingTagValue({
-                                          old: tag,
-                                          new: tag,
-                                        })
-                                      }
-                                      className="p-1 text-white/40 hover:text-blue-400 hover:bg-blue-400/10 rounded transition"
-                                    >
-                                      <Edit2 className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      onClick={async () => {
-                                        if (
-                                          confirm(
-                                            `确定要删除标签 "${tag}" 吗？这会从所有角色中移除该标签。`,
-                                          )
-                                        ) {
-                                          await import("../lib/db").then((m) =>
-                                            m.deleteTag(tag),
-                                          );
-                                          setSelectedTags(
-                                            selectedTags.filter(
-                                              (t) => t !== tag,
-                                            ),
-                                          );
-                                          loadData();
-                                          import("../lib/db").then((m) =>
-                                            m.getAllTags().then(setAllTags),
-                                          );
-                                        }
-                                      }}
-                                      className="p-1 text-white/40 hover:text-red-400 hover:bg-red-400/10 rounded transition"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                );
-                              }
-
                               return (
                                 <button
                                   key={tag}
+                                  style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none" }}
+                                  onTouchStart={() => handleTagTouchStart(tag)}
+                                  onTouchEnd={handleTagTouchEnd}
+                                  onTouchCancel={handleTagTouchEnd}
+                                  onTouchMove={handleTagTouchEnd}
+                                  onMouseDown={() => handleTagTouchStart(tag)}
+                                  onMouseUp={handleTagTouchEnd}
+                                  onMouseLeave={handleTagTouchEnd}
+                                  onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    if (tagLongPressTriggeredRef.current) return;
+                                    handleTagTouchEnd();
+                                    setTagActionModal(tag);
+                                  }}
                                   onClick={() => {
+                                    if (tagLongPressTriggeredRef.current) return;
+                                    if (isTagEditMode) {
+                                      setTagActionModal(tag);
+                                      return;
+                                    }
                                     if (isSelected) {
                                       setSelectedTags(
                                         selectedTags.filter((t) => t !== tag),
@@ -2337,9 +3522,16 @@ export function CharacterList({
                                       setSelectedTags([...selectedTags, tag]);
                                     }
                                   }}
-                                  className={`px-3 py-1.5 rounded-lg text-sm transition ${isSelected ? "bg-purple-500 text-white" : "bg-white/5 text-white/60 hover:bg-white/10"}`}
+                                  className={`px-3.5 py-1.5 rounded-2xl text-xs sm:text-sm font-medium transition-all cursor-pointer select-none active:scale-95 border-none inline-flex items-center gap-1.5 ${
+                                    isTagEditMode
+                                      ? "bg-blue-500/15 text-blue-200 ring-1 ring-blue-400/35 hover:bg-blue-500/25 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!text-[#007aff] [.light-theme_&]:ring-1 [.light-theme_&]:ring-[#bfdbfe] [.light-theme_&]:hover:!bg-[#dbeafe]"
+                                      : isSelected 
+                                        ? "bg-blue-500/25 text-blue-300 font-semibold [.light-theme_&]:!bg-blue-600 [.light-theme_&]:!text-[#ffffff] shadow-xs" 
+                                        : "bg-white/5 text-white/75 hover:text-white hover:bg-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!text-[#2c3e50] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:hover:!text-[#0f172a]"
+                                  }`}
+                                  title={isTagEditMode ? "点击重命名或删除此标签" : "点击筛选标签，长按管理标签"}
                                 >
-                                  {tag}
+                                  <span>{tag}</span>
                                 </button>
                               );
                             })}
@@ -2354,31 +3546,68 @@ export function CharacterList({
         )}
       </motion.header>
 
-      {totalItems === 0 ? (
-        <div className="flex flex-col items-center justify-center h-64 text-slate-400 px-4">
-          <BookOpen className="w-16 h-16 mb-4 opacity-50" />
-          <p>No characters found.</p>
-          <p className="text-sm">Tap the + button to import.</p>
-        </div>
+      {totalItems === 0 && !hasLoadedOnce ? null : totalItems === 0 ? (
+        debouncedSearchQuery.trim() ? (
+          <div className="flex flex-col items-center justify-center min-h-[16rem] text-slate-400 px-4 text-center [.light-theme_&]:!text-[#64748b]">
+            <Search className="w-12 h-12 mb-3 opacity-40 [.light-theme_&]:!text-[#94a3b8]" />
+            <p className="[.light-theme_&]:!text-[#0f172a] font-medium">
+              在「{activeScopeOption.label}」中未找到匹配卡片
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
+              {searchScope !== "all" && (
+                <button
+                  type="button"
+                  onClick={() => setSearchScope("all")}
+                  className="px-4 py-1.5 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-[#007aff] transition cursor-pointer"
+                >
+                  改为搜索全部内容（含作者/备注/开场白/备忘录）
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  setDebouncedSearchQuery("");
+                  setSearchScope("basic");
+                }}
+                className="px-4 py-1.5 rounded-full text-xs font-medium bg-white/10 hover:bg-white/15 text-white/80 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:!text-[#475569] transition cursor-pointer"
+              >
+                清空搜索
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-64 text-slate-400 px-4 [.light-theme_&]:!text-[#64748b]">
+            <BookOpen className="w-16 h-16 mb-4 opacity-50 [.light-theme_&]:!text-[#94a3b8]" />
+            <p className="[.light-theme_&]:!text-[#0f172a] font-medium">No characters found.</p>
+            <p className="text-sm [.light-theme_&]:!text-[#64748b]">Tap the + button to import.</p>
+          </div>
+        )
       ) : (
-        <div className="px-4">
+        <div className={`px-4 transition-all duration-200 ${selectionMode ? 'pb-36 sm:pb-40' : 'pb-12 sm:pb-16'}`}>
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragStart={(event) => {
-              if (!selectionMode) {
-                setSelectionMode(true);
-                const idStr = String(event.active.id);
-                if (idStr.startsWith("char-")) {
-                  const id = idStr.replace("char-", "");
-                  setSelectedIds(new Set([id]));
-                } else if (idStr.startsWith("folder-")) {
-                  const id = idStr.replace("folder-", "");
-                  setSelectedIds(new Set([id]));
-                }
+              isDraggingRef.current = true;
+              if (longPressRef.current.timer) {
+                clearTimeout(longPressRef.current.timer);
+                longPressRef.current.timer = null;
               }
+              const idStr = String(event.active.id);
+              setActiveDragId(idStr);
             }}
-            onDragEnd={handleDragEnd}
+            onDragEnd={(event) => {
+              isDraggingRef.current = false;
+              lastDragEndTimeRef.current = Date.now();
+              setActiveDragId(null);
+              handleDragEnd(event);
+            }}
+            onDragCancel={() => {
+              isDraggingRef.current = false;
+              lastDragEndTimeRef.current = Date.now();
+              setActiveDragId(null);
+            }}
           >
             <SortableContext
               items={[
@@ -2394,43 +3623,11 @@ export function CharacterList({
                     viewMode === "list"
                       ? "flex flex-col gap-2 mb-2"
                       : viewMode === "grid"
-                        ? "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4 mb-6"
-                        : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-6"
+                        ? "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 sm:gap-4 mb-4 sm:mb-5"
+                        : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4 mb-4 sm:mb-5"
                   }
                 >
-                  {page === 1 && !searchQuery && selectedTags.length === 0 && (
-                    <motion.div
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setIsCreatingFolder(true)}
-                      className={
-                        viewMode === "list"
-                          ? "flex items-center gap-4 p-3 bg-white/5 hover:bg-white/10 rounded-2xl cursor-pointer transition border border-dashed border-white/20"
-                          : viewMode === "masonry" 
-                            ? "flex flex-col items-center gap-2 cursor-pointer group break-inside-avoid mb-4" 
-                            : "flex flex-col items-center gap-2 cursor-pointer group break-inside-avoid"
-                      }
-                    >
-                      <div
-                        className={
-                          viewMode === "list"
-                            ? "w-12 h-12 bg-white/5 border-2 border-dashed border-white/20 rounded-xl flex items-center justify-center shrink-0"
-                            : "w-full aspect-square bg-white/5 border-2 border-dashed border-white/20 rounded-3xl flex items-center justify-center group-hover:bg-white/10 group-hover:border-white/40 transition"
-                        }
-                      >
-                        <Plus className="w-8 h-8 text-white/40 group-hover:text-white/60 transition" />
-                      </div>
-                      <span
-                        className={
-                          viewMode === "list"
-                            ? "font-medium text-white/60"
-                            : "text-xs font-medium text-center truncate w-full text-white/60 group-hover:text-white/80"
-                        }
-                      >
-                        新建文件夹
-                      </span>
-                    </motion.div>
-                  )}
+
 
                   {paginatedFolders.map((folder) => {
                     const previews = folderPreviews[folder.id] || [];
@@ -2439,28 +3636,33 @@ export function CharacterList({
                         key={`folder-${folder.id}`}
                         id={`folder-${folder.id}`}
                         disabled={!!searchQuery || selectedTags.length > 0}
+                        activeDragIsQR={activeIsQR}
+                        activeDragCharId={activeChar?.id || null}
                       >
-                        <motion.div
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
+                        <div
+                          style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none", touchAction: "pan-y" }}
                           onTouchStart={(e) => {
+                            if (selectionMode || isDraggingRef.current) return;
+                            (longPressRef.current as any).touchHandled = true;
                             longPressRef.current.triggered = false;
+                            longPressRef.current.startX = e.touches[0].clientX;
                             longPressRef.current.startY = e.touches[0].clientY;
+                            if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
                             longPressRef.current.timer = setTimeout(() => {
+                              if (isDraggingRef.current) return;
                               longPressRef.current.triggered = true;
                               if (!selectionMode) {
                                 setSelectionMode(true);
                                 setSelectedIds(new Set([folder.id]));
+                                setIsHeaderVisible(true);
                               }
-                            }, 500);
+                            }, 550);
                           }}
                           onTouchMove={(e) => {
-                            if (longPressRef.current.timer) {
-                              const dy = Math.abs(
-                                e.touches[0].clientY -
-                                  (longPressRef.current.startY || 0),
-                              );
-                              if (dy > 10) {
+                            if (longPressRef.current.timer && e.touches[0]) {
+                              const dx = Math.abs(e.touches[0].clientX - (longPressRef.current.startX || 0));
+                              const dy = Math.abs(e.touches[0].clientY - (longPressRef.current.startY || 0));
+                              if (dx > 10 || dy > 10 || isDraggingRef.current) {
                                 clearTimeout(longPressRef.current.timer);
                                 longPressRef.current.timer = null;
                               }
@@ -2471,16 +3673,40 @@ export function CharacterList({
                               clearTimeout(longPressRef.current.timer);
                               longPressRef.current.timer = null;
                             }
+                            setTimeout(() => { (longPressRef.current as any).touchHandled = false; }, 300);
                           }}
-                          onMouseDown={() => {
+                          onTouchCancel={() => {
+                            if (longPressRef.current.timer) {
+                              clearTimeout(longPressRef.current.timer);
+                              longPressRef.current.timer = null;
+                            }
+                            setTimeout(() => { (longPressRef.current as any).touchHandled = false; }, 300);
+                          }}
+                          onMouseDown={(e) => {
+                            if (selectionMode || isDraggingRef.current || e.button !== 0 || (longPressRef.current as any).touchHandled) return;
                             longPressRef.current.triggered = false;
+                            longPressRef.current.startX = e.clientX;
+                            longPressRef.current.startY = e.clientY;
+                            if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
                             longPressRef.current.timer = setTimeout(() => {
+                              if (isDraggingRef.current) return;
                               longPressRef.current.triggered = true;
                               if (!selectionMode) {
                                 setSelectionMode(true);
                                 setSelectedIds(new Set([folder.id]));
+                                setIsHeaderVisible(true);
                               }
-                            }, 500);
+                            }, 550);
+                          }}
+                          onMouseMove={(e) => {
+                            if (longPressRef.current.timer) {
+                              const dx = Math.abs(e.clientX - (longPressRef.current.startX || 0));
+                              const dy = Math.abs(e.clientY - (longPressRef.current.startY || 0));
+                              if (dx > 10 || dy > 10 || isDraggingRef.current) {
+                                clearTimeout(longPressRef.current.timer);
+                                longPressRef.current.timer = null;
+                              }
+                            }
                           }}
                           onMouseUp={() => {
                             if (longPressRef.current.timer) {
@@ -2494,64 +3720,110 @@ export function CharacterList({
                               longPressRef.current.timer = null;
                             }
                           }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (longPressRef.current.triggered) return;
+                            if (longPressRef.current.timer) {
+                              clearTimeout(longPressRef.current.timer);
+                              longPressRef.current.timer = null;
+                            }
+                            longPressRef.current.triggered = true;
+                            if (!selectionMode) {
+                              setSelectionMode(true);
+                              setSelectedIds(new Set([folder.id]));
+                              setIsHeaderVisible(true);
+                            }
+                          }}
                           onClick={(e) => {
-                            if (longPressRef.current.triggered) {
+                            if (longPressRef.current.triggered || Date.now() - lastDragEndTimeRef.current < 450) {
+                              longPressRef.current.triggered = false;
                               e.preventDefault();
+                              e.stopPropagation();
                               return;
                             }
                             if (selectionMode) {
                               toggleSelection(folder.id);
                             } else {
+                              if (searchQuery) {
+                                setSearchQuery("");
+                                setDebouncedSearchQuery("");
+                              }
                               onSelectFolder?.(folder.id);
                             }
                           }}
-                          className={
+                          className={`${
                             viewMode === "list"
-                              ? "flex items-center gap-4 p-3 bg-white/5 hover:bg-white/10 rounded-2xl cursor-pointer transition relative group select-none"
-                              : "flex flex-col items-center gap-2 cursor-pointer group relative select-none break-inside-avoid"
-                          }
+                              ? "flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition duration-150 ease-out relative group select-none border bg-white/5 hover:bg-white/10 border-transparent overflow-hidden"
+                              : "flex flex-col items-center cursor-pointer group relative select-none break-inside-avoid w-full rounded-2xl transition duration-150 ease-out border border-transparent"
+                          } ${
+                            selectedIds.has(folder.id)
+                              ? viewMode === "list" ? "scale-[0.97]" : "scale-[0.93]"
+                              : selectionMode
+                                ? "active:scale-[0.92]"
+                                : "hover:scale-[1.03] active:scale-[0.92]"
+                          }`}
                         >
-                          {selectionMode && (
-                            <div className="absolute top-2 right-2 z-10">
-                              <div
-                                className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                                  selectedIds.has(folder.id)
-                                    ? "bg-purple-500 border-purple-500"
-                                    : "border-white/40 bg-black/20 backdrop-blur-md"
-                                }`}
-                              >
-                                {selectedIds.has(folder.id) && (
-                                  <CheckCircle2 className="w-4 h-4 text-white" />
-                                )}
+                          <FrostedFolderCover
+                            folder={folder}
+                            previews={previews}
+                            viewMode={viewMode}
+                            isSelected={selectedIds.has(folder.id)}
+                          />
+
+                          {viewMode === "list" ? (
+                            <div className="flex-1 min-w-0 flex flex-col justify-center">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-white/90 truncate [.light-theme_&]:!text-[#0f172a]">{folder.name}</span>
+                                <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/15 text-blue-300 font-medium shrink-0 [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-[#007aff] [.light-theme_&]:!border-none">
+                                  {folderCounts[folder.id]?.chars ?? 0} 照片{folderCounts[folder.id]?.subfolders ? ` · ${folderCounts[folder.id]?.subfolders} 文件夹` : ''}
+                                </span>
                               </div>
+                              {debouncedSearchQuery && folderPaths[folder.id] && folderPaths[folder.id] !== folder.name && (
+                                <span className="text-xs text-blue-300/70 truncate mt-0.5 [.light-theme_&]:!text-blue-600">
+                                  路径: {folderPaths[folder.id]}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center w-full min-w-0 px-1 mt-1.5 text-center">
+                              <span className="text-xs font-semibold text-white/90 group-hover:text-white transition truncate w-full [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:group-hover:!text-black">
+                                {folder.name}
+                              </span>
+                              <span className="text-[11px] text-white/45 group-hover:text-white/65 transition truncate mt-0.5 [.light-theme_&]:!text-[#64748b] [.light-theme_&]:group-hover:!text-[#334155]">
+                                {folderCounts[folder.id]?.chars ?? 0} 照片{folderCounts[folder.id]?.subfolders ? ` · ${folderCounts[folder.id]?.subfolders} 文件夹` : ''}
+                              </span>
+                              {debouncedSearchQuery && folderPaths[folder.id] && folderPaths[folder.id] !== folder.name && (
+                                <span className="text-[10px] text-blue-300/70 truncate w-full text-center px-1 mt-0.5 [.light-theme_&]:!text-blue-600">
+                                  {folderPaths[folder.id]}
+                                </span>
+                              )}
                             </div>
                           )}
-                          <div
-                            className={
-                              viewMode === "list"
-                                ? "w-12 h-12 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center border border-white/20 shrink-0 overflow-hidden object-cover relative"
-                                : "w-full aspect-square bg-white/10 backdrop-blur-md rounded-3xl flex items-center justify-center border border-white/20 group-hover:bg-white/20 transition shadow-sm overflow-hidden relative"
-                            }
-                          >
-                            <FolderCover
-                              folder={folder}
-                              previews={previews}
-                              viewMode={viewMode}
-                            />
-                          </div>
-                          <span
-                            className={
-                              viewMode === "list"
-                                ? "font-medium text-white/90 flex-1"
-                                : "text-xs font-medium text-center truncate w-full text-white/80 group-hover:text-white"
-                            }
-                          >
-                            {folder.name}
-                          </span>
-                        </motion.div>
+                        </div>
                       </SortableItemWrapper>
                     );
                   })}
+                </div>
+              )}
+
+              {folderId === "favorites" && characters.length === 0 && !searchQuery && selectedTags.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-20 text-white/40 [.light-theme_&]:!text-[#64748b]">
+                  <Heart className="w-12 h-12 mb-3 text-rose-500/40 fill-rose-500/20 stroke-1" />
+                  <p className="text-base font-medium [.light-theme_&]:!text-[#0f172a]">暂无收藏的角色卡</p>
+                  <p className="text-xs mt-1 text-white/30 [.light-theme_&]:!text-[#64748b]">
+                    点击卡片右上角的红心图标即可快速收藏
+                  </p>
+                </div>
+              )}
+
+              {paginatedFolders.length === 0 && characters.length === 0 && (searchQuery || selectedTags.length > 0) && (
+                <div className="flex flex-col items-center justify-center py-20 text-white/40 [.light-theme_&]:!text-[#64748b]">
+                  <Search className="w-12 h-12 mb-3 text-white/20 stroke-1 [.light-theme_&]:!text-[#94a3b8]" />
+                  <p className="text-base font-medium [.light-theme_&]:!text-[#0f172a]">未找到匹配的角色卡或文件夹</p>
+                  <p className="text-xs mt-1 text-white/30 [.light-theme_&]:!text-[#64748b]">
+                    已搜索全部目录，尝试更换关键词或清除筛选标签
+                  </p>
                 </div>
               )}
 
@@ -2567,12 +3839,16 @@ export function CharacterList({
                       id={`char-${char.id}`}
                       disabled={!!searchQuery || selectedTags.length > 0}
                       className="w-full"
+                      isQR={checkIsQR(char)}
+                      activeDragIsQR={activeIsQR}
+                      activeDragCharId={activeChar?.id || null}
                     >
                       <CharacterCardItem
                         char={char}
                         selectionMode={selectionMode}
                         isSelected={selectedIds.has(char.id)}
                         viewMode={viewMode}
+                        showMainTokens={showMainTokens}
                         onClick={() => {
                           if (selectionMode) toggleSelection(char.id);
                           else onSelect(char.id);
@@ -2581,8 +3857,11 @@ export function CharacterList({
                           if (!selectionMode) {
                             setSelectionMode(true);
                             setSelectedIds(new Set([char.id]));
+                            setIsHeaderVisible(true);
                           }
                         }}
+                        onToggleFavorite={(e) => handleToggleFavorite(e, char.id)}
+                        onOpenTokenBreakdown={handleOpenTokenBreakdown}
                       />
                     </SortableItemWrapper>
                   ))}
@@ -2591,7 +3870,7 @@ export function CharacterList({
                 <div
                   className={
                     viewMode === "grid"
-                      ? "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4"
+                      ? "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 sm:gap-4"
                       : "flex flex-col gap-2"
                   }
                 >
@@ -2600,12 +3879,16 @@ export function CharacterList({
                       key={`char-${char.id}`}
                       id={`char-${char.id}`}
                       disabled={!!searchQuery || selectedTags.length > 0}
+                      isQR={checkIsQR(char)}
+                      activeDragIsQR={activeIsQR}
+                      activeDragCharId={activeChar?.id || null}
                     >
                       <CharacterCardItem
                         char={char}
                         selectionMode={selectionMode}
                         isSelected={selectedIds.has(char.id)}
                         viewMode={viewMode}
+                        showMainTokens={showMainTokens}
                         onClick={() => {
                           if (selectionMode) toggleSelection(char.id);
                           else onSelect(char.id);
@@ -2614,8 +3897,11 @@ export function CharacterList({
                           if (!selectionMode) {
                             setSelectionMode(true);
                             setSelectedIds(new Set([char.id]));
+                            setIsHeaderVisible(true);
                           }
                         }}
+                        onToggleFavorite={(e) => handleToggleFavorite(e, char.id)}
+                        onOpenTokenBreakdown={handleOpenTokenBreakdown}
                       />
                     </SortableItemWrapper>
                   ))}
@@ -2624,18 +3910,23 @@ export function CharacterList({
             </SortableContext>
           </DndContext>
 
+          {/* Dedicated bottom spacer when in selectionMode on mobile/desktop */}
+          {selectionMode && (
+            <div className="w-full h-36 sm:h-44 shrink-0 pointer-events-none" aria-hidden="true" />
+          )}
+
           {!selectionMode && (totalPages > 1 || totalItems > 0) && (
             <div className="flex justify-center items-center mt-12 mb-8 text-sm">
-              <div className="flex items-center bg-white/5 rounded-xl p-1 border border-white/10">
+              <div className="flex items-center bg-white/5 rounded-xl p-1 border border-white/10 [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:!border-none">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition text-white"
+                  className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition text-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
 
-                <div className="flex items-center gap-2 text-slate-400 px-2">
+                <div className="flex items-center gap-2 text-slate-400 px-2 [.light-theme_&]:!text-[#64748b]">
                   <span>第</span>
                   <input
                     type="text"
@@ -2656,28 +3947,28 @@ export function CharacterList({
                         e.currentTarget.blur();
                       }
                     }}
-                    className="w-10 bg-black/20 border border-white/10 rounded-lg px-1 py-1 text-center text-white font-medium focus:outline-none focus:border-purple-500 transition"
+                    className="w-10 bg-black/20 border border-white/10 rounded-lg px-1 py-1 text-center text-white font-medium focus:outline-none focus:border-blue-500 transition [.light-theme_&]:!bg-[#e4e7eb] [.light-theme_&]:!border-none [.light-theme_&]:!text-[#0f172a]"
                   />
                   <span>/ {totalPages} 页</span>
-                  <div className="w-px h-4 bg-white/10 mx-1" />
+                  <div className="w-px h-4 bg-white/10 mx-1 [.light-theme_&]:!bg-[#cbd5e1]" />
                   <select
                     value={pageSize}
                     onChange={(e) => {
                       setPageSize(Number(e.target.value));
                       setPage(1);
                     }}
-                    className="bg-transparent border-none text-white font-medium focus:outline-none cursor-pointer py-1"
+                    className="bg-transparent border-none text-white font-medium focus:outline-none cursor-pointer py-1 [.light-theme_&]:!text-[#0f172a]"
                   >
-                    <option value={50} className="bg-slate-800">
+                    <option value={50} className="bg-slate-800 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]">
                       50/页
                     </option>
-                    <option value={100} className="bg-slate-800">
+                    <option value={100} className="bg-slate-800 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]">
                       100/页
                     </option>
-                    <option value={250} className="bg-slate-800">
+                    <option value={250} className="bg-slate-800 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]">
                       250/页
                     </option>
-                    <option value={500} className="bg-slate-800">
+                    <option value={500} className="bg-slate-800 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]">
                       500/页
                     </option>
                   </select>
@@ -2686,7 +3977,7 @@ export function CharacterList({
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
-                  className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition text-white"
+                  className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition text-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e4e7eb]"
                 >
                   <ChevronRight className="w-5 h-5" />
                 </button>
@@ -2696,193 +3987,258 @@ export function CharacterList({
         </div>
       )}
 
-      <MoveToFolderModal
-        isOpen={isMoveModalOpen}
-        onClose={() => setIsMoveModalOpen(false)}
-        onMove={handleMoveToFolder}
-      />
+      {everMoveModalOpen && (
+        <Suspense fallback={null}>
+          <MoveToFolderModal
+            isOpen={isMoveModalOpen}
+            onClose={() => setIsMoveModalOpen(false)}
+            onMove={handleMoveToFolder}
+            isLightMode={isLightMode}
+          />
+        </Suspense>
+      )}
 
-      <BindQRModal
-        isOpen={isBindModalOpen}
-        onClose={() => setIsBindModalOpen(false)}
-        onBind={handleBindQR}
-        characters={characters}
-        qrChar={
-          characters.find((c) => c.id === Array.from(selectedIds)[0]) || null
-        }
-      />
+      {everBindModalOpen && (
+        <Suspense fallback={null}>
+          <BindQRModal
+            isOpen={isBindModalOpen}
+            onClose={() => setIsBindModalOpen(false)}
+            onBind={handleBindQR}
+            characters={characters}
+            isLightMode={isLightMode}
+            qrChar={
+              characters.find((c) => c.id === Array.from(selectedIds)[0]) || null
+            }
+          />
+        </Suspense>
+      )}
 
-      <ConfirmBindQRModal
-        isOpen={!!pendingQRBinding}
-        onClose={() => setPendingQRBinding(null)}
-        onConfirm={(deleteSource) => {
-          if (pendingQRBinding) {
-            executeBindQR(
-              pendingQRBinding.qrChar.id,
-              pendingQRBinding.targetChar.id,
-              deleteSource,
-            );
-          }
-        }}
-        qrChar={pendingQRBinding?.qrChar || null}
-        targetChar={pendingQRBinding?.targetChar || null}
-      />
-
-      <AnimatePresence>
-        {showScrollTop && !selectionMode && (
-          <motion.button
-            initial={{ opacity: 0, scale: 0.8, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.8, y: 20 }}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={scrollToTop}
-            className="fixed bottom-36 right-8 w-12 h-12 bg-slate-800/80 backdrop-blur-md border border-white/10 rounded-full flex items-center justify-center shadow-xl text-white/80 hover:text-white hover:bg-slate-700/80 transition z-40"
-          >
-            <ChevronLeft className="w-6 h-6 rotate-90" />
-          </motion.button>
-        )}
-      </AnimatePresence>
+      {everConfirmBindOpen && (
+        <Suspense fallback={null}>
+          <ConfirmBindQRModal
+            isOpen={!!pendingQRBinding}
+            onClose={() => setPendingQRBinding(null)}
+            onConfirm={(deleteSource) => {
+              if (pendingQRBinding) {
+                executeBindQR(
+                  pendingQRBinding.qrChar.id,
+                  pendingQRBinding.targetChar.id,
+                  deleteSource,
+                );
+              }
+            }}
+            qrChar={pendingQRBinding?.qrChar || null}
+            targetChar={pendingQRBinding?.targetChar || null}
+            isLightMode={isLightMode}
+          />
+        </Suspense>
+      )}
 
       <AnimatePresence>
         {!selectionMode ? (
-          <motion.button
-            key="fab"
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            exit={{ scale: 0 }}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={onImport}
-            className="fixed bottom-20 right-8 w-14 h-14 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-xl shadow-purple-500/30 text-white z-40"
-          >
-            <Plus className="w-6 h-6" />
-          </motion.button>
+          <div className="fixed bottom-24 sm:bottom-28 right-6 sm:right-8 z-40 flex flex-col items-center gap-2.5">
+            {/* 1. 一键回顶 (半透明毛玻璃小球，触发滚动时显示在最上方) */}
+            <AnimatePresence>
+              {showScrollTop && (
+                <motion.button
+                  key="scroll-top-btn"
+                  initial={{ opacity: 0, scale: 0.8, y: 10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.8, y: 10 }}
+                  whileHover={{ scale: 1.08 }}
+                  whileTap={{ scale: 0.92 }}
+                  onClick={scrollToTop}
+                  className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/80 hover:bg-slate-800 border border-white/20 text-white [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:!shadow-md active:scale-95"
+                  title="回到顶部"
+                >
+                  <ChevronLeft className="w-5 h-5 rotate-90 stroke-[2.2]" />
+                </motion.button>
+              )}
+            </AnimatePresence>
+
+            {/* 2. 点击加号后展开的小球选项组 (新建文件夹 & 导入) */}
+            <AnimatePresence>
+              {isAddMenuOpen && (
+                <motion.div
+                  key="fab-popover-balls"
+                  initial={{ opacity: 0, y: 12, scale: 0.85 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 12, scale: 0.85 }}
+                  transition={{ duration: 0.16, ease: "easeOut" }}
+                  className="flex flex-col items-center gap-2.5"
+                >
+                  {/* 📁 新建文件夹小球 (单色图标) */}
+                  <motion.button
+                    whileHover={{ scale: 1.08 }}
+                    whileTap={{ scale: 0.92 }}
+                    onClick={() => {
+                      setIsAddMenuOpen(false);
+                      setIsCreatingFolder(true);
+                    }}
+                    className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/80 hover:bg-slate-800 border border-white/20 text-white [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:!shadow-md active:scale-95"
+                    title="新建文件夹"
+                  >
+                    <FolderPlus className="w-4.5 h-4.5 stroke-[2]" />
+                  </motion.button>
+
+                  {/* 📥 导入角色/数据小球 (单色图标) */}
+                  <motion.button
+                    whileHover={{ scale: 1.08 }}
+                    whileTap={{ scale: 0.92 }}
+                    onClick={() => {
+                      setIsAddMenuOpen(false);
+                      onImport();
+                    }}
+                    className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/80 hover:bg-slate-800 border border-white/20 text-white [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:!shadow-md active:scale-95"
+                    title="导入角色/数据"
+                  >
+                    <UploadCloud className="w-4.5 h-4.5 stroke-[2]" />
+                  </motion.button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* 3. 主加号 (➕) 触发小球 (单色图标) */}
+            <motion.button
+              key="fab-main-trigger"
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={() => setIsAddMenuOpen(!isAddMenuOpen)}
+              className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-200 cursor-pointer shrink-0 shadow-md bg-slate-900/80 hover:bg-slate-800 border border-white/20 text-white [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:!shadow-md active:scale-95"
+              title="展开选项"
+            >
+              <Plus className={`w-5 h-5 stroke-[2.2] transition-transform duration-200 ${isAddMenuOpen ? 'rotate-45' : ''}`} />
+            </motion.button>
+          </div>
         ) : (
           <motion.div
             key="bottom-bar"
-            initial={{ y: 100, opacity: 0, x: "-50%" }}
-            animate={{ y: 0, opacity: 1, x: "-50%" }}
-            exit={{ y: 100, opacity: 0, x: "-50%" }}
-            className="fixed bottom-8 left-1/2 z-50 max-w-[95vw] sm:max-w-[80vw] bg-slate-800/80 backdrop-blur-2xl border border-white/10 rounded-full shadow-2xl overflow-hidden"
+            initial={{ y: 24, opacity: 0, scale: 0.95, x: "-50%" }}
+            animate={{ y: 0, opacity: 1, scale: 1, x: "-50%" }}
+            exit={{ y: 20, opacity: 0, scale: 0.95, x: "-50%" }}
+            transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+            className="floating-pill-dock fixed bottom-6 left-1/2 z-50 rounded-full px-2 sm:px-3 py-1.5 transition-all max-w-[calc(100vw-1rem)] sm:max-w-max"
           >
             <div
-              className="flex items-center p-1 overflow-x-auto"
+              className="flex items-center gap-0.5 sm:gap-1.5 px-0.5 overflow-x-auto hide-scrollbar"
               style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
             >
-              <style>{`
-                .no-scrollbar::-webkit-scrollbar {
-                  display: none;
-                }
-              `}</style>
-              <div className="flex items-center gap-2 no-scrollbar px-1">
-                <button
-                  onClick={() => setIsMoveModalOpen(true)}
-                  disabled={selectedIds.size === 0}
-                  className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-white/10 text-white/70 hover:text-blue-400 transition disabled:opacity-50 group shrink-0"
-                >
-                  <div className="p-2 rounded-full bg-white/5 group-hover:bg-blue-400/20 transition">
-                    <FolderInput className="w-5 h-5" />
-                  </div>
-                  <span className="font-medium text-[10px]">移动</span>
-                </button>
-                {selectedIds.size === 1 &&
-                  folders.some((f) => f.id === Array.from(selectedIds)[0]) && (
-                    <>
-                      <div className="w-px h-8 bg-white/10 shrink-0" />
-                      <button
-                        onClick={() => {
-                          const folderId = Array.from(selectedIds)[0];
-                          const folder = folders.find((f) => f.id === folderId);
-                          if (folder) {
-                            setEditingFolder(folder);
-                            setNewFolderName(folder.name);
-                            setSelectionMode(false);
-                            setSelectedIds(new Set());
-                          }
-                        }}
-                        className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-white/10 text-white/70 hover:text-yellow-400 transition group shrink-0"
-                      >
-                        <div className="p-2 rounded-full bg-white/5 group-hover:bg-yellow-400/20 transition">
-                          <Edit2 className="w-5 h-5" />
-                        </div>
-                        <span className="font-medium text-[10px]">重命名</span>
-                      </button>
-                    </>
-                  )}
-                {selectedIds.size === 1 &&
-                  (() => {
-                    const charId = Array.from(selectedIds)[0];
-                    const char = characters.find((c) => c.id === charId);
-                    return char && checkIsQR(char);
-                  })() && (
-                    <>
-                      <div className="w-px h-8 bg-white/10 shrink-0" />
-                      <button
-                        onClick={() => setIsBindModalOpen(true)}
-                        className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-white/10 text-white/70 hover:text-purple-400 transition group shrink-0"
-                      >
-                        <div className="p-2 rounded-full bg-white/5 group-hover:bg-purple-400/20 transition">
-                          <Link className="w-5 h-5" />
-                        </div>
-                        <span className="font-medium text-[10px]">绑定</span>
-                      </button>
-                    </>
-                  )}
+              <button
+                onClick={() => setIsMoveModalOpen(true)}
+                disabled={selectedIds.size === 0}
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 disabled:opacity-30 disabled:pointer-events-none"
+              >
+                <FolderInput className="w-5 h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight">移动</span>
+              </button>
 
-                {selectedIds.size > 0 &&
-                  Array.from(selectedIds).every((id) =>
-                    folders.some((f) => f.id === id),
-                  ) && (
-                    <>
-                      <div className="w-px h-8 bg-white/10 shrink-0" />
-                      <button
-                        onClick={() => coverInputRef.current?.click()}
-                        disabled={selectedIds.size === 0}
-                        className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-white/10 text-white/70 hover:text-orange-400 transition disabled:opacity-50 group shrink-0"
-                      >
-                        <div className="p-2 rounded-full bg-white/5 group-hover:bg-orange-400/20 transition">
-                          <ImageIcon className="w-5 h-5" />
-                        </div>
-                        <span className="font-medium text-[10px]">换封面</span>
-                      </button>
-                    </>
-                  )}
+              {selectedIds.size === 1 &&
+                folders.some((f) => f.id === Array.from(selectedIds)[0]) && (
+                  <button
+                    onClick={() => {
+                      const folderId = Array.from(selectedIds)[0];
+                      const folder = folders.find((f) => f.id === folderId);
+                      if (folder) {
+                        setEditingFolder(folder);
+                        setNewFolderName(folder.name);
+                        setSelectionMode(false);
+                        setSelectedIds(new Set());
+                      }
+                    }}
+                    className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 disabled:opacity-30 disabled:pointer-events-none"
+                  >
+                    <Edit2 className="w-5 h-5 stroke-[1.8]" />
+                    <span className="font-medium text-[10px] leading-none tracking-tight">重命名</span>
+                  </button>
+                )}
 
-                <div className="w-px h-8 bg-white/10 shrink-0" />
-                <button
-                  onClick={handleBatchCloudBackup}
-                  disabled={selectedIds.size === 0}
-                  className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-blue-500/10 text-white/70 hover:text-blue-400 transition disabled:opacity-50 group shrink-0"
-                >
-                  <div className="p-2 rounded-full bg-white/5 group-hover:bg-blue-400/20 transition">
-                    <Cloud className="w-5 h-5" />
-                  </div>
-                  <span className="font-medium text-[10px]">传云盘</span>
-                </button>
-                <div className="w-px h-8 bg-white/10 shrink-0" />
-                <button
-                  onClick={() => handleBatchExport()}
-                  disabled={selectedIds.size === 0}
-                  className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-white/10 text-white/70 hover:text-green-400 transition disabled:opacity-50 group shrink-0"
-                >
-                  <div className="p-2 rounded-full bg-white/5 group-hover:bg-green-400/20 transition">
-                    <Download className="w-5 h-5" />
-                  </div>
-                  <span className="font-medium text-[10px]">导出</span>
-                </button>
-                <div className="w-px h-8 bg-white/10 shrink-0" />
-                <button
-                  onClick={handleBatchDelete}
-                  disabled={selectedIds.size === 0}
-                  className="flex flex-col items-center gap-1 px-4 py-2 rounded-full hover:bg-red-500/10 text-white/70 hover:text-red-400 transition disabled:opacity-50 group shrink-0"
-                >
-                  <div className="p-2 rounded-full bg-white/5 group-hover:bg-red-400/20 transition">
-                    <Trash2 className="w-5 h-5" />
-                  </div>
-                  <span className="font-medium text-[10px]">删除</span>
-                </button>
-              </div>
+              {selectedIds.size === 2 &&
+                Array.from(selectedIds).every(
+                  (id) => !folders.some((f) => f.id === id),
+                ) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const ids = Array.from(selectedIds);
+                      if (ids.length === 2) {
+                        setComparePairIds([ids[0], ids[1]]);
+                      }
+                    }}
+                    className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-blue-400 [.light-theme_&]:hover:!text-[#007aff] cursor-pointer"
+                    title="快速对比选中的两张卡片"
+                  >
+                    <ArrowLeftRight className="w-5 h-5 stroke-[1.8]" />
+                    <span className="font-medium text-[10px] leading-none tracking-tight">对比</span>
+                  </button>
+                )}
+
+              {selectedIds.size === 1 &&
+                (() => {
+                  const charId = Array.from(selectedIds)[0];
+                  const char = characters.find((c) => c.id === charId);
+                  return char && checkIsQR(char);
+                })() && (
+                  <button
+                    onClick={() => setIsBindModalOpen(true)}
+                    className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-blue-400 disabled:opacity-30 disabled:pointer-events-none"
+                  >
+                    <Link2 className="w-5 h-5 stroke-[1.8]" />
+                    <span className="font-medium text-[10px] leading-none tracking-tight">绑定</span>
+                  </button>
+                )}
+
+              {selectedIds.size > 0 &&
+                Array.from(selectedIds).every((id) =>
+                  folders.some((f) => f.id === id),
+                ) && (
+                  <button
+                    onClick={() => {
+                      if (selectedIds.size === 1) {
+                        const selectedFolderId = Array.from(selectedIds)[0];
+                        const targetFolder = folders.find((f) => f.id === selectedFolderId);
+                        if (targetFolder) {
+                          setCoverPickerFolder(targetFolder);
+                          return;
+                        }
+                      }
+                      coverInputRef.current?.click();
+                    }}
+                    disabled={selectedIds.size === 0}
+                    className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-orange-500 disabled:opacity-30 disabled:pointer-events-none"
+                  >
+                    <ImageIcon className="w-5 h-5 stroke-[1.8]" />
+                    <span className="font-medium text-[10px] leading-none tracking-tight">换封面</span>
+                  </button>
+                )}
+
+              <button
+                onClick={handleBatchCloudBackup}
+                disabled={selectedIds.size === 0}
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-blue-500 disabled:opacity-30 disabled:pointer-events-none"
+              >
+                <Cloud className="w-5 h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight">传云盘</span>
+              </button>
+
+              <button
+                onClick={() => handleBatchExport()}
+                disabled={selectedIds.size === 0}
+                className="floating-pill-item flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 hover:!text-green-500 disabled:opacity-30 disabled:pointer-events-none"
+              >
+                <Download className="w-5 h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight">导出</span>
+              </button>
+
+              <button
+                onClick={handleBatchDelete}
+                disabled={selectedIds.size === 0}
+                className="floating-pill-item is-danger flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition active:scale-90 shrink-0 cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+              >
+                <Trash2 className="w-5 h-5 stroke-[1.8]" />
+                <span className="font-medium text-[10px] leading-none tracking-tight whitespace-nowrap">
+                  删除{selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
+                </span>
+              </button>
             </div>
           </motion.div>
         )}
@@ -2891,35 +4247,20 @@ export function CharacterList({
       <AnimatePresence>
         {progress && (
           <motion.div
-            initial={{ opacity: 0, y: -50, x: '-50%' }}
-            animate={{ opacity: 1, y: 0, x: '-50%' }}
-            exit={{ opacity: 0, y: -50, x: '-50%' }}
-            className="fixed top-12 sm:top-20 left-1/2 z-[200] bg-slate-800/90 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-3 sm:p-4 w-[90%] max-w-[16rem] sm:w-72 pointer-events-auto"
+            initial={{ opacity: 0, y: -20, x: '-50%', scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, x: '-50%', scale: 1 }}
+            exit={{ opacity: 0, y: -20, x: '-50%', scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 400, damping: 30 }}
+            style={{ top: 'max(1.25rem, calc(env(safe-area-inset-top, 0px) + 0.5rem))' }}
+            className="tagger-floating-pill fixed left-1/2 z-[600] rounded-full px-4 py-2 sm:px-4.5 sm:py-2.5 flex items-center gap-2.5 max-w-[92vw] w-auto pointer-events-auto transition-all overflow-hidden select-none shadow-2xl"
           >
-            <div className="flex items-center gap-3 mb-2">
-              <Loader2 className="w-5 h-5 text-blue-400 animate-spin shrink-0" />
-              <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-semibold text-white truncate">
-                  正在处理
-                </h4>
-                <p className="text-xs text-white/50 truncate">
-                  {progress.message}
-                </p>
-              </div>
-              <span className="text-xs font-medium text-blue-400/80 shrink-0">
-                {progress.total > 0
-                  ? Math.round((progress.current / progress.total) * 100)
-                  : 0}%
-              </span>
-            </div>
-            <div className="w-full bg-black/40 rounded-full h-1.5 overflow-hidden relative">
-              <div 
-                className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300 relative"
-                style={{ width: `${progress.total > 0 ? (progress.current / progress.total) * 100 : 0}%` }}
-              >
-                <div className="absolute inset-0 bg-white/20 animate-pulse" />
-              </div>
-            </div>
+            <Loader2 className="w-4 h-4 animate-spin shrink-0 text-blue-400 [.light-theme_&]:!text-blue-600" />
+            <span className="text-xs sm:text-sm font-medium text-slate-100 whitespace-nowrap tagger-floating-text [.light-theme_&]:!text-[#0f172a] truncate">
+              {progress.message || '正在处理'}
+            </span>
+            <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full shrink-0 border-0 border-none outline-none text-blue-300 bg-blue-500/20 [.light-theme_&]:!text-blue-600 [.light-theme_&]:!bg-blue-50 tabular-nums">
+              {progress.total > 0 ? (progress.total > 1 ? `${progress.current}/${progress.total}` : `${Math.round((progress.current / progress.total) * 100)}%`) : `${progress.current || 0}`}
+            </span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -2931,9 +4272,19 @@ export function CharacterList({
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-slate-800/90 backdrop-blur-2xl rounded-3xl p-6 w-full max-w-sm border border-white/10 shadow-2xl"
+              className={`w-full max-w-xs sm:max-w-sm rounded-3xl p-5 sm:p-6 shadow-2xl backdrop-blur-2xl select-none transition-colors border ${
+                isLightMode
+                  ? "bg-white text-[#0f172a] border-[#e2e8f0] shadow-xl [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]"
+                  : "bg-slate-800/95 text-white border-white/10 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0]"
+              }`}
             >
-              <h3 className="text-lg font-semibold text-white mb-6 text-center">
+              <h3
+                className={`text-base sm:text-lg font-bold mb-4 sm:mb-6 text-center ${
+                  isLightMode
+                    ? "text-[#0f172a] [.light-theme_&]:!text-[#0f172a]"
+                    : "text-white [.light-theme_&]:!text-[#0f172a]"
+                }`}
+              >
                 {editingFolder ? "编辑文件夹" : "新建文件夹"}
               </h3>
               <input
@@ -2941,7 +4292,11 @@ export function CharacterList({
                 value={newFolderName}
                 onChange={(e) => setNewFolderName(e.target.value)}
                 placeholder="文件夹名称"
-                className="w-full bg-black/20 border border-white/10 rounded-2xl px-4 py-3 text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/50 transition mb-6 text-center text-lg"
+                className={`w-full rounded-2xl px-4 py-2.5 sm:py-3 mb-4 sm:mb-6 text-center text-sm sm:text-base font-medium transition outline-none border ${
+                  isLightMode
+                    ? "bg-[#f1f5f9] border-[#cbd5e1] text-[#0f172a] placeholder:text-[#94a3b8] focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1]"
+                    : "bg-black/20 border-white/10 text-white placeholder:text-white/40 focus:border-blue-500/50 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:placeholder:!text-[#94a3b8]"
+                }`}
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -2955,31 +4310,42 @@ export function CharacterList({
               />
               <div className="flex flex-col gap-2">
                 <button
+                  type="button"
                   onClick={
                     editingFolder ? handleUpdateFolder : handleCreateFolder
                   }
-                  className="w-full py-3 rounded-2xl bg-purple-500/80 hover:bg-purple-500 text-white font-medium transition"
+                  className="w-full py-2.5 sm:py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold transition active:scale-95 shadow-md shadow-blue-500/20 cursor-pointer"
                 >
                   {editingFolder ? "保存修改" : "创建"}
                 </button>
                 {editingFolder && (
                   <button
+                    type="button"
                     onClick={() => {
                       handleDeleteFolder(editingFolder.id, editingFolder.name);
                       setIsCreatingFolder(false);
                       setEditingFolder(null);
                     }}
-                    className="w-full py-3 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-400 font-medium transition"
+                    className={`w-full py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-semibold transition active:scale-95 cursor-pointer ${
+                      isLightMode
+                        ? "bg-rose-50 hover:bg-rose-100 text-rose-600 [.light-theme_&]:!bg-rose-50 [.light-theme_&]:!text-rose-600"
+                        : "bg-red-500/10 hover:bg-red-500/20 text-red-400 [.light-theme_&]:!bg-rose-50 [.light-theme_&]:!text-rose-600"
+                    }`}
                   >
                     删除文件夹
                   </button>
                 )}
                 <button
+                  type="button"
                   onClick={() => {
                     setIsCreatingFolder(false);
                     setEditingFolder(null);
                   }}
-                  className="w-full py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-white/70 font-medium transition mt-2"
+                  className={`w-full py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-semibold transition mt-1 active:scale-95 cursor-pointer ${
+                    isLightMode
+                      ? "bg-[#f1f5f9] hover:bg-[#e2e8f0] text-[#334155] border border-[#cbd5e1]/40 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#334155]"
+                      : "bg-white/5 hover:bg-white/10 text-white/70 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#334155] [.light-theme_&]:!border [.light-theme_&]:!border-[#cbd5e1]/40"
+                  }`}
                 >
                   取消
                 </button>
@@ -2990,61 +4356,349 @@ export function CharacterList({
       </AnimatePresence>
 
       {imageToCrop && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-xl flex flex-col shadow-2xl overflow-hidden h-[70vh] max-h-[800px]">
-            <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
-              <h3 className="text-lg font-bold text-white">调整封面图片</h3>
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md pt-[max(1.75rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="bg-slate-900 [.light-theme_&]:!bg-[#ffffff] text-white [.light-theme_&]:!text-[#0f172a] border border-white/10 [.light-theme_&]:!border-[#e2e8f0] rounded-3xl w-full max-w-lg flex flex-col shadow-2xl overflow-hidden max-h-[92vh] sm:max-h-[85vh]">
+            <div className="p-4 border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] flex items-center justify-between bg-white/[0.02] [.light-theme_&]:!bg-transparent">
+              <div className="flex items-center gap-2">
+                <h3 className="text-base sm:text-lg font-bold text-white [.light-theme_&]:!text-[#0f172a]">调整封面图片</h3>
+                <span className="text-[10.5px] text-blue-400 bg-blue-500/15 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-[#007aff] px-2.5 py-0.5 rounded-full font-bold">
+                  2:3 竖卡
+                </span>
+              </div>
 
               <button
                 onClick={closeCrop}
-                className="p-1 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition hidden sm:block"
+                className="w-8.5 h-8.5 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition [.light-theme_&]:!bg-[#f1f2f6] [.light-theme_&]:hover:!bg-[#e4e7eb] [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] border-0 border-none cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5 stroke-[2]" />
               </button>
             </div>
-            <div className="flex-1 relative w-full h-full bg-black/50">
-              <Cropper
-                image={imageToCrop}
-                crop={crop}
-                zoom={zoom}
-                aspect={1}
-                cropShape="rect"
-                showGrid={true}
-                onCropChange={setCrop}
-                onCropComplete={onCropComplete}
-                onZoomChange={setZoom}
-              />
-            </div>
-            <div className="p-4 border-t border-white/10 bg-white/[0.02] flex items-center justify-between gap-4">
-              <input
-                type="range"
-                value={zoom}
-                min={1}
-                max={3}
-                step={0.1}
-                aria-labelledby="Zoom"
-                onChange={(e) => setZoom(Number(e.target.value))}
-                className="flex-1 h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
-              />
 
-              <div className="flex items-center gap-2">
+            <div className="flex-1 min-h-[280px] relative w-full bg-black/70">
+              <Suspense fallback={null}>
+                <Cropper
+                  image={imageToCrop}
+                  crop={crop}
+                  zoom={zoom}
+                  aspect={2 / 3}
+                  cropShape="rect"
+                  showGrid={true}
+                  onCropChange={setCrop}
+                  onCropComplete={onCropComplete}
+                  onZoomChange={setZoom}
+                />
+              </Suspense>
+            </div>
+
+            <div className="p-4 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0] bg-white/[0.02] [.light-theme_&]:!bg-[#f8fafc] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3.5">
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-white/60 [.light-theme_&]:!text-[#64748b] font-medium shrink-0">缩放</span>
+                <input
+                  type="range"
+                  value={zoom}
+                  min={1}
+                  max={3}
+                  step={0.05}
+                  aria-labelledby="Zoom"
+                  onChange={(e) => setZoom(Number(e.target.value))}
+                  className="flex-1 h-2 bg-white/10 [.light-theme_&]:!bg-[#e2e8f0] rounded-lg appearance-none cursor-pointer accent-blue-600"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 justify-end">
                 <button
                   onClick={closeCrop}
-                  className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white/80 font-medium rounded-xl transition sm:hidden"
+                  className="flex-1 sm:flex-none px-4 py-2 bg-white/5 hover:bg-white/10 text-white/80 font-medium rounded-xl text-xs sm:text-sm transition [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:hover:!bg-[#cbd5e1] [.light-theme_&]:!text-[#334155] border-0 border-none cursor-pointer"
                 >
                   取消
                 </button>
                 <button
                   onClick={handleSaveCrop}
-                  className="px-6 py-2 bg-purple-500 hover:bg-purple-600 text-white font-bold rounded-xl transition"
+                  disabled={isCropping}
+                  className="flex-1 sm:flex-none px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs sm:text-sm transition flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/25 border-0 border-none cursor-pointer"
                 >
-                  保存封面
+                  {isCropping && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>保存封面</span>
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* Folder Cover Picker Modal */}
+      {everCoverPickerOpen && (
+        <Suspense fallback={null}>
+          <FolderCoverPickerModal
+            isOpen={!!coverPickerFolder}
+            folder={coverPickerFolder}
+            onClose={() => setCoverPickerFolder(null)}
+            onSelectCharacterCover={(char) => {
+              if (coverPickerFolder) {
+                handleSetCharacterAsFolderCover(coverPickerFolder, char);
+              }
+            }}
+            onUploadCustomImage={() => {
+              coverInputRef.current?.click();
+            }}
+            onResetCover={() => {
+              if (coverPickerFolder) {
+                handleResetFolderCover(coverPickerFolder);
+              }
+            }}
+          />
+        </Suspense>
+      )}
+
+      {everTokenModalOpen && tokenModalChar && (
+        <Suspense fallback={null}>
+          <TokenBreakdownModal
+            isOpen={!!tokenModalChar}
+            onClose={() => setTokenModalChar(null)}
+            charName={tokenModalChar.name}
+            breakdown={tokenModalChar.breakdown}
+            isLightMode={isLightMode}
+          />
+        </Suspense>
+      )}
+
+      {everCompareModalOpen && (
+        <Suspense fallback={null}>
+          <CardCompareModal
+            pairIds={comparePairIds}
+            folders={folders}
+            onClose={() => setComparePairIds(null)}
+            onOpenChar={(id) => {
+              setComparePairIds(null);
+              setSelectionMode(false);
+              setSelectedIds(new Set());
+              onSelect(id);
+            }}
+            onMutated={(deletedId) => {
+              if (deletedId) {
+                setSelectedIds((prev) => {
+                  const next = new Set(prev);
+                  next.delete(deletedId);
+                  if (next.size === 0) setSelectionMode(false);
+                  return next;
+                });
+              }
+              invalidateCache();
+              loadData();
+            }}
+          />
+        </Suspense>
+      )}
+
+      <AnimatePresence>
+        {tagActionModal !== null && (
+          <div
+            className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => {
+              if (!isTagMutating) setTagActionModal(null);
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 16 }}
+              onClick={(e) => e.stopPropagation()}
+              className={`w-full max-w-xs sm:max-w-sm rounded-3xl p-5 sm:p-6 shadow-2xl backdrop-blur-2xl select-none transition-colors border ${
+                isLightMode
+                  ? "bg-white text-[#0f172a] border-[#e2e8f0] shadow-xl [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]"
+                  : "bg-slate-800/95 text-white border-white/10 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0]"
+              }`}
+            >
+              <h3 className="text-base sm:text-lg font-bold text-center text-white [.light-theme_&]:!text-[#0f172a]">
+                管理标签
+              </h3>
+              <p className="text-xs text-center text-white/55 [.light-theme_&]:!text-[#64748b] mt-1 mb-5 truncate px-2">
+                「{tagActionModal}」
+              </p>
+
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  disabled={isTagMutating}
+                  onClick={() => {
+                    const current = tagActionModal;
+                    setTagActionModal(null);
+                    setRenamingTagData({ old: current, new: current });
+                  }}
+                  className="w-full py-2.5 sm:py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold transition active:scale-95 shadow-md shadow-blue-500/20 cursor-pointer disabled:opacity-50 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:hover:!bg-[#dbeafe] [.light-theme_&]:!text-[#007aff] [.light-theme_&]:shadow-none"
+                >
+                  重命名标签
+                </button>
+                <button
+                  type="button"
+                  disabled={isTagMutating}
+                  onClick={async () => {
+                    const targetTag = tagActionModal;
+                    if (!targetTag) return;
+                    if (!window.confirm(`确定从所有角色卡中移除标签「${targetTag}」吗？`)) return;
+                    setIsTagMutating(true);
+                    try {
+                      await deleteTag(targetTag);
+                      setSelectedTags((prev) => prev.filter((t) => t !== targetTag));
+                      const updated = await getAllTags();
+                      setAllTags(updated);
+                      invalidateCache();
+                      loadData();
+                      setTagActionModal(null);
+                    } catch (err: any) {
+                      alert("删除标签失败: " + (err?.message || String(err)));
+                    } finally {
+                      setIsTagMutating(false);
+                    }
+                  }}
+                  className={`w-full py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-semibold transition active:scale-95 cursor-pointer disabled:opacity-50 ${
+                    isLightMode
+                      ? "bg-rose-50 hover:bg-rose-100 text-rose-600 [.light-theme_&]:!bg-rose-50 [.light-theme_&]:!text-rose-600"
+                      : "bg-red-500/10 hover:bg-red-500/20 text-red-400 [.light-theme_&]:!bg-rose-50 [.light-theme_&]:!text-rose-600"
+                  }`}
+                >
+                  {isTagMutating ? "处理中..." : "删除标签"}
+                </button>
+                <button
+                  type="button"
+                  disabled={isTagMutating}
+                  onClick={() => setTagActionModal(null)}
+                  className={`w-full py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-semibold transition mt-1 active:scale-95 cursor-pointer ${
+                    isLightMode
+                      ? "bg-[#f1f5f9] hover:bg-[#e2e8f0] text-[#334155] border border-[#cbd5e1]/40 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#334155]"
+                      : "bg-white/5 hover:bg-white/10 text-white/70 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#334155] [.light-theme_&]:!border [.light-theme_&]:!border-[#cbd5e1]/40"
+                  }`}
+                >
+                  取消
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {renamingTagData !== null && (
+          <div
+            className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => {
+              if (!isTagMutating) setRenamingTagData(null);
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 16 }}
+              onClick={(e) => e.stopPropagation()}
+              className={`w-full max-w-xs sm:max-w-sm rounded-3xl p-5 sm:p-6 shadow-2xl backdrop-blur-2xl select-none transition-colors border ${
+                isLightMode
+                  ? "bg-white text-[#0f172a] border-[#e2e8f0] shadow-xl [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a]"
+                  : "bg-slate-800/95 text-white border-white/10 [.light-theme_&]:!bg-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0]"
+              }`}
+            >
+              <h3 className="text-base sm:text-lg font-bold mb-4 sm:mb-5 text-center text-white [.light-theme_&]:!text-[#0f172a]">
+                重命名标签
+              </h3>
+              <input
+                type="text"
+                value={renamingTagData.new}
+                onChange={(e) =>
+                  setRenamingTagData((prev) =>
+                    prev ? { ...prev, new: e.target.value } : null,
+                  )
+                }
+                placeholder="输入新标签名"
+                className={`w-full rounded-2xl px-4 py-2.5 sm:py-3 mb-4 sm:mb-5 text-center text-sm sm:text-base font-medium transition outline-none border ${
+                  isLightMode
+                    ? "bg-[#f1f5f9] border-[#cbd5e1] text-[#0f172a] placeholder:text-[#94a3b8] focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1]"
+                    : "bg-black/20 border-white/10 text-white placeholder:text-white/40 focus:border-blue-500/50 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:placeholder:!text-[#94a3b8]"
+                }`}
+                autoFocus
+                onKeyDown={async (e) => {
+                  if (e.key === "Enter" && !isTagMutating) {
+                    const nextTag = renamingTagData.new.trim();
+                    const oldTag = renamingTagData.old;
+                    if (!nextTag) return;
+                    if (nextTag === oldTag) {
+                      setRenamingTagData(null);
+                      return;
+                    }
+                    setIsTagMutating(true);
+                    try {
+                      await renameTag(oldTag, nextTag);
+                      setSelectedTags((prev) =>
+                        Array.from(
+                          new Set(prev.map((t) => (t === oldTag ? nextTag : t))),
+                        ),
+                      );
+                      const updated = await getAllTags();
+                      setAllTags(updated);
+                      invalidateCache();
+                      loadData();
+                      setRenamingTagData(null);
+                    } catch (err: any) {
+                      alert("重命名标签失败: " + (err?.message || String(err)));
+                    } finally {
+                      setIsTagMutating(false);
+                    }
+                  }
+                  if (e.key === "Escape" && !isTagMutating) {
+                    setRenamingTagData(null);
+                  }
+                }}
+              />
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  disabled={isTagMutating || !renamingTagData.new.trim()}
+                  onClick={async () => {
+                    const nextTag = renamingTagData.new.trim();
+                    const oldTag = renamingTagData.old;
+                    if (!nextTag) return;
+                    if (nextTag === oldTag) {
+                      setRenamingTagData(null);
+                      return;
+                    }
+                    setIsTagMutating(true);
+                    try {
+                      await renameTag(oldTag, nextTag);
+                      setSelectedTags((prev) =>
+                        Array.from(
+                          new Set(prev.map((t) => (t === oldTag ? nextTag : t))),
+                        ),
+                      );
+                      const updated = await getAllTags();
+                      setAllTags(updated);
+                      invalidateCache();
+                      loadData();
+                      setRenamingTagData(null);
+                    } catch (err: any) {
+                      alert("重命名标签失败: " + (err?.message || String(err)));
+                    } finally {
+                      setIsTagMutating(false);
+                    }
+                  }}
+                  className="w-full py-2.5 sm:py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs sm:text-sm font-semibold transition active:scale-95 shadow-md shadow-blue-500/20 cursor-pointer"
+                >
+                  {isTagMutating ? "保存中..." : "保存修改"}
+                </button>
+                <button
+                  type="button"
+                  disabled={isTagMutating}
+                  onClick={() => setRenamingTagData(null)}
+                  className={`w-full py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-semibold transition mt-1 active:scale-95 cursor-pointer ${
+                    isLightMode
+                      ? "bg-[#f1f5f9] hover:bg-[#e2e8f0] text-[#334155] border border-[#cbd5e1]/40 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#334155]"
+                      : "bg-white/5 hover:bg-white/10 text-white/70 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#334155] [.light-theme_&]:!border [.light-theme_&]:!border-[#cbd5e1]/40"
+                  }`}
+                >
+                  取消
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -3053,21 +4707,40 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   char,
   onClick,
   onLongPress,
+  onToggleFavorite,
+  onOpenTokenBreakdown,
   selectionMode,
   isSelected,
   viewMode,
+  showMainTokens = true,
 }: {
   key?: React.Key;
   char: CharacterCard;
   onClick: () => void;
   onLongPress: () => void;
+  onToggleFavorite?: (e: React.MouseEvent) => void;
+  onOpenTokenBreakdown?: (char: CharacterCard) => void;
   selectionMode: boolean;
   isSelected: boolean;
   viewMode: "grid" | "list" | "masonry";
+  showMainTokens?: boolean;
 }) {
   const defaultFallback = getFallbackAvatar(char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
   const initialUrl = resolveAvatarUrl(char.avatarUrlFallback, char.name || char.id, char.tags?.join(',') || (char.isTool ? 'tool' : undefined));
-  const [url, setUrl] = useState<string>(initialUrl);
+  const thumbCacheKey = `${char.id}:${char.updatedAt || 0}`;
+  const [url, setUrl] = useState<string>(() => {
+    if (char.hasBlobsSeparated && !char.avatarBlob) {
+      const cached = peekCachedUrl(thumbCacheKey);
+      if (cached) return cached;
+    } else if (
+      !char.hasBlobsSeparated &&
+      char.localFilePath &&
+      /\.(png|jpe?g|webp|gif|bmp)$/i.test(char.localFilePath)
+    ) {
+      return getLocalImageUrl(char.localFilePath, char.updatedAt || char.createdAt);
+    }
+    return initialUrl;
+  });
   // 追踪 onError 兜底逻辑里额外创建的 blob URL, 保证换掉/卸载时释放,
   // 否则长列表滚动 + 图片偶发加载失败会不断泄漏内存(可能是持续发热的一个来源)。
   const fallbackObjectUrlRef = useRef<string | null>(null);
@@ -3092,13 +4765,11 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   const isNearby = useContinuousInView(cardRef); // 持续追踪:是否还在较大范围内,决定要不要保留已加载的图
 
   useEffect(() => {
-    if (!isInView) return;
     let isMounted = true;
 
     if (!isNearby) {
       // 划出屏幕较远范围: 把 <img> 换回轻量占位图, 释放已解码图像占用的内存,
       // 不清 LRU 缓存本身——缓存还在, 划回来的时候能几乎零成本地恢复。
-      // 参考卡库"划出屏幕就卸载"的做法。
       setUrl(initialUrl);
       return;
     }
@@ -3106,47 +4777,37 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
     let objectUrl: string | null = null;
 
     if (char.avatarBlob) {
-      objectUrl = URL.createObjectURL(char.avatarBlob);
-      setUrl(objectUrl);
+      objectUrl = safeCreateObjectURL(char.avatarBlob);
+      if (objectUrl) setUrl(objectUrl);
     } else if (char.hasBlobsSeparated) {
-      // 优先用小缩略图, 而不是整张原图去解码显示(参考卡库的做法):
-      // 有界LRU缓存里已经有就直接用(几乎零成本), 没有再去数据库拿
-      // (数据库那边会懒生成缩略图并持久化, 详见 getCharacterThumb)
-      // 缓存的 key 里带上 updatedAt: 换头像本质是同一个 id 但内容变了,
-      // 只用 id 当 key 会导致换完头像主页还在用内存里换头像之前缓存的那张,
-      // 详情页(不走这个缓存)却已经能看到新的——带上 updatedAt, 头像一换
-      // key 就跟着变, 自然变成一次缓存未命中, 会重新去数据库拿最新缩略图。
-      const thumbCacheKey = `${char.id}:${char.updatedAt || 0}`;
       const cached = peekCachedUrl(thumbCacheKey);
       if (cached) {
         setUrl(cached);
-      } else {
+      } else if (isCharacterNoImage(char.id)) {
+        setUrl(initialUrl);
+      } else if (isInView) {
         getCharacterThumb(char.id).then((thumbBlob) => {
-          if (thumbBlob && isMounted) {
+          if (!isMounted) return;
+          if (thumbBlob) {
             setUrl(putCachedBlobUrl(thumbCacheKey, thumbBlob));
+          } else {
+            setUrl(initialUrl);
           }
         });
+      } else {
+        setUrl(initialUrl);
       }
     } else if (
       char.localFilePath &&
-      char.localFilePath.match(/\.(png|jpe?g|webp|gif|bmp)$/i)
+      /\.(png|jpe?g|webp|gif|bmp)$/i.test(char.localFilePath)
     ) {
-      import("../lib/appBridge").then(({ getLocalImageUrl }) => {
-        if (isMounted)
-          setUrl(
-            getLocalImageUrl(
-              char.localFilePath!,
-              char.updatedAt || char.createdAt,
-            ),
-          );
-      });
+      setUrl(getLocalImageUrl(char.localFilePath, char.updatedAt || char.createdAt));
+    } else {
+      setUrl(initialUrl);
     }
 
     return () => {
       isMounted = false;
-      // 注意: 缩略图 URL 现在由全局有界 LRU 缓存(thumbCache.ts)统一管理生命周期,
-      // 允许被其他卡片实例复用, 只有被 LRU 淘汰时才真正释放, 这里不用管;
-      // 只有 char.avatarBlob 直接创建的这个是本组件私有的, 需要自己清理。
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [
@@ -3155,27 +4816,81 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
     char.hasBlobsSeparated,
     char.id,
     char.updatedAt,
+    char.createdAt,
+    thumbCacheKey,
+    initialUrl,
     isInView,
     isNearby,
   ]);
 
-  const handleTouchStart = () => {
+  const touchHandledRef = useRef(false);
+  const touchStartXRef = useRef(0);
+  const touchStartYRef = useRef(0);
+  const lastLongPressTimeRef = useRef(0);
+
+  const handlePointerStart = (e: React.SyntheticEvent) => {
+    if (selectionMode) return;
+    let clientX = 0;
+    let clientY = 0;
+    if (e.type === "touchstart") {
+      touchHandledRef.current = true;
+      const touch = (e as React.TouchEvent).touches[0];
+      if (touch) {
+        clientX = touch.clientX;
+        clientY = touch.clientY;
+      }
+    } else if (e.type === "mousedown") {
+      if (touchHandledRef.current || (e as React.MouseEvent).button !== 0) return;
+      const mouse = e as React.MouseEvent;
+      clientX = mouse.clientX;
+      clientY = mouse.clientY;
+    }
+    touchStartXRef.current = clientX;
+    touchStartYRef.current = clientY;
+
     isLongPress.current = false;
+    if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       isLongPress.current = true;
+      lastLongPressTimeRef.current = Date.now();
       onLongPress();
-    }, 500); // 500ms for long press
+    }, 550);
   };
 
-  const handleTouchEnd = () => {
-    if (timerRef.current) {
+  const handlePointerMove = (e: React.SyntheticEvent) => {
+    if (!timerRef.current) return;
+    let clientX = 0;
+    let clientY = 0;
+    if (e.type === "touchmove" && (e as React.TouchEvent).touches[0]) {
+      clientX = (e as React.TouchEvent).touches[0].clientX;
+      clientY = (e as React.TouchEvent).touches[0].clientY;
+    } else if (e.type === "mousemove") {
+      clientX = (e as React.MouseEvent).clientX;
+      clientY = (e as React.MouseEvent).clientY;
+    }
+    const dx = Math.abs(clientX - touchStartXRef.current);
+    const dy = Math.abs(clientY - touchStartYRef.current);
+    if (dx > 10 || dy > 10) {
       clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
   };
 
+  const handlePointerEnd = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    setTimeout(() => {
+      touchHandledRef.current = false;
+    }, 300);
+  };
+
   const handleClick = (e: React.MouseEvent) => {
-    if (isLongPress.current) {
+    if (isLongPress.current || Date.now() - lastLongPressTimeRef.current < 600) {
+      isLongPress.current = false;
       e.preventDefault();
+      e.stopPropagation();
       return;
     }
     onClick();
@@ -3183,53 +4898,101 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
 
   const charTags = (char as any).tags || char.data?.data?.tags || char.data?.tags;
   const hasTags = charTags && Array.isArray(charTags) && charTags.length > 0;
+  const badgeInfo = getCardBadgeInfo(char);
 
   if (viewMode === "list") {
     return (
-      <motion.div
+      <div
         ref={cardRef}
-        whileHover={{ scale: selectionMode ? 1 : 1.02 }}
-        whileTap={{ scale: 0.98 }}
+        style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none", touchAction: "pan-y" }}
         onClick={handleClick}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        onTouchMove={handleTouchEnd}
-        onMouseDown={handleTouchStart}
-        onMouseUp={handleTouchEnd}
-        onMouseLeave={handleTouchEnd}
-        className={`relative flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-all select-none ${isSelected ? "bg-purple-500/20 border-purple-500/50" : "bg-white/5 hover:bg-white/10 border-transparent"} border`}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (isLongPress.current || Date.now() - lastLongPressTimeRef.current < 800) {
+            return;
+          }
+          if (timerRef.current) {
+            clearTimeout(timerRef.current);
+            timerRef.current = null;
+          }
+          isLongPress.current = true;
+          lastLongPressTimeRef.current = Date.now();
+          onLongPress();
+        }}
+        onTouchStart={handlePointerStart}
+        onTouchEnd={handlePointerEnd}
+        onTouchCancel={handlePointerEnd}
+        onTouchMove={handlePointerMove}
+        onMouseDown={handlePointerStart}
+        className={`relative flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition duration-150 ease-out select-none bg-white/5 hover:bg-white/10 border border-transparent ${
+          isSelected
+            ? "scale-[0.97]"
+            : selectionMode
+              ? "active:scale-[0.95]"
+              : "hover:scale-[1.02] active:scale-[0.95]"
+        }`}
       >
-        <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0">
+        <div className="w-12 h-12 rounded-xl sm:rounded-2xl overflow-hidden shrink-0 relative bg-[#f0f4f8] [.light-theme_&]:bg-[#f0f4f8] dark:bg-[#1e2430] border border-slate-200/60 dark:border-white/10 shadow-xs flex items-center justify-center">
           <img
             src={url || undefined}
             alt={char.name}
-            className="w-full h-full object-cover pointer-events-none"
+            className={`w-full h-full pointer-events-none ${
+              isFallbackMiuImage(url)
+                ? 'object-contain p-2 bg-white'
+                : 'object-cover'
+            }`}
             onError={() => {
               if (url === defaultFallback) return;
               if (fallbackObjectUrlRef.current) {
                 setUrl(defaultFallback);
                 return;
               }
-              if (char.avatarBlob) setUrlWithFallbackCleanup(URL.createObjectURL(char.avatarBlob), true);
-              else if (char.hasBlobsSeparated) {
+              if (char.avatarBlob) {
+                const u = safeCreateObjectURL(char.avatarBlob);
+                if (u) setUrlWithFallbackCleanup(u, true);
+                else setUrl(defaultFallback);
+              } else if (char.hasBlobsSeparated) {
                 getCharacterBlob(char.id).then((b) => {
-                  if (b && b.avatarBlob)
-                    setUrlWithFallbackCleanup(URL.createObjectURL(b.avatarBlob), true);
+                  const u = b?.avatarBlob ? safeCreateObjectURL(b.avatarBlob) : null;
+                  if (u) setUrlWithFallbackCleanup(u, true);
                   else setUrl(defaultFallback);
                 });
               } else setUrl(defaultFallback);
             }}
           />
+          {isSelected && (
+            <div className="absolute inset-0 bg-black/45 pointer-events-none z-[2]" />
+          )}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="font-medium text-white/90 truncate">{char.name}</h3>
+            <h3 className="font-medium text-white/90 truncate [.light-theme_&]:!text-[#0f172a]">{char.name}</h3>
+            {badgeInfo && (
+              <span className="text-[10px] bg-black/60 backdrop-blur-md border border-white/10 text-white/90 px-1.5 py-0.5 rounded-md flex-shrink-0 flex items-center gap-1 font-medium select-none">
+                <span className={`w-1.5 h-1.5 rounded-full ${badgeInfo.dotColor} shrink-0`} />
+                <span>{badgeInfo.label}</span>
+              </span>
+            )}
+            {showMainTokens && !badgeInfo && char.tokenCount !== undefined && char.tokenCount > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenTokenBreakdown?.(char);
+                }}
+                className="text-[10px] bg-white/10 hover:bg-white/15 border border-white/15 text-white/90 [.light-theme_&]:!bg-stone-100 [.light-theme_&]:!border-stone-200 [.light-theme_&]:!text-stone-700 px-1.5 py-0.5 rounded-md flex-shrink-0 flex items-center font-mono font-medium transition cursor-pointer select-none active:scale-95 shadow-xs"
+                title={`Token 数量: ${char.tokenCount.toLocaleString()} (常驻: ${formatTokenCount(char.permanentTokens || 0)})，点击查看拆解`}
+              >
+                <span>{formatTokenCount(char.tokenCount)} T</span>
+              </button>
+            )}
             {hasTags && (
               <div className="flex gap-1 overflow-hidden shrink-0">
                 {charTags.slice(0, 3).map((t: string) => (
                   <span
                     key={t}
-                    className="text-[9px] bg-slate-500/20 text-slate-400 px-1.5 py-0.5 rounded-sm flex-shrink-0 whitespace-nowrap"
+                    className="text-[9px] bg-slate-500/20 text-slate-400 px-1.5 py-0.5 rounded-sm flex-shrink-0 whitespace-nowrap [.light-theme_&]:!bg-[#e2e8f0] [.light-theme_&]:!text-[#334155]"
                   >
                     {t}
                   </span>
@@ -3239,119 +5002,195 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
           </div>
           <div className="flex items-center gap-2 mt-0.5">
             {char.data?.creator && (
-              <p className="text-xs text-slate-500 truncate">
+              <p className="text-xs text-slate-500 truncate [.light-theme_&]:!text-[#64748b]">
                 by {char.data.creator}
               </p>
             )}
-            {/* {char.autoImportFilename && (
-              <span className="text-[10px] text-slate-500 truncate flex-shrink-1">
-                {char.autoImportFilename}
-              </span>
-            )} */}
           </div>
         </div>
 
-        <AnimatePresence>
-          {selectionMode && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              className="shrink-0"
-            >
-              {isSelected ? (
-                <div className="bg-purple-500 rounded-full text-white shadow-lg">
-                  <CheckCircle2 className="w-6 h-6" />
-                </div>
-              ) : (
-                <div className="bg-black/40 rounded-full border-2 border-white/60 w-6 h-6 shadow-sm" />
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
+        {/* Right side favorite button in list view */}
+        {!selectionMode && onToggleFavorite && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFavorite(e);
+            }}
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 transition relative group active:scale-90 cursor-pointer shrink-0 z-10"
+            title={char.isFavorite ? "取消收藏" : "收藏"}
+          >
+            <Heart
+              className={`w-4 h-4 sm:w-4.5 sm:h-4.5 transition-all duration-200 ${
+                char.isFavorite
+                  ? "text-rose-500 fill-rose-500 drop-shadow-[0_1px_4px_rgba(244,63,94,0.4)]"
+                  : "text-white/40 hover:text-rose-400 [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-rose-500"
+              }`}
+            />
+          </button>
+        )}
+      </div>
     );
   }
 
   return (
-    <motion.div
+    <div
       ref={cardRef}
-      whileHover={{ scale: selectionMode ? 1 : 1.05 }}
-      whileTap={{ scale: 0.95 }}
+      style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none", touchAction: "pan-y" }}
       onClick={handleClick}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      onTouchMove={handleTouchEnd}
-      onMouseDown={handleTouchStart}
-      onMouseUp={handleTouchEnd}
-      onMouseLeave={handleTouchEnd}
-      className={`relative ${viewMode === "masonry" ? "w-full h-auto min-h-[150px] bg-white/5" : "aspect-[2/3]"} rounded-2xl overflow-hidden cursor-pointer shadow-lg border transition-all duration-300 group select-none ${isSelected ? "border-purple-500 ring-2 ring-purple-500" : "border-white/10"}`}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isLongPress.current || Date.now() - lastLongPressTimeRef.current < 800) {
+          return;
+        }
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+        isLongPress.current = true;
+        lastLongPressTimeRef.current = Date.now();
+        onLongPress();
+      }}
+      onTouchStart={handlePointerStart}
+      onTouchEnd={handlePointerEnd}
+      onTouchCancel={handlePointerEnd}
+      onTouchMove={handlePointerMove}
+      onMouseDown={handlePointerStart}
+      onMouseMove={handlePointerMove}
+      onMouseUp={handlePointerEnd}
+      onMouseLeave={handlePointerEnd}
+      className={`relative ${viewMode === "masonry" ? "w-full min-h-[160px] aspect-[2/3] bg-white/5" : "aspect-[2/3]"} rounded-2xl overflow-hidden cursor-pointer shadow-lg border-0 [.light-theme_&]:border-0 transition duration-150 ease-out group select-none ${
+        isSelected
+          ? "scale-[0.93] active:scale-90"
+          : selectionMode
+            ? "active:scale-[0.92]"
+            : "hover:scale-105 active:scale-[0.92]"
+      }`}
     >
-      <motion.img
-        animate={{ scale: isSelected ? 0.9 : 1 }}
-        transition={{ duration: 0.2 }}
+      <img
         src={url || undefined}
         alt={char.name}
-        className={`w-full ${viewMode === "masonry" ? "h-auto block" : "h-full"} object-cover pointer-events-none`}
+        loading="lazy"
+        decoding="async"
+        className={`w-full h-full pointer-events-none ${
+          isFallbackMiuImage(url)
+            ? 'object-contain p-6 sm:p-8 bg-white'
+            : 'object-cover'
+        }`}
         onError={() => {
           if (url === defaultFallback) return;
           if (fallbackObjectUrlRef.current) {
             setUrl(defaultFallback);
             return;
           }
-          if (char.avatarBlob) setUrlWithFallbackCleanup(URL.createObjectURL(char.avatarBlob), true);
-          else if (char.hasBlobsSeparated) {
+          if (char.avatarBlob) {
+            const u = safeCreateObjectURL(char.avatarBlob);
+            if (u) setUrlWithFallbackCleanup(u, true);
+            else setUrl(defaultFallback);
+          } else if (char.hasBlobsSeparated) {
             getCharacterBlob(char.id).then((b) => {
-              if (b && b.avatarBlob) setUrlWithFallbackCleanup(URL.createObjectURL(b.avatarBlob), true);
+              const u = b?.avatarBlob ? safeCreateObjectURL(b.avatarBlob) : null;
+              if (u) setUrlWithFallbackCleanup(u, true);
               else setUrl(defaultFallback);
             });
           } else setUrl(defaultFallback);
         }}
       />
-      <div className="absolute inset-0 bg-gradient-to-t from-[var(--overlay-bottom)] via-[var(--overlay-mid)] to-transparent flex flex-col justify-end p-3 pointer-events-none">
-        <h3 className="font-semibold text-[#ffffff] text-sm sm:text-base leading-tight drop-shadow-md break-words truncate">
+      {isSelected && (
+        <div className="absolute inset-0 bg-black/45 pointer-events-none z-[2] transition-opacity" />
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent flex flex-col justify-end p-3 pointer-events-none z-[3]">
+        <h3 className="font-semibold !text-white text-sm sm:text-base leading-tight drop-shadow-[0_1.5px_4px_rgba(0,0,0,0.95)] break-words truncate">
           {char.name}
         </h3>
         {hasTags && (
-          <div className="flex flex-wrap gap-1 mt-1.5 h-[1.125rem] overflow-hidden -mr-1">
+          <div className="flex flex-wrap gap-1 mt-1.5 h-[1.25rem] overflow-hidden -mr-1">
             {charTags.map((t: string) => (
               <span
                 key={t}
-                className="text-[9px] bg-[#000000]/40 backdrop-blur-md text-[#ffffff] px-1 py-0.5 rounded-sm truncate max-w-[60px]"
+                className="text-[9.5px] bg-black/45 backdrop-blur-md !text-white/95 border border-white/20 px-1.5 py-0.5 rounded-md truncate max-w-[75px] font-medium leading-tight shadow-xs"
               >
                 {t}
               </span>
             ))}
           </div>
         )}
-        {/* <div className="flex items-center gap-1 mt-1.5">
-          {char.autoImportFilename && (
-            <span className="text-[9px] text-[#ffffff]/60 truncate shrink">
-              {char.autoImportFilename}
-            </span>
-          )}
-        </div> */}
       </div>
 
-      <AnimatePresence>
-        {selectionMode && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            className="absolute top-2 right-2 z-10"
-          >
-            {isSelected ? (
-              <div className="bg-purple-500 rounded-full text-white shadow-lg">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-            ) : (
-              <div className="bg-black/40 rounded-full border-2 border-white/60 w-6 h-6 shadow-sm" />
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
+      {badgeInfo && (
+        <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/45 backdrop-blur-md rounded-md text-[10px] font-medium text-white/90 border border-white/15 flex items-center gap-1.5 shadow-sm pointer-events-none select-none">
+          <span className={`w-1.5 h-1.5 rounded-full ${badgeInfo.dotColor} shrink-0`} />
+          <span>{badgeInfo.label}</span>
+        </div>
+      )}
+
+      {showMainTokens && !badgeInfo && char.tokenCount !== undefined && char.tokenCount > 0 && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenTokenBreakdown?.(char);
+          }}
+          className={`absolute ${badgeInfo ? "top-8.5" : "top-2"} left-2 z-10 px-1.5 py-0.5 bg-black/45 hover:bg-black/65 backdrop-blur-md rounded-md text-[10px] font-mono font-medium text-white/90 hover:text-white border border-white/20 flex items-center shadow-xs transition cursor-pointer select-none active:scale-95`}
+          title={`Token 数量: ${char.tokenCount.toLocaleString()} (常驻: ${formatTokenCount(char.permanentTokens || 0)})，点击查看拆解`}
+        >
+          <span>{formatTokenCount(char.tokenCount)} T</span>
+        </button>
+      )}
+
+      {/* Top right Heart favorite button - differentiated by layout */}
+      {!selectionMode && onToggleFavorite && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite(e);
+          }}
+          className={`absolute z-10 rounded-full flex items-center justify-center backdrop-blur-xs transition-all duration-200 cursor-pointer active:scale-85 ${
+            viewMode === "masonry"
+              ? "top-1.5 right-1.5 sm:top-2.5 sm:right-2.5 w-6 h-6 sm:w-7 sm:h-7"
+              : "top-1 right-1 sm:top-2 sm:right-2 w-5 h-5 sm:w-6.5 sm:h-6.5"
+          } ${
+            char.isFavorite
+              ? "bg-black/45 text-rose-500 shadow-xs opacity-100 border border-white/10"
+              : "bg-black/30 text-white/70 hover:text-rose-400 opacity-0 group-hover:opacity-100"
+          }`}
+          title={char.isFavorite ? "取消收藏" : "收藏"}
+        >
+          <Heart
+            className={`transition-transform duration-200 ${
+              viewMode === "masonry"
+                ? "w-3.5 h-3.5 sm:w-4 sm:h-4"
+                : "w-2.5 h-2.5 sm:w-3.5 sm:h-3.5"
+            } ${
+              char.isFavorite
+                ? "fill-rose-500 text-rose-500 drop-shadow-[0_1px_3px_rgba(244,63,94,0.5)]"
+                : "text-white/90 hover:text-white"
+            }`}
+          />
+        </button>
+      )}
+    </div>
   );
+},
+(prevProps, nextProps) => {
+  if (prevProps.showMainTokens !== nextProps.showMainTokens) return false;
+  if (prevProps.viewMode !== nextProps.viewMode) return false;
+  if (prevProps.selectionMode !== nextProps.selectionMode) return false;
+  if (prevProps.isSelected !== nextProps.isSelected) return false;
+
+  const p = prevProps.char;
+  const n = nextProps.char;
+  if (p.id !== n.id) return false;
+  if (p.updatedAt !== n.updatedAt) return false;
+  if (p.name !== n.name) return false;
+  if (p.folderId !== n.folderId) return false;
+  if (p.isFavorite !== n.isFavorite) return false;
+  if (p.deletedAt !== n.deletedAt) return false;
+  if (p.avatarBlob !== n.avatarBlob) return false;
+  if (p.localFilePath !== n.localFilePath) return false;
+  if (p.tokenCount !== n.tokenCount) return false;
+  if (p.permanentTokens !== n.permanentTokens) return false;
+
+  return true;
 }
 );

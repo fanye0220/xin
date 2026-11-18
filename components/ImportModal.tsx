@@ -1,5 +1,5 @@
-import { getFallbackAvatar, resolveAvatarUrl } from "../lib/avatar";
-import React, { useState, useRef, useEffect } from "react";
+import { getFallbackAvatar, isFallbackMiuImage, resolveAvatarUrl, safeCreateObjectURL } from "../lib/avatar";
+import React, { useState, useRef, useEffect, memo, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
@@ -10,18 +10,43 @@ import {
   FileArchive,
   Cloud,
   CheckCircle,
+  CheckCircle2,
+  Check,
   Search,
+  Folder,
+  ArrowRight,
+  Loader2,
+  RefreshCw,
+  Globe,
+  Database,
+  Terminal,
+  RotateCcw,
+  Sparkles,
+  FileText,
+  BookOpen,
+  SlidersHorizontal,
+  Palette,
+  MessageSquare,
+  Braces,
+  User,
 } from "lucide-react";
-import { extractTavernData } from "../lib/png";
+import { extractTavernData, parsePayload } from "../lib/png";
 import {
   saveCharacter,
   saveCharacters,
+  beginBulkCharacterUpdates,
+  endBulkCharacterUpdates,
   CharacterCard,
   getSafeFilename,
   getFolders,
   saveFolder,
   Folder as DBFolder,
   ChatLog,
+  isActualCharacterCard,
+  getCharacterCategoryPrefix,
+  CardVersionSnapshot,
+  stripToolNameSuffix,
+  saveUserPersona,
 } from "../lib/db";
 import { normalizeWorldbookEntries } from "../lib/worldbook";
 import { parseTavernCard } from "../types/tavern";
@@ -29,14 +54,154 @@ import { isAndroid, saveToGallery } from "../lib/appBridge";
 import { getAISettings, normalizeSillyTavernUrl, getSillyTavernAuthHeaders } from "../lib/ai";
 import JSZip from "jszip";
 import { useInView } from "../lib/useInView";
+import { getCharacterTokenBreakdown, formatTokenCount, CharacterTokenBreakdown } from "../lib/tokens";
+import { TokenBreakdownModal } from "./TokenBreakdownModal";
 import { withReadSlot } from "../lib/thumbCache";
+import { describeSaveFailure, describeSaveFailureShort } from "../lib/saveError";
+import { extractImageTimestamp, extractDateFromCardData } from "../lib/fileDate";
 
 const tavernAvatarCache = new Map<string, string>();
+
+/**
+ * 酒馆角色卡头像候选地址。官方缩略图优先，静态目录兜底，
+ * 后面几条是不同分支/旧版本用过的参数名，全部失败再走导出整卡。
+ */
+function tavernAvatarCandidateUrls(stUrl: string, avatar: string): string[] {
+  const base = String(stUrl || '').replace(/\/+$/, '');
+  const clean = String(avatar || '').trim().replace(/^[/\\]+/, '');
+  if (!base || !clean) return [];
+  const encoded = encodeURIComponent(clean);
+  return [
+    `${base}/thumbnail?type=avatar&file=${encoded}`,
+    `${base}/characters/${encoded}`,
+    `${base}/thumbnail?type=avatar&avatar=${encoded}`,
+    `${base}/thumbnail?type=avatar&file_name=${encoded}`,
+    `${base}/get_thumbnail?type=avatar&file=${encoded}`,
+  ];
+}
+
+/**
+ * 用 <img> 直连探测。图片标签不受 CORS 限制，酒馆默认跨域配置下
+ * fetch 读不到 blob，但 <img> 能直接把图画出来。
+ */
+function probeTavernImage(url: string, timeoutMs = 3500): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!url || typeof Image === 'undefined') {
+      resolve(false);
+      return;
+    }
+    const probe = new Image();
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      probe.onload = null;
+      probe.onerror = null;
+      resolve(ok);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    probe.onload = () => {
+      clearTimeout(timer);
+      finish(probe.naturalWidth > 0);
+    };
+    probe.onerror = () => {
+      clearTimeout(timer);
+      finish(false);
+    };
+    probe.src = url;
+  });
+}
+
+type TavernPullCategory = "character" | "worldbook" | "preset" | "theme" | "qr" | "regex" | "persona";
+
+const TAVERN_PULL_TABS: { key: TavernPullCategory; label: string }[] = [
+  { key: "character", label: "角色卡" },
+  { key: "worldbook", label: "世界书" },
+  { key: "preset", label: "预设" },
+  { key: "theme", label: "美化" },
+  { key: "qr", label: "快速回复" },
+  { key: "regex", label: "正则" },
+  { key: "persona", label: "人设" },
+];
+
+const TAVERN_CATEGORY_HINT: Record<TavernPullCategory, string> = {
+  character: "搜索角色名称、描述或标签...",
+  worldbook: "搜索世界书名称...",
+  preset: "搜索预设名称...",
+  theme: "搜索美化主题名称...",
+  qr: "搜索快速回复集合...",
+  regex: "搜索正则脚本名称...",
+  persona: "搜索 User 人设名称或设定...",
+};
+
+function TavernKindIcon({ kind, className }: { kind: TavernPullCategory; className?: string }) {
+  if (kind === "worldbook") return <BookOpen className={className} />;
+  if (kind === "preset") return <SlidersHorizontal className={className} />;
+  if (kind === "theme") return <Palette className={className} />;
+  if (kind === "qr") return <MessageSquare className={className} />;
+  if (kind === "regex") return <Braces className={className} />;
+  if (kind === "persona") return <User className={className} />;
+  return <Cloud className={className} />;
+}
+
+function normalizeTavernPresetApi(value: any): string {
+  const api = String(value || "").toLowerCase();
+  if (api === "koboldhorde") return "kobold";
+  if (api === "kobold") return "kobold";
+  if (api === "novel") return "novel";
+  if (api === "textgenerationwebui") return "textgenerationwebui";
+  if (api === "openai") return "openai";
+  return "";
+}
+
+function isRealTavernPreset(preset: any): boolean {
+  if (!preset || typeof preset !== "object" || Array.isArray(preset)) return false;
+  const type = String(preset.type || "").toLowerCase();
+  if (type === "script" || type === "tool") return false;
+  if (Array.isArray(preset.prompts) || Array.isArray(preset.prompt_order) || Array.isArray(preset.promptOrder)) return true;
+  const samplers = ["temperature", "top_p", "top_k", "temp", "rep_pen", "repetition_penalty", "openai_max_tokens", "max_tokens"];
+  return samplers.some((key) => typeof preset[key] === "number");
+}
+
+function tavernToolFileName(name: string, kind: TavernPullCategory): string {
+  const base = String(name || "miu_tool").replace(/[\\/:*?"<>|]/g, "_").trim() || "miu_tool";
+  return base.replace(/\.json$/i, "") + "." + kind + ".json";
+}
+
+const ALT_FOLDERS = ["替换卡面", "替换头像", "avatars", "alt", "alternate"];
+const VERSION_FOLDERS = ["版本历史", "versions", "version_history", "history"];
+
+const SYSTEM_CONTAINER_BUCKETS = [
+  "角色卡", "角色卡片", "角色卡包", "角色卡片包", "角色包", "角色", "卡包", "卡片", "角包",
+  "characters", "cards", "character", "card",
+  "工具区", "工具包", "工具", "tools", "presets", "预设", "世界书", "world_info",
+  "聊天记录", "聊天", "chats", "chat",
+  "回收站", "trash",
+  "tavern_export", "miu_backup", "miu_autobackup", "chats_export", "backup", "backups", "export", "exports",
+  "sillytavern", "aitavern", "aitavern_backups"
+];
+
+function isSystemContainerName(name: string): boolean {
+  if (!name) return true;
+  const clean = name.trim().toLowerCase().replace(/[\-_0-9\s\(\)（）\.]/g, "");
+  if (!clean) return true;
+  if (SYSTEM_CONTAINER_BUCKETS.includes(clean)) return true;
+  return /^(角色卡|角色卡片|角色卡包|角色包|卡包|卡片|工具区|工具包|聊天记录|Tavern_Export|MIU_Backup|MIU_AutoBackup|chats_export|backup|export|cards|characters|sillytavern|aitavern)[\-_0-9A-Za-z_卷\s\(\)（）]*/i.test(name.trim());
+}
+
+function stripSystemContainerBucketParts(parts: string[]): string[] {
+  let res = [...parts];
+  while (res.length > 0 && isSystemContainerName(res[0])) {
+    res.shift();
+  }
+  return res;
+}
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   onImported: () => void;
+  onNavigateFolder?: (folderId: string | null) => void;
   folderId?: string | null;
   initialFiles?: FileList | File[] | null;
 }
@@ -48,92 +213,162 @@ interface ParsedItem {
   isMain: boolean;
   data?: any;
   isImage: boolean;
+  imageTimestamp?: number | null;
   isChatLog?: boolean;
+  isVersion?: boolean;
+  isMeta?: boolean;
+  isPersona?: boolean;
+  toolPrefix?: string[];
+  toolCategory?: string;
   errorMsg?: string;
 }
 
-export function TavernAvatar({ char, aiSettings }: { char: any, aiSettings: any }) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(() =>
-    tavernAvatarCache.get(char.avatar) || null
-  );
-  const [error, setError] = useState(false);
-  const containerRef = useRef<HTMLImageElement>(null);
-  const inView = useInView(containerRef);
+const ImportCardAvatar = memo(function ImportCardAvatar({
+  blob,
+  fallback,
+  name,
+}: {
+  blob?: Blob;
+  fallback?: string;
+  name: string;
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!inView) return;
-    if (tavernAvatarCache.has(char.avatar)) {
-      setBlobUrl(tavernAvatarCache.get(char.avatar)!);
+    if (!blob) {
+      setBlobUrl(null);
       return;
     }
+    const url = safeCreateObjectURL(blob);
+    setBlobUrl(url);
+    return () => {
+      if (url && url.startsWith('blob:')) URL.revokeObjectURL(url);
+    };
+  }, [blob]);
+
+  const srcUrl = blobUrl || fallback || getFallbackAvatar(name);
+  const isFallback = isFallbackMiuImage(srcUrl);
+
+  return (
+    <img
+      src={srcUrl}
+      alt={name}
+      className={`w-full h-full ${
+        isFallback
+          ? 'object-contain p-1.5 bg-white'
+          : 'object-cover'
+      }`}
+      loading="lazy"
+      decoding="async"
+    />
+  );
+});
+
+export function TavernAvatar({ char, aiSettings, className = "w-12 h-12 sm:w-14 sm:h-14 rounded-2xl object-cover shrink-0 shadow-xs" }: { char: any, aiSettings: any, className?: string }) {
+  const avatarKey = String(char?.avatar || "");
+  const displayName = String(char?.name || avatarKey || "酒馆角色");
+  const [blobUrl, setBlobUrl] = useState<string | null>(() => tavernAvatarCache.get(avatarKey) || null);
+  const containerRef = useRef<HTMLImageElement>(null);
+  const inView = useInView(containerRef);
+  const stUrl = normalizeSillyTavernUrl(aiSettings?.sillyTavernUrl);
+  const stUser = aiSettings?.sillyTavernUsername || "";
+  const stPass = aiSettings?.sillyTavernPassword || "";
+
+  useEffect(() => {
+    if (!inView || !avatarKey) return;
+    const cached = tavernAvatarCache.get(avatarKey);
+    if (cached) {
+      setBlobUrl(cached);
+      return;
+    }
+    if (!stUrl) return;
 
     let cancelled = false;
-    const androidBridge = (window as any).Android;
+    const accept = (url?: string | null) => {
+      if (cancelled || !url) return false;
+      tavernAvatarCache.set(avatarKey, url);
+      setBlobUrl(url);
+      return true;
+    };
 
-    const fetchImg = () =>
-      withReadSlot(async () => {
-        if (cancelled) return;
+    const loadAvatar = () => withReadSlot(async () => {
+      if (cancelled) return;
 
-        const stUrl = normalizeSillyTavernUrl(aiSettings.sillyTavernUrl);
-        if (!stUrl) return;
-
-        if (isAndroid() && androidBridge && typeof androidBridge.fetchTavernAvatarAsDataUrl === 'function') {
-          const dataUrl = androidBridge.fetchTavernAvatarAsDataUrl(
-            stUrl,
-            char.avatar,
-            aiSettings.sillyTavernUsername || "",
-            aiSettings.sillyTavernPassword || "",
-          );
-          if (cancelled) return;
-          if (dataUrl && dataUrl.startsWith("data:")) {
-            tavernAvatarCache.set(char.avatar, dataUrl);
-            setBlobUrl(dataUrl);
-          } else {
-            setError(true);
-          }
-          return;
-        }
-
-        const headers = getSillyTavernAuthHeaders(aiSettings);
-
+      // 1) 安卓：原生桥。绕开 WebView 的 http 混合内容限制，
+      //    内部还会在图片地址全失败时用导出整卡兜底。
+      if (isAndroid() && typeof (window as any).Android?.fetchTavernAvatarAsDataUrl === 'function') {
         try {
-          const thumbUrl = `${stUrl}/thumbnail?type=avatar&file=${encodeURIComponent(char.avatar)}`;
-          let res = await fetch(thumbUrl, { headers });
-
-          if (!res.ok) {
-            res = await fetch(
-              `${stUrl}/characters/${encodeURIComponent(char.avatar)}`,
-              { headers }
-            );
-          }
-
-          if (res.ok && !cancelled) {
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            tavernAvatarCache.set(char.avatar, url);
-            setBlobUrl(url);
-          } else {
-            if (!cancelled) setError(true);
-          }
+          const dataUrl = (window as any).Android.fetchTavernAvatarAsDataUrl(stUrl, avatarKey, stUser, stPass);
+          if (accept(typeof dataUrl === 'string' && dataUrl.startsWith('data:') ? dataUrl : null)) return;
         } catch {
-          if (!cancelled) setError(true);
+          /* 原生失败就继续走图片直连 */
         }
-      });
+      }
 
-    fetchImg();
+      const candidates = tavernAvatarCandidateUrls(stUrl, avatarKey);
+      const probeDeadline = Date.now() + 8000;
+
+      // 2) <img> 直连。网页版跨域时 fetch 会被酒馆默认 CORS 拦掉，
+      //    但图片标签本身不受限制，这是人设头像能出图的原因，卡片也照做。
+      for (const url of candidates) {
+        if (cancelled) return;
+        const left = probeDeadline - Date.now();
+        if (left < 300) break;
+        if (await probeTavernImage(url, Math.min(3500, left))) {
+          if (accept(url)) return;
+        }
+      }
+
+      // 3) fetch 兜底：同源、或酒馆放开了 CORS 时可用。先带鉴权头，再不带。
+      const authHeaders = getSillyTavernAuthHeaders(aiSettings);
+      const headerSets = Object.keys(authHeaders).length ? [authHeaders, {}] : [{}];
+      for (const headers of headerSets) {
+        for (const url of candidates) {
+          if (cancelled) return;
+          try {
+            const res = await fetch(url, { headers, credentials: 'include' });
+            if (!res.ok) continue;
+            const blob = await res.blob();
+            if (!blob || blob.size === 0) continue;
+            if (blob.type && blob.type.includes('html')) continue;
+            const objUrl = safeCreateObjectURL(blob);
+            if (accept(objUrl)) return;
+          } catch {
+            /* 换下一个地址 */
+          }
+        }
+      }
+    });
+
+    void loadAvatar();
     return () => { cancelled = true; };
-  }, [char.avatar, aiSettings, inView]);
+  }, [avatarKey, stUrl, stUser, stPass, inView]);
+
+  const srcUrl = blobUrl || getFallbackAvatar(displayName);
+  const isFallback = isFallbackMiuImage(srcUrl);
 
   return (
     <img
       ref={containerRef}
-      src={error || !blobUrl ? getFallbackAvatar(char.name) : blobUrl}
-      className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover shrink-0"
+      src={srcUrl}
+      className={`${className.replace(/\bobject-cover\b/g, '')} ${
+        isFallback
+          ? 'object-contain p-1.5 bg-white'
+          : 'object-cover'
+      }`}
+      alt={displayName}
+      loading="lazy"
+      decoding="async"
+      onError={() => {
+        if (!blobUrl) return;
+        tavernAvatarCache.delete(avatarKey);
+        setBlobUrl(null);
+      }}
     />
   );
 }
 
-export function ImportModal({ isOpen, onClose, onImported, folderId, initialFiles }: Props) {
+export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, folderId, initialFiles }: Props) {
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importErrors, setImportErrors] = useState<
@@ -145,14 +380,137 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
     message?: string;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // 一次导入过程里文件夹表只需要读一次，避免每张卡都全表读一遍
+  const foldersCacheRef = useRef<DBFolder[] | null>(null);
 
-  const initialFilesHandled = useRef(false);
+  const [isLightMode, setIsLightMode] = useState(() => {
+    return (
+      document.documentElement.classList.contains("light-theme") ||
+      localStorage.getItem("tavern_theme") === "light"
+    );
+  });
+
+  useEffect(() => {
+    const checkTheme = () => {
+      setIsLightMode(
+        document.documentElement.classList.contains("light-theme") ||
+        localStorage.getItem("tavern_theme") === "light"
+      );
+    };
+    checkTheme();
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    window.addEventListener("storage", checkTheme);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("storage", checkTheme);
+    };
+  }, []);
+
+  const [autoCategorizeSameName, setAutoCategorizeSameName] = useState<boolean>(
+    () => localStorage.getItem("miu_auto_categorize_same_name") !== "false",
+  );
+  const [autoCategorizedSummary, setAutoCategorizedSummary] = useState<
+    Array<{
+      cardId: string;
+      charName: string;
+      folderId: string;
+      folderPath: string;
+      breakdown?: CharacterTokenBreakdown;
+      isTool?: boolean;
+    }> | null
+  >(null);
+  const [importTokenSummary, setImportTokenSummary] = useState<{
+    totalTokens: number;
+    totalCardsCount?: number;
+    items: Array<{
+      cardId: string;
+      charName: string;
+      folderId?: string;
+      folderPath: string;
+      avatarBlob?: Blob;
+      avatarUrlFallback?: string;
+      breakdown: CharacterTokenBreakdown;
+      attachedChatsCount: number;
+      attachedAvatarsCount: number;
+      isTool?: boolean;
+    }>;
+  } | null>(null);
+  const [tokenSearchQuery, setTokenSearchQuery] = useState("");
+  const [displayLimit, setDisplayLimit] = useState(30);
+  const [tavernDisplayLimit, setTavernDisplayLimit] = useState(36);
+  const hasImportedSomethingRef = useRef(false);
+
+  const handleSafeClose = useCallback(() => {
+    if (hasImportedSomethingRef.current) {
+      hasImportedSomethingRef.current = false;
+      onImported();
+      window.dispatchEvent(new CustomEvent("charactersUpdated"));
+    }
+    onClose();
+  }, [onClose, onImported]);
+
+  const [selectedTokenBreakdown, setSelectedTokenBreakdown] = useState<{
+    name: string;
+    breakdown: CharacterTokenBreakdown;
+  } | null>(null);
+
+  useEffect(() => {
+    setDisplayLimit(30);
+  }, [importTokenSummary, tokenSearchQuery]);
+
+  const filteredTokenItems = useMemo(() => {
+    if (!importTokenSummary) return [];
+    const q = tokenSearchQuery.trim().toLowerCase();
+    if (!q) return importTokenSummary.items;
+    return importTokenSummary.items.filter(
+      (c) =>
+        c.charName.toLowerCase().includes(q) ||
+        c.folderPath.toLowerCase().includes(q)
+    );
+  }, [importTokenSummary, tokenSearchQuery]);
+
+  const visibleTokenItems = useMemo(() => {
+    return filteredTokenItems.slice(0, displayLimit);
+  }, [filteredTokenItems, displayLimit]);
+
+  const [importedSuccessCount, setImportedSuccessCount] = useState(0);
+  const [isReverting, setIsReverting] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setAutoCategorizedSummary(null);
+      setImportTokenSummary(null);
+      setSelectedTokenBreakdown(null);
+      setTokenSearchQuery("");
+    }
+  }, [isOpen]);
 
   const [tavernMode, setTavernMode] = useState<boolean>(false);
   const [tavernChars, setTavernChars] = useState<any[]>([]);
   const [selectedTavernChars, setSelectedTavernChars] = useState<Set<string>>(new Set());
   const [isPulling, setIsPulling] = useState(false);
+  const [isFetchingCatalog, setIsFetchingCatalog] = useState(false);
   const [tavernSearchQuery, setTavernSearchQuery] = useState("");
+  const [pullLogs, setPullLogs] = useState<string[]>([]);
+  const [currentPullChar, setCurrentPullChar] = useState<{ name: string; avatar: any; kind?: TavernPullCategory } | null>(null);
+  const [tavernCategory, setTavernCategory] = useState<TavernPullCategory>("character");
+  const [tavernTabCounts, setTavernTabCounts] = useState<Record<string, number>>({});
+  const tavernCategoryRef = useRef<TavernPullCategory>("character");
+  const tavernCacheRef = useRef<Record<string, any[]>>({});
+  const tavernToolPayloadRef = useRef<Map<string, any>>(new Map());
+
+  useEffect(() => {
+    setTavernDisplayLimit(36);
+  }, [tavernMode, tavernSearchQuery]);
+
+  const addPullLog = (msg: string) => {
+    const time = new Date().toLocaleTimeString();
+    setPullLogs(prev => [`[${time}] ${msg}`, ...prev.slice(0, 19)]);
+  };
 
   const fetchTavernList = async () => {
     const aiSettings = getAISettings();
@@ -162,20 +520,26 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
       return;
     }
 
-    setIsPulling(true);
+    setIsFetchingCatalog(true);
     setTavernMode(true);
+    tavernCategoryRef.current = "character";
+    setTavernCategory("character");
+    if (!tavernCacheRef.current.character) {
+      setTavernChars([]);
+      setSelectedTavernChars(new Set());
+    }
     setError(null);
-    setProgress({ current: 0, total: 0, message: "正在连接酒馆并获取角色列表..." });
+    setPullLogs([]);
+    setCurrentPullChar(null);
+    setProgress(null);
 
     try {
       const headers = getSillyTavernAuthHeaders(aiSettings);
 
-      // Android 真机优先走 MainActivity 的 Java 桥接：原生流式解析
-      // /api/characters/all，只回传 name/avatar/description，避免几十 MB
-      // 大 JSON 进 WebView 后卡在 JSON.parse，导致一直转圈。
       const androidBridge = (window as any).Android;
       if (isAndroid() && androidBridge && typeof androidBridge.fetchTavernCharListLite === 'function') {
         try {
+          addPullLog("检测到 Android 环境，使用原生轻量传输解析角色索引...");
           const raw = androidBridge.fetchTavernCharListLite(
             stUrl,
             aiSettings.sillyTavernUsername || '',
@@ -188,13 +552,17 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
                 ? meta.list.filter((c: any) => c && c.avatar && c.name)
                 : [];
               if (nativeList.length > 0) {
-                setTavernChars(nativeList);
-                setSelectedTavernChars(new Set(nativeList.map((c: any) => c.avatar)));
+                const mapped = nativeList.map((c: any) => ({ ...c, id: c.avatar, kind: "character" }));
+                tavernCacheRef.current.character = mapped;
+                tavernCategoryRef.current = "character";
+                setTavernCategory("character");
+                setTavernTabCounts((prev) => ({ ...prev, character: mapped.length }));
+                setTavernChars(mapped);
+                setSelectedTavernChars(new Set(mapped.map((c: any) => c.avatar)));
+                addPullLog(`获取成功！共加载 ${mapped.length} 个酒馆角色`);
                 setProgress(null);
                 return;
               }
-            } else {
-              console.warn('native tavern list returned', meta?.status, meta?.error || '');
             }
           }
         } catch (e) {
@@ -208,14 +576,13 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
         return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
       };
 
-      // 先做连通性检查，这样“地址填错/没启动/缺 http://”会显示明确原因。
       let reachable = false;
       let connectError = "";
       for (const testUrl of [`${stUrl}/csrf-token`, `${stUrl}/version`, `${stUrl}/`]) {
         try {
           const testRes = await fetchWithTimeout(testUrl, { headers }, 8000);
           reachable = Boolean(testRes);
-          break;
+          if (reachable) break;
         } catch (e: any) {
           connectError = e?.message || String(e);
         }
@@ -224,6 +591,7 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
         throw new Error(`无法连接酒馆 ${stUrl}（${connectError || "网络请求失败"}）。请确认 Termux 中酒馆已启动、端口正确，并且地址以 http:// 开头`);
       }
 
+      addPullLog("连通性校验成功，请求角色全量清单...");
       let csrf = "";
       const refreshCsrf = async () => {
         try {
@@ -241,7 +609,7 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
           const reqHeaders: Record<string, string> = { ...headers };
           if (csrf) reqHeaders['X-CSRF-Token'] = csrf;
           if (body !== undefined) reqHeaders['Content-Type'] = 'application/json';
-          const res = await fetchWithTimeout(url, { method, headers: reqHeaders, body }, 90000);
+          const res = await fetchWithTimeout(url, { method, headers: reqHeaders, body }, 180000);
           if (!res.ok) {
             let detail = `HTTP ${res.status}`;
             try {
@@ -272,6 +640,8 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
       const attempts: { url: string; method: 'GET' | 'POST'; body?: string }[] = [
         { url: `${stUrl}/api/characters/all`, method: 'POST', body: JSON.stringify({ shallow: true }) },
         { url: `${stUrl}/api/characters/all`, method: 'GET' },
+        { url: `${stUrl}/getcharacters`, method: 'POST', body: JSON.stringify({ shallow: true }) },
+        { url: `${stUrl}/getcharacters`, method: 'GET' },
         { url: `${stUrl}/api/characters`, method: 'GET' },
       ];
 
@@ -293,15 +663,257 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
         throw new Error(lastError || "未找到可用卡片");
       }
 
-      setTavernChars(validChars);
-      setSelectedTavernChars(new Set(validChars.map((c: any) => c.avatar)));
+      const mapped = validChars.map((c: any) => ({ ...c, id: c.avatar, kind: "character" }));
+      tavernCacheRef.current.character = mapped;
+      tavernCategoryRef.current = "character";
+      setTavernCategory("character");
+      setTavernTabCounts((prev) => ({ ...prev, character: mapped.length }));
+      setTavernChars(mapped);
+      setSelectedTavernChars(new Set(mapped.map((c: any) => c.avatar)));
+      addPullLog(`加载成功！共有 ${mapped.length} 张可用角色卡`);
       setProgress(null);
     } catch (e: any) {
       setError(`获取列表失败: ${e.message}`);
-      setProgress(null);
+      addPullLog(`获取失败: ${e.message}`);
     } finally {
-      setIsPulling(false);
+      setIsFetchingCatalog(false);
     }
+  };
+
+  const tavernAuth = async () => {
+    const settings = getAISettings();
+    const stUrl = normalizeSillyTavernUrl(settings.sillyTavernUrl);
+    if (!stUrl) throw new Error('请先在"设置"中配置酒馆 API 地址。Termux 本地通常是 http://127.0.0.1:8000');
+    const headers: Record<string, string> = { ...getSillyTavernAuthHeaders(settings) };
+    let csrf = '';
+    try {
+      const res = await fetch(`${stUrl}/csrf-token`, { headers, cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        csrf = data.token || '';
+      }
+    } catch {}
+    return { stUrl, headers, csrf };
+  };
+
+  const tavernPostJson = async (path: string, body: any, auth: { stUrl: string; headers: Record<string, string>; csrf: string }, timeoutMs = 30000) => {
+    const run = async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const headers: Record<string, string> = { ...auth.headers, 'Content-Type': 'application/json' };
+      if (auth.csrf) headers['X-CSRF-Token'] = auth.csrf;
+      try {
+        return await fetch(`${auth.stUrl}${path}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body || {}),
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    let res = await run();
+    if (res.status === 403) {
+      try {
+        const csrfRes = await fetch(`${auth.stUrl}/csrf-token`, { headers: auth.headers, cache: 'no-store' });
+        if (csrfRes.ok) {
+          const data = await csrfRes.json().catch(() => ({}));
+          auth.csrf = data.token || '';
+        }
+      } catch {}
+      res = await run();
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res;
+  };
+
+  const buildTavernToolCatalog = (data: any) => {
+    const items: any[] = [];
+    const counts: Record<string, number> = {};
+    const payloads = tavernToolPayloadRef.current;
+    payloads.clear();
+
+    const push = (item: any, payload?: any) => {
+      items.push(item);
+      counts[item.kind] = (counts[item.kind] || 0) + 1;
+      if (payload !== undefined) payloads.set(item.id, payload);
+    };
+
+    const worlds = Array.isArray(data?.world_names) ? data.world_names : [];
+    worlds.forEach((rawName: any, index: number) => {
+      const name = String(rawName || '').trim();
+      if (!name) return;
+      const id = `wb:${index}:${name}`;
+      push({ id, avatar: id, kind: 'worldbook', name, creator_notes: '世界书 · 选中后才取正文' });
+    });
+
+    let settingsObject: any = {};
+    if (typeof data?.settings === 'string') {
+      try { settingsObject = JSON.parse(data.settings); } catch { settingsObject = {}; }
+    } else if (data?.settings && typeof data.settings === 'object') {
+      settingsObject = data.settings;
+    }
+
+    const presetGroups = [
+      { contents: data?.openai_settings, names: data?.openai_setting_names, apiId: 'openai' },
+      { contents: data?.textgenerationwebui_presets, names: data?.textgenerationwebui_preset_names, apiId: 'textgenerationwebui' },
+      { contents: data?.koboldai_settings, names: data?.koboldai_setting_names, apiId: 'kobold' },
+      { contents: data?.novelai_settings, names: data?.novelai_setting_names, apiId: 'novel' },
+    ];
+    const activeApi = normalizeTavernPresetApi(settingsObject?.main_api || settingsObject?.api_server || '');
+    const selectedGroups = activeApi
+      ? presetGroups.filter((group) => group.apiId === activeApi)
+      : presetGroups.filter((group) => group.apiId === 'openai');
+    const groupsToRead = selectedGroups.length > 0 ? selectedGroups : presetGroups.filter((group) => group.apiId === 'openai');
+    groupsToRead.forEach((group) => {
+      if (!Array.isArray(group.contents)) return;
+      group.contents.forEach((rawPreset: any, index: number) => {
+        let preset = rawPreset;
+        if (typeof preset === 'string') {
+          try { preset = JSON.parse(preset); } catch { return; }
+        }
+        if (!isRealTavernPreset(preset)) return;
+        const name = String((Array.isArray(group.names) && group.names[index]) || preset.name || `预设 ${index + 1}`).slice(0, 160);
+        const id = `preset:${group.apiId}:${index}:${name}`;
+        push({ id, avatar: id, kind: 'preset', name, apiId: group.apiId, creator_notes: `预设 · ${group.apiId}` }, preset);
+      });
+    });
+
+    const themes = Array.isArray(data?.themes) ? data.themes : [];
+    themes.forEach((theme: any, index: number) => {
+      if (!theme || typeof theme !== 'object' || Array.isArray(theme)) return;
+      const name = String(theme.name || theme.theme_name || `美化 ${index + 1}`).slice(0, 160);
+      const id = `theme:${index}:${name}`;
+      push({ id, avatar: id, kind: 'theme', name, creator_notes: '美化主题' }, theme);
+    });
+
+    const quickReplies = Array.isArray(data?.quickReplyPresets) ? data.quickReplyPresets : [];
+    quickReplies.forEach((set: any, index: number) => {
+      if (!set || typeof set !== 'object' || Array.isArray(set)) return;
+      const name = String(set.name || set.displayName || `快速回复 ${index + 1}`).slice(0, 160);
+      const id = `qr:${index}:${name}`;
+      const total = Array.isArray(set.qrList) ? set.qrList.length : 0;
+      push({ id, avatar: id, kind: 'qr', name, creator_notes: `快速回复 · ${total} 条` }, set);
+    });
+
+    const regex = Array.isArray(settingsObject?.extension_settings?.regex) ? settingsObject.extension_settings.regex : [];
+    regex.forEach((script: any, index: number) => {
+      if (!script || typeof script !== 'object' || Array.isArray(script)) return;
+      const name = String(script.scriptName || script.name || `正则 ${index + 1}`).slice(0, 160);
+      const id = `regex:${index}:${name}`;
+      push({ id, avatar: id, kind: 'regex', name, creator_notes: '正则脚本' }, script);
+    });
+
+    const personasMap = (settingsObject?.power_user?.personas && typeof settingsObject.power_user.personas === 'object')
+      ? settingsObject.power_user.personas as Record<string, string>
+      : {};
+    const personaDescMap = (settingsObject?.power_user?.persona_descriptions && typeof settingsObject.power_user.persona_descriptions === 'object')
+      ? settingsObject.power_user.persona_descriptions as Record<string, any>
+      : {};
+    const activePersonaKey = typeof settingsObject?.user_avatar === 'string' ? settingsObject.user_avatar : '';
+    const personaKeys = new Set<string>([...Object.keys(personasMap), ...Object.keys(personaDescMap)]);
+    if (personaKeys.size === 0 && activePersonaKey) personaKeys.add(activePersonaKey);
+    personaKeys.forEach((avatarKey) => {
+      const rawDesc = personaDescMap[avatarKey];
+      const descText = typeof rawDesc === 'string' ? rawDesc : (typeof rawDesc?.description === 'string' ? rawDesc.description : '');
+      const rawName = personasMap[avatarKey] || (activePersonaKey === avatarKey ? (settingsObject?.name || settingsObject?.user_name || '') : '');
+      const name = String(rawName || avatarKey.replace(/\.[^.]+$/, '') || '未命名 User').trim().slice(0, 160);
+      const id = `persona:${avatarKey}`;
+      push(
+        {
+          id,
+          avatar: id,
+          avatarKey,
+          kind: 'persona',
+          name,
+          creator_notes: descText ? descText.slice(0, 80) : (activePersonaKey === avatarKey ? '酒馆当前激活人设' : '酒馆 User 人设'),
+        },
+        {
+          format: 'miu-persona-v1',
+          kind: 'persona',
+          avatarKey,
+          name,
+          description: descText,
+          content: descText,
+        },
+      );
+    });
+
+    return { items, counts };
+  };
+
+  const fetchTavernTools = async (category: TavernPullCategory) => {
+    setIsFetchingCatalog(true);
+    setError(null);
+    setPullLogs([]);
+    setCurrentPullChar(null);
+    try {
+      const auth = await tavernAuth();
+      const res = await tavernPostJson('/api/settings/get', {}, auth);
+      const data = await res.json();
+      const catalog = buildTavernToolCatalog(data);
+
+      const categories: TavernPullCategory[] = ['worldbook', 'preset', 'theme', 'qr', 'regex', 'persona'];
+      categories.forEach((key) => {
+        tavernCacheRef.current[key] = catalog.items.filter((item) => item.kind === key);
+      });
+      setTavernTabCounts((prev) => ({
+        character: prev.character || 0,
+        worldbook: 0,
+        preset: 0,
+        theme: 0,
+        qr: 0,
+        regex: 0,
+        persona: 0,
+        ...catalog.counts,
+      }));
+
+      const list = tavernCacheRef.current[category] || [];
+      if (tavernCategoryRef.current === category) {
+        setTavernChars(list);
+        setSelectedTavernChars(new Set(list.map((item) => item.avatar)));
+      }
+    } catch (e: any) {
+      const message = e?.message || String(e);
+      setError(`读取酒馆工具目录失败: ${message}`);
+      if (tavernCategoryRef.current === category) {
+        setTavernChars([]);
+        setSelectedTavernChars(new Set());
+      }
+    } finally {
+      setIsFetchingCatalog(false);
+    }
+  };
+
+  const switchTavernCategory = (category: TavernPullCategory) => {
+    if (isPulling || isFetchingCatalog) return;
+    tavernCategoryRef.current = category;
+    setTavernCategory(category);
+    setTavernSearchQuery('');
+    setTavernDisplayLimit(36);
+    setError(null);
+    const cached = tavernCacheRef.current[category];
+    if (cached) {
+      setTavernChars(cached);
+      setSelectedTavernChars(new Set(cached.map((item: any) => item.avatar)));
+      return;
+    }
+    setTavernChars([]);
+    setSelectedTavernChars(new Set());
+    if (category === 'character') void fetchTavernList();
+    else void fetchTavernTools(category);
+  };
+
+  const reloadTavernCategory = (category: TavernPullCategory) => {
+    delete tavernCacheRef.current[category];
+    switchTavernCategory(category);
+  };
+
+  const fetchTavernWorldbook = async (name: string, auth: { stUrl: string; headers: Record<string, string>; csrf: string }) => {
+    const res = await tavernPostJson('/api/worldinfo/get', { name }, auth, 45000);
+    return await res.json();
   };
 
   const pullSelectedTavernChars = async () => {
@@ -312,9 +924,13 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
     const charsToFetch = tavernChars.filter(c => selectedTavernChars.has(c.avatar));
     if (charsToFetch.length === 0) return;
 
-    setProgress({ current: 0, total: charsToFetch.length, message: "正在下载角色卡..." });
-    setTavernMode(false);
-    setTavernSearchQuery("");
+    const hasTools = charsToFetch.some((item) => (item.kind || 'character') !== 'character');
+    const auth = hasTools ? await tavernAuth() : null;
+
+    setIsPulling(true);
+    setPullLogs([]);
+    addPullLog(`开始拉取 ${charsToFetch.length} 项...`);
+    setProgress({ current: 0, total: charsToFetch.length, message: `正在拉取 (0/${charsToFetch.length})...` });
 
     const files: File[] = [];
     const headers = getSillyTavernAuthHeaders(aiSettings);
@@ -328,25 +944,58 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
       while (currentIndex < charsToFetch.length) {
         const index = currentIndex++;
         const char = charsToFetch[index];
+        const kind: TavernPullCategory = char.kind || 'character';
+        setCurrentPullChar({ name: char.name, avatar: char, kind });
+        addPullLog(`正在拉取 [${index + 1}/${charsToFetch.length}]: ${char.name}`);
+
         try {
-          const res = await fetch(`${stUrl}/characters/${encodeURIComponent(char.avatar)}`, { headers });
-          if (res.ok) {
+          if (kind === 'character') {
+            const res = await fetch(`${stUrl}/characters/${encodeURIComponent(char.avatar)}`, { headers });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const blob = await res.blob();
-            const file = new File([blob], char.avatar, { type: blob.type || 'image/png' });
-            files[index] = file;
+            files[index] = new File([blob], char.avatar, { type: blob.type || 'image/png' });
           } else {
-            lastDownloadError = `HTTP ${res.status}`;
-            console.error("Failed to fetch avatar", char.avatar);
+            let payload: any = null;
+            if (kind === 'worldbook') {
+              if (!auth) throw new Error('酒馆连接信息缺失');
+              payload = await fetchTavernWorldbook(char.name, auth);
+            } else {
+              payload = tavernToolPayloadRef.current.get(char.id);
+              if (kind === 'persona' && payload && char.avatarKey) {
+                try {
+                  const avRes = await fetch(`${stUrl}/User%20Avatars/${encodeURIComponent(char.avatarKey)}`, { headers });
+                  if (avRes.ok) {
+                    const avBlob = await avRes.blob();
+                    if (avBlob && avBlob.size > 0) {
+                      const avatarDataUrl = await new Promise<string>((resolve) => {
+                        const r = new FileReader();
+                        r.onloadend = () => resolve(typeof r.result === 'string' ? r.result : '');
+                        r.onerror = () => resolve('');
+                        r.readAsDataURL(avBlob);
+                      });
+                      if (avatarDataUrl) {
+                        payload = { ...payload, avatarDataUrl };
+                      }
+                    }
+                  }
+                } catch {}
+              }
+            }
+            if (!payload) throw new Error('没有取到内容，重新切换分类再试');
+            const fileName = tavernToolFileName(char.name, kind);
+            const text = JSON.stringify(payload);
+            files[index] = new File([text], fileName, { type: 'application/json' });
           }
-        } catch (e) {
+          addPullLog(`√ 完成: ${char.name}`);
+        } catch (e: any) {
           lastDownloadError = e?.message || String(e);
-          console.error("Error fetching", char.avatar, e);
+          addPullLog(`× 失败: ${char.name} (${lastDownloadError})`);
         } finally {
           completed++;
           setProgress({
             current: completed,
             total: charsToFetch.length,
-            message: `已下载 ${completed}/${charsToFetch.length}`,
+            message: `已拉取 ${completed}/${charsToFetch.length}`,
           });
         }
       }
@@ -358,25 +1007,24 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
     }
     await Promise.all(workers);
 
-    setProgress(null);
     const downloadedFiles = files.filter(Boolean);
     if (downloadedFiles.length > 0) {
-      handleFiles(downloadedFiles);
+      addPullLog(`拉取完成！共获取到 ${downloadedFiles.length} 项，正在解析整理保存...`);
+      setProgress({ current: downloadedFiles.length, total: downloadedFiles.length, message: "正在解析并保存到本地档案库..." });
+      await handleFiles(downloadedFiles);
     } else {
-      setError(`下载失败，未获取到任何卡片。${lastDownloadError ? `（${lastDownloadError}）` : ""}`);
+      setError(`拉取失败，未获取到任何内容。${lastDownloadError ? `（${lastDownloadError}）` : ""}`);
     }
+    setIsPulling(false);
   };
 
   useEffect(() => {
     if (isOpen) {
-      // 每次真正打开弹窗都强制清一次上次可能残留的进度/错误状态,
-      // 避免上一轮导入的状态(比如卡在"20/20"再也没清掉)在下一次打开时还留着。
       setProgress(null);
       setImportErrors([]);
       setError(null);
       if (initialFiles && !initialFilesHandled.current) {
         initialFilesHandled.current = true;
-        // eslint-disable-next-line @typescript-eslint/no-use-before-define
         handleFiles(initialFiles);
       }
     } else {
@@ -384,708 +1032,1533 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
     }
   }, [isOpen, initialFiles]);
 
+  const initialFilesHandled = useRef(false);
+
   const getOrCreateNestedFolder = async (
     pathParts: string[],
     startParentId?: string | null,
   ): Promise<string | undefined> => {
     if (pathParts.length === 0) return startParentId || undefined;
-    let currentParentId: string | null = startParentId || null;
+    if (!foldersCacheRef.current) {
+      foldersCacheRef.current = await getFolders();
+    }
+    const folders = foldersCacheRef.current;
+    let currentParentId = startParentId || undefined;
 
-    const folders = await getFolders();
-
-    for (const part of pathParts) {
+    for (const folderName of pathParts) {
       const existing = folders.find(
-        (f) => f.name === part && (f.parentId || null) === currentParentId,
+        (f) =>
+          f.name.toLowerCase() === folderName.toLowerCase() &&
+          (f.parentId || undefined) === (currentParentId || undefined),
       );
+
       if (existing) {
         currentParentId = existing.id;
       } else {
         const newFolder: DBFolder = {
-          id: crypto.randomUUID(),
-          name: part,
-          createdAt: Date.now(),
+          id: `folder_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+          name: folderName,
           parentId: currentParentId,
+          sortOrder: 0,
+          createdAt: Date.now(),
         };
         await saveFolder(newFolder);
         folders.push(newFolder);
         currentParentId = newFolder.id;
       }
     }
-    return currentParentId || undefined;
+
+    return currentParentId;
   };
 
-  const parseChunk = async (
-    files: File[],
-    startIndex: number,
-    chunkSize: number,
-    parsedItems: ParsedItem[],
-    errors: { file: string; error: string }[],
-    extractedRoots: string[],
+  const handleFiles = async (
+    fileList: FileList | File[],
+    targetFolderId?: string | null,
   ) => {
-    const endIndex = Math.min(startIndex + chunkSize, files.length);
-
-    for (let i = startIndex; i < endIndex; i++) {
-      const file = files[i];
-      const path = file.webkitRelativePath || file.name;
-      const folder = path.substring(0, path.lastIndexOf("/")) || "";
-      const isImage =
-        file.type.startsWith("image/") ||
-        file.name.match(/\.(png|jpe?g|webp|gif)$/i) !== null;
-
-      let isMain = false;
-      let data: any = null;
-      let errorMsg = "";
-
-      try {
-        if (file.type === "image/png" || file.name.endsWith(".png")) {
-          const buffer = await file.arrayBuffer();
-          data = await extractTavernData(buffer);
-          if (data) {
-            isMain = true;
-          } else {
-            errorMsg = "非酒馆卡或预设格式：未找到Tavern角色数据。";
-          }
-        } else if (
-          file.type === "application/json" ||
-          file.name.toLowerCase().endsWith(".json") ||
-          file.name.toLowerCase().endsWith(".jsonl") ||
-          file.name.endsWith(".js") ||
-          file.name.endsWith(".txt")
-        ) {
-          const text = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve(e.target?.result as string);
-            reader.onerror = reject;
-            reader.readAsText(file, "utf-8");
-          });
-          if (file.name.toLowerCase().endsWith(".jsonl")) {
-            const lines = text.trim().split("\n");
-            let parsedMessages = [];
-            for (const line of lines) {
-              try {
-                const p = JSON.parse(line);
-                if (p) parsedMessages.push(p);
-              } catch (e) {}
-            }
-            const { sanitizeChatMessages } = await import("../lib/chatParse");
-            const sanitized = sanitizeChatMessages(parsedMessages);
-            if (sanitized.isChat) {
-              data = sanitized.messages;
-              isMain = false;
-            } else {
-              errorMsg = "无效的聊天记录文件。";
-            }
-          } else if (file.name.endsWith(".txt")) {
-            const { parseTextChatLog } = await import("../lib/chatParse");
-            const parsed = parseTextChatLog(text);
-            if (parsed.isChat) {
-              data = parsed.messages;
-              isMain = false;
-            } else {
-              data = { type: "script", name: file.name.replace(/\.[^/.]+$/, ""), content: text };
-              isMain = true;
-            }
-          } else if (file.name.endsWith(".js")) {
-            data = { type: "script", name: file.name.replace(/\.[^/.]+$/, ""), content: text };
-            isMain = true;
-          } else {
-            data = JSON.parse(text);
-            const isTheme =
-              data.blur_strength !== undefined ||
-              data.main_text_color !== undefined ||
-              data.chat_display !== undefined;
-            const isAIPreset =
-              data.temperature !== undefined ||
-              data.prompts !== undefined ||
-              data.top_p !== undefined;
-            const isWorldbook =
-              data.entries !== undefined ||
-              (data.data && data.data.entries !== undefined);
-            const isQR = Array.isArray(data) ? (data.length > 0 && data[0]?.label !== undefined && data[0]?.message !== undefined) : ((data?.quick_replies !== undefined || data?.qrList !== undefined) && data?.spec !== "chara_card_v2" && data?.spec !== "chara_card_v3" && data?.first_mes === undefined && data?.personality === undefined);
-            const isScript = data?.type === "script" && data?.content !== undefined && data?.name !== undefined;
-
-            const isChatData = Array.isArray(data)
-              ? data.some((item) => item && (item.mes !== undefined || item.text !== undefined || item.is_user !== undefined || item.send_date !== undefined))
-              : !!(data.chat && Array.isArray(data.chat) && !data.name && !data.char_name && !data.character_name && !data.data?.name && !data.data?.char_name && !data.data?.character_name);
-
-            const isCharacter =
-              !isTheme &&
-              !isAIPreset &&
-              !isWorldbook &&
-              !isQR &&
-              !isScript &&
-              !isChatData &&
-              !!(data.name || data.char_name || data.character_name || data.data?.name || data.data?.char_name || data.data?.character_name);
-
-            if (
-              isTheme ||
-              isAIPreset ||
-              isWorldbook ||
-              isQR ||
-              isScript ||
-              isCharacter
-            ) {
-              isMain = true;
-            } else if (isChatData) {
-              if (Array.isArray(data)) {
-                isMain = false;
-              } else if (data.chat && Array.isArray(data.chat)) {
-                data = data.chat;
-                isMain = false;
-              } else {
-                data = [data]; // 对于不标准的聊天记录结构，防止被丢弃，至少包装成数组
-                isMain = false;
-              }
-            } else {
-              errorMsg = "非酒馆卡或预设格式：无法识别的数据结构。";
-            }
-          }
-        } else {
-          errorMsg = "不支持的文件格式。";
-        }
-      } catch (err: any) {
-        errorMsg = err.message || "未知错误";
-      }
-
-      const isChatLog = !isMain && data !== null && Array.isArray(data);
-
-      parsedItems.push({
-        file,
-        path,
-        folder,
-        isMain,
-        data,
-        isImage,
-        isChatLog,
-        errorMsg: isMain || isChatLog ? undefined : errorMsg,
-      });
-
-      setProgress({
-        current: i + 1,
-        total: files.length,
-        message: "正在解析文件...",
-      });
-    }
-
-    if (endIndex < files.length) {
-      setTimeout(
-        () =>
-          parseChunk(
-            files,
-            endIndex,
-            chunkSize,
-            parsedItems,
-            errors,
-            extractedRoots,
-          ),
-        0,
-      );
-    } else {
-      assembleAndSave(parsedItems, errors, extractedRoots);
-    }
-  };
-
-  const assembleAndSave = async (
-    parsedItems: ParsedItem[],
-    errors: { file: string; error: string }[],
-    extractedRoots: string[],
-  ) => {
-    let mainItems = parsedItems.filter((item) => item.isMain);
-    let altImages = parsedItems.filter(
-      (item) => !item.isMain && item.isImage && !item.isChatLog,
-    );
-    const chatLogs = parsedItems.filter((item) => item.isChatLog);
-    const otherItems = parsedItems.filter(
-      (item) => !item.isMain && !item.isImage && !item.isChatLog,
-    );
-
-    // Demote mainItems that are likely alternate avatars
-    const itemsToDemote = new Set<ParsedItem>();
-    const ALT_FOLDERS = ["替换卡面", "替换头像", "avatars", "alt", "alternate"];
-
-    for (const item of mainItems) {
-      // 1. ONLY demote if it is explicitly inside a replacement avatar folder
-      const folderParts = item.folder.split("/");
-      const lastFolder = folderParts[folderParts.length - 1];
-      if (ALT_FOLDERS.includes(lastFolder.toLowerCase())) {
-        itemsToDemote.add(item);
-      }
-    }
-
-    mainItems = mainItems.filter((item) => !itemsToDemote.has(item));
-    for (const item of itemsToDemote) {
-      if (item.isImage) {
-        altImages.push(item);
-      } else {
-        otherItems.push(item);
-      }
-    }
-
-    for (const item of otherItems) {
-      errors.push({ file: item.file.name, error: item.errorMsg || "无效文件" });
-    }
-
-    const altImagesByMain = new Map<ParsedItem, File[]>();
-    const unassignedAltImages: ParsedItem[] = [];
-
-    for (const alt of altImages) {
-      const possibleMains = mainItems.filter((main) => {
-        // ONLY match if the alt image is inside the '替换头像' folder of the main card
-        const mainPrefix = main.folder ? main.folder + "/" : "";
-        if (alt.folder.startsWith(mainPrefix)) {
-          const relative = alt.folder.substring(mainPrefix.length);
-          const firstFolder = relative.split("/")[0];
-          if (ALT_FOLDERS.includes(firstFolder.toLowerCase())) {
-            return true;
-          }
-        }
-        return false;
-      });
-
-      possibleMains.sort((a, b) => b.folder.length - a.folder.length);
-
-      if (possibleMains.length > 0) {
-        const closestMain = possibleMains[0];
-        if (!altImagesByMain.has(closestMain)) {
-          altImagesByMain.set(closestMain, []);
-        }
-        altImagesByMain.get(closestMain)!.push(alt.file);
-      } else {
-        unassignedAltImages.push(alt);
-      }
-    }
-
-    for (const alt of unassignedAltImages) {
-      errors.push({
-        file: alt.file.name,
-        error: alt.errorMsg || "作为替换卡面导入失败：未找到所属角色卡",
-      });
-    }
-
-    const charsToSave: CharacterCard[] = [];
-    let successCount = 0;
-
-    const { getCachedMeta } = await import("../lib/db");
-    const existingMeta = await getCachedMeta();
-    const existingImportPathKeys = new Set(
-      existingMeta
-        .filter((c) => !c.deletedAt && c.autoImportFilename)
-        .map((c) => `${c.folderId || ""}/${c.autoImportFilename}`),
-    );
-    const existingNameCounts = new Map<string, number>();
-    for (const meta of existingMeta) {
-      if (meta.deletedAt || !meta.name || meta.isTool) continue;
-      const key = getSafeFilename(meta.name).toLowerCase();
-      existingNameCounts.set(key, (existingNameCounts.get(key) || 0) + 1);
-    }
-    const newPathsAssigned = new Set<string>();
-    const newNameCounts = new Map<string, number>();
-
-    const { initDB } = await import("../lib/db");
-    const db = await initDB();
-    const existingChars = await db.getAll("characters");
-
-    for (let i = 0; i < mainItems.length; i++) {
-      const item = mainItems[i];
-      try {
-        let targetFolderId = folderId || undefined;
-        let charName = "Unknown";
-
-        let folderParts: string[] = [];
-        if (item.folder) {
-          folderParts = item.folder.split("/").filter(Boolean);
-        }
-
-        const data = item.data;
-        const file = item.file;
-
-        // Normalize worldbook entries
-        if (data.entries) {
-          data.entries = normalizeWorldbookEntries(data.entries);
-        } else if (data.data && data.data.entries) {
-          data.data.entries = normalizeWorldbookEntries(data.data.entries);
-        }
-
-        if (data.character_book && data.character_book.entries) {
-          data.character_book.entries = normalizeWorldbookEntries(
-            data.character_book.entries,
-          );
-        }
-        if (data.data?.character_book?.entries) {
-          data.data.character_book.entries = normalizeWorldbookEntries(
-            data.data.character_book.entries,
-          );
-        }
-        if (data.extensions?.character_book?.entries) {
-          data.extensions.character_book.entries = normalizeWorldbookEntries(
-            data.extensions.character_book.entries,
-          );
-        }
-        if (data.data?.extensions?.character_book?.entries) {
-          data.data.extensions.character_book.entries =
-            normalizeWorldbookEntries(
-              data.data.extensions.character_book.entries,
-            );
-        }
-
-        const isTheme =
-          data.blur_strength !== undefined ||
-          data.main_text_color !== undefined ||
-          data.chat_display !== undefined;
-        const isAIPreset =
-          data.temperature !== undefined ||
-          data.prompts !== undefined ||
-          data.top_p !== undefined;
-        const isWorldbook =
-          data.entries !== undefined ||
-          (data.data && data.data.entries !== undefined);
-        const isQR = Array.isArray(data) ? (data.length > 0 && data[0]?.label !== undefined && data[0]?.message !== undefined) : ((data?.quick_replies !== undefined || data?.qrList !== undefined) && data?.spec !== "chara_card_v2" && data?.spec !== "chara_card_v3" && data?.first_mes === undefined && data?.personality === undefined);
-            const isScript = data?.type === "script" && data?.content !== undefined && data?.name !== undefined;
-        const isCharacter = !isTheme && !isAIPreset && !isWorldbook && !isQR && !isScript && !!(data.name || data.char_name || data.character_name || data.data?.name || data.data?.char_name || data.data?.character_name);
-
-
-        const path = (file as any).webkitRelativePath || file.name;
-        const dir = path.includes("/") ? path.substring(0, path.lastIndexOf("/")) : "";
-
-
-
-        let pathPrefix: string[] = [];
-
-        if (isTheme) {
-          pathPrefix = ["美化"];
-          charName = data.name || file.name.replace(/\.[^/.]+$/, "");
-        } else if (isAIPreset) {
-          pathPrefix = ["预设"];
-          charName = data.name || file.name.replace(/\.[^/.]+$/, "");
-        } else if (isWorldbook) {
-          pathPrefix = ["世界书"];
-          charName =
-            data.name || data.data?.name || file.name.replace(/\.[^/.]+$/, "");
-        } else if (isQR) {
-          pathPrefix = ["快速回复"];
-          charName = data.name || file.name.replace(/\.[^/.]+$/, "");
-        } else if (isScript) {
-          pathPrefix = ["工具区"];
-          charName = data.name || file.name.replace(/\.[^/.]+$/, "");
-        } else if (isCharacter) {
-          charName = data.name || data.char_name || data.character_name || data.data?.name || data.data?.char_name || data.data?.character_name || "Unknown Character";
-        }
-
-        if (folderParts.length > 0) {
-          // If the zip already has a folder structure, respect it strictly. Do not prepend pathPrefix.
-          targetFolderId = await getOrCreateNestedFolder(folderParts, folderId);
-        } else if (pathPrefix.length > 0) {
-          targetFolderId = await getOrCreateNestedFolder(pathPrefix, folderId);
-        } else {
-          targetFolderId = folderId || undefined;
-          // 若在主页根目录下导入且文件自身未指定子文件夹，检测数据库中是否已有同名且已分配分类文件夹的角色卡
-          // 若存在，则新导入的卡片自动跟随已有分类归入该嵌套文件夹中，避免留在主页
-          if (!targetFolderId && isCharacter) {
-            const cleanName = charName.trim().toLowerCase();
-            const existingWithFolder = existingMeta.find(
-              (m) =>
-                !m.deletedAt &&
-                !m.isTool &&
-                m.folderId &&
-                m.name &&
-                m.name.trim().toLowerCase() === cleanName,
-            );
-            if (existingWithFolder) {
-              targetFolderId = existingWithFolder.folderId;
-            }
-          }
-        }
-
-        const avatarUrlFallback =
-          file.type === "image/png" || file.name.endsWith(".png")
-            ? ""
-            : getFallbackAvatar(charName);
-
-        let localFilePath: string | undefined;
-        let avatarBlob: Blob | undefined;
-        let originalFile: File | undefined;
-
-        let pathParts = [...pathPrefix];
-        if (folderParts.length > 0) {
-          pathParts.push(...folderParts);
-        }
-
-        let targetFilePath = file.name;
-        if (pathParts.length > 0) {
-          targetFilePath = pathParts.join("/") + "/" + file.name;
-        }
-
-        if (isAndroid()) {
-          if ((file as any).androidAbsPath) {
-            // Already unzipped natively!
-            localFilePath = (file as any).androidAbsPath;
-            const buffer = await file.arrayBuffer(); // read it locally just strictly if needed, but wait!
-            // Actually, we don't need to read it if we skip setting avatarBlob, but we already read it during `parseChunk` to get metadata.
-            // By NOT setting avatarBlob, we prevent it from being loaded into IDB blobs table!
-            avatarBlob = undefined;
-            originalFile = file;
-          } else {
-            const buffer = await file.arrayBuffer();
-            if (file.type === "image/png" || file.name.endsWith(".png")) {
-              avatarBlob = file;
-            }
-            originalFile = file;
-          }
-        } else {
-          if (file.type === "image/png" || file.name.endsWith(".png")) {
-            avatarBlob = file;
-          }
-          originalFile = file;
-        }
-
-        const useCharacterName = isCharacter;
-        const baseF = useCharacterName
-          ? getSafeFilename(charName)
-          : file.name.replace(/\.[^/.]+$/, "");
-        let ext = file.name.includes(".")
-          ? file.name.substring(file.name.lastIndexOf("."))
-          : "";
-        const nameKey = useCharacterName ? baseF.toLowerCase() : "";
-        let c = useCharacterName
-          ? (existingNameCounts.get(nameKey) || 0) +
-            (newNameCounts.get(nameKey) || 0)
-          : 0;
-        let autoImportFilename =
-          c === 0 ? `${baseF}${ext}` : `${baseF}_${c}${ext}`;
-        let pathKey = `${targetFolderId || ""}/${autoImportFilename}`;
-        while (
-          existingImportPathKeys.has(pathKey) ||
-          newPathsAssigned.has(pathKey)
-        ) {
-          c++;
-          autoImportFilename = `${baseF}_${c}${ext}`;
-          pathKey = `${targetFolderId || ""}/${autoImportFilename}`;
-        }
-        newPathsAssigned.add(pathKey);
-        if (useCharacterName) {
-          newNameCounts.set(nameKey, (newNameCounts.get(nameKey) || 0) + 1);
-        }
-
-        const newChar: CharacterCard & { autoImportFilename?: string } = {
-          id: crypto.randomUUID(),
-          name: charName,
-          autoImportFilename,
-          avatarBlob,
-          localFilePath,
-          avatarUrlFallback,
-          data: data,
-          originalFile,
-          createdAt: Date.now(),
-          folderId: targetFolderId,
-          avatarHistory: altImagesByMain.get(item) || [],
-        } as any;
-
-        charsToSave.push(newChar);
-        successCount++;
-      } catch (err: any) {
-        errors.push({ file: item.file.name, error: err.message || "未知错误" });
-      }
-
-      setProgress({
-        current: i + 1,
-        total: mainItems.length,
-        message: "正在解析数据...",
-      });
-    }
-
-    if (charsToSave.length > 0) {
-      setProgress({
-        current: 0,
-        total: charsToSave.length,
-        message: "正在保存到数据库...",
-      });
-      await saveCharacters(charsToSave, extractedRoots, (current, total) => {
-        setProgress({
-          current,
-          total,
-          message: `正在写入本地数据库... ${current}/${total}`,
-        });
-      });
-    }
-
-    if (chatLogs.length > 0) {
-      setProgress({
-        current: 0,
-        total: chatLogs.length,
-        message: "正在保存聊天记录...",
-      });
-      const allCharsForMatching = [...charsToSave, ...existingChars];
-
-      const chatsToSave: ChatLog[] = [];
-      for (const cl of chatLogs) {
-        let charId = "";
-        const parts = cl.path.split("/");
-        const chatIndex = parts.indexOf("聊天记录") !== -1 ? parts.indexOf("聊天记录") : parts.indexOf("chats");
-        if (chatIndex > 0) {
-          const charName = parts[chatIndex - 1]; // CharacterName
-          const { getSafeFilename } = await import("../lib/db");
-          const matchedChar = allCharsForMatching.find(
-            (c) =>
-              getSafeFilename(c.name) === charName ||
-              c.name === charName ||
-              (c.autoImportFilename &&
-                c.autoImportFilename.split("/").pop()?.split(".")[0] ===
-                  charName),
-          );
-          if (matchedChar) charId = matchedChar.id;
-        }
-
-        if (!charId && Array.isArray(cl.data)) {
-          const aiMessage = cl.data.find(
-            (m: any) => !m.is_user && m.name,
-          );
-          if (aiMessage && aiMessage.name) {
-            const match = allCharsForMatching.find(
-              (c) =>
-                c.name.toLowerCase() === aiMessage.name?.toLowerCase(),
-            );
-            if (match) charId = match.id;
-          }
-        }
-
-        const chatName = cl.file.name.replace(/\.[^/.]+$/, "");
-        const finalMessages = cl.data.filter((m: any) => m && (m.mes !== undefined || m.text !== undefined || m.is_user !== undefined || m.send_date !== undefined || m.swipes !== undefined)).map((m: any) => {
-          const res: any = { ...m };
-          if (res.is_user === undefined) res.is_user = res.name !== chatName;
-          if (res.send_date === undefined) res.send_date = Date.now();
-          if (m.mes !== undefined) res.mes = m.mes;
-          else if (m.text !== undefined) res.mes = m.text;
-          return res;
-        });
-
-        const newChat: ChatLog = {
-          id: crypto.randomUUID(),
-          characterId: charId,
-          name: chatName,
-          messages: finalMessages,
-          createdAt: cl.file.lastModified || Date.now(),
-        };
-        chatsToSave.push(newChat);
-        successCount++;
-      }
-
-      if (chatsToSave.length > 0) {
-        const { saveChatsBulk } = await import("../lib/db");
-        await saveChatsBulk(chatsToSave, (current, total, phase) => {
-          setProgress({
-            current,
-            total,
-            message: phase + ` ${current}/${total}`,
-          });
-        });
-      }
-    }
-
-    setProgress(null);
-    if (errors.length > 0) {
-      setImportErrors(errors);
-      if (successCount > 0) {
-        const { cleanupEmptyFolders } = await import("../lib/db");
-        await cleanupEmptyFolders();
-        onImported();
-      window.dispatchEvent(new CustomEvent("chatsUpdated"));
-      window.dispatchEvent(new CustomEvent("charactersUpdated"));
-      }
-    } else if (successCount === 0) {
-      setError("未能成功导入任何文件。");
-    } else {
-      const { cleanupEmptyFolders } = await import("../lib/db");
-      await cleanupEmptyFolders();
-      onImported();
-      window.dispatchEvent(new CustomEvent("chatsUpdated"));
-      window.dispatchEvent(new CustomEvent("charactersUpdated"));
-      onClose();
-    }
-  };
-
-  const handleFiles = async (files: FileList | File[]) => {
     setError(null);
     setImportErrors([]);
-
-    let fileArray: File[] = [];
-    let extractedRoots: string[] = [];
-
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      if (f.name.endsWith(".zip")) {
-        try {
-          const zip = await JSZip.loadAsync(f, {
-            decodeFileName: function (bytes: any) {
-              try {
-                return new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(bytes));
-              } catch (e) {
-                return new TextDecoder("gbk").decode(new Uint8Array(bytes));
-              }
-            }
-          });
-          for (const relativePath in zip.files) {
-            const zipEntry = zip.files[relativePath];
-            if (
-              !zipEntry.dir &&
-              relativePath.match(/\.(png|jpe?g|webp|gif|json|jsonl|txt|js)$/i)
-            ) {
-              const arrayBuffer = await zipEntry.async("arraybuffer");
-
-              let type = "application/octet-stream";
-              if (relativePath.endsWith(".png")) type = "image/png";
-              else if (relativePath.match(/\.jpe?g$/i)) type = "image/jpeg";
-              else if (relativePath.endsWith(".webp")) type = "image/webp";
-              else if (relativePath.endsWith(".gif")) type = "image/gif";
-              else if (relativePath.toLowerCase().endsWith(".json"))
-                type = "application/json";
-              else if (relativePath.toLowerCase().endsWith(".jsonl"))
-                type = "application/json";
-              else if (relativePath.toLowerCase().endsWith(".txt"))
-                type = "text/plain";
-              else if (relativePath.toLowerCase().endsWith(".js"))
-                type = "text/javascript";
-
-              const extractedFile = new File(
-                [arrayBuffer],
-                zipEntry.name.split("/").pop() || "file",
-                { type },
-              );
-              // Mock webkitRelativePath to preserve folder structure from ZIP
-              Object.defineProperty(extractedFile, "webkitRelativePath", {
-                value: relativePath,
-                writable: false,
-              });
-              fileArray.push(extractedFile);
-            }
-          }
-        } catch (e) {
-          console.error("Failed to read zip", e);
-          setError(`ZIP 文件读取失败: ${f.name}`);
-          return;
-        }
-      } else if (
-        f.type.startsWith("image/") ||
-        f.name.match(/\.(png|jpe?g|webp|gif)$/i) ||
-        f.type === "application/json" ||
-        f.name.toLowerCase().endsWith(".json") || f.name.toLowerCase().endsWith(".jsonl") || f.name.toLowerCase().endsWith(".txt") || f.name.toLowerCase().endsWith(".js")
-      ) {
-        fileArray.push(f);
-      }
-    }
-
-    if (fileArray.length === 0) {
-      setError("未找到有效的图片、JSON 或 ZIP 文件。");
-      return;
-    }
+    foldersCacheRef.current = null;
+    const fileArray = Array.from(fileList);
+    if (fileArray.length === 0) return;
 
     setProgress({
       current: 0,
       total: fileArray.length,
-      message: "准备导入...",
+      message: "正在准备解析文件...",
     });
 
-    // Process in chunks of 50 to avoid blocking UI
-    parseChunk(fileArray, 0, 20, [], [], extractedRoots);
+    const parsedItems: ParsedItem[] = [];
+    const errors: { file: string; error: string }[] = [];
+    const extractedRoots = new Map<
+      string,
+      {
+        folderId: string;
+        chars: ParsedItem[];
+        others: ParsedItem[];
+      }
+    >();
+
+    const progressTracker = {
+      current: 0,
+      total: fileArray.length,
+    };
+
+    const parseFiles = async (
+      items: File[],
+      accumulatedParsed: ParsedItem[],
+      accumulatedErrors: { file: string; error: string }[],
+      extractedRootsMap: Map<
+        string,
+        {
+          folderId: string;
+          chars: ParsedItem[];
+          others: ParsedItem[];
+        }
+      >,
+    ): Promise<void> => {
+      const parseSingleNonZipFile = async (
+        file: File,
+        normalizedPath: string,
+        folderName: string,
+        fileName: string,
+        ext: string | undefined,
+        inVersionFolder: boolean,
+        inAltFolder: boolean,
+        isStudioMetaFile: boolean,
+        totalItemsCount: number,
+      ) => {
+        try {
+          // ---------- 图片（PNG / WebP / JPEG 内嵌角色卡，GIF 仅作替换头像） ----------
+          if (["png", "webp", "jpeg", "jpg", "gif"].includes(ext || "")) {
+            let cardData: any = null;
+            let imageTimestamp: number | null = null;
+            if (ext !== "gif") {
+              const arrayBuffer = await file.arrayBuffer();
+              cardData = await extractTavernData(arrayBuffer, {
+                skipBinaryFallback: inAltFolder,
+              });
+              if (cardData && !inAltFolder) {
+                imageTimestamp = extractImageTimestamp(arrayBuffer);
+              }
+            }
+
+            if (cardData) {
+              accumulatedParsed.push({
+                file,
+                path: normalizedPath,
+                folder: folderName,
+                isMain: !inVersionFolder && !inAltFolder,
+                data: cardData,
+                isImage: true,
+                imageTimestamp,
+                isVersion: inVersionFolder || undefined,
+              });
+              return;
+            }
+
+            accumulatedParsed.push({
+              file,
+              path: normalizedPath,
+              folder: folderName,
+              isMain: false,
+              isImage: true,
+              isVersion: inVersionFolder || undefined,
+              errorMsg:
+                inAltFolder || inVersionFolder || totalItemsCount > 1
+                  ? undefined
+                  : "未找到内嵌的酒馆角色数据",
+            });
+            return;
+          }
+
+          // ---------- 文本 / CSS / JSON 文件 ----------
+          if (["json", "jsonl", "txt", "js", "css"].includes(ext || "")) {
+            const text = await file.text();
+
+            if (ext === "css") {
+              const baseName = fileName.replace(/\.[^/.]+$/, "");
+              accumulatedParsed.push({
+                file,
+                path: normalizedPath,
+                folder: folderName,
+                isMain: false,
+                isImage: false,
+                data: {
+                  type: "theme",
+                  name: baseName,
+                  theme_name: baseName,
+                  custom_css: text,
+                },
+                toolCategory: "美化",
+                toolPrefix: ["美化"],
+              });
+              return;
+            }
+
+            if (ext === "jsonl") {
+              const parsedMessages: any[] = [];
+              for (const line of text.split("\n")) {
+                const trimmedLine = line.trim();
+                if (!trimmedLine) continue;
+                try {
+                  const p = JSON.parse(trimmedLine);
+                  if (p) parsedMessages.push(p);
+                } catch {}
+              }
+              const { sanitizeChatMessages } = await import("../lib/chatParse");
+              const sanitized = sanitizeChatMessages(parsedMessages);
+              if (sanitized.isChat) {
+                accumulatedParsed.push({
+                  file,
+                  path: normalizedPath,
+                  folder: folderName,
+                  isMain: false,
+                  isImage: false,
+                  isChatLog: true,
+                  data: sanitized.messages,
+                });
+              } else {
+                accumulatedParsed.push({
+                  file,
+                  path: normalizedPath,
+                  folder: folderName,
+                  isMain: false,
+                  isImage: false,
+                  errorMsg: "无效的聊天记录文件。",
+                });
+              }
+              return;
+            }
+
+            if (ext === "txt") {
+              const { parseTextChatLog } = await import("../lib/chatParse");
+              const parsedText = parseTextChatLog(
+                text,
+                fileName.replace(/\.[^/.]+$/, ""),
+              );
+              if (parsedText.isChat) {
+                accumulatedParsed.push({
+                  file,
+                  path: normalizedPath,
+                  folder: folderName,
+                  isMain: false,
+                  isImage: false,
+                  isChatLog: true,
+                  data: parsedText.messages,
+                });
+              } else {
+                accumulatedParsed.push({
+                  file,
+                  path: normalizedPath,
+                  folder: folderName,
+                  isMain: false,
+                  isImage: false,
+                  data: {
+                    type: "script",
+                    name: fileName.replace(/\.[^/.]+$/, ""),
+                    content: text,
+                  },
+                  toolCategory: "脚本", toolPrefix: ["工具区"],
+                });
+              }
+              return;
+            }
+
+            if (ext === "js") {
+              accumulatedParsed.push({
+                file,
+                path: normalizedPath,
+                folder: folderName,
+                isMain: false,
+                isImage: false,
+                data: {
+                  type: "script",
+                  name: fileName.replace(/\.[^/.]+$/, ""),
+                  content: text,
+                },
+                toolCategory: "脚本", toolPrefix: ["工具区"],
+              });
+              return;
+            }
+
+            let parsedJson: any = null;
+            try {
+              parsedJson = JSON.parse(text);
+            } catch {
+              const jsonMatch = text.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                try {
+                  parsedJson = JSON.parse(jsonMatch[0]);
+                } catch {}
+              }
+            }
+
+            if (parsedJson !== null && parsedJson !== undefined) {
+              const isChatData = Array.isArray(parsedJson)
+                ? parsedJson.some(
+                    (m: any) =>
+                      m &&
+                      (m.mes !== undefined ||
+                        m.text !== undefined ||
+                        m.is_user !== undefined ||
+                        m.send_date !== undefined),
+                  )
+                : !!(
+                    parsedJson.chat &&
+                    Array.isArray(parsedJson.chat) &&
+                    !parsedJson.name &&
+                    !parsedJson.char_name &&
+                    !parsedJson.character_name &&
+                    !parsedJson.data?.name &&
+                    !parsedJson.data?.char_name &&
+                    !parsedJson.data?.character_name
+                  );
+
+              if (
+                Array.isArray(parsedJson) &&
+                parsedJson.length > 0 &&
+                !isChatData &&
+                (parsedJson[0]?.name || parsedJson[0]?.data?.name)
+              ) {
+                for (const cardItem of parsedJson) {
+                  accumulatedParsed.push({
+                    file,
+                    path: normalizedPath,
+                    folder: folderName,
+                    isMain: !inVersionFolder,
+                    data: cardItem,
+                    isImage: false,
+                    isVersion: inVersionFolder || undefined,
+                  });
+                }
+                return;
+              }
+
+              const charCandidate = {
+                data: parsedJson,
+                autoImportFilename: file.name,
+                name: parsedJson.name || parsedJson.char_name || file.name,
+                ...parsedJson,
+              };
+              const isCharacterJson = isActualCharacterCard(charCandidate);
+              const detectedCategory = isCharacterJson ? "未归类" : getCharacterCategoryPrefix(charCandidate);
+              const looksLikeCharacter = Boolean(
+                parsedJson.name ||
+                  parsedJson.char_name ||
+                  parsedJson.character_name ||
+                  parsedJson.data?.name ||
+                  parsedJson.data?.char_name ||
+                  parsedJson.data?.character_name,
+              );
+
+              const isPersonaFile =
+                fileName.toLowerCase().endsWith(".persona.json") ||
+                parsedJson?.format === "miu-persona-v1" ||
+                parsedJson?.kind === "persona" ||
+                parsedJson?.type === "persona";
+
+              if (isStudioMetaFile) {
+                accumulatedParsed.push({
+                  file,
+                  path: normalizedPath,
+                  folder: folderName,
+                  isMain: false,
+                  isImage: false,
+                  isMeta: true,
+                  data: parsedJson,
+                });
+              } else if (isPersonaFile) {
+                accumulatedParsed.push({
+                  file,
+                  path: normalizedPath,
+                  folder: folderName,
+                  isMain: false,
+                  isImage: false,
+                  isPersona: true,
+                  data: parsedJson,
+                });
+              } else if (isCharacterJson) {
+                accumulatedParsed.push({
+                  file,
+                  path: normalizedPath,
+                  folder: folderName,
+                  isMain: !inVersionFolder,
+                  data: parsedJson,
+                  isImage: false,
+                  isVersion: inVersionFolder || undefined,
+                });
+              } else if (detectedCategory !== "未归类") {
+                accumulatedParsed.push({
+                  file,
+                  path: normalizedPath,
+                  folder: folderName,
+                  isMain: false,
+                  isImage: false,
+                  data: parsedJson,
+                  toolCategory: detectedCategory,
+                  toolPrefix: [
+                    detectedCategory === "脚本" ? "工具区" : detectedCategory,
+                  ],
+                });
+              } else if (looksLikeCharacter && !isChatData) {
+                accumulatedParsed.push({
+                  file,
+                  path: normalizedPath,
+                  folder: folderName,
+                  isMain: !inVersionFolder,
+                  data: parsedJson,
+                  isImage: false,
+                  isVersion: inVersionFolder || undefined,
+                });
+              } else if (isChatData) {
+                accumulatedParsed.push({
+                  file,
+                  path: normalizedPath,
+                  folder: folderName,
+                  isMain: false,
+                  isImage: false,
+                  isChatLog: true,
+                  data: Array.isArray(parsedJson) ? parsedJson : parsedJson.chat,
+                });
+              } else {
+                accumulatedParsed.push({
+                  file,
+                  path: normalizedPath,
+                  folder: folderName,
+                  isMain: false,
+                  isImage: false,
+                  errorMsg: "非酒馆卡或预设格式：无法识别的数据结构。",
+                });
+              }
+              return;
+            }
+
+            accumulatedParsed.push({
+              file,
+              path: normalizedPath,
+              folder: folderName,
+              isMain: false,
+              isImage: false,
+              errorMsg: "未找到有效角色数据",
+            });
+            return;
+          }
+
+          accumulatedParsed.push({
+            file,
+            path: normalizedPath,
+            folder: folderName,
+            isMain: false,
+            isImage: false,
+            errorMsg: `不支持的文件格式: .${ext}`,
+          });
+        } catch (err: any) {
+          accumulatedErrors.push({
+            file: fileName,
+            error: err.message || "解析失败",
+          });
+        }
+      };
+
+      const zipQueue: Array<{ file: File; fileName: string }> = [];
+      const nonZipTasks: Array<() => Promise<void>> = [];
+
+      for (let i = 0; i < items.length; i++) {
+        const file = items[i];
+        const fullPath = file.webkitRelativePath || file.name;
+        const normalizedPath = fullPath.replace(/\\/g, "/");
+        const pathSegments = normalizedPath.split("/");
+
+        let folderName = "";
+        let fileName = normalizedPath;
+        if (pathSegments.length > 1) {
+          folderName = pathSegments.slice(0, -1).join("/");
+          fileName = pathSegments[pathSegments.length - 1];
+        }
+
+        const ext = fileName.split(".").pop()?.toLowerCase();
+        if (ext === "zip") {
+          zipQueue.push({ file, fileName });
+          continue;
+        }
+
+        const folderSegments = folderName
+          .split("/")
+          .map((p) => p.trim().toLowerCase())
+          .filter(Boolean);
+        const inVersionFolder = folderSegments.some((p) =>
+          VERSION_FOLDERS.includes(p),
+        );
+        const inAltFolder =
+          folderSegments.some((p) => ALT_FOLDERS.includes(p)) ||
+          /^(替换头像|替换卡面|avatar|alt)[\-_0-9]*/i.test(fileName);
+        const isStudioMetaFile = fileName.toLowerCase() === "studio_meta.json";
+
+        nonZipTasks.push(() =>
+          parseSingleNonZipFile(
+            file,
+            normalizedPath,
+            folderName,
+            fileName,
+            ext,
+            inVersionFolder,
+            inAltFolder,
+            isStudioMetaFile,
+            items.length,
+          ),
+        );
+      }
+
+      // 并发解析普通文件（限制并发度为 6，避免高内存并发峰值同时把解析吞吐拉满）
+      if (nonZipTasks.length > 0) {
+        const PARSE_CONCURRENCY = Math.min(6, nonZipTasks.length);
+        let taskIdx = 0;
+        const worker = async () => {
+          while (taskIdx < nonZipTasks.length) {
+            const myIdx = taskIdx++;
+            await nonZipTasks[myIdx]();
+            progressTracker.current++;
+            if (
+              progressTracker.current % 12 === 0 ||
+              progressTracker.current === progressTracker.total
+            ) {
+              setProgress({
+                current: Math.min(progressTracker.current, progressTracker.total),
+                total: progressTracker.total,
+                message: `正在并发解析文件 (${Math.min(progressTracker.current, progressTracker.total)}/${progressTracker.total})...`,
+              });
+            }
+          }
+        };
+        await Promise.all(Array.from({ length: PARSE_CONCURRENCY }, () => worker()));
+      }
+
+      // ZIP 包保持流式按批解压，防 iOS 内存峰值
+      for (const { file, fileName } of zipQueue) {
+        progressTracker.current++;
+        try {
+          setProgress({
+            current: Math.min(progressTracker.current, progressTracker.total),
+            total: progressTracker.total,
+            message: `正在读取 ZIP 数据包...`,
+          });
+          const zipContent = await JSZip.loadAsync(file, {
+            decodeFileName: function (bytes: any) {
+              try {
+                return new TextDecoder("utf-8", { fatal: true }).decode(
+                  new Uint8Array(bytes),
+                );
+              } catch {
+                return new TextDecoder("gbk").decode(new Uint8Array(bytes));
+              }
+            },
+          });
+          const rawRootName = fileName.replace(/\.zip$/i, "").trim();
+
+          const fileEntries = Object.entries(zipContent.files).filter(
+            ([relPath, entry]) => {
+              if (entry.dir) return false;
+              const clean = relPath.replace(/\\/g, "/");
+              if (clean.includes("__MACOSX")) return false;
+              if (clean.split("/").some((p) => p.startsWith(".") || p === "Thumbs.db" || p === "desktop.ini")) return false;
+              return true;
+            }
+          );
+
+          const rootFolderName = "";
+          const STREAM_BATCH = 25;
+          for (let b = 0; b < fileEntries.length; b += STREAM_BATCH) {
+            const chunk = fileEntries.slice(b, b + STREAM_BATCH);
+            const chunkFiles: File[] = [];
+            await Promise.all(
+              chunk.map(async ([relativePath, zipEntry]) => {
+                let cleanPath = relativePath.replace(/\\/g, "/");
+
+                let cleanSegments = cleanPath.split("/").filter(Boolean);
+                if (cleanSegments.length > 1 && cleanSegments[0].toLowerCase().trim() === rawRootName.toLowerCase().trim()) {
+                  cleanSegments = cleanSegments.slice(1);
+                }
+
+                const strippedSegments = stripSystemContainerBucketParts(cleanSegments);
+                if (strippedSegments.length > 0) {
+                  cleanPath = strippedSegments.join("/");
+                }
+
+                const blob = await zipEntry.async("blob");
+                const zipFileName = cleanPath.split("/").pop() || "file";
+                const lowerZipName = zipFileName.toLowerCase();
+                let zipFileType = blob.type || "application/octet-stream";
+                if (lowerZipName.endsWith(".png")) zipFileType = "image/png";
+                else if (/\.jpe?g$/.test(lowerZipName)) zipFileType = "image/jpeg";
+                else if (lowerZipName.endsWith(".webp")) zipFileType = "image/webp";
+                else if (lowerZipName.endsWith(".gif")) zipFileType = "image/gif";
+                else if (lowerZipName.endsWith(".json")) zipFileType = "application/json";
+                else if (lowerZipName.endsWith(".jsonl")) zipFileType = "application/json";
+                else if (lowerZipName.endsWith(".txt")) zipFileType = "text/plain";
+                else if (lowerZipName.endsWith(".js")) zipFileType = "text/javascript";
+                else if (lowerZipName.endsWith(".css")) zipFileType = "text/css";
+
+                const entryDate = zipEntry.date
+                  ? zipEntry.date.getTime()
+                  : file.lastModified || Date.now();
+                const extractedFile = new File([blob], zipFileName, {
+                  type: zipFileType,
+                  lastModified: entryDate,
+                });
+                (extractedFile as any).__miuFromZip = true;
+
+                const simulatedPath = rootFolderName ? `${rootFolderName}/${cleanPath}` : cleanPath;
+                Object.defineProperty(extractedFile, "webkitRelativePath", {
+                  value: simulatedPath,
+                  writable: false,
+                });
+
+                chunkFiles.push(extractedFile);
+              })
+            );
+
+            await parseFiles(
+              chunkFiles,
+              accumulatedParsed,
+              accumulatedErrors,
+              extractedRootsMap,
+            );
+
+            chunkFiles.length = 0;
+
+            const doneCount = Math.min(b + STREAM_BATCH, fileEntries.length);
+            setProgress({
+              current: doneCount,
+              total: fileEntries.length,
+              message: `正在流式解压并解析卡片 (${doneCount}/${fileEntries.length})...`,
+            });
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+        } catch (err: any) {
+          accumulatedErrors.push({
+            file: fileName,
+            error: err.message || "读取 ZIP 失败",
+          });
+        }
+      }
+    };
+
+    // Await complete parsing of all files and zip archives
+    await parseFiles(fileArray, parsedItems, errors, extractedRoots);
+
+    // Proceed with importing all parsed items
+    await processImport(
+      parsedItems,
+      errors,
+      extractedRoots,
+      targetFolderId,
+    );
+  };
+    const processImport = async (
+      items: ParsedItem[],
+      initialErrors: { file: string; error: string }[],
+      extractedRootsMap: Map<
+        string,
+        {
+          folderId: string;
+          chars: ParsedItem[];
+          others: ParsedItem[];
+        }
+      >,
+      targetFolderId?: string | null,
+    ) => {
+      setProgress({
+        current: items.length,
+        total: items.length,
+        message: "正在归类与保存角色数据...",
+      });
+
+      const errors = [...initialErrors];
+      for (const item of items) {
+        // 图片类错误在下方「替换卡面」归属阶段统一处理，避免同一文件重复报错
+        if (
+          item.errorMsg &&
+          !item.isImage &&
+          !item.isVersion &&
+          !item.isMeta &&
+          !item.isChatLog
+        ) {
+          errors.push({ file: item.file.name, error: item.errorMsg });
+        }
+      }
+
+      let mainItems = items.filter(
+        (item) => item.isMain && item.data && !item.isVersion && !item.isMeta,
+      );
+      const altImages = items.filter(
+        (item) =>
+          !item.isMain &&
+          item.isImage &&
+          !item.isChatLog &&
+          !item.isVersion &&
+          !item.isMeta,
+      );
+      const chatLogs = items.filter(
+        (item) => item.isChatLog && Array.isArray(item.data),
+      );
+      const toolItems = items.filter((item) => (item.toolPrefix || []).length > 0);
+      const personaItems = items.filter((item) => item.isPersona && item.data);
+      const metaItems = items.filter((item) => item.isMeta);
+      const versionItems = items.filter((item) => item.isVersion);
+
+      // 位于「替换头像 / 替换卡面」或「版本历史」文件夹中的卡片 / 图片需从主卡列表降级
+      const itemsToDemote: ParsedItem[] = [];
+      for (const item of mainItems) {
+        const folderParts = item.folder
+          .split("/")
+          .map((p) => p.trim().toLowerCase())
+          .filter(Boolean);
+        const inAlt =
+          folderParts.some((p) => ALT_FOLDERS.includes(p)) ||
+          /^(替换头像|替换卡面|avatar|alt)[\-_0-9]*/i.test(item.file.name);
+        const inVer = folderParts.some((p) => VERSION_FOLDERS.includes(p));
+        if (inAlt) {
+          itemsToDemote.push(item);
+        } else if (inVer) {
+          versionItems.push(item);
+          itemsToDemote.push(item);
+        }
+      }
+      if (itemsToDemote.length > 0) {
+        mainItems = mainItems.filter((item) => !itemsToDemote.includes(item));
+        for (const item of itemsToDemote) {
+          if (item.isImage && !versionItems.includes(item)) {
+            altImages.push(item);
+          }
+        }
+      }
+
+      // 按路径建立 O(depth) 索引，避免成千张卡时对替换头像 / 版本历史 / meta 做 O(N×M) 嵌套遍历
+      const mainsByFolder = new Map<string, ParsedItem>();
+      const mainsByCleanFolder = new Map<string, ParsedItem>();
+      const cleanFolderStr = (raw: string) =>
+        raw.split("/").map((p) => p.trim().toLowerCase()).filter(Boolean).join("/");
+
+      for (const main of mainItems) {
+        if (!mainsByFolder.has(main.folder)) {
+          mainsByFolder.set(main.folder, main);
+        }
+        const cleaned = cleanFolderStr(main.folder);
+        if (!mainsByCleanFolder.has(cleaned)) {
+          mainsByCleanFolder.set(cleaned, main);
+        }
+      }
+
+      const findClosestMainByFolder = (subFolder: string, stripAltTail = false): ParsedItem | undefined => {
+        // 1. Exact & ancestor match on raw folder path (longest first)
+        let cur = subFolder;
+        while (true) {
+          const hit = mainsByFolder.get(cur);
+          if (hit) return hit;
+          const idx = cur.lastIndexOf("/");
+          if (idx === -1) break;
+          cur = cur.slice(0, idx);
+        }
+        if (mainsByFolder.has("")) return mainsByFolder.get("");
+
+        // 2. Normalized clean parent lookup when in ALT_FOLDERS
+        if (stripAltTail) {
+          const parts = subFolder.split("/").map((p) => p.trim().toLowerCase()).filter(Boolean);
+          if (parts.length > 0 && ALT_FOLDERS.includes(parts[parts.length - 1])) {
+            const parentHit = mainsByCleanFolder.get(parts.slice(0, -1).join("/"));
+            if (parentHit) return parentHit;
+          }
+        }
+
+        // 3. Fallback substring prefix match only if hierarchy match missed
+        let best: ParsedItem | undefined;
+        let bestLen = -1;
+        for (const main of mainItems) {
+          if (main.folder && subFolder && subFolder.startsWith(main.folder) && main.folder.length > bestLen) {
+            best = main;
+            bestLen = main.folder.length;
+          }
+        }
+        return best;
+      };
+
+      const altImagesByMain = new Map<ParsedItem, File[]>();
+      for (const alt of altImages) {
+        const closestMain = findClosestMainByFolder(alt.folder, true);
+        if (closestMain) {
+          let list = altImagesByMain.get(closestMain);
+          if (!list) {
+            list = [];
+            altImagesByMain.set(closestMain, list);
+          }
+          list.push(alt.file);
+        } else {
+          errors.push({
+            file: alt.file.name,
+            error: alt.errorMsg || "作为替换卡面导入失败：未找到所属角色卡",
+          });
+        }
+      }
+
+      const versionsByMain = new Map<ParsedItem, ParsedItem[]>();
+      for (const versionItem of versionItems) {
+        const closestMain = findClosestMainByFolder(versionItem.folder, false);
+        if (closestMain) {
+          let list = versionsByMain.get(closestMain);
+          if (!list) {
+            list = [];
+            versionsByMain.set(closestMain, list);
+          }
+          list.push(versionItem);
+        }
+      }
+
+      const metaByMain = new Map<ParsedItem, any>();
+      for (const metaItem of metaItems) {
+        const closestMain = findClosestMainByFolder(metaItem.folder, false);
+        if (closestMain) {
+          metaByMain.set(closestMain, metaItem.data);
+        }
+      }
+
+      if (
+        mainItems.length === 0 &&
+        toolItems.length === 0 &&
+        personaItems.length === 0 &&
+        chatLogs.length === 0
+      ) {
+        setProgress(null);
+        if (errors.length > 0) {
+          setImportErrors(errors);
+        } else {
+          setError("所选文件未解析到任何有效角色数据");
+        }
+        return;
+      }
+
+      try {
+        const {
+          getFolders,
+          getCachedMeta,
+          saveChatsBulk,
+          cleanupEmptyFolders,
+        } = await import("../lib/db");
+        if (!foldersCacheRef.current) {
+          foldersCacheRef.current = await getFolders();
+        }
+        const existingFolders = foldersCacheRef.current;
+        const existingMeta = await getCachedMeta();
+
+        const sameNameAutoSummary: Array<{
+          cardId: string;
+          charName: string;
+          folderId: string;
+          folderPath: string;
+          breakdown?: CharacterTokenBreakdown;
+        }> = [];
+
+        const folderPathCache = new Map<string, string>();
+        const folderById = new Map<string, DBFolder>();
+        const findFolderPath = (fId: string): string => {
+          const cachedPath = folderPathCache.get(fId);
+          if (cachedPath !== undefined) return cachedPath;
+          if (folderById.size !== existingFolders.length) {
+            folderById.clear();
+            for (const f of existingFolders) folderById.set(f.id, f);
+          }
+          const names: string[] = [];
+          let curr: string | undefined = fId;
+          let hops = 0;
+          while (curr && hops++ < 128) {
+            const found = folderById.get(curr);
+            if (found) {
+              names.unshift(found.name);
+              curr = found.parentId;
+            } else {
+              break;
+            }
+          }
+          const path = names.join(" / ") || "未知文件夹";
+          folderPathCache.set(fId, path);
+          return path;
+        };
+
+        // 判定本次导入文件是否全归属于同一个最外层包裹文件夹（例如拖入文件夹 "试验品"）
+        let commonTopFolder: string | null = null;
+        // 仅对"拖入文件夹"生效：ZIP 不做共同顶层剥离，否则会把真实文件夹当成外壳剥掉
+        const dragMainItems = mainItems.filter((m) => !(m.file as any).__miuFromZip);
+        const allMainFolders = dragMainItems.map((m) => m.folder).filter(Boolean);
+        if (allMainFolders.length > 0 && allMainFolders.length === dragMainItems.length) {
+          const firstTop = allMainFolders[0].split("/")[0]?.toLowerCase().trim();
+          if (firstTop && allMainFolders.every((f) => f.split("/")[0]?.toLowerCase().trim() === firstTop)) {
+            commonTopFolder = firstTop;
+          }
+        }
+
+        // 同一物理文件夹内的文件数：>1 说明这是「卡 + 配套 QR/世界书」的真实文件夹，不能剥离同名层
+        const folderKey = (raw: string): string =>
+          raw
+            .split("/")
+            .map((seg) => seg.trim().toLowerCase())
+            .filter(Boolean)
+            .join("/");
+        const folderItemCounts = new Map<string, number>();
+        for (const parsed of items) {
+          if (!parsed.folder) continue;
+          const key = folderKey(parsed.folder);
+          folderItemCounts.set(key, (folderItemCounts.get(key) || 0) + 1);
+        }
+        const folderHasSiblings = (folder: string): boolean => {
+          if (!folder) return false;
+          return (folderItemCounts.get(folderKey(folder)) || 0) > 1;
+        };
+
+        const resolveFolderForItem = async (
+          item: ParsedItem,
+          prefix?: string[],
+        ): Promise<string | undefined> => {
+          let assignFolderId: string | undefined =
+            folderId || targetFolderId || undefined;
+          if (item.folder) {
+            let parts = item.folder.split("/").filter(Boolean);
+
+            // 1. 自动剥离顶层系统容器/大类包名 ("角色卡", "角色卡包", "characters", "工具区" 等)
+            parts = stripSystemContainerBucketParts(parts);
+
+            // 2. 自动剥离拖入文件夹的最外层容器包裹 (如拖入 "试验品" 文件夹，直接把内部文件平铺导入)
+            if (!(item.file as any).__miuFromZip && commonTopFolder && parts.length > 0 && parts[0].toLowerCase().trim() === commonTopFolder) {
+              parts = parts.slice(1);
+            }
+
+            // 3. 智能防嵌套剥离：角色同名导出文件夹剥离（文件夹里还有配套 QR/世界书 等文件时保留文件夹）
+            if (parts.length > 0 && !folderHasSiblings(item.folder)) {
+              const lastPart = parts[parts.length - 1].toLowerCase().trim();
+              const charBaseName = item.file.name.replace(/\.[^/.]+$/, "").toLowerCase().trim();
+              const rawCharName = String(
+                item.data?.name ||
+                item.data?.data?.name ||
+                item.data?.char_name ||
+                item.data?.character_name ||
+                ""
+              ).toLowerCase().trim();
+              const safeCharName = getSafeFilename(rawCharName).toLowerCase().trim();
+
+              if (
+                lastPart === charBaseName ||
+                (rawCharName && (lastPart === rawCharName || lastPart === safeCharName))
+              ) {
+                parts = parts.slice(0, -1);
+              }
+            }
+
+            // 再次剥离顶层系统容器
+            parts = stripSystemContainerBucketParts(parts);
+
+            if (parts.length > 0) {
+              const topFolder = parts[0];
+              if (extractedRootsMap.has(topFolder)) {
+                const rootInfo = extractedRootsMap.get(topFolder)!;
+                const subParts = parts.slice(1);
+                assignFolderId =
+                  subParts.length > 0
+                    ? await getOrCreateNestedFolder(subParts, rootInfo.folderId)
+                    : rootInfo.folderId;
+              } else {
+                assignFolderId = await getOrCreateNestedFolder(
+                  parts,
+                  folderId || targetFolderId,
+                );
+              }
+            } else if (prefix && prefix.length > 0) {
+              // 剥壳把工具分类名（世界书/预设/工具区）也剥掉了，这里回落到识别出的分类
+              assignFolderId = await getOrCreateNestedFolder(
+                prefix,
+                folderId || targetFolderId,
+              );
+            }
+          } else if (prefix && prefix.length > 0) {
+            // 工具分类名本身就是目标文件夹，不再走系统大类剥离
+            assignFolderId = await getOrCreateNestedFolder(
+              prefix,
+              folderId || targetFolderId,
+            );
+          }
+          return assignFolderId;
+        };
+
+        // 与已有卡片 + 本次导入内部做同名文件去重 & O(1) 同名归类/聊天匹配索引
+        const existingImportPathKeys = new Set<string>();
+        const existingNameCounts = new Map<string, number>();
+        const existingFolderByLowerName = new Map<string, string>();
+        const charIdByExactName = new Map<string, string>();
+        const charIdByLowerName = new Map<string, string>();
+        const charIdBySafeName = new Map<string, string>();
+        const charIdByBaseFilename = new Map<string, string>();
+
+        const registerCharMatchKeys = (id: string, name?: string, autoImportFilename?: string) => {
+          if (name) {
+            if (!charIdByExactName.has(name)) charIdByExactName.set(name, id);
+            const lower = name.toLowerCase();
+            if (!charIdByLowerName.has(lower)) charIdByLowerName.set(lower, id);
+            const safe = getSafeFilename(name);
+            if (!charIdBySafeName.has(safe)) charIdBySafeName.set(safe, id);
+          }
+          if (autoImportFilename) {
+            const base = autoImportFilename.split("/").pop()?.split(".")[0];
+            if (base && !charIdByBaseFilename.has(base)) charIdByBaseFilename.set(base, id);
+          }
+        };
+
+        for (const meta of existingMeta) {
+          if (meta.deletedAt) continue;
+          registerCharMatchKeys(meta.id, meta.name, meta.autoImportFilename);
+          if (meta.name && meta.folderId) {
+            const lowerTrimmed = meta.name.trim().toLowerCase();
+            if (!existingFolderByLowerName.has(lowerTrimmed)) {
+              existingFolderByLowerName.set(lowerTrimmed, meta.folderId);
+            }
+          }
+          if (meta.autoImportFilename) {
+            existingImportPathKeys.add(
+              `${meta.folderId || ""}/${meta.autoImportFilename}`,
+            );
+          }
+          if (!meta.name || meta.isTool) continue;
+          const key = getSafeFilename(meta.name).toLowerCase();
+          existingNameCounts.set(key, (existingNameCounts.get(key) || 0) + 1);
+        }
+        const newPathsAssigned = new Set<string>();
+        const newNameCounts = new Map<string, number>();
+
+        const charsToSave: CharacterCard[] = [];
+        const importedCardsTokens: Array<{
+          cardId: string;
+          charName: string;
+          folderId?: string;
+          folderPath: string;
+          avatarBlob?: Blob;
+          avatarUrlFallback?: string;
+          breakdown: CharacterTokenBreakdown;
+          attachedChatsCount: number;
+          attachedAvatarsCount: number;
+          isTool?: boolean;
+        }> = [];
+        let successCount = 0;
+
+        for (let mIdx = 0; mIdx < mainItems.length; mIdx++) {
+          const item = mainItems[mIdx];
+          if (mIdx % 25 === 0) {
+            setProgress({
+              current: mIdx,
+              total: mainItems.length,
+              message: `正在准备角色数据 (${mIdx}/${mainItems.length})...`,
+            });
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          }
+          try {
+            const data = item.data;
+            const file = item.file;
+
+            if (data && typeof data === "object" && !Array.isArray(data)) {
+              if (data.entries) {
+                data.entries = normalizeWorldbookEntries(data.entries);
+              } else if (data.data && data.data.entries) {
+                data.data.entries = normalizeWorldbookEntries(data.data.entries);
+              }
+              if (data.character_book && data.character_book.entries) {
+                data.character_book.entries = normalizeWorldbookEntries(
+                  data.character_book.entries,
+                );
+              }
+              if (data.data?.character_book?.entries) {
+                data.data.character_book.entries = normalizeWorldbookEntries(
+                  data.data.character_book.entries,
+                );
+              }
+              if (data.extensions?.character_book?.entries) {
+                data.extensions.character_book.entries = normalizeWorldbookEntries(
+                  data.extensions.character_book.entries,
+                );
+              }
+              if (data.data?.extensions?.character_book?.entries) {
+                data.data.extensions.character_book.entries =
+                  normalizeWorldbookEntries(
+                    data.data.extensions.character_book.entries,
+                  );
+              }
+            }
+
+            const charName =
+              String(
+                data?.name ||
+                  data?.data?.name ||
+                  data?.char_name ||
+                  data?.character_name ||
+                  data?.data?.char_name ||
+                  data?.data?.character_name ||
+                  file.name.replace(/\.[^/.]+$/, "") ||
+                  "Unknown Character",
+              ).trim() || "Unknown Character";
+
+            let assignFolderId = await resolveFolderForItem(item);
+            let autoCategorized = false;
+
+            if (!assignFolderId && autoCategorizeSameName) {
+              const matchedFolderId = existingFolderByLowerName.get(charName.toLowerCase());
+              if (matchedFolderId) {
+                assignFolderId = matchedFolderId;
+                autoCategorized = true;
+              }
+            }
+
+            const embeddedDate = extractDateFromCardData(data);
+            const imageTimestamp = item.imageTimestamp ?? null;
+
+            const now = Date.now();
+            const fileLastMod = file.lastModified;
+            const isFreshCacheCopy =
+              fileLastMod && Math.abs(now - fileLastMod) < 120000;
+
+            let authenticModifiedTime: number | undefined;
+            if (imageTimestamp) {
+              authenticModifiedTime = imageTimestamp;
+            } else if (embeddedDate) {
+              authenticModifiedTime = embeddedDate;
+            } else if (fileLastMod && !isFreshCacheCopy) {
+              authenticModifiedTime = fileLastMod;
+            } else {
+              authenticModifiedTime = fileLastMod || now;
+            }
+
+            let localFilePath: string | undefined;
+            let avatarBlob: Blob | undefined;
+            // 零拷贝包装修改时间，无需重复读取 file.arrayBuffer()
+            const refreshedFile =
+              authenticModifiedTime &&
+              authenticModifiedTime !== file.lastModified
+                ? new File([file], file.name, {
+                    type: file.type || "application/octet-stream",
+                    lastModified: authenticModifiedTime,
+                  })
+                : file;
+
+            if (item.isImage) {
+              avatarBlob = file;
+            } else if (isAndroid() && (file as any).androidAbsPath) {
+              localFilePath = (file as any).androidAbsPath;
+            }
+            const originalFile: File = refreshedFile;
+
+            const baseF = getSafeFilename(charName);
+            const nameExt = file.name.includes(".")
+              ? file.name.substring(file.name.lastIndexOf("."))
+              : "";
+            const nameKey = baseF.toLowerCase();
+            let dupIndex =
+              (existingNameCounts.get(nameKey) || 0) +
+              (newNameCounts.get(nameKey) || 0);
+            let autoImportFilename =
+              dupIndex === 0
+                ? `${baseF}${nameExt}`
+                : `${baseF}_${dupIndex}${nameExt}`;
+            let pathKey = `${assignFolderId || ""}/${autoImportFilename}`;
+            while (
+              existingImportPathKeys.has(pathKey) ||
+              newPathsAssigned.has(pathKey)
+            ) {
+              dupIndex++;
+              autoImportFilename = `${baseF}_${dupIndex}${nameExt}`;
+              pathKey = `${assignFolderId || ""}/${autoImportFilename}`;
+            }
+            newPathsAssigned.add(pathKey);
+            newNameCounts.set(nameKey, (newNameCounts.get(nameKey) || 0) + 1);
+
+            const studioMeta = metaByMain.get(item);
+            let versionHistory: CardVersionSnapshot[] = [];
+            if (studioMeta && Array.isArray(studioMeta.versionHistory)) {
+              versionHistory = studioMeta.versionHistory.map((v: any) => ({
+                ...v,
+              }));
+            }
+
+            const assignedVersions = versionsByMain.get(item) || [];
+            for (const versionItem of assignedVersions) {
+              const versionName = versionItem.file.name.replace(/\.[^/.]+$/, "");
+              const existingSnap = versionHistory.find(
+                (s: any) =>
+                  s.id === versionName ||
+                  s.versionName === versionName ||
+                  (typeof s.versionName === "string" &&
+                    s.versionName.includes(versionName)),
+              );
+              if (existingSnap) {
+                existingSnap.avatarBlob = versionItem.file;
+                existingSnap.completeCardPngBlob = versionItem.file;
+                if (!existingSnap.data && versionItem.data) {
+                  existingSnap.data = versionItem.data;
+                }
+              } else {
+                versionHistory.push({
+                  id: crypto.randomUUID(),
+                  versionName,
+                  note: "从版本历史归档导入",
+                  createdAt: versionItem.file.lastModified || Date.now(),
+                  fileModifiedAt: versionItem.file.lastModified,
+                  data: versionItem.data || {},
+                  avatarBlob: versionItem.file,
+                  completeCardPngBlob: versionItem.file,
+                  cardName:
+                    versionItem.data?.data?.name ||
+                    versionItem.data?.name ||
+                    versionName,
+                });
+              }
+            }
+            versionHistory.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+            const newCard: CharacterCard = {
+              id: crypto.randomUUID(),
+              name: charName,
+              autoImportFilename,
+              avatarBlob,
+              localFilePath,
+              avatarUrlFallback: "",
+              data,
+              originalFile,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              fileModifiedAt: authenticModifiedTime,
+              folderId: assignFolderId,
+              avatarHistory: altImagesByMain.get(item),
+              versionHistory:
+                versionHistory.length > 0 ? versionHistory : undefined,
+            };
+
+            const cardTokens = getCharacterTokenBreakdown(newCard.data);
+            newCard.tokenCount = cardTokens.totalTokens;
+            newCard.permanentTokens = cardTokens.permanentTokens;
+            registerCharMatchKeys(newCard.id, charName, autoImportFilename);
+            (newCard as any).__srcItem = item;
+            charsToSave.push(newCard);
+            successCount++;
+
+            importedCardsTokens.push({
+              cardId: newCard.id,
+              charName,
+              folderId: assignFolderId,
+              folderPath: assignFolderId ? findFolderPath(assignFolderId) : "未分类",
+              avatarBlob: importedCardsTokens.length < 90 ? newCard.avatarBlob : undefined,
+              avatarUrlFallback: newCard.avatarUrlFallback,
+              breakdown: cardTokens,
+              attachedChatsCount: (altImagesByMain.get(item) || []).length,
+              attachedAvatarsCount: (versionHistory || []).length,
+            });
+
+            if (autoCategorized && assignFolderId) {
+              sameNameAutoSummary.push({
+                cardId: newCard.id,
+                charName,
+                folderId: assignFolderId,
+                folderPath: findFolderPath(assignFolderId),
+                breakdown: cardTokens,
+              });
+            }
+
+            // 流式落盘：每攒够 25 张卡片立即写入数据库并擦除内存 Blob 引用，防 iOS 爆内存
+            if (charsToSave.length >= 25 || mIdx === mainItems.length - 1) {
+              setProgress({
+                current: mIdx + 1,
+                total: mainItems.length,
+                message: `正在写入数据库并释放内存 (${mIdx + 1}/${mainItems.length})...`,
+              });
+              beginBulkCharacterUpdates();
+              try {
+                await saveCharacters(charsToSave);
+                for (const savedCard of charsToSave) {
+                  const srcItem: ParsedItem | undefined = (savedCard as any).__srcItem;
+                  if (srcItem) {
+                    srcItem.file = undefined as any;
+                    srcItem.data = undefined;
+                    delete (savedCard as any).__srcItem;
+                  }
+                  delete (savedCard as any).avatarBlob;
+                  delete (savedCard as any).originalFile;
+                  delete (savedCard as any).avatarHistory;
+                  delete (savedCard as any).versionHistory;
+                  (savedCard as any).data = undefined;
+                }
+              } finally {
+                endBulkCharacterUpdates();
+              }
+              charsToSave.length = 0;
+              await new Promise((resolve) => setTimeout(resolve, 15));
+            }
+          } catch (err: any) {
+            errors.push({ file: item.file.name, error: describeSaveFailureShort(err) });
+          }
+        }
+
+        // ---------- 工具类文件（世界书 / 预设 / 快速回复 / 美化 / 脚本） ----------
+        for (let tIdx = 0; tIdx < toolItems.length; tIdx++) {
+          const item = toolItems[tIdx];
+          try {
+            const data = item.data;
+            const file = item.file;
+
+            if (data && typeof data === "object" && !Array.isArray(data)) {
+              if (data.entries) {
+                data.entries = normalizeWorldbookEntries(data.entries);
+              } else if (data.data?.entries) {
+                data.data.entries = normalizeWorldbookEntries(data.data.entries);
+              }
+            }
+
+            const toolName =
+              String(
+                data?.name ||
+                  data?.data?.name ||
+                  stripToolNameSuffix(file.name) ||
+                  "未命名工具",
+              ).trim() || stripToolNameSuffix(file.name);
+
+            const assignFolderId = await resolveFolderForItem(
+              item,
+              item.toolPrefix,
+            );
+
+            const toolCategory = item.toolCategory || (item.toolPrefix && item.toolPrefix[0]) || "工具";
+            const isQR = toolCategory === "快速回复" || (item.toolPrefix?.[0] === "快速回复");
+
+            const toolTokens = getCharacterTokenBreakdown(data);
+            const toolCard: CharacterCard = {
+              id: crypto.randomUUID(),
+              name: toolName,
+              category: toolCategory,
+              isTool: true,
+              isQR: isQR,
+              autoImportFilename: file.name,
+              data,
+              avatarUrlFallback: "",
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              folderId: assignFolderId,
+              tokenCount: toolTokens.totalTokens,
+              permanentTokens: toolTokens.permanentTokens,
+            };
+
+            (toolCard as any).__srcItem = item;
+            charsToSave.push(toolCard);
+            successCount++;
+
+            importedCardsTokens.push({
+              cardId: toolCard.id,
+              charName: toolName,
+              folderId: assignFolderId,
+              folderPath: assignFolderId ? findFolderPath(assignFolderId) : "工具区",
+              avatarUrlFallback: toolCard.avatarUrlFallback,
+              breakdown: toolTokens,
+              attachedChatsCount: 0,
+              attachedAvatarsCount: 0,
+              isTool: true,
+            });
+
+            if (charsToSave.length >= 25 || tIdx === toolItems.length - 1) {
+              beginBulkCharacterUpdates();
+              try {
+                await saveCharacters(charsToSave);
+                for (const savedCard of charsToSave) {
+                  delete (savedCard as any).avatarBlob;
+                  delete (savedCard as any).originalFile;
+                  (savedCard as any).data = undefined;
+                }
+              } finally {
+                endBulkCharacterUpdates();
+              }
+              charsToSave.length = 0;
+              await new Promise((resolve) => setTimeout(resolve, 15));
+            }
+          } catch (err: any) {
+            errors.push({ file: item.file.name, error: describeSaveFailureShort(err) });
+          }
+        }
+
+        // ---------- 聊天记录 ----------
+        if (chatLogs.length > 0) {
+          setProgress({
+            current: 0,
+            total: chatLogs.length,
+            message: "正在保存聊天记录...",
+          });
+
+          const chatsToSave: ChatLog[] = [];
+
+          for (const chatItem of chatLogs) {
+            if (!Array.isArray(chatItem.data)) continue;
+
+            let charId = "";
+            const parts = chatItem.path.split("/");
+            const chatIndex =
+              parts.indexOf("聊天记录") !== -1
+                ? parts.indexOf("聊天记录")
+                : parts.indexOf("chats");
+            if (chatIndex > 0) {
+              const ownerName = parts[chatIndex - 1];
+              charId =
+                charIdBySafeName.get(ownerName) ||
+                charIdByExactName.get(ownerName) ||
+                charIdByBaseFilename.get(ownerName) ||
+                "";
+            }
+
+            if (!charId) {
+              const aiMessage = chatItem.data.find(
+                (m: any) => !m.is_user && m.name,
+              );
+              if (aiMessage?.name) {
+                charId = charIdByLowerName.get(String(aiMessage.name).toLowerCase()) || "";
+              }
+            }
+
+            const chatName = chatItem.file.name.replace(/\.[^/.]+$/, "");
+            const finalMessages = chatItem.data
+              .filter(
+                (m: any) =>
+                  m &&
+                  (m.mes !== undefined ||
+                    m.text !== undefined ||
+                    m.is_user !== undefined ||
+                    m.send_date !== undefined ||
+                    m.swipes !== undefined),
+              )
+              .map((m: any) => {
+                const res: any = { ...m };
+                if (res.is_user === undefined) res.is_user = res.name !== chatName;
+                if (res.send_date === undefined) res.send_date = Date.now();
+                if (m.mes !== undefined) res.mes = m.mes;
+                else if (m.text !== undefined) res.mes = m.text;
+                return res;
+              });
+
+            chatsToSave.push({
+              id: crypto.randomUUID(),
+              characterId: charId,
+              name: chatName,
+              messages: finalMessages,
+              createdAt: chatItem.file.lastModified || Date.now(),
+            });
+            successCount++;
+          }
+
+          if (chatsToSave.length > 0) {
+            await saveChatsBulk(chatsToSave, (current, total, phase) => {
+              setProgress({
+                current,
+                total,
+                message: `${phase} ${current}/${total}`,
+              });
+            });
+          }
+        }
+
+        // ---------- User 人设卡片 ----------
+        if (personaItems.length > 0) {
+          const nowBase = Date.now();
+          for (let pIdx = 0; pIdx < personaItems.length; pIdx++) {
+            const pItem = personaItems[pIdx];
+            try {
+              const pData = pItem.data || {};
+              const pName = String(
+                pData.name || pData.user_name || pItem.file.name.replace(/\.(persona\.)?json$/i, '') || '未命名 User',
+              ).trim();
+              const pContent = String(pData.content ?? pData.description ?? pData.user_description ?? '');
+              const rawAvatar = typeof pData.avatarDataUrl === 'string'
+                ? pData.avatarDataUrl
+                : (typeof pData.avatar === 'string' && pData.avatar.startsWith('data:') ? pData.avatar : '');
+              let avatarBlob: Blob | undefined;
+              if (rawAvatar && rawAvatar.startsWith('data:')) {
+                try {
+                  const comma = rawAvatar.indexOf(',');
+                  if (comma !== -1) {
+                    const mime = rawAvatar.slice(5, comma).split(';')[0] || 'image/png';
+                    const bin = atob(rawAvatar.slice(comma + 1));
+                    const bytes = new Uint8Array(bin.length);
+                    for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+                    avatarBlob = new Blob([bytes], { type: mime });
+                  }
+                } catch {}
+              }
+              await saveUserPersona({
+                id: crypto.randomUUID(),
+                name: pName || '未命名 User',
+                content: pContent,
+                avatarBlob,
+                isDefault: false,
+                boundCharacterIds: [],
+                createdAt: nowBase + pIdx,
+                updatedAt: nowBase + pIdx,
+              });
+              successCount++;
+              importedCardsTokens.push({
+                cardId: `persona_${pIdx}`,
+                charName: pName || '未命名 User',
+                folderId: 'userpersonas',
+                folderPath: '人设库',
+                breakdown: { totalTokens: 0, totalCharCount: pContent.length, permanentTokens: 0, items: [] } as any,
+                attachedChatsCount: 0,
+                attachedAvatarsCount: 0,
+                isTool: true,
+              });
+            } catch (err: any) {
+              errors.push({ file: pItem.file.name, error: describeSaveFailureShort(err) });
+            }
+          }
+          window.dispatchEvent(new CustomEvent('userPersonasUpdated'));
+        }
+
+        setImportedSuccessCount(successCount);
+
+        if (successCount === 0) {
+          setProgress(null);
+          if (errors.length > 0) {
+            setImportErrors(errors);
+          } else {
+            setError("未能成功导入任何角色卡或关联数据。");
+          }
+          return;
+        }
+
+        await cleanupEmptyFolders();
+        setProgress(null);
+
+        // 如果部分辅助文件有轻微错误，但在已导入成功卡片时不阻断主结算界面
+        if (importedCardsTokens.length > 0) {
+          const totalTokens = importedCardsTokens.reduce((sum, item) => sum + item.breakdown.totalTokens, 0);
+          const totalCardsCount = importedCardsTokens.length;
+          // 安卓端防 OOM 闪退保护：当批量导入卡片超量时，弹窗仅保留前 60 张供结算预览，避免 React 状态持有数千个大对象撑爆内存
+          const previewItems = totalCardsCount > 60 ? importedCardsTokens.slice(0, 60) : importedCardsTokens;
+          setImportTokenSummary({
+            totalTokens,
+            totalCardsCount,
+            items: previewItems,
+          });
+          if (sameNameAutoSummary.length > 0) {
+            setAutoCategorizedSummary(sameNameAutoSummary.length > 60 ? sameNameAutoSummary.slice(0, 60) : sameNameAutoSummary);
+          }
+          hasImportedSomethingRef.current = true;
+          // 注意：不要在弹窗打开状态下立即调用 onImported()！
+          // 否则主页在后台并发重载数千张卡，与弹窗渲染叠加会导致安卓 WebView 瞬间 OOM 闪退。
+          // 改为在用户关闭弹窗或点击「完成并进入卡库」时统一触发刷新。
+        } else if (sameNameAutoSummary.length > 0) {
+          setAutoCategorizedSummary(sameNameAutoSummary.length > 60 ? sameNameAutoSummary.slice(0, 60) : sameNameAutoSummary);
+          hasImportedSomethingRef.current = true;
+        } else {
+          hasImportedSomethingRef.current = true;
+          handleSafeClose();
+        }
+      } catch (err: any) {
+        setProgress(null);
+        setError(`保存角色失败: ${await describeSaveFailure(err)}`);
+      }
   };
 
   const handleDrop = async (e: React.DragEvent) => {
@@ -1106,7 +2579,6 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
         const file = await new Promise<File>((resolve, reject) =>
           entry.file(resolve, reject),
         );
-        // Mock webkitRelativePath so processChunk can create folders
         Object.defineProperty(file, "webkitRelativePath", {
           value: path + file.name,
           writable: false,
@@ -1163,6 +2635,9 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
     setIsDragging(false);
   };
 
+  const aiSettings = getAISettings();
+  const stUrl = normalizeSillyTavernUrl(aiSettings.sillyTavernUrl);
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -1171,143 +2646,669 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={(progress || tavernMode) ? undefined : onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70]"
+            onClick={(progress || isPulling) ? undefined : handleSafeClose}
+            className="fixed inset-0 bg-black/60 [.light-theme_&]:!bg-black/25 backdrop-blur-sm z-[70]"
           />
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            initial={{ opacity: 0, scale: 0.95, y: 15 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[90vw] max-w-md bg-slate-900/80 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 shadow-2xl z-[80] text-white max-h-[85vh] flex flex-col"
+            exit={{ opacity: 0, scale: 0.95, y: 15 }}
+            className={`fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 backdrop-blur-2xl border rounded-3xl shadow-2xl z-[80] flex flex-col transition-all duration-300 ${
+              isLightMode ? "light-theme bg-white text-slate-900 border-[#e2e8f0]" : "bg-slate-900/95 text-slate-100 border-white/10"
+            } ${
+              tavernMode
+                ? "w-[96vw] max-w-6xl h-[92vh] sm:h-[88vh] p-4 sm:p-6"
+                : importTokenSummary ? "w-[94vw] max-w-[540px] max-h-[88vh] p-5 sm:p-6" : (progress ? "w-[92vw] max-w-[340px] sm:max-w-[380px] p-6 sm:p-7" : "w-[92vw] max-w-[420px] sm:max-w-[460px] p-5 sm:p-6")
+            }`}
           >
-            <div className="flex justify-between items-center mb-6 shrink-0">
-              <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600">
-                导入角色卡
-              </h2>
-              {!progress && (
-                <button
-                  onClick={onClose}
-                  className="p-2 rounded-full hover:bg-white/10 transition"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+            {/* Header Section */}
+            <div className="flex justify-between items-center mb-3.5 pb-3 border-b border-white/10 [.light-theme_&]:!border-[#f1f5f9] version-modal-border shrink-0 gap-3">
+              {tavernMode ? (
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="w-10 h-10 rounded-2xl bg-blue-500/15 border border-blue-500/20 flex items-center justify-center text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 shrink-0">
+                    <Cloud className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="text-base sm:text-lg font-bold text-slate-100 [.light-theme_&]:!text-[#0f172a] truncate">
+                      酒馆拉取中心
+                    </h2>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 [.light-theme_&]:!bg-emerald-50 [.light-theme_&]:!border-emerald-200/80 [.light-theme_&]:!text-emerald-700">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                        <span className="font-mono truncate max-w-[220px] sm:max-w-[360px]">
+                          {stUrl || "未在设置中配置 API 地址"}
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <h2 className="text-base sm:text-lg font-bold text-slate-100 [.light-theme_&]:!text-[#0f172a]">
+                  {autoCategorizedSummary ? "导入完成" : (importTokenSummary ? "导入完成" : (progress ? "正在导入" : "导入角色卡"))}
+                </h2>
               )}
+
+              <div className="flex items-center gap-2 shrink-0">
+                {(!progress || tavernMode) && (
+                  <button
+                    onClick={handleSafeClose}
+                    className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center transition cursor-pointer bg-white/10 hover:bg-white/20 text-white/90 hover:text-white border border-white/10 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:active:!bg-[#cbd5e1] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!shadow-2xs"
+                    title="关闭"
+                  >
+                    <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
+                )}
+              </div>
             </div>
 
-            {tavernMode ? (() => {
-  const filteredTavernChars = tavernChars.filter(char => 
-    char.name.toLowerCase().includes(tavernSearchQuery.toLowerCase()) || 
-    (char.creator_notes && char.creator_notes.toLowerCase().includes(tavernSearchQuery.toLowerCase())) ||
-    (char.description && char.description.toLowerCase().includes(tavernSearchQuery.toLowerCase()))
-  );
+            {/* Main Content Body */}
+            {autoCategorizedSummary ? (
+              <div className="py-2 flex flex-col flex-1 min-h-0">
+                <div className="flex items-center gap-3 mb-3.5 shrink-0">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[#34C759]/15 border border-[#34C759]/30 flex items-center justify-center shrink-0">
+                    <CheckCircle className="w-5 h-5 text-[#34C759]" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-base sm:text-lg text-slate-100 [.light-theme_&]:!text-[#0f172a]">导入完成</h3>
+                    <p className="text-xs sm:text-sm text-slate-100/60 [.light-theme_&]:!text-slate-500">共成功导入 {importedSuccessCount} 项卡片/数据</p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl p-4 mb-4 shrink-0 border bg-blue-500/10 border-blue-500/20 text-blue-300 [.light-theme_&]:!bg-blue-50/80 [.light-theme_&]:!border-blue-200/80 [.light-theme_&]:!text-blue-900">
+                  <div className="flex items-center gap-2 text-xs sm:text-sm font-bold mb-1.5">
+                    <Folder className="w-4 h-4 text-blue-500 shrink-0" />
+                    <span>检测到同名角色卡，已自动归入已有分类：</span>
+                  </div>
+                  <p className="text-xs sm:text-sm mb-3 text-white/60 [.light-theme_&]:!text-slate-600 leading-relaxed">
+                    系统匹配到已有同名角色的分类文件夹并已自动整理归类。您可以前往查看，或一键移回主页。
+                  </p>
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                    {autoCategorizedSummary.slice(0, 60).map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between text-xs sm:text-sm p-3 rounded-xl border bg-black/30 border-white/10 text-white [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]">
+                        <div className="min-w-0 flex-1 mr-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold truncate block text-white [.light-theme_&]:!text-[#0f172a]">{item.charName}</span>
+                            {!item.isTool && item.breakdown && item.breakdown.totalTokens > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedTokenBreakdown({ name: item.charName, breakdown: item.breakdown! })}
+                                className="text-[10px] font-mono px-2 py-0.5 rounded-md border transition active:scale-95 shrink-0 cursor-pointer bg-white/10 border-white/15 text-white/80 hover:bg-white/20 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#334155] [.light-theme_&]:hover:!bg-[#e2e8f0]"
+                                title="点击查看 Token 详情"
+                              >
+                                <span>{formatTokenCount(item.breakdown.totalTokens)} T</span>
+                              </button>
+                            )}
+                          </div>
+                          <span className="text-xs truncate block mt-0.5 text-blue-300 [.light-theme_&]:!text-[#007aff] font-medium">📁 {item.folderPath}</span>
+                        </div>
+                        {onNavigateFolder && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onNavigateFolder(item.folderId);
+                              setAutoCategorizedSummary(null);
+                              handleSafeClose();
+                            }}
+                            className="px-3 py-1.5 text-xs bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 rounded-xl shrink-0 font-semibold transition flex items-center gap-1 active:scale-95 cursor-pointer [.light-theme_&]:!bg-[#007aff]/10 [.light-theme_&]:hover:!bg-[#007aff]/20 [.light-theme_&]:!text-[#007aff]"
+                          >
+                            <span>前往文件夹</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {autoCategorizedSummary.length > 60 && (
+                    <div className="text-[11px] text-center pt-1.5 text-white/50 [.light-theme_&]:!text-slate-500">
+                      还有 {autoCategorizedSummary.length - 60} 张已自动归类，可在对应文件夹里查看
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-2.5 mt-auto pt-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={isReverting}
+                    onClick={async () => {
+                      setIsReverting(true);
+                      try {
+                        const { getCharacter, saveCharacters } = await import("../lib/db");
+                        const charsToRevert = [];
+                        for (const item of autoCategorizedSummary) {
+                          const c = await getCharacter(item.cardId);
+                          if (c) {
+                            c.folderId = undefined;
+                            charsToRevert.push(c);
+                          }
+                        }
+                        if (charsToRevert.length > 0) {
+                          await saveCharacters(charsToRevert);
+                        }
+                        window.dispatchEvent(new CustomEvent("charactersUpdated"));
+                      } catch (e) {
+                        console.error("Revert folder failed", e);
+                      } finally {
+                        setIsReverting(false);
+                        setAutoCategorizedSummary(null);
+                        handleSafeClose();
+                      }
+                    }}
+                    className="flex-1 py-3 px-3 rounded-2xl text-xs sm:text-sm font-semibold transition disabled:opacity-50 bg-white/10 hover:bg-white/15 text-white/80 [.light-theme_&]:!bg-white [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:active:!bg-[#e2e8f0] [.light-theme_&]:!border [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] cursor-pointer"
+                  >
+                    {isReverting ? "正在移回..." : "移回主页未分类"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAutoCategorizedSummary(null);
+                      handleSafeClose();
+                    }}
+                    className="flex-1 py-3 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-xs sm:text-sm font-bold transition shadow-sm cursor-pointer"
+                  >
+                    知道了 / 完成
+                  </button>
+                </div>
+              </div>
+            ) : importTokenSummary ? (
+              <div className="py-1 flex flex-col flex-1 min-h-0 overflow-hidden">
+                {/* Success Banner */}
+                <div className="flex items-center gap-3 mb-3 shrink-0">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[#34C759]/15 border border-[#34C759]/30 flex items-center justify-center shrink-0">
+                    <Check className="w-5 h-5 text-[#34C759] stroke-[2.5]" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-bold text-base sm:text-lg text-slate-100 [.light-theme_&]:!text-[#0f172a]">
+                        导入成功
+                      </h3>
+                      <span className="px-2.5 py-1 rounded-full border text-xs font-mono font-bold flex items-center gap-1.5 shadow-2xs bg-slate-800 border-slate-700 text-slate-100 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]">
+                        <FileText className="w-3.5 h-3.5 text-slate-400 [.light-theme_&]:!text-[#0f172a]" />
+                        <span>总计 {formatTokenCount(importTokenSummary.totalTokens)} T</span>
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-100/60 [.light-theme_&]:!text-slate-500 mt-0.5">
+                      共成功导入 {importTokenSummary.totalCardsCount || importTokenSummary.items.length} 项卡片/数据，以下为归类与存储信息：
+                    </p>
+                  </div>
+                </div>
+
+                {/* Search Bar if multiple cards */}
+                {importTokenSummary.items.length > 3 && (
+                  <div className="mb-2.5 shrink-0 relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-white/40 [.light-theme_&]:!text-[#64748b]" />
+                    <input
+                      type="text"
+                      value={tokenSearchQuery}
+                      onChange={(e) => setTokenSearchQuery(e.target.value)}
+                      placeholder="搜索本次导入卡片..."
+                      className="w-full pl-8 pr-3 py-2 rounded-xl text-xs outline-none border transition bg-white/5 border-white/10 text-white focus:border-blue-500/50 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#94a3b8] [.light-theme_&]:focus:!border-[#007aff]"
+                    />
+                  </div>
+                )}
+
+                {/* Cards List */}
+                <div 
+                  onScroll={(e) => {
+                    const target = e.currentTarget;
+                    if (target.scrollHeight - target.scrollTop - target.clientHeight < 120) {
+                      if (displayLimit < filteredTokenItems.length) {
+                        setDisplayLimit((prev) => prev + 30);
+                      }
+                    }
+                  }}
+                  className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar min-h-0 touch-pan-y"
+                >
+                  {visibleTokenItems.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between gap-3 p-3 rounded-2xl border transition bg-white/5 border-white/10 hover:bg-white/8 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!bg-[#f8fafc]"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <div className="w-10 h-10 rounded-xl overflow-hidden bg-white/10 shrink-0 relative border border-white/10 [.light-theme_&]:!border-[#e2e8f0]">
+                          <ImportCardAvatar
+                            blob={item.avatarBlob}
+                            fallback={item.avatarUrlFallback}
+                            name={item.charName}
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-xs sm:text-sm truncate text-white [.light-theme_&]:!text-[#0f172a] flex items-center gap-2">
+                            <span className="truncate">{item.charName}</span>
+                            {!item.isTool && item.breakdown && item.breakdown.totalTokens > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedTokenBreakdown({
+                                    name: item.charName,
+                                    breakdown: item.breakdown,
+                                  })
+                                }
+                                className="text-[10px] font-mono px-2 py-0.5 rounded-md border shrink-0 transition active:scale-95 cursor-pointer bg-white/10 border-white/15 text-white/80 hover:bg-white/20 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#334155] [.light-theme_&]:hover:!bg-[#e2e8f0]"
+                                title="点击查看 Token 详细拆解"
+                              >
+                                {formatTokenCount(item.breakdown.totalTokens)} T
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[11px] text-white/50 [.light-theme_&]:!text-[#64748b] mt-0.5 truncate">
+                            <span className="font-medium text-blue-400 [.light-theme_&]:!text-[#007aff] truncate">📁 {item.folderPath}</span>
+                            {item.breakdown.totalCharCount > 0 && (
+                              <span>· {item.breakdown.totalCharCount}字</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Actions: Navigate Folder if any */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {onNavigateFolder && item.folderId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onNavigateFolder(item.folderId!);
+                              setImportTokenSummary(null);
+                              handleSafeClose();
+                            }}
+                            className="px-3.5 py-1.5 text-xs bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 rounded-xl shrink-0 font-semibold transition flex items-center gap-1 active:scale-95 cursor-pointer [.light-theme_&]:!bg-[#007aff]/10 [.light-theme_&]:hover:!bg-[#007aff]/20 [.light-theme_&]:!text-[#007aff]"
+                            title="前往目标文件夹"
+                          >
+                            <span>前往文件夹</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {importTokenSummary.totalCardsCount && importTokenSummary.totalCardsCount > importTokenSummary.items.length && (
+                    <div className="py-2.5 px-3 rounded-2xl bg-blue-500/15 text-blue-400 border border-transparent [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!border-transparent [.light-theme_&]:!text-[#007aff] text-xs text-center font-medium leading-relaxed">
+                      已成功导入 {importTokenSummary.totalCardsCount} 项卡片，为保证流畅仅展示前 {importTokenSummary.items.length} 张。
+                    </div>
+                  )}
+
+                  {displayLimit < filteredTokenItems.length && (
+                    <button
+                      type="button"
+                      onClick={() => setDisplayLimit((prev) => prev + 50)}
+                      className="w-full py-2.5 text-center text-xs font-medium rounded-xl border transition bg-white/5 border-white/10 hover:bg-white/10 text-white/70 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#334155] [.light-theme_&]:hover:!bg-[#e2e8f0] cursor-pointer"
+                    >
+                      加载更多... (已显示 {visibleTokenItems.length} / {filteredTokenItems.length} 项)
+                    </button>
+                  )}
+                </div>
+
+                {/* Footer Buttons */}
+                <div className="flex gap-2.5 mt-3 pt-2.5 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0] shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportTokenSummary(null);
+                      setAutoCategorizedSummary(null);
+                      handleSafeClose();
+                    }}
+                    className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-xs sm:text-sm font-bold transition shadow-md shadow-blue-500/20 cursor-pointer text-center [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:hover:!bg-[#0062cc] [.light-theme_&]:!text-white"
+                  >
+                    完成并进入卡库
+                  </button>
+                </div>
+              </div>
+            ) : tavernMode ? (() => {
+              const filteredTavernChars = tavernChars.filter(char => 
+                char.name.toLowerCase().includes(tavernSearchQuery.toLowerCase()) || 
+                (char.creator_notes && char.creator_notes.toLowerCase().includes(tavernSearchQuery.toLowerCase())) ||
+                (char.description && char.description.toLowerCase().includes(tavernSearchQuery.toLowerCase()))
+              );
+              const visibleTavernChars = filteredTavernChars.slice(0, tavernDisplayLimit);
+
               return (
-              <div className="py-2 flex flex-col flex-1 min-h-0 overflow-hidden">
-                <div className="flex justify-between items-center mb-3 shrink-0 gap-2">
-                   <h3 className="font-bold text-sm sm:text-base truncate">选择要拉取的角色 ({selectedTavernChars.size}/{tavernChars.length})</h3>
-                   <div className="flex gap-2">
-                     <button onClick={() => setSelectedTavernChars(new Set([...selectedTavernChars, ...filteredTavernChars.map(c => c.avatar)]))} className="text-xs bg-white/5 hover:bg-white/15 border border-white/10 text-white/80 hover:text-white px-3 py-1.5 rounded-lg shrink-0 transition-colors">全选筛选</button>
-                     <button onClick={() => setSelectedTavernChars(new Set())} className="text-xs bg-white/5 hover:bg-white/15 border border-white/10 text-white/80 hover:text-white px-3 py-1.5 rounded-lg shrink-0 transition-colors">清空</button>
-                   </div>
-                </div>
-                <div className="relative mb-3 shrink-0">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-                  <input
-                    type="text"
-                    placeholder="搜索角色名或简介..."
-                    value={tavernSearchQuery}
-                    onChange={(e) => setTavernSearchQuery(e.target.value)}
-                    className="w-full bg-white/5 hover:bg-white/10 focus:bg-white/10 border border-white/10 rounded-xl py-2 pl-9 pr-4 text-sm focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 transition-all placeholder:text-white/30"
-                  />
-                </div>
-                <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                   {tavernChars.length === 0 && <p className="text-center text-slate-400 py-10">未找到任何角色，或 API 地址错误。</p>}
-                   {tavernChars.length > 0 && filteredTavernChars.length === 0 && <p className="text-center text-slate-400 py-10">没有匹配搜索结果。</p>}
-                   {filteredTavernChars.map(char => (
-                      <div key={char.avatar} 
-                           onClick={() => {
+                <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+                  <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar pb-1 mb-2.5 shrink-0">
+                    {TAVERN_PULL_TABS.map((item) => {
+                      const active = tavernCategory === item.key;
+                      const count = tavernTabCounts[item.key];
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => switchTavernCategory(item.key)}
+                          className={`shrink-0 whitespace-nowrap px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 cursor-pointer border-none outline-none select-none flex items-center justify-center gap-1.5 ${
+                            active
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : isLightMode
+                                ? 'bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0] hover:text-[#0f172a]'
+                                : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          <span>{item.label}</span>
+                          {typeof count === 'number' && count > 0 && (
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                              active 
+                                ? 'bg-white/25 text-white' 
+                                : isLightMode 
+                                  ? 'bg-[#e2e8f0] text-[#475569]'
+                                  : 'bg-white/10 text-white/50'
+                            }`}>
+                              {count}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Pull Progress Live Activity Terminal Banner */}
+                  {(isPulling || progress) && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`mb-4 p-4 rounded-3xl border shrink-0 shadow-sm ${
+                        isLightMode
+                          ? "bg-blue-50/90 border-blue-200"
+                          : "bg-blue-500/10 border-blue-500/20"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2.5 gap-2">
+                        <div className="flex items-center gap-3 min-w-0">
+                          {currentPullChar ? (
+                            (currentPullChar.kind && currentPullChar.kind !== 'character') ? (
+                              <div className={`w-10 h-10 rounded-xl shrink-0 flex items-center justify-center ${
+                                isLightMode ? "bg-blue-50 text-blue-600" : "bg-blue-500/15 text-blue-400"
+                              }`}>
+                                <TavernKindIcon kind={currentPullChar.kind} className="w-5 h-5" />
+                              </div>
+                            ) : (
+                              <TavernAvatar char={currentPullChar} aiSettings={aiSettings} className="w-10 h-10 rounded-xl object-cover shrink-0 shadow-xs border border-blue-400/30" />
+                            )
+                          ) : (
+                            <Loader2 className="w-5 h-5 animate-spin text-blue-500 shrink-0" />
+                          )}
+                          <div className="min-w-0">
+                            <div className={`text-xs sm:text-sm font-bold truncate ${isLightMode ? "text-[#0f172a]" : "text-slate-100"}`}>
+                              {progress?.message || (isPulling ? "正在通讯与拉取..." : "准备中...")}
+                            </div>
+                            <div className={`text-[11px] font-semibold truncate mt-0.5 ${isLightMode ? "text-blue-600" : "text-blue-400"}`}>
+                              {currentPullChar ? `正在处理: ${currentPullChar.name}` : `进度: ${progress?.current || 0} / ${progress?.total || tavernChars.length}`}
+                            </div>
+                          </div>
+                        </div>
+
+                        {progress && progress.total > 0 && (
+                          <div className={`text-right shrink-0 font-mono text-xs font-bold ${isLightMode ? "text-blue-600" : "text-blue-400"}`}>
+                            {Math.round(((progress.current || 0) / progress.total) * 100)}%
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Progress bar */}
+                      {progress && progress.total > 0 && (
+                        <div className={`w-full h-2.5 rounded-full overflow-hidden mb-3 ${isLightMode ? "bg-[#e2e8f0]" : "bg-black/20"}`}>
+                          <motion.div 
+                            className="bg-blue-500 h-full rounded-full transition-all duration-300" 
+                            style={{ width: `${Math.min(100, Math.round(((progress.current || 0) / progress.total) * 100))}%` }}
+                          />
+                        </div>
+                      )}
+
+                      {/* Live Log Terminal Stream */}
+                      {pullLogs.length > 0 && (
+                        <div className={`p-2.5 rounded-2xl font-mono text-[11px] max-h-28 overflow-y-auto custom-scrollbar border space-y-1 ${
+                          isLightMode
+                            ? "bg-blue-50/90 text-blue-900 border-blue-200"
+                            : "bg-slate-950/60 text-emerald-400 border-white/10"
+                        }`}>
+                          {pullLogs.map((log, idx) => (
+                            <div key={idx} className="leading-relaxed flex items-center gap-1.5 opacity-90">
+                              <Terminal className={`w-3 h-3 shrink-0 ${isLightMode ? "text-blue-600" : "text-emerald-400"}`} />
+                              <span className="truncate">{log}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+
+                  {/* Filter & Toolbar */}
+                  <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2.5 mb-3 shrink-0">
+                    <div className="relative flex-1 min-w-0">
+                      <Search className={`absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 ${isLightMode ? "text-[#64748b]" : "text-white/40"}`} />
+                      <input
+                        type="text"
+                        placeholder={TAVERN_CATEGORY_HINT[tavernCategory]}
+                        value={tavernSearchQuery}
+                        onChange={(e) => setTavernSearchQuery(e.target.value)}
+                        className={`w-full rounded-2xl py-2 pl-10 pr-8 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all border-none ${
+                          isLightMode
+                            ? "bg-[#f1f5f9] text-[#0f172a] placeholder:text-[#94a3b8] focus:bg-white focus:ring-2 focus:ring-blue-500/20"
+                            : "bg-white/5 text-white placeholder:text-white/30 focus:bg-white/10"
+                        }`}
+                      />
+                      {tavernSearchQuery && (
+                        <button
+                          onClick={() => setTavernSearchQuery("")}
+                          className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-xs p-1 rounded-full ${
+                            isLightMode ? "text-slate-400 hover:text-[#334155]" : "text-white/40 hover:text-white"
+                          }`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 justify-between sm:justify-end">
+                      <span className={`text-xs font-semibold ${isLightMode ? "text-slate-600" : "text-white/60"}`}>
+                        已选中 <strong className={isLightMode ? "text-blue-600 font-bold" : "text-blue-400 font-bold"}>{selectedTavernChars.size}</strong> / {tavernChars.length} 项
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTavernChars(new Set([...selectedTavernChars, ...filteredTavernChars.map(c => c.avatar)]))}
+                          className={`text-xs px-3 py-1.5 rounded-full transition cursor-pointer font-semibold border-none outline-none select-none ${
+                            isLightMode
+                              ? "bg-[#f1f5f9] text-[#334155] hover:bg-[#e2e8f0] active:bg-[#cbd5e1]"
+                              : "bg-white/5 text-white/80 hover:bg-white/15 active:bg-white/20"
+                          }`}
+                        >
+                          全选当前 ({filteredTavernChars.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTavernChars(new Set())}
+                          className={`text-xs px-3 py-1.5 rounded-full transition cursor-pointer font-semibold border-none outline-none select-none ${
+                            isLightMode
+                              ? "bg-[#f1f5f9] text-[#334155] hover:bg-[#e2e8f0] active:bg-[#cbd5e1]"
+                              : "bg-white/5 text-white/80 hover:bg-white/15 active:bg-white/20"
+                          }`}
+                        >
+                          清空
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Character Grid */}
+                  <div 
+                    onScroll={(e) => {
+                      const target = e.currentTarget;
+                      if (target.scrollHeight - target.scrollTop - target.clientHeight < 280) {
+                        if (tavernDisplayLimit < filteredTavernChars.length) {
+                          setTavernDisplayLimit(prev => Math.min(prev + 36, filteredTavernChars.length));
+                        }
+                      }
+                    }}
+                    className="flex-1 overflow-y-auto custom-scrollbar p-1 min-h-0"
+                  >
+                    {isFetchingCatalog ? (
+                      <div className="flex flex-col items-center justify-center py-20 text-center space-y-3">
+                        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                        <p className={`text-xs sm:text-sm font-medium ${isLightMode ? "text-slate-600" : "text-white/70"}`}>
+                          正在读取{TAVERN_PULL_TABS.find((item) => item.key === tavernCategory)?.label || '酒馆'}列表...
+                        </p>
+                      </div>
+                    ) : tavernChars.length === 0 && !isPulling ? (
+                      <div className="flex flex-col items-center justify-center py-16 text-center text-white/40 [.light-theme_&]:!text-slate-500 space-y-3">
+                        <Cloud className="w-12 h-12 opacity-30 text-blue-400" />
+                        <p className="text-sm font-semibold">未加载到{TAVERN_PULL_TABS.find((item) => item.key === tavernCategory)?.label || '内容'}或 API 未连通</p>
+                        <button
+                          onClick={() => reloadTavernCategory(tavernCategory)}
+                          className="px-4 py-2 rounded-xl bg-blue-500/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 font-bold text-xs hover:bg-blue-500/30 transition cursor-pointer"
+                        >
+                          点击试运行连接酒馆
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {tavernChars.length > 0 && filteredTavernChars.length === 0 && (
+                      <div className="text-center text-white/40 [.light-theme_&]:!text-slate-500 py-16 text-xs sm:text-sm">
+                        没有符合「{tavernSearchQuery}」的{TAVERN_PULL_TABS.find((item) => item.key === tavernCategory)?.label || "内容"}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5 pb-2">
+                      {visibleTavernChars.map(char => {
+                        const isSelected = selectedTavernChars.has(char.avatar);
+                        return (
+                          <div
+                            key={char.avatar}
+                            onClick={() => {
                               const newSet = new Set(selectedTavernChars);
                               if (newSet.has(char.avatar)) newSet.delete(char.avatar);
                               else newSet.add(char.avatar);
                               setSelectedTavernChars(newSet);
-                           }}
-                           className={`flex items-center gap-2 sm:gap-3 p-2 sm:p-3 rounded-xl cursor-pointer transition-all duration-200 ${selectedTavernChars.has(char.avatar) ? 'bg-purple-500/20 border border-purple-500/50 shadow-[inset_0_0_15px_rgba(168,85,247,0.15)]' : 'bg-white/5 border border-transparent hover:border-white/10 hover:bg-white/10'}`}>
-                         <TavernAvatar char={char} aiSettings={getAISettings()} />
-                         <div className="flex-1 min-w-0">
-                           <div className="font-medium text-sm sm:text-base truncate">{char.name}</div>
-                           <div className="text-xs text-white/50 truncate">{char.creator_notes || char.description?.substring(0, 50) || '无简介'}</div>
-                         </div>
-                         <div className={`w-5 h-5 rounded-md flex items-center justify-center border transition-all duration-200 ${selectedTavernChars.has(char.avatar) ? 'border-purple-400 bg-purple-500 text-white shadow-[0_0_8px_rgba(168,85,247,0.6)]' : 'border-white/20 bg-black/20'}`}>
-                           {selectedTavernChars.has(char.avatar) && <CheckCircle className="w-3.5 h-3.5" />}
-                         </div>
+                            }}
+                            className={`group relative flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all duration-200 border outline-none focus:outline-none select-none ${
+                              isSelected
+                                ? 'bg-blue-500/15 border-blue-500/60 text-white [.light-theme_&]:!bg-blue-50/90 [.light-theme_&]:!border-blue-400 [.light-theme_&]:!text-[#0f172a] shadow-xs scale-[1.01]'
+                                : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10 [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!text-[#0f172a]'
+                            }`}
+                          >
+                            {char.kind && char.kind !== 'character' ? (
+                              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl shrink-0 bg-blue-500/10 [.light-theme_&]:!bg-blue-50 flex items-center justify-center text-blue-400 [.light-theme_&]:!text-blue-600 border border-blue-500/15">
+                                <TavernKindIcon kind={char.kind} className="w-5 h-5 sm:w-6 sm:h-6" />
+                              </div>
+                            ) : (
+                              <TavernAvatar char={char} aiSettings={aiSettings} className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl object-cover shrink-0 shadow-xs border border-white/10 [.light-theme_&]:!border-[#e2e8f0]" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="font-bold text-xs sm:text-sm truncate text-slate-100 [.light-theme_&]:!text-[#0f172a] group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-600 transition-colors">
+                                {char.name}
+                              </div>
+                              <div className="text-[11px] text-white/50 [.light-theme_&]:!text-slate-500 line-clamp-2 mt-0.5 leading-relaxed">
+                                {char.creator_notes || char.description?.substring(0, 60) || '暂无详细描述信息'}
+                              </div>
+                            </div>
+
+                            <div className={`w-5 h-5 rounded-lg flex items-center justify-center border transition-all duration-200 shrink-0 ${
+                              isSelected
+                                ? 'border-blue-500 bg-blue-500 text-white [.light-theme_&]:!border-blue-600 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:!text-white shadow-xs'
+                                : 'border-white/20 bg-black/20 [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!bg-white'
+                            }`}>
+                              {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {tavernDisplayLimit < filteredTavernChars.length && (
+                      <div className="py-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setTavernDisplayLimit(prev => Math.min(prev + 48, filteredTavernChars.length))}
+                          className="w-full py-2.5 text-center text-xs font-semibold rounded-xl border transition bg-white/5 border-white/10 hover:bg-white/10 text-white/80 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#334155] [.light-theme_&]:hover:!bg-[#e2e8f0] cursor-pointer"
+                        >
+                          加载更多... (已显示 {visibleTavernChars.length} / {filteredTavernChars.length} 项)
+                        </button>
                       </div>
-                   ))}
+                    )}
+                  </div>
+
+                  {/* Bottom Actions */}
+                  <div className="flex items-center gap-3 mt-4 pt-3 border-t border-white/10 [.light-theme_&]:!border-[#f1f5f9] version-modal-border shrink-0">
+                    <button
+                      onClick={() => { setTavernMode(false); setTavernSearchQuery(""); }}
+                      className="py-3 px-3.5 sm:px-5 shrink-0 whitespace-nowrap border rounded-2xl font-semibold text-xs sm:text-sm transition-colors cursor-pointer bg-white/5 hover:bg-white/15 border-white/10 text-white [.light-theme_&]:!bg-white [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:active:!bg-[#e2e8f0] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!shadow-2xs"
+                    >
+                      返回本地上传
+                    </button>
+                    <button
+                      onClick={pullSelectedTavernChars}
+                      disabled={selectedTavernChars.size === 0 || isPulling || isFetchingCatalog}
+                      className="flex-1 min-w-0 py-3 px-3 sm:px-5 whitespace-nowrap bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold text-xs sm:text-sm transition-all shadow-md disabled:opacity-50 flex justify-center items-center gap-1.5 sm:gap-2 cursor-pointer"
+                    >
+                      {isPulling || isFetchingCatalog ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                          <span className="truncate">同步中...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Cloud className="w-4 h-4 shrink-0" />
+                          <span className="truncate">拉取选中 ({selectedTavernChars.size})</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex gap-3 mt-6 shrink-0">
-                  <button onClick={() => { setTavernMode(false); setTavernSearchQuery(""); }} className="flex-1 py-3 bg-white/5 hover:bg-white/15 border border-white/10 text-white rounded-xl font-medium transition-colors">
-                    返回
-                  </button>
-                  <button 
-                    onClick={pullSelectedTavernChars} 
-                    disabled={selectedTavernChars.size === 0}
-                    className="flex-1 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 text-white rounded-xl font-medium transition-all shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:shadow-none"
-                  >
-                    拉取已选 ({selectedTavernChars.size})
-                  </button>
-                </div>
-              </div>
               );
             })() : importErrors.length > 0 ? (
-              <div className="py-4 flex flex-col max-h-[60vh]">
-                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex-1 overflow-y-auto">
-                  <div className="flex items-center gap-2 text-red-400 mb-3 sticky top-0 bg-slate-900/90 backdrop-blur-sm py-1">
-                    <AlertCircle className="w-5 h-5" />
-                    <h3 className="font-bold">
-                      部分文件导入失败 ({importErrors.length})
+              <div className="py-3 flex flex-col flex-1 min-h-0">
+                <div className="bg-red-500/10 border border-red-500/20 [.light-theme_&]:!bg-red-50 [.light-theme_&]:!border-red-200 rounded-2xl p-4 flex-1 overflow-y-auto custom-scrollbar">
+                  <div className="flex items-center gap-2 text-red-400 [.light-theme_&]:!text-red-600 mb-3 sticky top-0 py-1 font-bold text-sm sm:text-base">
+                    <AlertCircle className="w-5 h-5 shrink-0" />
+                    <h3>
+                      文件解析提示 ({importErrors.length} 个文件无法作为角色卡解析)
                     </h3>
                   </div>
-                  <ul className="space-y-2 text-sm text-red-300/80">
+                  <p className="text-xs text-red-300/80 [.light-theme_&]:!text-red-700/80 mb-3 leading-relaxed">
+                    未能在以下文件中读取到标准的 Tavern / 酒馆角色卡元数据。如果是常规图片或非角色卡文件，系统已为您过滤：
+                  </p>
+                  <ul className="space-y-2 text-xs sm:text-sm">
                     {importErrors.map((err, i) => (
                       <li
                         key={i}
-                        className="flex flex-col bg-black/20 p-2 rounded"
+                        className="flex flex-col bg-black/20 border border-white/5 [.light-theme_&]:!bg-white [.light-theme_&]:!border-red-100 p-2.5 rounded-xl"
                       >
-                        <span className="font-medium text-red-300 truncate">
+                        <span className="font-semibold text-red-300 [.light-theme_&]:!text-red-800 truncate">
                           {err.file}
                         </span>
-                        <span className="text-xs opacity-80 mt-0.5">
+                        <span className="text-xs text-red-200/70 [.light-theme_&]:!text-red-600/80 mt-0.5">
                           {err.error}
                         </span>
                       </li>
                     ))}
                   </ul>
                 </div>
-                <button
-                  onClick={() => {
-                    setImportErrors([]);
-                    onClose();
-                  }}
-                  className="w-full mt-4 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition"
-                >
-                  关闭
-                </button>
+                <div className="flex gap-2.5 mt-3 pt-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportErrors([]);
+                    }}
+                    className="flex-1 py-3 px-4 bg-white/10 hover:bg-white/15 text-white/90 rounded-2xl text-xs sm:text-sm font-semibold transition cursor-pointer [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:hover:!bg-[#e2e8f0] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border [.light-theme_&]:!border-[#e2e8f0]"
+                  >
+                    重新选择文件
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportErrors([]);
+                      onClose();
+                    }}
+                    className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-xs sm:text-sm font-bold transition cursor-pointer"
+                  >
+                    知道了 / 关闭
+                  </button>
+                </div>
               </div>
             ) : progress ? (
-              <div className="py-8 flex flex-col items-center">
-                <div className="w-16 h-16 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mb-4" />
-                <p className="text-lg font-medium text-center">
-                  {progress.message || "导入中..."}
+              <div className="py-4 sm:py-6 flex flex-col items-center justify-center text-center">
+                <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-3.5" />
+                <p className="text-base sm:text-lg font-bold text-center text-slate-100 [.light-theme_&]:!text-[#0f172a]">
+                  {progress.message || "正在解析文件..."}
                 </p>
-                <p className="text-slate-400 text-center tabular-nums">
-                  {progress.current} / {progress.total}
+                <p className="text-xs sm:text-sm font-semibold font-mono mt-2 tabular-nums text-slate-100/60 [.light-theme_&]:!text-slate-500">
+                  还有 {progress.current}/{progress.total} 张卡
                 </p>
-                <div className="w-full bg-white/10 rounded-full h-2 mt-4 overflow-hidden">
-                  <div
-                    className="bg-gradient-to-r from-purple-500 to-pink-500 h-full transition-all duration-300"
-                    style={{
-                      width: `${progress.total > 0 ? (progress.current / progress.total) * 100 : 0}%`,
-                    }}
-                  />
-                </div>
               </div>
             ) : (
               <>
@@ -1316,53 +3317,95 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onClick={() => fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors ${
+                  className={`border-2 border-dashed rounded-3xl py-7 sm:py-8 px-4 flex flex-col items-center justify-center cursor-pointer transition-all ${
                     isDragging
-                      ? "border-purple-500 bg-purple-500/10"
-                      : "border-white/20 hover:border-white/40 hover:bg-white/5"
+                      ? isLightMode
+                        ? "border-blue-500 bg-[#eff6ff]"
+                        : "border-blue-400 bg-blue-500/15"
+                      : isLightMode
+                        ? "border-[#cbd5e1] hover:border-blue-500 bg-[#f8fafc] hover:bg-[#eff6ff]"
+                        : "border-white/15 hover:border-blue-400/50 bg-white/[0.04] hover:bg-white/[0.08]"
                   }`}
                 >
                   <UploadCloud
-                    className={`w-12 h-12 mb-4 ${isDragging ? "text-purple-400" : "text-slate-400"}`}
+                    className={`w-10 h-10 sm:w-12 sm:h-12 mb-3 transition-colors ${
+                      isDragging 
+                        ? "text-blue-500 scale-110" 
+                        : isLightMode 
+                          ? "text-blue-500/70" 
+                          : "text-white/40"
+                    }`}
                   />
-                  <p className="text-center font-medium mb-1">
+                  <p className={`text-center text-sm sm:text-base font-bold mb-1 ${
+                    isLightMode ? "text-[#0f172a]" : "text-white"
+                  }`}>
                     点击上传或拖拽文件到此处
                   </p>
-                  <p className="text-center text-sm text-slate-400">
+                  <p className={`text-center text-xs sm:text-sm leading-relaxed max-w-[280px] ${
+                    isLightMode ? "text-[#64748b]" : "text-white/60"
+                  }`}>
                     支持多个 PNG/JSON 格式，或包含文件夹结构的 ZIP 压缩包
                   </p>
 
-                  <div className="flex gap-4 mt-6 text-slate-500">
-                    <div className="flex items-center gap-1 text-xs">
-                      <ImageIcon className="w-4 h-4" /> PNG
+                  <div className={`flex gap-3.5 mt-3.5 ${
+                    isLightMode ? "text-[#64748b]" : "text-white/60"
+                  }`}>
+                    <div className="flex items-center gap-1.5 text-xs font-semibold">
+                      <ImageIcon className="w-4 h-4 opacity-70" /> PNG
                     </div>
-                    <div className="flex items-center gap-1 text-xs">
-                      <FileJson className="w-4 h-4" /> JSON
+                    <div className="flex items-center gap-1.5 text-xs font-semibold">
+                      <FileJson className="w-4 h-4 opacity-70" /> JSON
                     </div>
-                    <div className="flex items-center gap-1 text-xs">
-                      <FileArchive className="w-4 h-4" /> ZIP
+                    <div className="flex items-center gap-1.5 text-xs font-semibold">
+                      <FileArchive className="w-4 h-4 opacity-70" /> ZIP
                     </div>
                   </div>
                 </div>
 
-                {isAndroid() && (
-                  <div className="mt-4 w-full flex justify-center">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); fetchTavernList(); }}
-                      disabled={isPulling}
-                      className="flex items-center gap-2 px-6 py-3.5 bg-gradient-to-r from-purple-500/10 to-pink-500/10 hover:from-purple-500/20 hover:to-pink-500/20 text-purple-400 rounded-xl font-medium transition-all duration-300 disabled:opacity-50 w-full justify-center border border-purple-500/30 hover:border-purple-400/50 shadow-lg shadow-purple-500/10 hover:shadow-purple-500/20"
+                <div className="mt-4 flex items-center justify-between px-1">
+                  <div
+                    onClick={() => {
+                      const next = !autoCategorizeSameName;
+                      setAutoCategorizeSameName(next);
+                      localStorage.setItem("miu_auto_categorize_same_name", next ? "true" : "false");
+                    }}
+                    className="flex items-center gap-3 cursor-pointer select-none transition py-1 text-white/90 hover:text-white [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!text-black"
+                  >
+                    <div
+                      className={`w-5 h-5 rounded-lg flex items-center justify-center border transition shrink-0 ${
+                        autoCategorizeSameName
+                          ? "bg-white text-black border-white [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:!border-[#cbd5e1]"
+                          : "border-white/30 bg-black/30 [.light-theme_&]:!border-[#cbd5e1] [.light-theme_&]:!bg-white [.light-theme_&]:hover:!bg-[#f1f5f9]"
+                      }`}
                     >
-                      {isPulling ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" /> : <Cloud className="w-5 h-5 shrink-0" />}
-                      <span className="truncate">拉取酒馆卡片</span>
-                    </button>
+                      {autoCategorizeSameName && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
+                    </div>
+                    <span className="font-semibold text-xs sm:text-sm text-white/90 [.light-theme_&]:!text-[#0f172a]">
+                      导入同名卡自动归入已有分类文件夹
+                    </span>
                   </div>
-                )}
+                </div>
+
+                <div className="mt-4 w-full flex justify-center">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); fetchTavernList(); }}
+                    disabled={isPulling}
+                    className="flex items-center gap-2 px-6 py-3.5 sm:py-4 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 rounded-2xl font-bold text-sm sm:text-base transition-all duration-300 disabled:opacity-50 w-full justify-center border border-blue-500/20 hover:border-blue-500/40 shadow-sm cursor-pointer"
+                  >
+                    {isPulling ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <Cloud className="w-5 h-5 shrink-0" />}
+                    <span className="truncate">拉取酒馆卡片</span>
+                  </button>
+                </div>
 
                 {error && (
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="mt-4 p-3 bg-red-500/20 border border-red-500/30 rounded-xl text-red-400 text-sm"
+                    className={`mt-4 p-3.5 rounded-2xl text-xs sm:text-sm border font-medium ${
+                      isLightMode
+                        ? "bg-red-50 border-red-200 text-red-700"
+                        : "bg-red-500/20 border-red-500/30 text-red-300"
+                    }`}
                   >
                     {error}
                   </motion.div>
@@ -1373,13 +3416,28 @@ export function ImportModal({ isOpen, onClose, onImported, folderId, initialFile
             <input
               type="file"
               ref={fileInputRef}
-              onChange={(e) => e.target.files && handleFiles(e.target.files)}
-              accept=".png,.jpg,.jpeg,.webp,.gif,.json,.jsonl,.txt,.js,.zip,application/json,application/zip,application/x-zip-compressed,text/plain,text/javascript"
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  handleFiles(e.target.files);
+                }
+                e.target.value = "";
+              }}
+              accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.json,.jsonl,.txt,.js,.css,.zip,application/json,application/zip,application/x-zip-compressed,text/plain,text/javascript,text/css,*/*"
               className="hidden"
               multiple
             />
           </motion.div>
         </>
+      )}
+
+      {selectedTokenBreakdown && (
+        <TokenBreakdownModal
+          isOpen={!!selectedTokenBreakdown}
+          onClose={() => setSelectedTokenBreakdown(null)}
+          charName={selectedTokenBreakdown.name}
+          breakdown={selectedTokenBreakdown.breakdown}
+          isLightMode={isLightMode}
+        />
       )}
     </AnimatePresence>
   );

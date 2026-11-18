@@ -1,41 +1,161 @@
-import { getFallbackAvatar, resolveAvatarUrl } from '../lib/avatar';
-import { useState, useEffect, useRef, memo } from 'react';
+import {getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL, isFallbackMiuImage } from '../lib/avatar';
+import { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, ChevronRight, Plus, Edit2, Power, X as XIcon, ChevronDown, ChevronUp, ExternalLink, Check, Upload, Send, Loader2, Share2 } from 'lucide-react';
-import { getCharacter, deleteCharacter, saveCharacter, CharacterCard, getFolders, resolveFolderPath, getCachedMeta, getCharacterCategoryPrefix } from '../lib/db';
+import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, ChevronRight, Plus, Edit2, Power, X as XIcon, ChevronDown, ChevronUp, ExternalLink, Check, Upload, Send, Smartphone, Loader2, Share2, Folder as FolderIcon, History, AlertCircle, Maximize2, BookOpen, Sparkles, FileJson, Image as ImageIcon, Save, Heart, RefreshCw, FileText, ArrowUp, ArrowDown, Code2 } from 'lucide-react';
+import { getCharacter, deleteCharacter, saveCharacter, toggleCharacterFavorite, CharacterCard, getFolders, resolveFolderPath, getCachedMeta, getCharacterCategoryPrefix, isActualCharacterCard, stripToolNameSuffix, UserPersona, getUserPersonas, setUserPersonaForCharacter } from '../lib/db';
+import { getCardTypeBadgeInfo } from '../lib/cardType';
 import { parseTavernCard } from '../types/tavern';
+import { normalizeSourceUrl } from '../lib/sourceUrl';
 import { injectTavernData } from '../lib/png';
 import { normalizeWorldbookEntries } from '../lib/worldbook';
 import { getAISettings, normalizeSillyTavernUrl, getSillyTavernAuthHeaders } from '../lib/ai';
 import { AvatarViewer } from './AvatarViewer';
+import { GreetingReaderModal, CustomSectionItem } from './GreetingReaderModal';
 import { QuickRepliesSection } from './QuickRepliesSection';
 import { CharacterRegexSection } from './CharacterRegexSection';
 import { CharacterChatsSection } from './CharacterChatsSection';
 import { CharacterMemosSection } from './CharacterMemosSection';
+import { CharacterVersionsSection } from './CharacterVersionsSection';
+import { PresetViewer } from './PresetViewer';
+import { ThemeRendererSection } from './ThemeRendererSection';
+import { MoveToFolderModal } from './MoveToFolderModal';
+import { CharacterSummaryModal } from './CharacterSummaryModal';
+import { TokenBreakdownModal } from './TokenBreakdownModal';
+import { getCharacterTokenBreakdown, formatTokenCount } from '../lib/tokens';
+import { FormattedCardContent } from './FormattedCardContent';
 import JSZip from 'jszip';
 import { isAndroid, saveToGallery, shareFileOnAndroid, exportFileToMIU, readLocalFileBuffer, downloadOrShareFile, getDownloadTooltip } from '../lib/appBridge';
+import { isLocalLinkSupported, getLocalReceiverStatus, pushFilesToOutbox } from '../lib/localLink';
 import { multipartPost } from '../lib/multipart';
 import { useBackHandler } from '../lib/useBackHandler';
 
+/** 预设按 apiId 分目录存在酒馆里，这里按内容猜一个（猜偏了也不影响导入，只是落在别的目录）。 */
+function guessPresetApiId(preset: any): string {
+  const hasPrompts = Array.isArray(preset?.prompts) && preset.prompts.length > 0;
+  const hasPromptOrder = Array.isArray(preset?.prompt_order);
+  if (hasPrompts || hasPromptOrder) return 'openai';
+  if (typeof preset?.temp === 'number' || typeof preset?.rep_pen === 'number' || typeof preset?.top_k === 'number') return 'textgenerationwebui';
+  if (typeof preset?.temperature === 'number' && typeof preset?.max_length === 'number') return 'novel';
+  if (preset?.input_sequence !== undefined || preset?.output_sequence !== undefined) return 'instruct';
+  if (typeof preset?.content === 'string') return 'sysprompt';
+  return 'openai';
+}
+
+/** 一条酒馆正则的特征（findRegex / replaceString 那种）。 */
+function isRegexScript(value: any): boolean {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) &&
+    (value.findRegex !== undefined || value.find_regex !== undefined ||
+      value.replaceString !== undefined || value.replace_with !== undefined);
+}
+
+/** 从脚本卡的数据里挑出酒馆正则；挑不到说明它只是普通 JS 脚本，返回空数组。 */
+function extractRegexScripts(raw: any): any[] {
+  const containers = [raw, raw?.regex, raw?.scripts, raw?.regex_scripts, raw?.data?.regex, raw?.data?.regex_scripts];
+  for (const value of containers) {
+    if (Array.isArray(value)) {
+      const hits = value.filter(isRegexScript);
+      if (hits.length > 0) return hits;
+    } else if (isRegexScript(value)) {
+      return [value];
+    }
+  }
+  return [];
+}
+
+/** 合并正则：同 id（或同 findRegex）算同一条，新来的覆盖旧的。 */
+function mergeRegexScripts(current: any[], incoming: any[]): any[] {
+  const keyOf = (script: any) => String(script?.id || script?.findRegex || script?.find_regex || '').trim();
+  const merged = Array.isArray(current) ? current.slice() : [];
+  for (const script of incoming) {
+    const key = keyOf(script);
+    const index = key ? merged.findIndex((item) => keyOf(item) === key) : -1;
+    if (index >= 0) merged[index] = script;
+    else merged.push(script);
+  }
+  return merged;
+}
+
+/** 快捷回复：新的集合格式直接用，老的 quick_replies 数组包成一个集合。 */
+function buildQuickReplySet(raw: any, name: string): any {
+  const source = raw?.set && typeof raw.set === 'object' && !Array.isArray(raw.set) ? raw.set : raw;
+  const list = Array.isArray(source?.qrList)
+    ? source.qrList
+    : Array.isArray(raw?.quick_replies)
+      ? raw.quick_replies
+      : (source && (source.label !== undefined || source.message !== undefined) ? [source] : []);
+
+  const set: any = {
+    version: 2,
+    name,
+    disableSend: false,
+    placeBeforeInput: false,
+    injectInput: false,
+    color: 'transparent',
+    onlyBorderColor: false,
+    idIndex: list.length,
+  };
+  for (const key of ['disableSend', 'placeBeforeInput', 'injectInput', 'color', 'onlyBorderColor']) {
+    if (source && source[key] !== undefined) set[key] = source[key];
+  }
+  set.qrList = list;
+  return set;
+}
 interface Props {
   id: string;
   onBack: () => void;
   onOpenChat?: (chatId: string) => void;
   onOpenImport?: (files?: FileList | File[]) => void;
+  onOpenSettings?: () => void;
   refreshKey?: number;
+  isLightMode?: boolean;
 }
 
 // memo 化: 防止父组件里无关的状态变化(比如列表滚动位置、其他弹窗开关)
 // 连带触发这个 1700+ 行的大组件整体重渲染。
-export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpenChat, onOpenImport, refreshKey }: Props) {
+export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpenChat, onOpenImport, onOpenSettings, refreshKey, isLightMode: propIsLightMode }: Props) {
   const [character, setCharacter] = useState<CharacterCard | null>(null);
-  const [activeTab, setActiveTab] = useState<'profile' | 'greetings' | 'worldbook' | 'regex' | 'chats' | 'memos' | 'data_viewer'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'greetings' | 'worldbook' | 'regex' | 'chats' | 'memos' | 'versions' | 'data_viewer' | 'theme_preview' | 'custom_css'>('profile');
+
+  const [isLightMode, setIsLightMode] = useState(() => {
+    if (typeof propIsLightMode === 'boolean') return propIsLightMode;
+    return (
+      document.documentElement.classList.contains('light-theme') ||
+      localStorage.getItem('tavern_theme') === 'light'
+    );
+  });
+
+  useEffect(() => {
+    if (typeof propIsLightMode === 'boolean') {
+      setIsLightMode(propIsLightMode);
+      return;
+    }
+    const checkTheme = () => {
+      setIsLightMode(
+        document.documentElement.classList.contains('light-theme') ||
+        localStorage.getItem('tavern_theme') === 'light'
+      );
+    };
+    checkTheme();
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+    window.addEventListener('storage', checkTheme);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('storage', checkTheme);
+    };
+  }, [propIsLightMode]);
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showDownloadChoice, setShowDownloadChoice] = useState(false);
   const [showExportAlert, setShowExportAlert] = useState(false);
+  const [showSendChoice, setShowSendChoice] = useState(false);
   const [showAvatarViewer, setShowAvatarViewer] = useState(false);
   const [isSendingToST, setIsSendingToST] = useState(false);
+  const [isSendingToTT, setIsSendingToTT] = useState(false);
   const [stFeedback, setStFeedback] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
   const [isMetadataOpen, setIsMetadataOpen] = useState(false);
   const [isEditingTags, setIsEditingTags] = useState(false);
@@ -49,13 +169,125 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   const [tempCreator, setTempCreator] = useState<string>('');
   const [isEditingVersion, setIsEditingVersion] = useState(false);
   const [tempVersion, setTempVersion] = useState<string>('');
+  const [showGreetingReader, setShowGreetingReader] = useState(false);
+  const [greetingReaderInitialIndex, setGreetingReaderInitialIndex] = useState(0);
+  const [greetingReaderEditMode, setGreetingReaderEditMode] = useState(false);
+  const [activeProfileReader, setActiveProfileReader] = useState<{
+    initialIndex: number;
+    initialEditMode: boolean;
+  } | null>(null);
 
   const [avatarUrl, setAvatarUrl] = useState<string>('');
+  const [resolvedModifiedDate, setResolvedModifiedDate] = useState<Date | null>(null);
+  const [isMoveFolderOpen, setIsMoveFolderOpen] = useState(false);
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [currentFolderPath, setCurrentFolderPath] = useState<string>('');
+  const [foldersMap, setFoldersMap] = useState<Map<string, string>>(new Map());
   const savePromiseRef = useRef<Promise<void> | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const cancelMetaEditRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (character?.folderId) {
+      resolveFolderPath(character.folderId).then(setCurrentFolderPath);
+    } else {
+      setCurrentFolderPath('');
+    }
+  }, [character?.folderId]);
+
+  const handleMoveFolder = async (targetFolderId: string | null) => {
+    if (!character) return;
+    const updated = {
+      ...character,
+      folderId: targetFolderId || undefined,
+      updatedAt: Date.now(),
+    };
+    setCharacter(updated);
+    setIsMoveFolderOpen(false);
+    await saveCharacter(updated);
+    if (targetFolderId) {
+      resolveFolderPath(targetFolderId).then(setCurrentFolderPath);
+    } else {
+      setCurrentFolderPath('');
+    }
+    window.dispatchEvent(new CustomEvent('charactersUpdated'));
+    setStFeedback({
+      type: 'success',
+      msg: targetFolderId ? '已移动到所选分类文件夹' : '已移至主页（未分类）',
+    });
+    setTimeout(() => setStFeedback(null), 2500);
+  };
+
+  const [showTokenBreakdownModal, setShowTokenBreakdownModal] = useState(false);
+  const tokenBreakdown = useMemo(() => {
+    return getCharacterTokenBreakdown(character?.data ?? character);
+  }, [character?.data]);
+
+  const [showUserPersonaPicker, setShowUserPersonaPicker] = useState(false);
+  const [userPersonas, setUserPersonas] = useState<UserPersona[]>([]);
+  const [personaAvatarUrls, setPersonaAvatarUrls] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const syncPersonas = () => {
+      getUserPersonas().then(setUserPersonas).catch(() => {});
+    };
+    syncPersonas();
+    window.addEventListener('userPersonasUpdated', syncPersonas);
+    return () => window.removeEventListener('userPersonasUpdated', syncPersonas);
+  }, []);
+
+  useEffect(() => {
+    const created: string[] = [];
+    const map: Record<string, string> = {};
+    for (const p of userPersonas) {
+      if (p.avatarBlob) {
+        const u = safeCreateObjectURL(p.avatarBlob);
+        if (u) {
+          map[p.id] = u;
+          if (u.startsWith('blob:')) created.push(u);
+          continue;
+        }
+      }
+      if (p.avatarUrlFallback && !isFallbackMiuImage(p.avatarUrlFallback)) {
+        map[p.id] = p.avatarUrlFallback;
+      }
+    }
+    setPersonaAvatarUrls(map);
+    return () => {
+      created.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [userPersonas]);
+
+  const mountedPersona = useMemo(() => {
+    if (!character?.id) return null;
+    return userPersonas.find((p) => Array.isArray(p.boundCharacterIds) && p.boundCharacterIds.includes(character.id)) || null;
+  }, [userPersonas, character?.id]);
+
+  const handleMountPersona = async (personaId: string | null) => {
+    if (!character?.id) return;
+    await setUserPersonaForCharacter(character.id, personaId);
+    const updatedList = await getUserPersonas();
+    setUserPersonas(updatedList);
+    window.dispatchEvent(new CustomEvent('userPersonasUpdated'));
+    setShowUserPersonaPicker(false);
+    const chosen = personaId ? updatedList.find((p) => p.id === personaId) : null;
+    setStFeedback({
+      msg: chosen ? `已将 User 人设「${chosen.name}」挂载到此角色` : '已取消专属挂载，将使用默认 User 人设',
+      type: 'success',
+    });
+    setTimeout(() => setStFeedback(null), 2600);
+  };
 
   const hasDetailOverlay = Boolean(
+    showTokenBreakdownModal ||
+    showSummaryModal ||
+    showGreetingReader ||
+    activeProfileReader ||
+    isMoveFolderOpen ||
     showDeleteConfirm ||
+    showDownloadChoice ||
+    showSendChoice ||
+    showUserPersonaPicker ||
     showExportAlert ||
     showAvatarViewer ||
     isAddingAlternate ||
@@ -69,9 +301,16 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   );
 
   const handleDetailBack = () => {
+    if (activeProfileReader) { setActiveProfileReader(null); return true; }
+    if (showSummaryModal) { setShowSummaryModal(false); return true; }
+    if (showGreetingReader) { setShowGreetingReader(false); return true; }
+    if (isMoveFolderOpen) { setIsMoveFolderOpen(false); return true; }
     if (isAddingAlternate) { setIsAddingAlternate(false); return true; }
     if (showAvatarViewer) { setShowAvatarViewer(false); return true; }
+    if (showUserPersonaPicker) { setShowUserPersonaPicker(false); return true; }
     if (showDeleteConfirm) { setShowDeleteConfirm(false); return true; }
+    if (showDownloadChoice) { setShowDownloadChoice(false); return true; }
+    if (showSendChoice) { setShowSendChoice(false); return true; }
     if (showExportAlert) { setShowExportAlert(false); return true; }
     if (stFeedback) { setStFeedback(null); return true; }
     if (isMetadataOpen) { setIsMetadataOpen(false); return true; }
@@ -83,15 +322,36 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     return false;
   };
 
-  useBackHandler(hasDetailOverlay, handleDetailBack);
+  // 关键修复：当角色详情打开时，必须全程拦截返回事件！
+  // 1. 若内部有次级浮层/编辑态，先关闭浮层；
+  // 2. 若无次级浮层，退出角色卡详情（返回列表），绝不穿透导致关闭所属文件夹或回到第 1 页！
+  useBackHandler(true, () => {
+    if (hasDetailOverlay) {
+      return handleDetailBack();
+    }
+    handleBack();
+    return true;
+  });
 
   useEffect(() => {
-    getCharacter(id).then(async (char) => {
+    Promise.all([getCharacter(id), getFolders()]).then(async ([char, allFolders]) => {
+      const fMap = new Map<string, string>();
+      for (const f of allFolders) {
+        fMap.set(f.id, f.name);
+      }
+      setFoldersMap(fMap);
       setCharacter(char);
       if (char) {
-        const category = getCharacterCategoryPrefix(char);
+        const folderPath = char.folderId ? await resolveFolderPath(char.folderId) : '';
+        if (folderPath) setCurrentFolderPath(folderPath);
+        const isActual = isActualCharacterCard(char.data || char, fMap);
+        const category = isActual ? '未归类' : getCharacterCategoryPrefix(char, fMap);
         if (category === '世界书') {
             setActiveTab('worldbook');
+        } else if (category === '预设') {
+            setActiveTab('profile');
+        } else if (category === '美化' || (!isActual && /美化|theme/i.test(folderPath))) {
+            setActiveTab('theme_preview');
         } else if (category !== '未归类') {
             setActiveTab('data_viewer');
         } else {
@@ -99,8 +359,8 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         }
 
         setEditNameValue(char.name);
-        if (char.avatarBlob) {
-          const url = URL.createObjectURL(char.avatarBlob);
+        const url = char.avatarBlob ? safeCreateObjectURL(char.avatarBlob) : null;
+        if (url) {
           setAvatarUrl(url);
         } else if (char.localFilePath && char.localFilePath.match(/\.(png|jpe?g|webp|gif|bmp)$/i)) {
             const { getLocalImageUrl } = await import('../lib/appBridge');
@@ -110,8 +370,47 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         }
         
         // If it's a standalone worldbook, default to the worldbook tab
-        if (char.data?.entries !== undefined) {
+        if (!isActual && category === '未归类' && char.data?.entries !== undefined) {
           setActiveTab('worldbook');
+        }
+
+        // Authenticate real modification time from file metadata / PNG chunks
+        // 已经记过真实修改时间的卡就不要再把整张头像读进内存重解析一遍了 ——
+        // 每打开一次详情页都读一次大图, 正是详情页发卡的来源之一。
+        if (char.fileModifiedAt) {
+          setResolvedModifiedDate(new Date(char.fileModifiedAt));
+        } else {
+          try {
+            const { resolveCharacterModifiedTime } = await import('../lib/fileDate');
+            let imgBuf: ArrayBuffer | null = null;
+            if (char.avatarBlob) {
+              try { imgBuf = await char.avatarBlob.arrayBuffer(); } catch (e) {}
+            } else if (char.originalFile) {
+              try { imgBuf = await char.originalFile.arrayBuffer(); } catch (e) {}
+            } else if (char.localFilePath) {
+              try {
+                const { readLocalFileBuffer } = await import('../lib/appBridge');
+                imgBuf = await readLocalFileBuffer(char.localFilePath);
+              } catch (e) {}
+            }
+
+            const resolved = resolveCharacterModifiedTime(char, imgBuf);
+            if (resolved) {
+              setResolvedModifiedDate(new Date(resolved));
+              if (char.fileModifiedAt !== resolved) {
+                char.fileModifiedAt = resolved;
+                saveCharacter(char).catch(console.error);
+              }
+            } else if (char.originalFile?.lastModified) {
+              setResolvedModifiedDate(new Date(char.originalFile.lastModified));
+            } else {
+              setResolvedModifiedDate(null);
+            }
+          } catch (e) {
+            if (char.originalFile?.lastModified) {
+              setResolvedModifiedDate(new Date(char.originalFile.lastModified));
+            }
+          }
         }
       }
     });
@@ -148,18 +447,25 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   const handleUpdateTags = async (tagsStr: string) => {
     setIsEditingTags(false);
     if (!character) return;
-    const newTags = tagsStr.split(',').map(t => t.trim()).filter(t => t);
+    // Split by comma, Chinese comma, slash, vertical pipe, backslash, semicolons, or newlines
+    const newTags = Array.from(new Set(
+      tagsStr.split(/[,，/|\\;；\n]/).map(t => t.trim()).filter(Boolean)
+    ));
     
-    let updatedData = { ...character.data };
-    if (updatedData.data) {
-      updatedData.data = { ...updatedData.data, tags: newTags };
-    } else {
-      updatedData.tags = newTags;
+    let updatedData = typeof character.data === 'object' && character.data !== null ? { ...character.data } : character.data;
+    if (updatedData && typeof updatedData === 'object') {
+      if (updatedData.data) {
+        updatedData.data = { ...updatedData.data, tags: newTags };
+      } else if (!Array.isArray(updatedData)) {
+        updatedData.tags = newTags;
+      }
     }
 
     const updatedChar = { 
       ...character, 
-      data: updatedData 
+      tags: newTags,
+      data: updatedData,
+      updatedAt: Date.now(),
     };
     const promise = saveCharacter(updatedChar);
     savePromiseRef.current = promise;
@@ -167,24 +473,33 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     setCharacter(updatedChar);
   };
 
-  const handleUpdateSource = async (sourceStr: string) => {
+  const handleUpdateSource = async (rawInput: string) => {
     setIsEditingSource(false);
     if (!character) return;
+
+    // 存之前先把链接整理干净：example.com -> https://example.com。
+    // 整理不出来（比如写的是一句说明）就按原文存，只去首尾空格，绝不丢内容。
+    const trimmedInput = (rawInput || '').trim();
+    const sourceStr = normalizeSourceUrl(trimmedInput) || trimmedInput;
     
-    let updatedData = { ...character.data };
-    if (updatedData.data) {
-      updatedData.data = {
-        ...updatedData.data,
-        extensions: { ...(updatedData.data.extensions || {}), source: sourceStr }
-      };
-    } else {
-      updatedData.extensions = { ...(updatedData.extensions || {}), source: sourceStr };
-      updatedData.source = sourceStr; // Fallback for V1
+    let updatedData = typeof character.data === 'object' && character.data !== null ? { ...character.data } : character.data;
+    if (updatedData && typeof updatedData === 'object') {
+      if (updatedData.data) {
+        updatedData.data = {
+          ...updatedData.data,
+          extensions: { ...(updatedData.data.extensions || {}), source: sourceStr }
+        };
+      } else if (!Array.isArray(updatedData)) {
+        updatedData.extensions = { ...(updatedData.extensions || {}), source: sourceStr };
+        updatedData.source = sourceStr; // Fallback for V1
+      }
     }
 
     const updatedChar = { 
       ...character, 
-      data: updatedData 
+      sourceUrl: sourceStr,
+      data: updatedData,
+      updatedAt: Date.now(),
     };
     const promise = saveCharacter(updatedChar);
     savePromiseRef.current = promise;
@@ -195,19 +510,38 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   const updateField = async (field: string, value: any) => {
     if (!character) return;
     const updatedChar = { ...character };
-    let targetData = updatedChar.data.data ? updatedChar.data.data : updatedChar.data;
-    targetData[field] = value;
-    
-    // For alternate greetings, also save to extensions for broader compatibility with some Tavern forks
-    if (field === 'alternate_greetings') {
-      targetData.extensions = targetData.extensions || {};
-      targetData.extensions.alternate_greetings = value;
+    let targetData = updatedChar.data && typeof updatedChar.data === 'object' && updatedChar.data.data ? updatedChar.data.data : updatedChar.data;
+    if (targetData && typeof targetData === 'object' && !Array.isArray(targetData)) {
+      targetData[field] = value;
+      
+      // For alternate greetings, also save to extensions for broader compatibility with some Tavern forks
+      if (field === 'alternate_greetings') {
+        targetData.extensions = targetData.extensions || {};
+        targetData.extensions.alternate_greetings = value;
+      }
     }
+    updatedChar.updatedAt = Date.now();
     
     const promise = saveCharacter(updatedChar);
     savePromiseRef.current = promise;
     await promise;
     setCharacter(updatedChar);
+  };
+
+  const handleUpdateGreetings = async (newFirstMes: string, newAlternateGreetings: string[]) => {
+    if (!character) return;
+    const updatedChar = { ...character };
+    let targetData = updatedChar.data.data ? updatedChar.data.data : updatedChar.data;
+    targetData.first_mes = newFirstMes;
+    targetData.alternate_greetings = newAlternateGreetings;
+    targetData.extensions = targetData.extensions || {};
+    targetData.extensions.alternate_greetings = newAlternateGreetings;
+
+    const promise = saveCharacter(updatedChar);
+    savePromiseRef.current = promise;
+    await promise;
+    setCharacter(updatedChar);
+    window.dispatchEvent(new CustomEvent('charactersUpdated'));
   };
 
   const handleUpdateCreator = async (creatorStr: string) => {
@@ -258,13 +592,39 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   const card = parseTavernCard(character.data);
   const data = card.data;
   const rawData = character.data;
-  const category = getCharacterCategoryPrefix(character);
+
+  // 卡片「来源」：存的可能是 example.com/page 这种没带协议的，也可能就是一句话。
+  // 统一整理成能点的干净链接；整理不出来就当作普通文字/无来源显示。
+  const rawSource = data.extensions?.source || data.source || character.sourceUrl || '';
+  const sourceLink = normalizeSourceUrl(rawSource);
+  const category = getCharacterCategoryPrefix(character, foldersMap);
   const isPreset = category === '预设';
   const isStandaloneWorldbook = category === '世界书';
-  const isTheme = category === '美化';
+  const isTheme =
+    category === '美化' ||
+    (!isActualCharacterCard(rawData, foldersMap) && /美化|theme/i.test(currentFolderPath));
   const isQR = category === '快速回复';
   const isScript = category === '脚本' || category === '工具区';
-  const isSpecialData = isTheme || isQR || isScript || isPreset;
+  const isSpecialData = isTheme || isQR || isScript;
+  const isToolCard = isSpecialData || isPreset || isStandaloneWorldbook || !isActualCharacterCard(rawData, foldersMap) || Boolean(getCardTypeBadgeInfo(character));
+
+  const profileSections: CustomSectionItem[] = [
+    { id: 'description', title: '描述 (Description)', content: data.description || '', onSave: (val: string) => updateField('description', val) },
+    { id: 'personality', title: '性格 (Personality)', content: data.personality || '', onSave: (val: string) => updateField('personality', val) },
+    { id: 'scenario', title: '场景 (Scenario)', content: data.scenario || '', onSave: (val: string) => updateField('scenario', val) },
+    { id: 'mes_example', title: '示例对话 (Mes Example)', content: data.mes_example || '', onSave: (val: string) => updateField('mes_example', val) },
+    { id: 'creator_notes', title: "作者备注 (Creator's Notes)", content: data.creator_notes || '', onSave: (val: string) => updateField('creator_notes', val) },
+    { id: 'system_prompt', title: '系统提示词 (System Prompt)', content: data.system_prompt || '', onSave: (val: string) => updateField('system_prompt', val) },
+    { id: 'post_history_instructions', title: '历史后提示词 (Post History Instructions)', content: data.post_history_instructions || '', onSave: (val: string) => updateField('post_history_instructions', val) },
+  ];
+
+  const openProfileReader = (sectionId: string, editMode: boolean = false) => {
+    const idx = profileSections.findIndex(s => s.id === sectionId);
+    setActiveProfileReader({
+      initialIndex: Math.max(0, idx),
+      initialEditMode: editMode,
+    });
+  };
 
   const getSafeFilename = (name: string) => {
     return name.replace(/[^a-zA-Z0-9_\u4e00-\u9fa5\-]/g, '_') || 'character';
@@ -300,25 +660,27 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     // 保证酒馆能识别：普通角色卡若无 data 包装则补 V2 信封；标签统一放进 data.tags。
     // 世界书/美化/预设/QR/脚本等特殊数据不套角色卡信封，保持原样。
     const isCharacterLike =
-      !Array.isArray(exportData) &&
-      typeof exportData === 'object' &&
-      exportData !== null &&
-      exportData.type !== 'script' &&
-      exportData.entries === undefined &&
-      exportData.blur_strength === undefined &&
-      exportData.main_text_color === undefined &&
-      exportData.temperature === undefined &&
-      exportData.prompts === undefined &&
-      exportData.quick_replies === undefined &&
-      exportData.qrList === undefined &&
-      (
-        exportData.spec === 'chara_card_v2' ||
-        exportData.spec === 'chara_card_v3' ||
-        !!exportData.data ||
-        !!exportData.name ||
-        !!exportData.char_name ||
-        !!exportData.character_name
-      );
+      isActualCharacterCard(exportData) ||
+      category === '未归类' ||
+      (!Array.isArray(exportData) &&
+        typeof exportData === 'object' &&
+        exportData !== null &&
+        exportData.type !== 'script' &&
+        exportData.entries === undefined &&
+        exportData.blur_strength === undefined &&
+        exportData.main_text_color === undefined &&
+        exportData.temperature === undefined &&
+        exportData.prompts === undefined &&
+        exportData.quick_replies === undefined &&
+        exportData.qrList === undefined &&
+        (
+          exportData.spec === 'chara_card_v2' ||
+          exportData.spec === 'chara_card_v3' ||
+          !!exportData.data ||
+          !!exportData.name ||
+          !!exportData.char_name ||
+          !!exportData.character_name
+        ));
     if (isCharacterLike) {
       if (!exportData.data || typeof exportData.data !== 'object' || Array.isArray(exportData.data)) {
         exportData = { spec: 'chara_card_v2', spec_version: '2.0', data: exportData };
@@ -364,6 +726,43 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         : baseName;
     };
 
+    /**
+     * 独立世界书导出：酒馆（含 TT）的世界书文件顶层必须直接就是 entries，少一层包装它就不认。
+     * 世界书在 App 里可能被存在这几个位置，这里全部认一遍，再摊平成顶层 entries 送出去。
+     */
+    const getWorldbookExportJson = () => {
+      const raw: any = (character.data as any) || {};
+      const sources = [
+        raw.entries,
+        raw.data?.entries,
+        raw.character_book?.entries,
+        raw.data?.character_book?.entries,
+        raw.extensions?.character_book?.entries,
+        raw.data?.extensions?.character_book?.entries,
+        raw.world_info?.entries,
+        raw.lorebook?.entries,
+      ];
+      const entries = sources.find((value: any) => value && typeof value === 'object') || null;
+      if (!entries) return JSON.stringify(raw, null, 2);
+
+      const bookOwner = raw.character_book
+        || raw.data?.character_book
+        || raw.extensions?.character_book
+        || raw.data?.extensions?.character_book;
+      // V3 世界书的条目就在 data 里，此时把 data 上的名字/描述一并带上，别丢字段
+      const book = bookOwner || (raw.data && entries === raw.data.entries ? raw.data : {});
+      const flat: any = { ...raw, ...book };
+      delete flat.spec;
+      delete flat.spec_version;
+      delete flat.data;
+      delete flat.character_book;
+      delete flat.extensions;
+      delete flat.world_info;
+      delete flat.lorebook;
+      flat.entries = entries;
+      return JSON.stringify(flat, null, 2);
+    };
+
     const handleExportJson = async (share: boolean = true) => {
     const jsonStr = JSON.stringify(getNormalizedExportData(), null, 2);
     const safeName = await getExportBaseName();
@@ -393,7 +792,8 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         
         const safeName = await getExportBaseName();
         const exportFileName = `${safeName}.png`;
-        await downloadOrShareFile(exportFileName, newBuffer, 'image/png', share);
+        // 单卡导出：额外往系统相册放一份，方便分享时直接在相册里找到这张卡
+        await downloadOrShareFile(exportFileName, newBuffer, 'image/png', share, { toAlbum: true });
       } catch (e) {
         console.error("Failed to export PNG", e);
         if (!isPreset && !isStandaloneWorldbook) setShowExportAlert(true);
@@ -405,10 +805,189 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     }
   };
 
-  const handleSendToST = async () => {
-    if (isPreset || isStandaloneWorldbook || isTheme || isQR || isScript) {
-      setStFeedback({ msg: '此类型数据无法通过API直接发送至酒馆', type: 'error' });
+  /** 点同一个按钮，弹出「送去哪」；环境不支持 TT 联动时直接走原来的酒馆 API。 */
+  const handleOpenSendChoice = () => {
+    if (!isLocalLinkSupported()) {
+      handleSendToST();
+      return;
+    }
+    setShowSendChoice(true);
+  };
+
+  /**
+   * 发送到酒馆（TT 联动）：把这张卡排进 MIU 的「待发送到酒馆」队列，
+   * 切到酒馆后在扩展面板点「接收 MIU 推送」即可导入。
+   */
+  const handleSendToTT = async () => {
+    if (!isLocalLinkSupported()) {
+      setStFeedback({ msg: '当前环境不支持 TT 联动，请在安卓 App 里用', type: 'error' });
       setTimeout(() => setStFeedback(null), 3000);
+      return;
+    }
+
+    setIsSendingToTT(true);
+    setStFeedback(null);
+    try {
+      const safeName = await getExportBaseName();
+      let file: File;
+
+      if (isStandaloneWorldbook) {
+        // 世界书是纯 JSON 数据：原样送出，酒馆侧的扩展会按内容认出它，走世界书导入接口
+        const jsonStr = getWorldbookExportJson();
+        file = new File([new TextEncoder().encode(jsonStr)], `${safeName}.json`, { type: 'application/json' });
+      } else if (isPreset || isTheme || isQR || isScript) {
+        // 预设 / 美化 / 快捷回复 / 脚本：纯 JSON，文件名里带上类型，酒馆侧的扩展直接照单走，不用猜
+        const jsonStr = JSON.stringify(getNormalizedExportData(), null, 2);
+        const kindHint = isPreset ? 'preset' : isTheme ? 'theme' : isQR ? 'qr' : 'regex';
+        file = new File([new TextEncoder().encode(jsonStr)], `${safeName}.${kindHint}.json`, { type: 'application/json' });
+      } else {
+        let baseBlob = character.avatarBlob;
+        let localBuffer: ArrayBuffer | null = null;
+        if (character.localFilePath) {
+          localBuffer = await readLocalFileBuffer(character.localFilePath);
+        } else if (!baseBlob && character.originalFile && (character.originalFile.type === 'image/png' || character.originalFile.name.endsWith('.png'))) {
+          baseBlob = character.originalFile;
+        }
+
+        if (baseBlob || localBuffer) {
+          const buffer = localBuffer || await baseBlob!.arrayBuffer();
+          const newBuffer = injectTavernData(buffer, getNormalizedExportData());
+          file = new File([newBuffer], `${safeName}.png`, { type: 'image/png' });
+        } else {
+          const jsonStr = JSON.stringify(getNormalizedExportData(), null, 2);
+          file = new File([new TextEncoder().encode(jsonStr)], `${safeName}.json`, { type: 'application/json' });
+        }
+      }
+
+      const result = await pushFilesToOutbox([file]);
+      if (result.added > 0) {
+        const running = getLocalReceiverStatus().running;
+        setStFeedback({
+          msg: running
+            ? '已排队，切到酒馆 → 扩展面板 → MIU 联动 → 点「接收 MIU 推送」'
+            : '已排队；记得先去「设置 → TauriTavern」开启接收服务',
+          type: 'success',
+        });
+      } else {
+        setStFeedback({ msg: '发送失败：内容为空或超过 32MB', type: 'error' });
+      }
+      setTimeout(() => setStFeedback(null), 5000);
+    } catch (e: any) {
+      setStFeedback({ msg: `发送失败：${e?.message || e}`, type: 'error' });
+      setTimeout(() => setStFeedback(null), 3000);
+    } finally {
+      setIsSendingToTT(false);
+    }
+  };
+
+  /** 取酒馆的 CSRF 令牌（酒馆的动态接口都要带）。 */
+  const readTavernCsrf = async (stUrl: string, authHeaders: Record<string, string>) => {
+    try {
+      const res = await fetch(`${stUrl}/csrf-token`, { headers: authHeaders });
+      if (!res.ok) return '';
+      const data = await res.json().catch(() => ({}));
+      return data.token || '';
+    } catch {
+      return '';
+    }
+  };
+
+  /**
+   * 预设 / 美化 / 快捷回复 / 脚本这些「工具数据」走酒馆各自的数据接口（和角色卡不是同一个）。
+   * 正则是例外：酒馆没开单条导入的接口，只能把设置文件读出来、改掉里面的 extension_settings.regex 再整体写回去；
+   * 读不到设置文件就直接放弃，绝不拿半份数据去覆盖。
+   */
+  const sendToolDataToST = async () => {
+    const fail = (msg: string) => {
+      setStFeedback({ msg, type: 'error' });
+      setTimeout(() => setStFeedback(null), 4000);
+    };
+
+    const aiSettings = getAISettings();
+    const stUrl = normalizeSillyTavernUrl(aiSettings.sillyTavernUrl);
+    if (!stUrl) {
+      fail('请先在"设置"中配置酒馆 API 地址');
+      return;
+    }
+
+    setIsSendingToST(true);
+    setStFeedback(null);
+    try {
+      const authHeaders = getSillyTavernAuthHeaders(aiSettings);
+      const csrf = await readTavernCsrf(stUrl, authHeaders);
+      const headers: Record<string, string> = { ...authHeaders, 'Content-Type': 'application/json' };
+      if (csrf) headers['X-CSRF-Token'] = csrf;
+
+      const safeName = await getExportBaseName();
+      const raw = JSON.parse(JSON.stringify(character.data || {}));
+
+      if (isScript) {
+        const scripts = extractRegexScripts(raw);
+        if (scripts.length === 0) {
+          fail('这份脚本不是酒馆正则，酒馆那边没有对应的接口');
+          return;
+        }
+        const settingsRes = await fetch(`${stUrl}/api/settings/get`, { method: 'POST', headers });
+        if (!settingsRes.ok) throw new Error(`HTTP ${settingsRes.status}`);
+        const settingsData = await settingsRes.json().catch(() => ({} as any));
+        const fileText = typeof settingsData?.settings === 'string' ? settingsData.settings : '';
+        if (!fileText) throw new Error('没读到酒馆设置文件（可能是版本或权限不对）');
+        const settingsFile = JSON.parse(fileText);
+        if (!settingsFile?.extension_settings || typeof settingsFile.extension_settings !== 'object') {
+          throw new Error('酒馆设置文件里没有 extension_settings，已放弃写入');
+        }
+        const before = Array.isArray(settingsFile.extension_settings.regex) ? settingsFile.extension_settings.regex : [];
+        settingsFile.extension_settings.regex = mergeRegexScripts(before, scripts);
+        const saveRes = await fetch(`${stUrl}/api/settings/save`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(settingsFile),
+          cache: 'no-store',
+        });
+        if (!saveRes.ok) throw new Error(`HTTP ${saveRes.status}: ${await saveRes.text()}`);
+        setStFeedback({ msg: `已写入酒馆的全局正则：${scripts.length} 条（在「扩展 → 正则」里看）`, type: 'success' });
+        setTimeout(() => setStFeedback(null), 6000);
+        return;
+      }
+
+      let path = '';
+      let label = '';
+      let payload: any = null;
+      if (isPreset) {
+        const preset = raw?.preset && typeof raw.preset === 'object' && !Array.isArray(raw.preset) ? raw.preset : raw;
+        path = '/api/presets/save';
+        label = '预设';
+        payload = { name: safeName, apiId: guessPresetApiId(preset), preset };
+      } else if (isTheme) {
+        const theme = raw?.theme && typeof raw.theme === 'object' && !Array.isArray(raw.theme) ? raw.theme : raw;
+        path = '/api/themes/save';
+        label = '美化';
+        payload = { ...theme, name: safeName };
+      } else {
+        path = '/api/quick-replies/save';
+        label = '快速回复';
+        payload = buildQuickReplySet(raw, safeName);
+      }
+
+      const res = await fetch(`${stUrl}${path}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        cache: 'no-store',
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      setStFeedback({ msg: `${label}已送进酒馆：${safeName}`, type: 'success' });
+      setTimeout(() => setStFeedback(null), 5000);
+    } catch (e: any) {
+      setStFeedback({ msg: `发送失败：${e?.message || e}`, type: 'error' });
+      setTimeout(() => setStFeedback(null), 4000);
+    } finally {
+      setIsSendingToST(false);
+    }
+  };
+  const handleSendToST = async () => {
+    if (isPreset || isTheme || isQR || isScript) {
+      await sendToolDataToST();
       return;
     }
 
@@ -453,6 +1032,19 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
       const doPush = async () => {
         const headers: Record<string, string> = { ...authHeaders };
         if (csrf) headers['X-CSRF-Token'] = csrf;
+
+        if (isStandaloneWorldbook) {
+          // 世界书是纯 JSON 数据，走酒馆自己的世界书导入接口（角色卡那个接口不收世界书）
+          const jsonBlob = new Blob([getWorldbookExportJson()], { type: 'application/json' });
+          const safeName = await getExportBaseName();
+          return multipartPost(
+            `${stUrl}/api/worldinfo/import`,
+            [],
+            { name: 'avatar', blob: jsonBlob, filename: `${safeName}.json` },
+            headers,
+          );
+        }
+
         if (sendAsJson) {
           const jsonStr = JSON.stringify(getNormalizedExportData(), null, 2);
           const jsonBlob = new Blob([jsonStr], { type: 'application/json' });
@@ -523,6 +1115,16 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     onBack();
   };
 
+  const handleToggleFavorite = async () => {
+    if (!character) return;
+    try {
+      const newFav = await toggleCharacterFavorite(character.id);
+      setCharacter((prev) => prev ? { ...prev, isFavorite: newFav } : null);
+    } catch (e) {
+      console.error("Failed to toggle favorite:", e);
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -531,33 +1133,54 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
       id="character-detail-scroll-container"
       onTouchStart={handleDetailTouchStart}
       onTouchEnd={handleDetailTouchEnd}
-      className="fixed inset-0 bg-black text-white overflow-y-auto z-50"
+      className="fixed inset-0 bg-black [.light-theme_&]:bg-[#eef4fe] text-white [.light-theme_&]:text-[#1c1c1e] overflow-y-auto overflow-x-hidden touch-pan-y overscroll-x-none hide-scrollbar z-50 w-full max-w-full"
+      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', touchAction: 'pan-y', overscrollBehaviorX: 'none' }}
     >
-      {/* Blurred Background */}
+      {/* Blurred Background - Beautifully adapted for both dark and light themes */}
       <div 
-        className="fixed inset-0 bg-cover bg-center opacity-30 blur-3xl scale-110 [.light-theme_&]:opacity-40"
-        style={{ backgroundImage: avatarUrl ? `url(${avatarUrl})` : undefined }}
+        className="fixed inset-0 bg-cover bg-center opacity-30 blur-3xl scale-110 pointer-events-none [.light-theme_&]:opacity-40 [.light-theme_&]:scale-125"
+        style={{ backgroundImage: avatarUrl && !isFallbackMiuImage(avatarUrl) ? `url(${avatarUrl})` : undefined }}
+      />
+      <div 
+        className="fixed inset-0 pointer-events-none bg-gradient-to-b from-black/20 via-transparent to-black/80 [.light-theme_&]:from-[#e8f1fd]/60 [.light-theme_&]:via-[#eef4fe]/40 [.light-theme_&]:to-[#e2eeff]/80"
       />
       
-      <div className="relative z-10 min-h-screen flex flex-col">
-        {/* Header */}
-        <header className="sticky top-0 p-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] flex items-center justify-between bg-black/20 backdrop-blur-xl border-b border-white/10 z-20">
-          <button onClick={handleBack} className="p-2 rounded-full hover:bg-white/10 transition">
-            <ArrowLeft className="w-6 h-6" />
-          </button>
-          <div className="flex gap-2">
-            {!isPreset && !isStandaloneWorldbook && !isTheme && (
-              <button 
-                onClick={handleSendToST} 
-                className="p-2 rounded-full hover:bg-white/10 transition relative group" 
-                title="发送到酒馆"
-                disabled={isSendingToST}
+      <div className="relative z-10 min-h-screen flex flex-col w-full max-w-full overflow-x-hidden">
+        {/* Header - Real Pure White translucency glass in light theme and 20% in dark theme */}
+        <header className="sticky top-0 p-4 pt-[max(1.75rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] flex items-center justify-between bg-black/20 [.light-theme_&]:bg-white/70 backdrop-blur-xl border-b border-white/10 [.light-theme_&]:border-blue-100/70 z-20">
+          <div className="flex items-center gap-2 min-w-0">
+            <button onClick={handleBack} className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 text-white [.light-theme_&]:text-[#1c1c1e] transition shrink-0" title="返回">
+              <ArrowLeft className="w-6 h-6" />
+            </button>
+          </div>
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* 收藏红心按钮 */}
+            {character && (
+              <button
+                onClick={handleToggleFavorite}
+                className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 transition relative group active:scale-90 cursor-pointer"
+                title={character.isFavorite ? "取消收藏" : "收藏"}
               >
-                {isSendingToST ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5 text-blue-400 group-hover:text-blue-300" />}
+                <Heart
+                  className={`w-5 h-5 transition-all duration-200 ${
+                    character.isFavorite
+                      ? "text-rose-500 fill-rose-500 scale-110 drop-shadow-[0_2px_8px_rgba(244,63,94,0.4)]"
+                      : "text-white/70 hover:text-white [.light-theme_&]:text-[#1c1c1e] [.light-theme_&]:hover:text-rose-500"
+                  }`}
+                />
               </button>
             )}
+
+            <button
+              onClick={handleOpenSendChoice}
+              className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 transition relative group"
+              title="发送到酒馆"
+              disabled={isSendingToST || isSendingToTT}
+            >
+              {isSendingToST || isSendingToTT ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5 text-blue-400 group-hover:text-blue-300 [.light-theme_&]:text-[#007aff]" />}
+            </button>
                         
-            <button onClick={() => handleExportPng(true)} className="p-2 rounded-full hover:bg-white/10 transition" title={getDownloadTooltip("下载")}>
+            <button onClick={() => setShowDownloadChoice(true)} className="p-2 rounded-full hover:bg-white/10 [.light-theme_&]:hover:bg-black/5 text-white [.light-theme_&]:text-[#1c1c1e] transition" title={getDownloadTooltip("下载")}>
               <Download className="w-5 h-5" />
             </button>
             <button onClick={() => setShowDeleteConfirm(true)} className="p-2 rounded-full hover:bg-red-500/20 text-red-400 transition" title="删除">
@@ -573,14 +1196,17 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               initial={{ opacity: 0, y: -20, x: '-50%' }}
               animate={{ opacity: 1, y: 0, x: '-50%' }}
               exit={{ opacity: 0, y: -20, x: '-50%' }}
-              className={`fixed top-20 left-1/2 px-4 py-3 rounded-xl text-sm shadow-xl z-[60] flex items-start sm:items-center gap-2 w-[90vw] sm:w-auto max-w-sm border ${
-                stFeedback.type === 'success' 
-                  ? 'bg-green-100 dark:bg-green-900 border-green-200 dark:border-green-800 text-green-800 dark:text-green-100' 
-                  : 'bg-red-100 dark:bg-red-900 border-red-200 dark:border-red-800 text-red-800 dark:text-red-100'
+              className={`fixed top-6 left-1/2 px-4 py-2.5 rounded-full text-xs sm:text-sm z-[60] flex items-center gap-2 max-w-[92vw] sm:max-w-md w-auto ios-toast pointer-events-auto ${
+                stFeedback.type === 'success' ? 'ios-toast-success' : 'ios-toast-error'
               }`}
+              role={stFeedback.type === 'success' ? 'status' : 'alert'}
             >
-              {stFeedback.type === 'success' ? <Check className="w-5 h-5 shrink-0 mt-0.5 sm:mt-0" /> : <XIcon className="w-5 h-5 shrink-0 mt-0.5 sm:mt-0" />}
-              <span className="flex-1 break-words">{stFeedback.msg}</span>
+              {stFeedback.type === 'success' ? (
+                <Check className={`w-4 h-4 shrink-0 text-emerald-400 ios-toast-icon-success`} />
+              ) : (
+                <XIcon className={`w-4 h-4 shrink-0 text-red-400 ios-toast-icon-error`} />
+              )}
+              <span className="truncate font-medium">{stFeedback.msg}</span>
             </motion.div>
           )}
           {showExportAlert && (
@@ -588,10 +1214,16 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="fixed top-20 left-1/2 -translate-x-1/2 bg-yellow-500/20 border border-yellow-500/50 text-yellow-200 px-4 py-2 rounded-full text-sm backdrop-blur-md z-50 flex items-center gap-2 shadow-xl"
+              className="fixed top-6 left-1/2 -translate-x-1/2 bg-slate-900/95 [.light-theme_&]:!bg-slate-800/95 border border-amber-500/40 [.light-theme_&]:!border-amber-200 text-amber-200 [.light-theme_&]:!text-amber-950 px-4 py-2.5 rounded-full text-xs sm:text-sm backdrop-blur-xl z-50 flex items-center gap-2.5 shadow-[0_8px_30px_rgba(245,158,11,0.15)] [.light-theme_&]:!shadow-[0_8px_30px_rgba(245,158,11,0.1)] pointer-events-auto"
             >
-              <span>未找到原始 PNG 文件，已导出为 JSON。</span>
-              <button onClick={() => setShowExportAlert(false)} className="ml-2 hover:text-white">✕</button>
+              <AlertCircle className="w-4 h-4 text-amber-400 [.light-theme_&]:!text-amber-600 shrink-0" />
+              <span className="font-medium truncate">未找到原始 PNG 文件，已导出为 JSON。</span>
+              <button 
+                onClick={() => setShowExportAlert(false)} 
+                className="ml-0.5 p-1 hover:bg-white/10 [.light-theme_&]:hover:!bg-amber-100 rounded-full text-amber-200/70 hover:text-white [.light-theme_&]:!text-amber-900/60 [.light-theme_&]:hover:!text-amber-950 transition cursor-pointer"
+              >
+                ✕
+              </button>
             </motion.div>
           )}
 
@@ -600,30 +1232,314 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+              className="fixed inset-0 bg-black/60 [.light-theme_&]:bg-black/40 backdrop-blur-sm z-[200] flex items-end justify-center"
+              onClick={() => setShowDeleteConfirm(false)}
             >
               <motion.div
-                initial={{ scale: 0.95 }}
-                animate={{ scale: 1 }}
-                exit={{ scale: 0.95 }}
-                className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-black/5 rounded-t-3xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
               >
-                <h3 className="text-xl font-bold mb-2">删除角色？</h3>
-                <p className="text-slate-400 mb-6">确定要将 {character.name} 移至回收站吗？</p>
-                <div className="flex justify-end gap-3">
+                {/* Indicator Handle */}
+                <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-black/10 rounded-full mx-auto mb-3" />
+
+                <h3 className="text-base sm:text-lg font-bold text-center text-white [.light-theme_&]:!text-[#0f172a] mb-1">
+                  删除角色？
+                </h3>
+                <p className="text-[11px] sm:text-xs text-center text-white/70 [.light-theme_&]:!text-slate-600 mb-4 px-2 leading-relaxed">
+                  确定要将 <span className="font-bold text-white [.light-theme_&]:!text-[#0f172a]">{character.name}</span> 移至回收站吗？
+                </p>
+
+                <div className="space-y-2.5">
+                  <button
+                    onClick={handleDelete}
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 ${
+                      isLightMode
+                        ? 'bg-[#fff0f2] hover:bg-[#ffe4e6] active:bg-[#fecdd3] text-[#e11d48] shadow-none'
+                        : 'bg-[#FE2C55] hover:bg-[#E02447] active:bg-[#D41C3E] text-white shadow-md shadow-[#FE2C55]/25'
+                    }`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>移至回收站</span>
+                  </button>
                   <button
                     onClick={() => setShowDeleteConfirm(false)}
-                    className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 hover:text-white transition"
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center ${
+                      isLightMode
+                        ? 'bg-[#f1f5f9] hover:bg-[#e2e8f0] active:bg-[#cbd5e1] text-[#334155] shadow-none'
+                        : 'bg-white/10 hover:bg-white/15 active:bg-white/5 text-white/90'
+                    }`}
                   >
                     取消
                   </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {showSendChoice && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 [.light-theme_&]:bg-black/40 backdrop-blur-sm z-[200] flex items-end justify-center"
+              onClick={() => setShowSendChoice(false)}
+            >
+              <motion.div
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-black/5 rounded-t-3xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
+              >
+                {/* Indicator Handle */}
+                <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-black/10 rounded-full mx-auto mb-3" />
+
+                <h3 className="text-base sm:text-lg font-bold text-center text-white [.light-theme_&]:!text-[#0f172a] mb-1">
+                  发送到酒馆
+                </h3>
+                <p className="text-[11px] sm:text-xs text-center text-white/70 [.light-theme_&]:!text-slate-600 mb-4 px-2 leading-relaxed">
+                  {isStandaloneWorldbook || isPreset || isTheme || isQR || isScript
+                    ? '这类数据两种方式都能直接送进酒馆'
+                    : '选一种方式把这张卡送进酒馆'}
+                </p>
+
+                <div className="space-y-2.5">
                   <button
-                    onClick={handleDelete}
-                    className="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white transition shadow-lg shadow-red-500/20"
+                    onClick={() => {
+                      setShowSendChoice(false);
+                      handleSendToST();
+                    }}
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 ${
+                      isLightMode
+                        ? 'bg-[#eff6ff] hover:bg-[#dbeafe] active:bg-[#bfdbfe] text-[#2563eb] shadow-none'
+                        : 'bg-[#007aff] hover:bg-[#0062cc] active:bg-[#0051a8] text-white shadow-md shadow-[#007aff]/25'
+                    }`}
                   >
-                    删除
+                    <Send className="w-4 h-4" />
+                    <span>发送到酒馆（酒馆 API）</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowSendChoice(false);
+                      handleSendToTT();
+                    }}
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 ${
+                      isLightMode
+                        ? 'bg-[#f1f5f9] hover:bg-[#e2e8f0] active:bg-[#cbd5e1] text-[#334155] shadow-none'
+                        : 'bg-white/10 hover:bg-white/15 active:bg-white/5 text-white/90'
+                    }`}
+                  >
+                    <Smartphone className="w-4 h-4" />
+                    <span>发送到酒馆（TT 联动）</span>
+                  </button>
+                  <button
+                    onClick={() => setShowSendChoice(false)}
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center ${
+                      isLightMode
+                        ? 'bg-[#f8fafc] hover:bg-[#f1f5f9] active:bg-[#e2e8f0] text-[#64748b] shadow-none'
+                        : 'bg-white/5 hover:bg-white/10 active:bg-white/[0.02] text-white/60'
+                    }`}
+                  >
+                    取消
                   </button>
                 </div>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {showDownloadChoice && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 [.light-theme_&]:bg-black/40 backdrop-blur-sm z-[200] flex items-end justify-center"
+              onClick={() => setShowDownloadChoice(false)}
+            >
+              <motion.div
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-black/5 rounded-t-3xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl select-none"
+              >
+                {/* Indicator Handle */}
+                <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-black/10 rounded-full mx-auto mb-3" />
+
+                <h3 className="text-base sm:text-lg font-bold text-center text-white [.light-theme_&]:!text-[#0f172a] mb-1">
+                  选择下载格式
+                </h3>
+                <p className="text-[11px] sm:text-xs text-center text-white/70 [.light-theme_&]:!text-slate-600 mb-4 px-2 leading-relaxed">
+                  选择以下任意一种格式导出角色卡，均可直接导入酒馆
+                </p>
+
+                <div className="space-y-2.5">
+                  <button
+                    onClick={() => {
+                      setShowDownloadChoice(false);
+                      handleExportPng(true);
+                    }}
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 ${
+                      isLightMode
+                        ? 'bg-[#eff6ff] hover:bg-[#dbeafe] active:bg-[#bfdbfe] text-[#2563eb] shadow-none'
+                        : 'bg-[#007aff] hover:bg-[#0062cc] active:bg-[#0051a8] text-white shadow-md shadow-[#007aff]/25'
+                    }`}
+                  >
+                    <ImageIcon className="w-4 h-4" />
+                    <span>下载 PNG 角色卡</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowDownloadChoice(false);
+                      handleExportJson(true);
+                    }}
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center gap-2 ${
+                      isLightMode
+                        ? 'bg-[#f1f5f9] hover:bg-[#e2e8f0] active:bg-[#cbd5e1] text-[#334155] shadow-none'
+                        : 'bg-white/10 hover:bg-white/15 active:bg-white/5 text-white/90'
+                    }`}
+                  >
+                    <FileJson className="w-4 h-4" />
+                    <span>下载 JSON 角色卡</span>
+                  </button>
+                  <button
+                    onClick={() => setShowDownloadChoice(false)}
+                    className={`w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center ${
+                      isLightMode
+                        ? 'bg-[#f8fafc] hover:bg-[#f1f5f9] active:bg-[#e2e8f0] text-[#64748b] shadow-none'
+                        : 'bg-white/5 hover:bg-white/10 active:bg-white/[0.02] text-white/60'
+                    }`}
+                  >
+                    取消
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {showUserPersonaPicker && (
+            <motion.div
+              key="char-user-persona-picker"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 [.light-theme_&]:bg-black/40 backdrop-blur-sm z-[200] flex items-end justify-center"
+              onClick={() => setShowUserPersonaPicker(false)}
+            >
+              <motion.div
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-lg bg-[#1c1c1e] [.light-theme_&]:!bg-[#ffffff] border-t border-white/10 [.light-theme_&]:!border-black/5 rounded-t-3xl p-4 sm:p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl select-none max-h-[80vh] flex flex-col"
+              >
+                <div className="w-10 h-1 bg-white/20 [.light-theme_&]:!bg-black/10 rounded-full mx-auto mb-3 shrink-0" />
+                <h3 className="text-base sm:text-lg font-bold text-center text-white [.light-theme_&]:!text-[#0f172a] mb-1 shrink-0">
+                  挂载专属 User 人设
+                </h3>
+                <p className="text-[11px] sm:text-xs text-center text-white/60 [.light-theme_&]:!text-slate-500 mb-4 px-2 shrink-0">
+                  为此角色卡锁定一个 User 身份，查看聊天记录时会自动同步显示
+                </p>
+
+                <div className="overflow-y-auto space-y-2 pr-1 custom-scrollbar flex-1 min-h-0">
+                  <button
+                    type="button"
+                    onClick={() => handleMountPersona(null)}
+                    className={`w-full flex items-center justify-between gap-3 p-3 rounded-2xl transition cursor-pointer border text-left ${
+                      !mountedPersona
+                        ? 'bg-blue-500/15 border-blue-500/50 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!border-[#93c5fd]'
+                        : 'bg-white/5 hover:bg-white/10 border-transparent [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:hover:!bg-[#f1f5f9]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-full bg-white/10 [.light-theme_&]:bg-slate-200 flex items-center justify-center shrink-0 text-white/70 [.light-theme_&]:text-slate-600">
+                        <User className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-white [.light-theme_&]:text-[#0f172a]">
+                          不绑定（跟随默认设置）
+                        </div>
+                        <div className="text-[11px] text-white/50 [.light-theme_&]:text-slate-500">
+                          使用人设库的全局默认或聊天自选头像
+                        </div>
+                      </div>
+                    </div>
+                    {!mountedPersona && (
+                      <Check className="w-4 h-4 text-blue-400 [.light-theme_&]:!text-[#007aff] shrink-0 stroke-[2.5]" />
+                    )}
+                  </button>
+
+                  {userPersonas.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-white/50 [.light-theme_&]:text-slate-500">
+                      暂无 User 人设卡片，请先前往侧边栏「人设库」创建。
+                    </div>
+                  ) : (
+                    userPersonas.map((p) => {
+                      const pUrl = personaAvatarUrls[p.id];
+                      const isMounted = mountedPersona?.id === p.id;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => handleMountPersona(p.id)}
+                          className={`w-full flex items-center justify-between gap-3 p-3 rounded-2xl transition cursor-pointer border text-left ${
+                            isMounted
+                              ? 'bg-blue-500/15 border-blue-500/50 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:!border-[#93c5fd]'
+                              : 'bg-white/5 hover:bg-white/10 border-transparent [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:hover:!bg-[#f1f5f9]'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="w-10 h-10 rounded-full overflow-hidden bg-white/10 [.light-theme_&]:bg-slate-200 flex items-center justify-center shrink-0">
+                              {pUrl ? (
+                                <img src={pUrl} alt={p.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-sm font-bold text-white [.light-theme_&]:text-slate-700">
+                                  {(p.name || 'U').charAt(0).toUpperCase()}
+                                </span>
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-sm font-semibold text-white [.light-theme_&]:text-[#0f172a] truncate">
+                                  {p.name}
+                                </span>
+                                {p.isDefault && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 [.light-theme_&]:bg-amber-100 [.light-theme_&]:text-amber-700 shrink-0 font-medium">
+                                    默认
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-white/50 [.light-theme_&]:text-slate-500 truncate mt-0.5">
+                                {p.content || '暂无设定正文'}
+                              </div>
+                            </div>
+                          </div>
+                          {isMounted && (
+                            <Check className="w-4 h-4 text-blue-400 [.light-theme_&]:!text-[#007aff] shrink-0 stroke-[2.5]" />
+                          )}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowUserPersonaPicker(false)}
+                  className={`mt-3 w-full py-2.5 sm:py-3 rounded-full font-medium text-sm transition-all cursor-pointer active:scale-[0.98] border-0 outline-none flex items-center justify-center shrink-0 ${
+                    isLightMode
+                      ? 'bg-[#f1f5f9] hover:bg-[#e2e8f0] text-[#334155]'
+                      : 'bg-white/10 hover:bg-white/15 text-white/90'
+                  }`}
+                >
+                  关闭
+                </button>
               </motion.div>
             </motion.div>
           )}
@@ -638,8 +1554,8 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
             onError={(e) => {
               const target = e.target as HTMLImageElement;
               if (character.avatarBlob) {
-                  const blobUrl = URL.createObjectURL(character.avatarBlob);
-                  if (target.src !== blobUrl && !target.src.startsWith('blob:')) {
+                  const blobUrl = safeCreateObjectURL(character.avatarBlob);
+                  if (blobUrl && target.src !== blobUrl && !target.src.startsWith('blob:')) {
                       target.src = blobUrl;
                       setAvatarUrl(blobUrl);
                       return;
@@ -651,10 +1567,31 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                  setAvatarUrl(fallback);
               }
             }}
-            className="w-32 h-32 rounded-full object-cover border-4 border-white/20 shadow-2xl cursor-pointer hover:scale-105 transition-transform"
+            className={`w-32 h-32 rounded-full border-4 border-white/20 shadow-2xl cursor-pointer hover:scale-105 transition-transform ${
+              isFallbackMiuImage(avatarUrl)
+                ? 'object-contain p-6 bg-white'
+                : 'object-cover'
+            }`}
           />
           {isEditingName ? (
-            <div className="flex items-center gap-2 mt-4">
+            <div className="flex items-center justify-center gap-2 mt-4 w-full px-4">
+              {/* Cancel Button on Left for symmetrical balance */}
+              <button 
+                onClick={() => {
+                  setIsEditingName(false);
+                  setEditNameValue(character.name);
+                }}
+                title="取消"
+                className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0 transition active:scale-90 cursor-pointer ${
+                  isLightMode
+                    ? "bg-[#f1f5f9] hover:bg-[#e2e8f0] text-[#64748b] hover:text-[#0f172a]"
+                    : "bg-white/10 hover:bg-white/20 text-white/70 hover:text-white"
+                }`}
+              >
+                <XIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              </button>
+
+              {/* Centered, sleekly proportioned input */}
               <input
                 type="text"
                 value={editNameValue}
@@ -666,45 +1603,148 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                     setEditNameValue(character.name);
                   }
                 }}
-                className="bg-black/40 border border-white/20 rounded-lg px-3 py-1 text-xl sm:text-2xl font-bold text-center w-full max-w-[200px] focus:outline-none focus:border-purple-500"
+                className={`rounded-xl px-3 py-1 text-xl sm:text-2xl font-bold text-center outline-none transition shadow-2xs ${
+                  isLightMode
+                    ? "bg-white/95 border border-[#cbd5e1] text-[#0f172a] focus:border-[#3b82f6] focus:ring-3 focus:ring-blue-500/15"
+                    : "bg-black/40 border border-white/20 text-white focus:border-blue-500 focus:ring-3 focus:ring-blue-500/20"
+                }`}
+                style={{ width: `${Math.max(110, Math.min(220, (editNameValue.length + 1) * 22))}px` }}
                 autoFocus
               />
+
+              {/* Save Button on Right for symmetrical balance */}
               <button 
                 onClick={handleNameSave}
-                className="p-1.5 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition"
+                title="保存"
+                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shrink-0 transition active:scale-90 cursor-pointer shadow-xs shadow-blue-500/20"
               >
-                <Check className="w-5 h-5" />
-              </button>
-              <button 
-                onClick={() => {
-                  setIsEditingName(false);
-                  setEditNameValue(character.name);
-                }}
-                className="p-1.5 bg-white/10 text-white/60 rounded-lg hover:bg-white/20 transition"
-              >
-                <XIcon className="w-5 h-5" />
+                <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.4]" />
               </button>
             </div>
           ) : (
-            <div className="flex items-center justify-center gap-2 mt-4 w-full px-4">
-              <h1 className="text-2xl sm:text-3xl font-bold text-center break-words max-w-full">{character.name}</h1>
-              <button 
+            <div className="flex items-center justify-center mt-4 w-full px-4">
+              <h1
                 onClick={() => setIsEditingName(true)}
-                className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition shrink-0"
+                className="text-2xl sm:text-3xl font-bold text-center break-words max-w-full cursor-pointer hover:opacity-80 active:opacity-60 transition"
+                title="点击编辑名称"
               >
-                <Edit2 className="w-4 h-4" />
-              </button>
+                {character.name}
+              </h1>
             </div>
           )}
-          <p className="text-white/60 text-sm mt-1">v{data.character_version || '1.0'} • {data.creator || 'Unknown Creator'}</p>
+          {/* Version, Creator & Compact Action Strip */}
+          <div className="mt-1.5 flex flex-col items-center justify-center gap-2 w-full max-w-xl px-3">
+            {isToolCard ? (
+              <div className="text-white/70 text-sm flex items-center justify-center gap-2 flex-wrap [.light-theme_&]:!text-[#475569]">
+                <span className="font-semibold text-blue-400 [.light-theme_&]:!text-[#007aff] px-2 py-0.5 rounded-md bg-blue-500/10 [.light-theme_&]:!bg-[#eff6ff]">
+                  {category !== '未归类' ? category : (character.isQR ? '快速回复' : (character.isTool ? '工具' : '特殊数据'))}
+                </span>
+                {(data.creator || character?.data?.creator || character?.data?.author) && (
+                  <>
+                    <span>•</span>
+                    <span>{data.creator || character?.data?.creator || character?.data?.author}</span>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="text-white/70 text-xs sm:text-sm flex items-center justify-center gap-1.5 flex-wrap [.light-theme_&]:!text-[#475569]">
+                <button
+                  onClick={() => setActiveTab('versions')}
+                  className="font-medium text-white/90 hover:text-white transition underline underline-offset-4 decoration-white/25 hover:decoration-white/70 flex items-center gap-1 cursor-pointer active:scale-95 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:decoration-black/20 [.light-theme_&]:hover:text-black [.light-theme_&]:hover:decoration-black/50"
+                  title="点击查看此角色的版本迭代与溯源历史"
+                >
+                  <span>v{data.character_version || '1.0'}</span>
+                </button>
+                <span>•</span>
+                <span className="truncate max-w-[160px]">{data.creator || 'Unknown Creator'}</span>
+                {character?.versionHistory && character.versionHistory.length > 0 && (
+                  <>
+                    <span>•</span>
+                    <button
+                      onClick={() => setActiveTab('versions')}
+                      className="inline-flex items-center gap-1 text-white/70 hover:text-white [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a] transition cursor-pointer"
+                      title="点击查看历史演进轨迹与快照对比"
+                    >
+                      <History className="w-3 h-3 shrink-0" />
+                      <span>{character.versionHistory.length} 版本</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* 第一排：字符统计 + 简介 + 人设；下一排居中：文件夹名称 */}
+            <div className="flex flex-col items-center justify-center gap-1.5 max-w-full w-full">
+              {!isToolCard && (
+                <div className="flex items-center justify-center gap-1.5 max-w-full flex-nowrap">
+                  <button
+                    onClick={() => setShowTokenBreakdownModal(true)}
+                    className="group inline-flex items-center gap-1 px-2.5 py-1 rounded-full border-0 bg-white/10 hover:bg-white/15 text-[11px] sm:text-xs text-white/90 transition cursor-pointer active:scale-95 backdrop-blur-md [.light-theme_&]:!bg-white/75 [.light-theme_&]:hover:!bg-white [.light-theme_&]:!text-[#1e293b] [.light-theme_&]:shadow-xs shrink-0 font-medium"
+                    title={`总计 ${formatTokenCount(tokenBreakdown.totalTokens)} Tokens · 常驻 ${formatTokenCount(tokenBreakdown.permanentTokens)} Tokens（点击查看详情）`}
+                  >
+                    <FileText className="w-3 h-3 text-white/70 [.light-theme_&]:!text-[#475569] shrink-0" />
+                    <span className="font-mono">
+                      {formatTokenCount(tokenBreakdown.totalTokens)} T
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => setShowSummaryModal(true)}
+                    className="group inline-flex items-center gap-1 px-2.5 py-1 rounded-full border-0 bg-white/10 hover:bg-white/15 text-[11px] sm:text-xs text-white/90 transition cursor-pointer active:scale-95 backdrop-blur-md [.light-theme_&]:!bg-white/75 [.light-theme_&]:hover:!bg-white [.light-theme_&]:!text-[#1e293b] [.light-theme_&]:shadow-xs shrink-0"
+                    title="查看与重新生成简介"
+                  >
+                    <Sparkles className="w-3 h-3 text-white/70 [.light-theme_&]:!text-[#475569] shrink-0" />
+                    <span className="font-medium">简介</span>
+                  </button>
+
+                  <button
+                    onClick={() => setShowUserPersonaPicker(true)}
+                    className={`group inline-flex items-center gap-1 px-2.5 py-1 rounded-full border-0 text-[11px] sm:text-xs transition cursor-pointer active:scale-95 backdrop-blur-md shrink-0 ${
+                      mountedPersona
+                        ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 [.light-theme_&]:!bg-[#eff6ff] [.light-theme_&]:hover:!bg-[#dbeafe] [.light-theme_&]:!text-[#007aff] [.light-theme_&]:shadow-xs'
+                        : 'bg-white/10 hover:bg-white/15 text-white/90 [.light-theme_&]:!bg-white/75 [.light-theme_&]:hover:!bg-white [.light-theme_&]:!text-[#1e293b] [.light-theme_&]:shadow-xs'
+                    }`}
+                    title={mountedPersona ? `已挂载人设：${mountedPersona.name}` : '为此角色卡挂载特定人设'}
+                  >
+                    {mountedPersona && personaAvatarUrls[mountedPersona.id] ? (
+                      <img
+                        src={personaAvatarUrls[mountedPersona.id]}
+                        alt={mountedPersona.name}
+                        className="w-3.5 h-3.5 rounded-full object-cover shrink-0"
+                      />
+                    ) : (
+                      <User className="w-3 h-3 text-current shrink-0 opacity-75" />
+                    )}
+                    <span className="font-medium truncate max-w-[90px]">
+                      {mountedPersona ? mountedPersona.name : '人设'}
+                    </span>
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center justify-center max-w-full">
+                <button
+                  onClick={() => setIsMoveFolderOpen(true)}
+                  className="group inline-flex items-center gap-1 px-2.5 py-1 rounded-full border-0 bg-white/10 hover:bg-white/15 text-[11px] sm:text-xs text-white/90 transition cursor-pointer active:scale-95 backdrop-blur-md [.light-theme_&]:!bg-white/75 [.light-theme_&]:hover:!bg-white [.light-theme_&]:!text-[#1e293b] [.light-theme_&]:shadow-xs min-w-0 max-w-full"
+                  title={currentFolderPath ? `文件夹: ${currentFolderPath}（点击更改）` : '未分类（点击归类）'}
+                >
+                  <FolderIcon className="w-3 h-3 text-white/70 [.light-theme_&]:!text-[#475569] shrink-0" />
+                  <span className="font-medium truncate max-w-[240px] sm:max-w-[340px]">
+                    {currentFolderPath ? currentFolderPath.split('/').pop() || currentFolderPath : '未分类'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
           
-          {/* Metadata Drawer */}
-          <div className="w-full max-w-md mt-4">
+          {/* Metadata Section - Collapsible Drawer with Sleek Handle */}
+          <div className="w-full max-w-lg mt-2 px-2 sm:px-4 flex flex-col items-center">
             <button
               onClick={() => setIsMetadataOpen(!isMetadataOpen)}
-              className="w-full flex items-center justify-center gap-2 py-2 text-white/50 hover:text-white/80 transition-colors"
+              className="w-full flex items-center justify-center py-2 text-white/50 hover:text-white [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-[#334155] transition-colors cursor-pointer group active:scale-95"
+              title={isMetadataOpen ? "点击收起详情" : "点击展开元数据"}
             >
-              <div className="h-1 w-12 bg-white/20 rounded-full" />
+              <div className="h-1.5 w-12 bg-white/30 group-hover:bg-white/60 [.light-theme_&]:!bg-stone-300 [.light-theme_&]:group-hover:!bg-stone-400 rounded-full transition-colors" />
             </button>
             <AnimatePresence>
               {isMetadataOpen && (
@@ -712,214 +1752,282 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
-                  transition={{ type: 'spring', bounce: 0.3, duration: 0.5 }}
-                  className="overflow-hidden"
+                  transition={{ type: 'spring', bounce: 0.2, duration: 0.35 }}
+                  className="overflow-hidden w-full space-y-2.5 pt-1"
                 >
-                  <div className="bg-black/40 backdrop-blur-md rounded-2xl p-4 mt-2 border border-white/5 space-y-3 shadow-inner">
-                    <div className="flex flex-col gap-1 items-center text-center">
-                      <div className="text-xs text-white/40 font-medium uppercase tracking-wider">
-                        导入时间 (IMPORTED)
-                      </div>
-                      <div className="text-sm text-white/80 font-mono">
-                        {new Date(character?.createdAt || Date.now()).toLocaleString()}
-                      </div>
-                    </div>
+                  {/* Timestamps */}
+                  <div className="flex items-center justify-center gap-2 sm:gap-4 text-xs text-white/90 [.light-theme_&]:!text-[#0f172a] font-mono flex-wrap text-center">
+                    <span>导入: {character?.createdAt ? new Date(character.createdAt).toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '未知'}</span>
+                    <span>•</span>
+                    <span>修改: {resolvedModifiedDate ? resolvedModifiedDate.toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : (character?.updatedAt ? new Date(character.updatedAt).toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : (character?.originalFile?.lastModified ? new Date(character.originalFile.lastModified).toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '未知'))}</span>
+                  </div>
 
-                    <div className="flex flex-col gap-1 items-center text-center">
-                      <div className="text-xs text-white/40 font-medium uppercase tracking-wider">
-                        本地修改时间 (MODIFIED)
-                      </div>
-                      <div className="text-sm text-white/80 font-mono">
-                        {character?.originalFile?.lastModified ? new Date(character.originalFile.lastModified).toLocaleString() : '未知'}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs text-white/40 font-medium uppercase tracking-wider flex items-center gap-1">
-                          作者 (CREATOR)
-                        </div>
-                        <button onClick={() => {
-                          if (isEditingCreator) {
-                            handleUpdateCreator(tempCreator);
-                          } else {
-                            setTempCreator(data.creator || '');
-                            setIsEditingCreator(true);
-                          }
-                        }}>
-                          {isEditingCreator ? <Check className="w-3 h-3 text-green-400"/> : <Edit2 className="w-3 h-3 text-white/40 hover:text-white"/>}
-                        </button>
-                      </div>
-                      {isEditingCreator ? (
-                        <div className="flex items-center gap-2">
-                          <input 
-                            value={tempCreator} 
-                            onChange={e => setTempCreator(e.target.value)} 
-                            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
-                            placeholder="作者名称"
-                            autoFocus
-                            onKeyDown={e => e.key === 'Enter' && handleUpdateCreator(tempCreator)}
-                          />
-                          <button onClick={() => handleUpdateCreator(tempCreator)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => setIsEditingCreator(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
-                            <XIcon className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="bg-white/5 rounded-xl px-3 py-2 text-sm text-white/80 min-h-[36px] flex items-center">
-                          {data.creator || <span className="text-white/30">未知作者</span>}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs text-white/40 font-medium uppercase tracking-wider flex items-center gap-1">
-                          版本 (VERSION)
-                        </div>
-                        <button onClick={() => {
-                          if (isEditingVersion) {
-                            handleUpdateVersion(tempVersion);
-                          } else {
-                            setTempVersion(data.character_version || '');
-                            setIsEditingVersion(true);
-                          }
-                        }}>
-                          {isEditingVersion ? <Check className="w-3 h-3 text-green-400"/> : <Edit2 className="w-3 h-3 text-white/40 hover:text-white"/>}
-                        </button>
-                      </div>
-                      {isEditingVersion ? (
-                        <div className="flex items-center gap-2">
-                          <input 
-                            value={tempVersion} 
-                            onChange={e => setTempVersion(e.target.value)} 
-                            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
-                            placeholder="例如: 1.0"
-                            autoFocus
-                            onKeyDown={e => e.key === 'Enter' && handleUpdateVersion(tempVersion)}
-                          />
-                          <button onClick={() => handleUpdateVersion(tempVersion)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => setIsEditingVersion(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
-                            <XIcon className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="bg-white/5 rounded-xl px-3 py-2 text-sm text-white/80 min-h-[36px] flex items-center">
-                          {data.character_version || <span className="text-white/30">1.0</span>}
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs text-white/40 font-medium uppercase tracking-wider flex items-center gap-1">
-                          标签 (TAGS)
-                        </div>
-                        <button onClick={() => {
-                          if (isEditingTags) {
-                            handleUpdateTags(tempTags);
-                          } else {
-                            setTempTags((data.tags || []).join(', '));
-                            setIsEditingTags(true);
-                          }
-                        }}>
-                          {isEditingTags ? <Check className="w-3 h-3 text-green-400"/> : <Edit2 className="w-3 h-3 text-white/40 hover:text-white"/>}
-                        </button>
-                      </div>
-                      {isEditingTags ? (
-                        <div className="flex items-center gap-2">
-                          <input 
-                            value={tempTags} 
-                            onChange={e => {
-                              // If user typed a space, replace it with a comma and space
-                              const val = e.target.value;
-                              if (val.endsWith(' ') && !val.endsWith(', ')) {
-                                setTempTags(val.slice(0, -1) + ', ');
-                              } else {
-                                setTempTags(val);
-                              }
-                            }} 
-                            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
-                            placeholder="输入标签，用逗号或空格分隔"
-                            autoFocus
-                            onKeyDown={e => e.key === 'Enter' && handleUpdateTags(tempTags)}
-                          />
-                          <button onClick={() => handleUpdateTags(tempTags)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => setIsEditingTags(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
-                            <XIcon className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="bg-white/5 rounded-xl px-3 py-2 text-sm text-white/80 min-h-[36px] flex flex-wrap gap-1">
-                          {data.tags && data.tags.length > 0 ? (
-                            data.tags.map((tag: string, i: number) => (
-                              <span key={i} className="bg-white/10 px-2 py-0.5 rounded-md text-xs">{tag}</span>
-                            ))
+                  {/* Editable Fields: Creator, Version / Type, Tags, Source */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-xs sm:text-sm">
+                    {/* Creator */}
+                    {(() => {
+                      const currentCreator = data.creator || character?.data?.creator || character?.data?.author || '';
+                      return (
+                        <div
+                          onClick={() => {
+                            if (!isEditingCreator) {
+                              cancelMetaEditRef.current = null;
+                              setTempCreator(currentCreator);
+                              setIsEditingCreator(true);
+                            }
+                          }}
+                          title={isEditingCreator ? undefined : '点击修改作者'}
+                          className={`flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent backdrop-blur-sm transition ${
+                            isEditingCreator ? 'ring-1 ring-blue-500/50' : 'hover:bg-white/15 [.light-theme_&]:hover:!bg-black/[0.08] cursor-text'
+                          }`}
+                        >
+                          <span className="text-white/80 font-medium shrink-0 [.light-theme_&]:!text-[#0f172a] text-xs sm:text-sm">作者</span>
+                          {isEditingCreator ? (
+                            <input
+                              value={tempCreator}
+                              onChange={e => setTempCreator(e.target.value)}
+                              onBlur={() => {
+                                if (cancelMetaEditRef.current === 'creator') {
+                                  cancelMetaEditRef.current = null;
+                                  return;
+                                }
+                                if (tempCreator.trim() === currentCreator.trim()) {
+                                  setIsEditingCreator(false);
+                                  return;
+                                }
+                                handleUpdateCreator(tempCreator.trim());
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  e.currentTarget.blur();
+                                } else if (e.key === 'Escape') {
+                                  cancelMetaEditRef.current = 'creator';
+                                  setIsEditingCreator(false);
+                                }
+                              }}
+                              className="bg-transparent border-b border-blue-500/80 text-right text-xs sm:text-sm font-semibold text-white outline-none flex-1 min-w-0 py-0 placeholder:text-white/30 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#94a3b8]"
+                              placeholder="作者名称"
+                              autoFocus
+                            />
                           ) : (
-                            <span className="text-white/30">无标签</span>
+                            <span className={`truncate text-xs sm:text-sm text-right ${
+                              currentCreator && currentCreator.trim() && currentCreator !== '未知'
+                                ? 'text-white [.light-theme_&]:!text-[#0f172a] font-semibold'
+                                : 'text-white/50 [.light-theme_&]:!text-[#64748b] font-normal'
+                            }`}>
+                              {currentCreator || '未知'}
+                            </span>
                           )}
                         </div>
-                      )}
-                    </div>
+                      );
+                    })()}
 
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs text-white/40 font-medium uppercase tracking-wider flex items-center gap-1">
-                          来源链接 (SOURCE)
+                    {/* Version or Type */}
+                    {isToolCard ? (
+                      <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent backdrop-blur-sm">
+                        <span className="text-white/80 font-medium shrink-0 [.light-theme_&]:!text-[#0f172a] text-xs sm:text-sm">类型</span>
+                        <div className="flex items-center gap-1.5 min-w-0 justify-end">
+                          <span className="text-blue-400 [.light-theme_&]:!text-[#007aff] font-semibold text-xs sm:text-sm truncate">
+                            {category !== '未归类' ? category : (character.isQR ? '快速回复' : (character.isTool ? '工具' : '特殊数据'))}
+                          </span>
                         </div>
-                        <button onClick={() => {
-                          if (isEditingSource) {
-                            handleUpdateSource(tempSource);
-                          } else {
-                            setTempSource(data.extensions?.source || data.source || '');
-                            setIsEditingSource(true);
-                          }
-                        }}>
-                          {isEditingSource ? <Check className="w-3 h-3 text-green-400"/> : <Edit2 className="w-3 h-3 text-white/40 hover:text-white"/>}
-                        </button>
                       </div>
-                      {isEditingSource ? (
-                        <div className="flex items-center gap-2">
-                          <input 
-                            value={tempSource} 
-                            onChange={e => setTempSource(e.target.value)} 
-                            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-purple-500/50"
-                            placeholder="https://..."
-                            autoFocus
-                            onKeyDown={e => e.key === 'Enter' && handleUpdateSource(tempSource)}
-                          />
-                          <button onClick={() => handleUpdateSource(tempSource)} className="p-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition shrink-0">
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => setIsEditingSource(false)} className="p-2 bg-white/10 text-white/60 rounded-xl hover:bg-white/20 transition shrink-0">
-                            <XIcon className="w-4 h-4" />
-                          </button>
+                    ) : (() => {
+                      const currentVersion = data.character_version || '';
+                      return (
+                        <div
+                          onClick={() => {
+                            if (!isEditingVersion) {
+                              cancelMetaEditRef.current = null;
+                              setTempVersion(currentVersion);
+                              setIsEditingVersion(true);
+                            }
+                          }}
+                          title={isEditingVersion ? undefined : '点击修改版本'}
+                          className={`flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent backdrop-blur-sm transition ${
+                            isEditingVersion ? 'ring-1 ring-blue-500/50' : 'hover:bg-white/15 [.light-theme_&]:hover:!bg-black/[0.08] cursor-text'
+                          }`}
+                        >
+                          <span className="text-white/80 font-medium shrink-0 [.light-theme_&]:!text-[#0f172a] text-xs sm:text-sm">版本</span>
+                          {isEditingVersion ? (
+                            <input
+                              value={tempVersion}
+                              onChange={e => setTempVersion(e.target.value)}
+                              onBlur={() => {
+                                if (cancelMetaEditRef.current === 'version') {
+                                  cancelMetaEditRef.current = null;
+                                  return;
+                                }
+                                if (tempVersion.trim() === currentVersion.trim()) {
+                                  setIsEditingVersion(false);
+                                  return;
+                                }
+                                handleUpdateVersion(tempVersion.trim());
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  e.currentTarget.blur();
+                                } else if (e.key === 'Escape') {
+                                  cancelMetaEditRef.current = 'version';
+                                  setIsEditingVersion(false);
+                                }
+                              }}
+                              className="bg-transparent border-b border-blue-500/80 text-right text-xs sm:text-sm font-semibold text-white outline-none flex-1 min-w-0 py-0 placeholder:text-white/30 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#94a3b8]"
+                              placeholder="例如: 1.0"
+                              autoFocus
+                            />
+                          ) : (
+                            <span className={`truncate text-xs sm:text-sm text-right ${
+                              currentVersion && currentVersion.trim() && currentVersion !== '无版本'
+                                ? 'text-white [.light-theme_&]:!text-[#0f172a] font-semibold'
+                                : 'text-white/50 [.light-theme_&]:!text-[#64748b] font-normal'
+                            }`}>
+                              {currentVersion || '1.0'}
+                            </span>
+                          )}
                         </div>
-                      ) : (
-                        <div className="bg-white/5 rounded-xl px-3 py-2 text-sm text-white/80 min-h-[36px] truncate flex items-center justify-between">
-                          {data.extensions?.source || data.source ? (
-                            <a 
-                              href={data.extensions?.source || data.source} 
-                              target="_blank" 
+                      );
+                    })()}
+
+                    {/* Tags */}
+                    {(() => {
+                      const currentTagsStr = (character.tags && character.tags.length > 0)
+                        ? character.tags.join(', ')
+                        : (data.tags && data.tags.length > 0 ? data.tags.join(', ') : '');
+                      return (
+                        <div
+                          onClick={() => {
+                            if (!isEditingTags) {
+                              cancelMetaEditRef.current = null;
+                              setTempTags(currentTagsStr);
+                              setIsEditingTags(true);
+                            }
+                          }}
+                          title={isEditingTags ? undefined : '点击修改标签'}
+                          className={`sm:col-span-2 flex items-start justify-between gap-3 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent backdrop-blur-sm transition ${
+                            isEditingTags ? 'ring-1 ring-blue-500/50' : 'hover:bg-white/15 [.light-theme_&]:hover:!bg-black/[0.08] cursor-text'
+                          }`}
+                        >
+                          <span className="text-white/80 font-medium shrink-0 [.light-theme_&]:!text-[#0f172a] text-xs sm:text-sm leading-relaxed">标签</span>
+                          {isEditingTags ? (
+                            <textarea
+                              rows={Math.min(5, Math.max(1, Math.ceil((tempTags.length || 1) / 28)))}
+                              value={tempTags}
+                              onChange={e => {
+                                const val = e.target.value;
+                                const normalized = val.replace(/[/|\\;；]/g, ', ');
+                                if (normalized.endsWith(' ') && !normalized.endsWith(', ')) {
+                                  setTempTags(normalized.slice(0, -1) + ', ');
+                                } else {
+                                  setTempTags(normalized);
+                                }
+                              }}
+                              onBlur={() => {
+                                if (cancelMetaEditRef.current === 'tags') {
+                                  cancelMetaEditRef.current = null;
+                                  return;
+                                }
+                                if (tempTags.trim() === currentTagsStr.trim()) {
+                                  setIsEditingTags(false);
+                                  return;
+                                }
+                                handleUpdateTags(tempTags);
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault();
+                                  e.currentTarget.blur();
+                                } else if (e.key === 'Escape') {
+                                  cancelMetaEditRef.current = 'tags';
+                                  setIsEditingTags(false);
+                                }
+                              }}
+                              className="bg-transparent border-b border-blue-500/80 text-right text-xs sm:text-sm font-semibold text-white outline-none flex-1 min-w-0 py-0 resize-none leading-relaxed placeholder:text-white/30 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#94a3b8]"
+                              placeholder="逗号或 / 分隔"
+                              autoFocus
+                            />
+                          ) : (
+                            <span className={`text-xs sm:text-sm text-right break-words whitespace-normal leading-relaxed flex-1 min-w-0 ${
+                              currentTagsStr
+                                ? 'text-white [.light-theme_&]:!text-[#0f172a] font-semibold'
+                                : 'text-white/50 [.light-theme_&]:!text-[#64748b] font-normal'
+                            }`}>
+                              {currentTagsStr || '无标签'}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Source */}
+                    {(() => {
+                      const currentSource = sourceLink || rawSource;
+                      return (
+                        <div
+                          onClick={() => {
+                            if (!isEditingSource) {
+                              cancelMetaEditRef.current = null;
+                              setTempSource(currentSource);
+                              setIsEditingSource(true);
+                            }
+                          }}
+                          title={isEditingSource ? undefined : '点击空白处或“来源”修改网址'}
+                          className={`sm:col-span-2 flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-transparent backdrop-blur-sm transition ${
+                            isEditingSource ? 'ring-1 ring-blue-500/50' : 'hover:bg-white/15 [.light-theme_&]:hover:!bg-black/[0.08] cursor-text'
+                          }`}
+                        >
+                          <span className="text-white/80 font-medium shrink-0 [.light-theme_&]:!text-[#0f172a] text-xs sm:text-sm">来源</span>
+                          {isEditingSource ? (
+                            <input
+                              value={tempSource}
+                              onChange={e => setTempSource(e.target.value)}
+                              onBlur={() => {
+                                if (cancelMetaEditRef.current === 'source') {
+                                  cancelMetaEditRef.current = null;
+                                  return;
+                                }
+                                if (tempSource.trim() === currentSource.trim()) {
+                                  setIsEditingSource(false);
+                                  return;
+                                }
+                                handleUpdateSource(tempSource);
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  e.currentTarget.blur();
+                                } else if (e.key === 'Escape') {
+                                  cancelMetaEditRef.current = 'source';
+                                  setIsEditingSource(false);
+                                }
+                              }}
+                              className="bg-transparent border-b border-blue-500/80 text-right text-xs sm:text-sm font-mono text-white outline-none flex-1 min-w-0 py-0 placeholder:text-white/30 [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#94a3b8]"
+                              placeholder="https://..."
+                              autoFocus
+                            />
+                          ) : sourceLink ? (
+                            <a
+                              href={sourceLink}
+                              target="_blank"
                               rel="noopener noreferrer"
-                              className="text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1 truncate"
+                              onClick={e => e.stopPropagation()}
+                              className="text-blue-400 [.light-theme_&]:!text-[#007aff] hover:underline flex items-center gap-1 truncate font-medium text-xs sm:text-sm cursor-pointer min-w-0 font-mono"
+                              title={`打开链接: ${sourceLink}`}
                             >
-                              <ExternalLink className="w-3 h-3 flex-shrink-0" />
-                              <span className="truncate">{data.extensions?.source || data.source}</span>
+                              <ExternalLink className="w-3 h-3 shrink-0 text-blue-400 [.light-theme_&]:!text-[#007aff]" />
+                              <span className="truncate max-w-[220px] sm:max-w-[380px]">{sourceLink}</span>
                             </a>
+                          ) : rawSource ? (
+                            <span className="text-white/80 [.light-theme_&]:!text-[#0f172a] font-normal text-xs sm:text-sm truncate min-w-0 text-right" title={rawSource}>
+                              {rawSource}
+                            </span>
                           ) : (
-                            <span className="text-white/30">无链接</span>
+                            <span className="text-white/50 [.light-theme_&]:!text-[#64748b] font-normal text-xs sm:text-sm">
+                              无来源
+                            </span>
                           )}
                         </div>
-                      )}
-                    </div>
-
+                      );
+                    })()}
                   </div>
                 </motion.div>
               )}
@@ -928,41 +2036,63 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
         </div>
 
         {/* Tabs */}
-        <div className="sticky top-[72px] z-20 -mx-4 px-4 py-3 mb-4">
-          <div className="flex gap-2 overflow-x-auto hide-scrollbar">
-          {(isSpecialData ? [
-             { id: 'data_viewer', icon: User, label: '数据详情' },
+        <div className="sticky top-[72px] z-20 px-2 sm:px-4 py-2 mb-4 bg-transparent [.light-theme_&]:!bg-transparent [.light-theme_&]:!backdrop-blur-none backdrop-blur-md max-w-full overflow-hidden">
+          <div className="flex gap-2 overflow-x-auto hide-scrollbar scroll-smooth px-1 py-1 pr-8">
+          {(isTheme ? [
+             { id: 'theme_preview', icon: Sparkles, label: '美化渲染' },
+             { id: 'custom_css', icon: Code2, label: '自定义 CSS' },
+             ...(extractRegexScripts(rawData).length > 0 ? [{ id: 'regex', icon: Edit2, label: '正则替换' }] : []),
+             { id: 'memos', icon: StickyNote, label: '备忘录' },
+             { id: 'data_viewer', icon: FileJson, label: '原生数据' },
+          ] : isSpecialData ? [
+             { id: 'data_viewer', icon: FileJson, label: '数据详情' },
+             ...(extractRegexScripts(rawData).length > 0 ? [{ id: 'regex', icon: Edit2, label: '正则替换' }] : []),
+             { id: 'memos', icon: StickyNote, label: '备忘录' },
+          ] : isPreset ? [
+            { id: 'profile', icon: User, label: '预设条目' },
+            ...(extractRegexScripts(rawData).length > 0 ? [{ id: 'regex', icon: Edit2, label: '正则替换' }] : []),
+            { id: 'memos', icon: StickyNote, label: '备忘录' },
+            { id: 'data_viewer', icon: FileJson, label: '原生数据' },
           ] : [
             ...(!isStandaloneWorldbook ? [
-              { id: 'profile', icon: User, label: isPreset ? '预设条目' : '档案' },
+              { id: 'profile', icon: User, label: '档案' },
             ] : []),
-            ...(!isPreset && !isStandaloneWorldbook ? [
+            ...(!isStandaloneWorldbook ? [
               { id: 'greetings', icon: MessageSquare, label: '开场白' },
             ] : []),
-            ...(!isPreset ? [
-              { id: 'worldbook', icon: Book, label: '世界书' },
-            ] : []),
-            ...(!isPreset && !isStandaloneWorldbook ? [
+            { id: 'worldbook', icon: Book, label: '世界书' },
+            ...(!isStandaloneWorldbook ? [
               { id: 'regex', icon: Edit2, label: '正则替换' },
             ] : []),
-            ...(!isPreset && !isStandaloneWorldbook ? [
+            ...(!isStandaloneWorldbook ? [
               { id: 'chats', icon: MessageSquare, label: '聊天记录' },
             ] : []),
-            ...(!isPreset && !isStandaloneWorldbook ? [
+            ...(!isStandaloneWorldbook ? [
+              { id: 'versions', icon: History, label: '版本迭代' },
+            ] : []),
+            ...(!isStandaloneWorldbook ? [
               { id: 'memos', icon: StickyNote, label: '备忘录' },
             ] : []),
           ]).map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
+              className={`relative flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium transition-colors whitespace-nowrap focus:outline-none focus:ring-0 active:outline-none outline-none select-none cursor-pointer z-0 shrink-0 ${
                 activeTab === tab.id
-                  ? 'bg-white/20 text-white border border-white/30 [.light-theme_&]:bg-blue-500/10 [.light-theme_&]:text-[#007aff] [.light-theme_&]:border-blue-500/20 [.light-theme_&]:shadow-sm'
-                  : 'bg-white/5 text-white/60 hover:bg-white/10 border border-transparent [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:bg-blue-500/5'
+                  ? 'char-detail-tab-active shadow-sm font-semibold'
+                  : 'char-detail-tab-inactive'
               }`}
+              style={{ WebkitTapHighlightColor: 'transparent' }}
             >
-              <tab.icon className="w-4 h-4" />
-              {tab.label}
+              {activeTab === tab.id && (
+                <motion.div
+                  layoutId="charDetailActiveTabIndicator"
+                  className="char-detail-tab-indicator -z-10"
+                  transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                />
+              )}
+              <tab.icon className="w-4 h-4 relative z-10 shrink-0" />
+              <span className="relative z-10">{tab.label}</span>
             </button>
           ))}
           </div>
@@ -970,105 +2100,206 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
 
         {/* Content Area - Glassmorphism Card */}
         <div className="flex-1 px-2 sm:px-4 pb-32">
-          <div className="bg-black/40 backdrop-blur-2xl border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl min-h-[50vh] [.light-theme_&]:bg-[#FCFCFC]/70 [.light-theme_&]:backdrop-blur-3xl [.light-theme_&]:border-black/5 [.light-theme_&]:shadow-xl">
-            <AnimatePresence initial={false}>
+          <div className={`char-detail-glass-card rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl min-h-[50vh] overflow-hidden ${activeTab === 'theme_preview' ? '' : 'backdrop-blur-xl [.light-theme_&]:!backdrop-blur-none'}`}>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                className="space-y-6"
+              >
+            {activeTab === 'theme_preview' && character && (
+              <div
+                key="theme_preview"
+                className="space-y-6"
+              >
+                <ThemeRendererSection
+                  mode="preview"
+                  character={character}
+                  onUpdate={(updated) => {
+                    setCharacter(updated);
+                    setEditNameValue(updated.name);
+                  }}
+                  avatarUrl={avatarUrl}
+                  isLightMode={isLightMode}
+                />
+              </div>
+            )}
 
-              {activeTab === 'data_viewer' && (
-                <motion.div
-                  key="data_viewer"
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
-                  className="space-y-6"
-                >
-                  <div className="bg-[#0f111a] rounded-xl overflow-hidden border border-white/5">
-                      <div className="p-4 border-b border-white/5 bg-black/20 flex items-center justify-between">
-                          <h3 className="text-[15px] font-medium text-white/90">原生数据 (JSON)</h3>
-                      </div>
-                      <div className="p-4 overflow-auto max-h-[70vh] custom-scrollbar">
-                          <pre className="text-[13px] text-slate-300 font-mono whitespace-pre-wrap break-all">
-                              {(() => { try { const str = JSON.stringify(rawData, null, 2); if (str.length > 50000) { return str.substring(0, 50000) + "\n\n... (数据过大，为防止卡顿已截断显示，请使用导出功能查看完整内容)"; } return str; } catch (e) { return "无法解析此数据"; } })()}
-                          </pre>
-                      </div>
-                  </div>
-                </motion.div>
-              )}
+            {activeTab === 'custom_css' && character && (
+              <div
+                key="custom_css"
+                className="space-y-6"
+              >
+                <ThemeRendererSection
+                  mode="css"
+                  character={character}
+                  onUpdate={(updated) => {
+                    setCharacter(updated);
+                    setEditNameValue(updated.name);
+                  }}
+                  avatarUrl={avatarUrl}
+                  isLightMode={isLightMode}
+                />
+              </div>
+            )}
 
-              {activeTab === 'profile' && (
-                <motion.div
-                  key="profile"
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
-                  className="space-y-6"
-                >
-                  {isPreset ? (
-                    <div className="space-y-6">
-                      {rawData.prompts && rawData.prompts.length > 0 && (
-                        <div className="space-y-4">
-                          <h3 className="text-lg font-semibold text-white/90 border-b border-white/10 pb-2">提示词条目 (Prompts)</h3>
-                          {rawData.prompts.map((prompt: any, i: number) => (
-                            <div key={i} className="mb-4">
-                              <TextPreview title={prompt.name || prompt.identifier || `Prompt ${i+1}`} content={prompt.content || ''} />
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      
-                      {rawData.system_prompt && <Section title="系统提示词 (System Prompt)" content={rawData.system_prompt} />}
-                      {rawData.post_history_instructions && <Section title="历史后提示词 (Post History Instructions)" content={rawData.post_history_instructions} />}
-                      
-                      <div className="space-y-4">
-                        <h3 className="text-lg font-semibold text-white/90 border-b border-white/10 pb-2">生成参数 (Generation Settings)</h3>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
-                          {rawData.temperature !== undefined && <div><span className="text-white/50">Temperature:</span> {rawData.temperature}</div>}
-                          {rawData.top_p !== undefined && <div><span className="text-white/50">Top P:</span> {rawData.top_p}</div>}
-                          {rawData.top_k !== undefined && <div><span className="text-white/50">Top K:</span> {rawData.top_k}</div>}
-                          {rawData.rep_pen !== undefined && <div><span className="text-white/50">Rep Pen:</span> {rawData.rep_pen}</div>}
-                          {rawData.presence_penalty !== undefined && <div><span className="text-white/50">Presence Pen:</span> {rawData.presence_penalty}</div>}
-                          {rawData.frequency_penalty !== undefined && <div><span className="text-white/50">Frequency Pen:</span> {rawData.frequency_penalty}</div>}
-                        </div>
-                      </div>
+            {activeTab === 'data_viewer' && (
+              <div
+                key="data_viewer"
+                className="space-y-6"
+              >
+                <div className="raw-data-card rounded-xl overflow-hidden">
+                    <div className="p-4 raw-data-header flex items-center justify-between">
+                        <h3 className="text-[15px] font-medium raw-data-header-title">原生数据 (JSON)</h3>
                     </div>
+                    <div className="p-4 overflow-auto max-h-[70vh] custom-scrollbar">
+                        <pre className="text-[13px] raw-data-code font-mono whitespace-pre-wrap break-all">
+                            {(() => { try { const str = JSON.stringify(rawData, null, 2); if (str.length > 50000) { return str.substring(0, 50000) + "\n\n... (数据过大，为防止卡顿已截断显示，请使用导出功能查看完整内容)"; } return str; } catch (e) { return "无法解析此数据"; } })()}
+                        </pre>
+                    </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'profile' && (
+              <div
+                key="profile"
+                className="space-y-6"
+              >
+                  {isPreset ? (
+                    <PresetViewer
+                      character={character}
+                      onUpdate={(updated) => {
+                        setCharacter(updated);
+                        setEditNameValue(updated.name);
+                      }}
+                      isLightMode={isLightMode}
+                    />
                   ) : (
                     <>
-                      <Section title="描述 (Description)" content={data.description} onSave={(val) => updateField('description', val)} />
-                      <Section title="性格 (Personality)" content={data.personality} onSave={(val) => updateField('personality', val)} />
-                      <Section title="场景 (Scenario)" content={data.scenario} onSave={(val) => updateField('scenario', val)} />
-                      <Section title="示例对话 (Mes Example)" content={data.mes_example} onSave={(val) => updateField('mes_example', val)} />
-                      <Section title="作者备注 (Creator's Notes)" content={data.creator_notes} onSave={(val) => updateField('creator_notes', val)} />
-                      <Section title="系统提示词 (System Prompt)" content={data.system_prompt} onSave={(val) => updateField('system_prompt', val)} />
-                      <Section title="历史后提示词 (Post History Instructions)" content={data.post_history_instructions} onSave={(val) => updateField('post_history_instructions', val)} />
+                      <Section 
+                        title="描述 (Description)" 
+                        content={data.description} 
+                        character={character} 
+                        onSave={(val) => updateField('description', val)}
+                        onOpenReader={() => openProfileReader('description', false)}
+                        onOpenEdit={() => openProfileReader('description', true)}
+                      />
+                      <Section 
+                        title="性格 (Personality)" 
+                        content={data.personality} 
+                        character={character} 
+                        onSave={(val) => updateField('personality', val)}
+                        onOpenReader={() => openProfileReader('personality', false)}
+                        onOpenEdit={() => openProfileReader('personality', true)}
+                      />
+                      <Section 
+                        title="场景 (Scenario)" 
+                        content={data.scenario} 
+                        character={character} 
+                        onSave={(val) => updateField('scenario', val)}
+                        onOpenReader={() => openProfileReader('scenario', false)}
+                        onOpenEdit={() => openProfileReader('scenario', true)}
+                      />
+                      <Section 
+                        title="示例对话 (Mes Example)" 
+                        content={data.mes_example} 
+                        character={character} 
+                        onSave={(val) => updateField('mes_example', val)}
+                        onOpenReader={() => openProfileReader('mes_example', false)}
+                        onOpenEdit={() => openProfileReader('mes_example', true)}
+                      />
+                      <Section 
+                        title="作者备注 (Creator's Notes)" 
+                        content={data.creator_notes} 
+                        character={character} 
+                        onSave={(val) => updateField('creator_notes', val)}
+                        onOpenReader={() => openProfileReader('creator_notes', false)}
+                        onOpenEdit={() => openProfileReader('creator_notes', true)}
+                      />
+                      <Section 
+                        title="系统提示词 (System Prompt)" 
+                        content={data.system_prompt} 
+                        character={character} 
+                        onSave={(val) => updateField('system_prompt', val)}
+                        onOpenReader={() => openProfileReader('system_prompt', false)}
+                        onOpenEdit={() => openProfileReader('system_prompt', true)}
+                      />
+                      <Section 
+                        title="历史后提示词 (Post History Instructions)" 
+                        content={data.post_history_instructions} 
+                        character={character} 
+                        onSave={(val) => updateField('post_history_instructions', val)}
+                        onOpenReader={() => openProfileReader('post_history_instructions', false)}
+                        onOpenEdit={() => openProfileReader('post_history_instructions', true)}
+                      />
                       
                       {character && (
                         <QuickRepliesSection 
                           character={character} 
                           onUpdate={setCharacter} 
+                          isLightMode={isLightMode}
                         />
                       )}
                     </>
                   )}
-                </motion.div>
-              )}
+              </div>
+            )}
 
-              {activeTab === 'greetings' && (
-                <motion.div
-                  key="greetings"
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
-                  className="space-y-6"
-                >
-                  <Section title="首条消息" content={data.first_mes} onSave={(val) => updateField('first_mes', val)} />
+            {activeTab === 'greetings' && (
+              <div
+                key="greetings"
+                className="space-y-6"
+              >
+                  <Section 
+                    title="首条消息" 
+                    content={data.first_mes} 
+                    character={character}
+                    onSave={(val) => updateField('first_mes', val)} 
+                    onMoveDown={data.alternate_greetings && data.alternate_greetings.length > 0 ? () => {
+                      const newGreetings = [...data.alternate_greetings];
+                      const oldFirst = data.first_mes || '';
+                      const alt0 = newGreetings[0];
+                      newGreetings[0] = oldFirst;
+
+                      const updatedChar = { ...character };
+                      updatedChar.data = JSON.parse(JSON.stringify(updatedChar.data || {}));
+                      let tData = updatedChar.data.data ? updatedChar.data.data : updatedChar.data;
+                      tData.first_mes = alt0;
+                      tData.alternate_greetings = newGreetings;
+                      saveCharacter(updatedChar).then(() => setCharacter(updatedChar));
+                    } : undefined}
+                    onOpenReader={() => {
+                      setGreetingReaderInitialIndex(0);
+                      setGreetingReaderEditMode(false);
+                      setShowGreetingReader(true);
+                    }}
+                    onOpenEdit={() => {
+                      setGreetingReaderInitialIndex(0);
+                      setGreetingReaderEditMode(true);
+                      setShowGreetingReader(true);
+                    }}
+                  />
                   
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                      <h3 className="text-lg font-semibold text-white/90">备用开场白</h3>
+                    <div className="flex items-center justify-between border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] pb-2 mb-3">
+                      <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a]">备用开场白</h3>
                       <button 
-                        onClick={() => setIsAddingAlternate(true)} 
-                        className="text-purple-400 hover:text-purple-300 flex items-center gap-1 text-sm bg-purple-500/10 px-2 py-1 rounded-lg"
+                        onClick={() => {
+                          const currentAlts = Array.isArray(data.alternate_greetings) ? data.alternate_greetings : [];
+                          const newGreetings = [...currentAlts, ''];
+                          updateField('alternate_greetings', newGreetings);
+                          setGreetingReaderInitialIndex(newGreetings.length);
+                          setGreetingReaderEditMode(true);
+                          setShowGreetingReader(true);
+                        }} 
+                        className="px-2.5 py-1 rounded-full text-xs sm:text-sm font-medium flex items-center gap-1.5 transition cursor-pointer active:scale-95 bg-transparent hover:bg-white/10 text-white [.light-theme_&]:!bg-transparent [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/5 border-0 outline-none"
                       >
-                        <Plus className="w-4 h-4" /> 添加
+                        <Plus className="w-4 h-4 text-white [.light-theme_&]:!text-[#0f172a]" />
+                        <span>添加</span>
                       </button>
                     </div>
                     <div className="space-y-4">
@@ -1078,6 +2309,49 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                             key={i}
                             index={i}
                             content={msg}
+                            character={character}
+                            canMoveUp={i > 0 || Boolean(data.first_mes)}
+                            canMoveDown={i < (data.alternate_greetings?.length || 0) - 1}
+                            onMoveUp={() => {
+                              if (i === 0) {
+                                const newGreetings = [...data.alternate_greetings];
+                                const oldFirst = data.first_mes || '';
+                                const alt0 = newGreetings[0];
+                                newGreetings[0] = oldFirst;
+
+                                const updatedChar = { ...character };
+                                updatedChar.data = JSON.parse(JSON.stringify(updatedChar.data || {}));
+                                let tData = updatedChar.data.data ? updatedChar.data.data : updatedChar.data;
+                                tData.first_mes = alt0;
+                                tData.alternate_greetings = newGreetings;
+                                saveCharacter(updatedChar).then(() => setCharacter(updatedChar));
+                              } else {
+                                const newGreetings = [...data.alternate_greetings];
+                                const temp = newGreetings[i];
+                                newGreetings[i] = newGreetings[i - 1];
+                                newGreetings[i - 1] = temp;
+                                updateField('alternate_greetings', newGreetings);
+                              }
+                            }}
+                            onMoveDown={() => {
+                              if (i < data.alternate_greetings.length - 1) {
+                                const newGreetings = [...data.alternate_greetings];
+                                const temp = newGreetings[i];
+                                newGreetings[i] = newGreetings[i + 1];
+                                newGreetings[i + 1] = temp;
+                                updateField('alternate_greetings', newGreetings);
+                              }
+                            }}
+                            onOpenReader={() => {
+                              setGreetingReaderInitialIndex(i + 1);
+                              setGreetingReaderEditMode(false);
+                              setShowGreetingReader(true);
+                            }}
+                            onOpenEdit={() => {
+                              setGreetingReaderInitialIndex(i + 1);
+                              setGreetingReaderEditMode(true);
+                              setShowGreetingReader(true);
+                            }}
                             onSave={(val) => {
                               const newGreetings = [...data.alternate_greetings];
                               newGreetings[i] = val;
@@ -1092,45 +2366,39 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                           />
                         ))
                       ) : (
-                        <p className="text-white/30 text-sm italic">暂无备用开场白</p>
+                        <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
+                          <div className="detail-card-text-muted text-sm italic">
+                            暂无备用开场白
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>
+              </div>
+            )}
 
-                  <FullScreenTextModal
-                    isOpen={isAddingAlternate}
-                    title="添加备用开场白"
-                    content=""
-                    onClose={() => setIsAddingAlternate(false)}
-                    onSave={(val) => {
-                      const newGreetings = [...(data.alternate_greetings || []), val];
-                      updateField('alternate_greetings', newGreetings);
-                      setIsAddingAlternate(false);
-                    }}
-                    initialEditMode={true}
-                  />
-                </motion.div>
-              )}
-
-              {activeTab === 'worldbook' && (
-                <motion.div
-                  key="worldbook"
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
-                >
+            {activeTab === 'worldbook' && (
+              <div
+                key="worldbook"
+              >
                   {(data.character_book || data.extensions?.character_book || rawData.entries) ? (
                     <WorldbookViewer 
                       book={data.character_book || data.extensions?.character_book || rawData} 
                       onUpdate={(newBook) => {
-                        const updatedChar = { ...character };
+                        const updatedData = JSON.parse(JSON.stringify(character.data || {}));
+                        const updatedChar = { ...character, data: updatedData };
                         
                         if (isStandaloneWorldbook) {
                           // Standalone worldbook
                           updatedChar.data = newBook;
+                          const syncedName = (newBook?.name || newBook?.data?.name || '').trim();
+                          if (syncedName) {
+                            updatedChar.name = syncedName;
+                            setEditNameValue(syncedName);
+                          }
                         } else {
                           // Embedded worldbook
-                          let targetData = updatedChar.data.data ? updatedChar.data.data : updatedChar.data;
+                          const targetData = updatedData.data ? updatedData.data : updatedData;
                           targetData.character_book = newBook;
                           targetData.extensions = { ...(targetData.extensions || {}), character_book: newBook };
                         }
@@ -1155,107 +2423,122 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                       }}
                     />
                   ) : (
-                    <div className="flex flex-col items-center justify-center h-48 text-white/40">
-                      <Book className="w-12 h-12 mb-2 opacity-50" />
-                      <p>未包含世界书数据</p>
-                      <div className="flex gap-3 mt-4">
-                        <button 
-                          onClick={() => {
-                            const newBook = { name: '新世界书', description: '', entries: {} };
-                            const updatedChar = { ...character };
-                            let targetData = updatedChar.data.data ? updatedChar.data.data : updatedChar.data;
-                            
-                            targetData.character_book = newBook;
-                            targetData.extensions = { ...(targetData.extensions || {}), character_book: newBook };
-                            
-                            saveCharacter(updatedChar).then(() => setCharacter(updatedChar));
-                          }}
-                          className="px-4 py-2 bg-purple-500/20 text-purple-300 rounded-lg hover:bg-purple-500/30 transition flex items-center gap-2"
-                        >
-                          <Plus className="w-4 h-4" /> 创建世界书
-                        </button>
-                        <label className="px-4 py-2 bg-blue-500/20 text-blue-300 rounded-lg hover:bg-blue-500/30 transition flex items-center gap-2 cursor-pointer">
-                          <Upload className="w-4 h-4" /> 导入世界书
-                          <input 
-                            type="file" 
-                            accept=".json" 
-                            className="hidden" 
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (!file) return;
-                              try {
-                                const text = await new Promise<string>((resolve, reject) => {
-                                  const reader = new FileReader();
-                                  reader.onload = (e) => resolve(e.target?.result as string);
-                                  reader.onerror = reject;
-                                  reader.readAsText(file, "utf-8");
-                                });
-                                const json = JSON.parse(text);
-                                
-                                // Handle both array format and object format (like the provided example)
-                                let entries: any = [];
-                                let isV3 = false;
-                                if (Array.isArray(json.entries)) {
-                                  entries = json.entries;
-                                } else if (json.entries && typeof json.entries === 'object') {
-                                  entries = Array.isArray(json.entries) ? json.entries : (json.entries ? Object.values(json.entries) : []);
-                                } else if (Array.isArray(json)) {
-                                  entries = json;
-                                } else if (json.data && json.data.entries) {
-                                  // Handle Tavern V3 Worldbook format
-                                  entries = Array.isArray(json.data.entries) ? json.data.entries : Object.values(json.data.entries);
-                                  isV3 = true;
-                                }
-
-                                entries = normalizeWorldbookEntries(entries);
-
-                                let newBook;
-                                if (isV3) {
-                                  newBook = { ...json, data: { ...json.data, entries: entries } };
-                                } else {
-                                  newBook = { 
-                                    name: json.name || file.name.replace('.json', ''), 
-                                    description: json.description || '', 
-                                    entries: entries 
-                                  };
-                                }
-
-                                const updatedChar = { ...character };
-                                let targetData = updatedChar.data.data ? updatedChar.data.data : updatedChar.data;
-                                
-                                // Ensure we're setting it correctly
-                                targetData.character_book = newBook;
-                                if (!targetData.extensions) targetData.extensions = {};
-                                targetData.extensions.character_book = newBook;
-                                
-                                await saveCharacter(updatedChar);
-                                setCharacter(updatedChar);
-                              } catch (err) {
-                                alert('导入失败：不是有效的 JSON 文件');
-                              }
-                              e.target.value = '';
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center mb-2">
+                        <div>
+                          <h2 className="text-xl font-bold text-white/90 [.light-theme_&]:!text-[#0f172a] mb-1">世界书</h2>
+                          <p className="text-sm text-white/60 [.light-theme_&]:!text-[#64748b]">
+                            包含世界观、设定和背景信息
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => {
+                              const newBook = { name: '新世界书', description: '', entries: {} };
+                              const updatedChar = { ...character };
+                              let targetData = updatedChar.data.data ? updatedChar.data.data : updatedChar.data;
+                              
+                              targetData.character_book = newBook;
+                              targetData.extensions = { ...(targetData.extensions || {}), character_book: newBook };
+                              
+                              saveCharacter(updatedChar).then(() => setCharacter(updatedChar));
                             }}
-                          />
-                        </label>
+                            className="w-9 h-9 rounded-full soft-pill flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs"
+                            title="创建世界书"
+                          >
+                            <Plus className="w-4.5 h-4.5 opacity-80" />
+                          </button>
+                          <label 
+                            className="w-9 h-9 rounded-full soft-pill flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs"
+                            title="导入世界书"
+                          >
+                            <Upload className="w-4.5 h-4.5 opacity-80" />
+                            <input 
+                              type="file" 
+                              accept=".json" 
+                              className="hidden" 
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                try {
+                                  const text = await new Promise<string>((resolve, reject) => {
+                                    const reader = new FileReader();
+                                    reader.onload = (e) => resolve(e.target?.result as string);
+                                    reader.onerror = reject;
+                                    reader.readAsText(file, "utf-8");
+                                  });
+                                  const json = JSON.parse(text);
+                                  
+                                  // Handle both array format and object format (like the provided example)
+                                  let entries: any = [];
+                                  let isV3 = false;
+                                  if (Array.isArray(json.entries)) {
+                                    entries = json.entries;
+                                  } else if (json.entries && typeof json.entries === 'object') {
+                                    entries = Array.isArray(json.entries) ? json.entries : (json.entries ? Object.values(json.entries) : []);
+                                  } else if (Array.isArray(json)) {
+                                    entries = json;
+                                  } else if (json.data && json.data.entries) {
+                                    // Handle Tavern V3 Worldbook format
+                                    entries = Array.isArray(json.data.entries) ? json.data.entries : Object.values(json.data.entries);
+                                    isV3 = true;
+                                  }
+
+                                  entries = normalizeWorldbookEntries(entries);
+
+                                  let newBook;
+                                  if (isV3) {
+                                    newBook = { ...json, data: { ...json.data, entries: entries } };
+                                  } else {
+                                    newBook = { 
+                                      name: json.name || stripToolNameSuffix(file.name), 
+                                      description: json.description || '', 
+                                      entries: entries 
+                                    };
+                                  }
+
+                                  const updatedChar = { ...character };
+                                  let targetData = updatedChar.data.data ? updatedChar.data.data : updatedChar.data;
+                                  
+                                  // Ensure we're setting it correctly
+                                  targetData.character_book = newBook;
+                                  if (!targetData.extensions) targetData.extensions = {};
+                                  targetData.extensions.character_book = newBook;
+                                  
+                                  await saveCharacter(updatedChar);
+                                  setCharacter(updatedChar);
+                                } catch (err) {
+                                  alert('导入失败：不是有效的 JSON 文件');
+                                }
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="w-full detail-card p-8 rounded-2xl flex flex-col items-center justify-center text-center">
+                        <Book className="w-12 h-12 mb-3 opacity-40 text-slate-400 [.light-theme_&]:!text-slate-500" />
+                        <p className="detail-card-text text-sm font-medium">当前角色未包含世界书数据</p>
+                        <p className="detail-card-text-muted text-xs mt-1">点击上方按钮可新建世界书或导入 JSON 设定文件</p>
                       </div>
                     </div>
                   )}
-                </motion.div>
-              )}
+              </div>
+            )}
 
-              {activeTab === 'regex' && character && (
-                <motion.div
-                  key="regex"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  <CharacterRegexSection character={character} onUpdate={setCharacter} />
-                </motion.div>
-              )}
+            {activeTab === 'regex' && character && (
+              <div
+                key="regex"
+              >
+                <CharacterRegexSection character={character} onUpdate={setCharacter} isLightMode={isLightMode} />
+              </div>
+            )}
 
-              {activeTab === 'chats' && character && (
+            {activeTab === 'chats' && character && (
+              <div
+                key="chats"
+              >
                 <CharacterChatsSection 
                    characterId={character.id} 
                    characterName={character.name} 
@@ -1264,12 +2547,54 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                    onOpenChat={onOpenChat}
                    onOpenImport={onOpenImport}
                    refreshKey={refreshKey}
+                   isLightMode={isLightMode}
                 />
-              )}
+              </div>
+            )}
 
-              {activeTab === 'memos' && character && (
-                <CharacterMemosSection characterId={character.id} />
-              )}
+            {activeTab === 'versions' && character && (
+              <div
+                key="versions"
+              >
+                <CharacterVersionsSection 
+                  character={character}
+                  avatarUrl={avatarUrl}
+                  isLightMode={isLightMode}
+                  onUpdateCharacter={(updated) => {
+                    setCharacter(updated);
+                    setEditNameValue(updated.name);
+                    if (updated.avatarBlob) {
+                      const newUrl = safeCreateObjectURL(updated.avatarBlob);
+                      if (newUrl) setAvatarUrl(newUrl);
+                    } else if (updated.avatarUrlFallback) {
+                      setAvatarUrl(resolveAvatarUrl(updated.avatarUrlFallback, updated.name || updated.id));
+                    }
+                    window.dispatchEvent(new CustomEvent('charactersUpdated'));
+                  }}
+                  onRefreshDetail={() => {
+                    getCharacter(id).then(async (char) => {
+                      if (char) {
+                        setCharacter(char);
+                        setEditNameValue(char.name);
+                        if (char.avatarBlob) {
+                          const url = safeCreateObjectURL(char.avatarBlob);
+                          if (url) setAvatarUrl(url);
+                        }
+                      }
+                    });
+                  }}
+                />
+              </div>
+            )}
+
+            {activeTab === 'memos' && character && (
+              <div
+                key="memos"
+              >
+                <CharacterMemosSection characterId={character.id} isLightMode={isLightMode} />
+              </div>
+            )}
+              </motion.div>
             </AnimatePresence>
           </div>
         </div>
@@ -1287,13 +2612,69 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
                 setAvatarUrl(getLocalImageUrl(updatedCharacter.localFilePath!, updatedCharacter.updatedAt || updatedCharacter.createdAt));
               });
             } else if (updatedCharacter.avatarBlob) {
-              const url = URL.createObjectURL(updatedCharacter.avatarBlob);
-              setAvatarUrl(url);
+              const url = safeCreateObjectURL(updatedCharacter.avatarBlob);
+              if (url) setAvatarUrl(url);
             }
             window.dispatchEvent(new CustomEvent('charactersUpdated'));
           }}
         />
       )}
+
+      {character && (
+        <GreetingReaderModal
+          isOpen={showGreetingReader}
+          onClose={() => setShowGreetingReader(false)}
+          character={character}
+          avatarUrl={avatarUrl}
+          initialIndex={greetingReaderInitialIndex}
+          initialEditMode={greetingReaderEditMode}
+          onUpdateGreeting={handleUpdateGreetings}
+        />
+      )}
+
+      {character && activeProfileReader && (
+        <GreetingReaderModal
+          isOpen={Boolean(activeProfileReader)}
+          onClose={() => setActiveProfileReader(null)}
+          character={character}
+          avatarUrl={avatarUrl}
+          initialIndex={activeProfileReader.initialIndex}
+          initialEditMode={activeProfileReader.initialEditMode}
+          customSections={profileSections}
+        />
+      )}
+
+      <MoveToFolderModal
+        isOpen={isMoveFolderOpen}
+        onClose={() => setIsMoveFolderOpen(false)}
+        onMove={handleMoveFolder}
+      />
+
+      {showTokenBreakdownModal && character && (
+        <TokenBreakdownModal
+          isOpen={true}
+          onClose={() => setShowTokenBreakdownModal(false)}
+          charName={character.name}
+          breakdown={tokenBreakdown}
+          isLightMode={isLightMode}
+        />
+      )}
+
+      {showSummaryModal && character && (
+        <CharacterSummaryModal
+          character={character}
+          onClose={() => setShowSummaryModal(false)}
+          onOpenDetail={() => setShowSummaryModal(false)}
+          onSummaryUpdated={async () => {
+            const fresh = await getCharacter(character.id);
+            if (fresh) {
+              setCharacter(fresh);
+            }
+          }}
+          isLightMode={isLightMode}
+        />
+      )}
+
     </motion.div>
   );
 });
@@ -1316,6 +2697,11 @@ function FullScreenTextModal({
   const [isEditing, setIsEditing] = useState(initialEditMode);
   const [editValue, setEditValue] = useState(content);
 
+  useEffect(() => {
+    setIsEditing(initialEditMode);
+    setEditValue(content);
+  }, [isOpen, content, initialEditMode]);
+
   useBackHandler(isOpen, () => {
     onClose();
     return true;
@@ -1325,7 +2711,7 @@ function FullScreenTextModal({
     if (onSave) {
       onSave(editValue);
     }
-    setIsEditing(false); // Only exit edit mode, modal stays open
+    onClose();
   };
 
   return createPortal(
@@ -1336,50 +2722,72 @@ function FullScreenTextModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex justify-center items-center p-4 sm:p-6"
+          transition={{ duration: 0.18 }}
+          className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex justify-center items-center p-4 sm:p-6 [.light-theme_&]:bg-black/40"
           onClick={onClose}
         >
           <motion.div
             initial={{ scale: 0.95, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
+            transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-slate-900 border border-white/10 shadow-2xl rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
+            className="bg-slate-900 border border-white/10 shadow-2xl rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden [.light-theme_&]:bg-[#FCFCFC] [.light-theme_&]:border-black/5"
           >
-            <header className="px-5 py-4 flex items-center justify-between border-b border-white/10 bg-slate-800/50">
-              <h2 className="text-lg font-bold truncate pr-4 text-white">{title}</h2>
+            <div className="flex-none p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/20 [.light-theme_&]:border-black/5 [.light-theme_&]:bg-black/5">
+              <h3 className="text-lg font-semibold text-white [.light-theme_&]:text-[#1c1c1e]">{title}</h3>
               <div className="flex items-center gap-2">
-                {onSave && (
-                  isEditing ? (
-                    <button onClick={handleSave} className="px-3 py-1.5 text-sm bg-purple-500 hover:bg-purple-600 text-white rounded-lg transition font-medium shadow-lg shadow-purple-500/20">
-                      保存
-                    </button>
-                  ) : (
-                    <button onClick={() => setIsEditing(true)} className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition">
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                  )
+                {!isEditing && onSave && (
+                  <button onClick={() => setIsEditing(true)} className="p-1 hover:bg-white/10 rounded-full text-white/60 hover:text-white transition [.light-theme_&]:hover:bg-black/10 [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] cursor-pointer" title="编辑">
+                    <Edit2 className="w-4 h-4" />
+                  </button>
                 )}
-                <button onClick={onClose} className="p-2 rounded-full hover:bg-red-500/20 text-white/60 hover:text-red-400 transition ml-2">
+                <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-full text-white/60 hover:text-white transition [.light-theme_&]:hover:bg-black/10 [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] cursor-pointer">
                   <XIcon className="w-5 h-5" />
                 </button>
               </div>
-            </header>
+            </div>
 
-            <div className="flex-1 overflow-y-auto p-5 sm:p-6 custom-scrollbar bg-slate-900">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
               {isEditing ? (
                 <textarea 
                   value={editValue}
                   onChange={e => setEditValue(e.target.value)}
-                  className="w-full min-h-[300px] h-full bg-black/40 border border-white/20 rounded-xl p-4 text-white/90 text-sm sm:text-base leading-relaxed focus:outline-none focus:border-purple-500 resize-none font-sans"
+                  className="w-full min-h-[300px] bg-black/30 border border-white/10 rounded-xl p-4 text-white text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 [.light-theme_&]:focus:!border-[#007aff] transition resize-none font-sans [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:placeholder:!text-black/35"
                   autoFocus
                 />
               ) : (
-                <div className="text-white/90 whitespace-pre-wrap text-sm sm:text-base leading-relaxed break-words">
-                  {content || <span className="text-white/30 italic">暂无内容</span>}
-                </div>
+                <FormattedCardContent
+                  content={content}
+                  className="text-white/90 [.light-theme_&]:!text-[#0f172a] text-sm sm:text-base leading-relaxed break-words"
+                />
               )}
             </div>
+
+            {isEditing && (
+              <div className="flex-none p-4 sm:p-6 border-t border-white/10 bg-black/20 flex justify-end gap-3 [.light-theme_&]:border-black/5 [.light-theme_&]:bg-black/5">
+                <button 
+                  onClick={() => {
+                    if (initialEditMode) {
+                      onClose();
+                    } else {
+                      setIsEditing(false);
+                      setEditValue(content);
+                    }
+                  }} 
+                  className="px-4 py-2 rounded-lg text-white/60 hover:text-white hover:bg-white/5 transition [.light-theme_&]:!text-[#475569] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/10 cursor-pointer"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleSave} 
+                  className="px-6 py-2 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-[#0066d6] transition flex items-center gap-2 shadow-xs cursor-pointer"
+                >
+                  <Save className="w-4 h-4 stroke-[2.5]" />
+                  保存
+                </button>
+              </div>
+            )}
           </motion.div>
         </motion.div>
       )}
@@ -1388,7 +2796,25 @@ function FullScreenTextModal({
   );
 }
 
-function TextPreview({ title, content, onSave, initialEditMode }: { title: string; content: string; onSave?: (val: string) => void; initialEditMode?: boolean }) {
+function TextPreview({ 
+  title, 
+  content, 
+  character,
+  onSave, 
+  onMoveDown,
+  initialEditMode, 
+  onOpenReader,
+  onOpenEdit 
+}: { 
+  title: string; 
+  content: string; 
+  character?: CharacterCard | null;
+  onSave?: (val: string) => void; 
+  onMoveDown?: () => void;
+  initialEditMode?: boolean; 
+  onOpenReader?: () => void;
+  onOpenEdit?: () => void;
+}) {
   const [isExpanded, setIsExpanded] = useState(initialEditMode || false);
   const [isEditing, setIsEditing] = useState(initialEditMode || false);
   const [editValue, setEditValue] = useState(content);
@@ -1402,77 +2828,146 @@ function TextPreview({ title, content, onSave, initialEditMode }: { title: strin
 
   const handleEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsEditing(true);
-    if (!isExpanded) setIsExpanded(true);
+    if (onOpenEdit) {
+      onOpenEdit();
+    } else {
+      setIsEditing(true);
+      if (!isExpanded) setIsExpanded(true);
+    }
   };
 
-  if (!isExpanded && !isEditing) {
-    return (
-      <div 
-        onClick={() => setIsExpanded(true)}
-        className="group relative cursor-pointer bg-white/5 hover:bg-white/10 p-3 rounded-xl border border-white/10 transition-colors w-full overflow-hidden"
-      >
-        <div className="text-white/70 text-sm line-clamp-3 pr-8 break-words w-full">
-          {content ? (content.length > 50000 ? content.substring(0, 50000) + "...(过长已截断)" : content) : <span className="text-white/30 italic">空内容...</span>}
-        </div>
-        <div className="mt-1.5 text-purple-400 text-xs font-medium flex justify-between items-center opacity-80 group-hover:opacity-100 transition-opacity">
-          <span className="flex items-center gap-1">展开全文 <ChevronDown className="w-3 h-3" /></span>
-        </div>
-      </div>
-    );
-  }
+  const handleCardClick = () => {
+    if (onOpenReader) {
+      onOpenReader();
+    } else {
+      setIsExpanded(prev => !prev);
+    }
+  };
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, height: 0 }}
-      animate={{ opacity: 1, height: 'auto' }}
-      className="bg-white/5 p-4 rounded-xl border border-white/10 flex flex-col relative w-full mb-2"
-    >
-      <div className="flex justify-between items-center mb-3">
-        <div className="text-sm font-medium text-white/50">{title}</div>
-        <div className="flex gap-2">
-          {isEditing ? (
-             <button onClick={handleSave} className="text-green-400 hover:bg-green-400/10 p-1.5 rounded-lg text-xs font-medium transition cursor-pointer">
-               保存
-             </button>
-          ) : (
-            onSave && (
-              <button 
-                onClick={handleEdit}
-                className="text-white/60 hover:text-white hover:bg-white/10 p-1.5 rounded-lg transition cursor-pointer"
-              >
-                <Edit2 className="w-4 h-4" />
-              </button>
-            )
+    <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
+      {/* Action bar for Editing */}
+      {onSave && !isEditing && (
+        <div className="flex justify-end items-center gap-1.5 mb-1.5">
+          {onMoveDown && (
+            <button 
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveDown();
+              }}
+              className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] cursor-pointer"
+              title="下移（与备用开场白 1 互换）"
+            >
+              <ArrowDown className="w-3.5 h-3.5" />
+            </button>
           )}
-        </div>
-      </div>
-      
-      {isEditing ? (
-        <textarea 
-          value={editValue}
-          onChange={e => setEditValue(e.target.value)}
-          className="w-full bg-black/40 border border-white/20 rounded-xl p-3 text-white/90 text-sm sm:text-base leading-relaxed focus:outline-none focus:border-purple-500 min-h-[300px] resize-none"
-          autoFocus
-        />
-      ) : (
-        <div className="text-white/90 whitespace-pre-wrap text-sm sm:text-base leading-relaxed max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar break-words w-full">
-          {content}
+          <button 
+            onClick={handleEdit}
+            className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] cursor-pointer"
+            title="编辑"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
-      <button 
-        onClick={() => { setIsExpanded(false); setIsEditing(false); }}
-        className="mt-3 flex items-center justify-center gap-1 text-purple-400 text-sm font-medium py-1.5 hover:bg-white/5 rounded-lg transition w-full cursor-pointer"
-      >
-        <ChevronUp className="w-4 h-4" /> 收起 
-      </button>
-    </motion.div>
+      {isEditing ? (
+        <div className="w-full flex flex-col gap-2 mt-1">
+          <textarea 
+            value={editValue}
+            onChange={e => setEditValue(e.target.value)}
+            className="w-full bg-black/30 border border-white/10 rounded-xl p-3.5 text-white text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 [.light-theme_&]:focus:!border-[#007aff] min-h-[220px] resize-none [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:placeholder:!text-black/35"
+            autoFocus
+          />
+          <div className="flex justify-end gap-3 pt-1">
+            <button 
+              onClick={() => { setIsEditing(false); setEditValue(content); }}
+              className="px-4 py-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/5 text-xs sm:text-sm transition [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/10 cursor-pointer"
+            >
+              取消
+            </button>
+            <button 
+              onClick={handleSave} 
+              className="px-5 py-1.5 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-[#0066d6] transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Save className="w-3.5 h-3.5 stroke-[2.5]" />
+              保存
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="w-full">
+          {onOpenReader ? (
+            /* When full-screen reader is available, clicking card directly opens full-screen reader */
+            <div 
+              className="group cursor-pointer w-full"
+              onClick={handleCardClick}
+            >
+              <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
+                <FormattedCardContent content={content} character={character} clampLines={3} />
+              </div>
+              <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
+                <span>展开全文</span>
+                <ChevronDown className="w-3 h-3" />
+              </div>
+            </div>
+          ) : isExpanded ? (
+            <div className="detail-card-text text-sm leading-relaxed pr-2 break-words w-full">
+              <FormattedCardContent content={content} character={character} />
+              <button 
+                onClick={(e) => { e.stopPropagation(); setIsExpanded(false); }}
+                className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] [.light-theme_&]:!text-blue-600 text-xs font-medium py-1.5 hover:bg-[#60A5FA]/10 [.light-theme_&]:hover:bg-blue-50 rounded-lg transition w-full cursor-pointer"
+              >
+                <ChevronUp className="w-3.5 h-3.5" /> 收起
+              </button>
+            </div>
+          ) : (
+            <div 
+              className="group cursor-pointer w-full"
+              onClick={() => setIsExpanded(true)}
+            >
+              <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
+                <FormattedCardContent content={content} character={character} clampLines={3} />
+              </div>
+              <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
+                <span>展开全文</span>
+                <ChevronDown className="w-3 h-3" />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
-function AlternateGreetingCard({ index, content, onSave, onDelete }: { key?: string | number; index: number; content: string; onSave: (val: string) => void; onDelete: () => void }) {
-  const [isExpanded, setIsExpanded] = useState(false);
+function AlternateGreetingCard({ 
+  index, 
+  content, 
+  character,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
+  onSave, 
+  onDelete, 
+  onOpenReader,
+  onOpenEdit 
+}: { 
+  key?: string | number; 
+  index: number; 
+  content: string; 
+  character?: CharacterCard | null;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  onSave: (val: string) => void; 
+  onDelete: () => void; 
+  onOpenReader?: () => void;
+  onOpenEdit?: () => void;
+}) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(content);
 
@@ -1483,96 +2978,179 @@ function AlternateGreetingCard({ index, content, onSave, onDelete }: { key?: str
 
   const handleEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsEditing(true);
-    if (!isExpanded) setIsExpanded(true);
+    if (onOpenEdit) {
+      onOpenEdit();
+    } else {
+      setIsEditing(true);
+    }
+  };
+
+  const handleCardClick = () => {
+    if (onOpenReader) {
+      onOpenReader();
+    }
   };
 
   return (
-    <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex flex-col gap-2 transition-opacity hover:bg-white/10 mb-2">
-      <div className="flex flex-wrap sm:flex-nowrap justify-between items-start gap-2 mb-1">
-        <div className="flex flex-col min-w-0 flex-1">
-          <h4 className="font-semibold text-purple-300 truncate">
-            备用开场白 {index + 1}
-          </h4>
-        </div>
-        <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
-          {isExpanded && !isEditing && (
-            <button onClick={handleEdit} className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition">
+    <div className="w-full detail-card p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2">
+      <div className="flex flex-wrap sm:flex-nowrap justify-between items-center gap-2 mb-1.5">
+        <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 text-sm truncate">
+          备用开场白 {index + 1}
+        </h4>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <button 
+            type="button"
+            disabled={!canMoveUp}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMoveUp?.();
+            }}
+            className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+            title={index === 0 ? "上移（与首条消息互换）" : "上移开场白"}
+          >
+            <ArrowUp className="w-3.5 h-3.5" />
+          </button>
+          <button 
+            type="button"
+            disabled={!canMoveDown}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMoveDown?.();
+            }}
+            className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+            title="下移开场白"
+          >
+            <ArrowDown className="w-3.5 h-3.5" />
+          </button>
+          {!isEditing && (
+            <button 
+              onClick={handleEdit} 
+              className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] cursor-pointer"
+              title="编辑"
+            >
               <Edit2 className="w-3.5 h-3.5" />
             </button>
           )}
-          {isEditing && (
-            <button onClick={handleSave} className="p-1 hover:bg-green-500/20 rounded text-green-400 transition">
-              <Check className="w-4 h-4" />
-            </button>
-          )}
-          <button onClick={onDelete} className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition">
+          <button 
+            onClick={onDelete} 
+            className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-red-500 cursor-pointer"
+            title="删除"
+          >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
       
-      {!isExpanded && !isEditing ? (
-        <div 
-          className="group cursor-pointer w-full"
-          onClick={() => setIsExpanded(true)}
-        >
-          <div className="text-white/70 text-sm line-clamp-3 break-words w-full">
-            {content ? (content.length > 50000 ? content.substring(0, 50000) + "...(过长已截断)" : content) : <span className="text-white/30 italic">空内容...</span>}
-          </div>
-          <div className="mt-1.5 text-purple-400 text-xs font-medium flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
-            <span>展开全文</span>
-            <ChevronDown className="w-3 h-3" />
+      {isEditing ? (
+        <div className="w-full flex flex-col gap-2 mt-1">
+          <textarea 
+            value={editValue}
+            onChange={e => setEditValue(e.target.value)}
+            className="w-full bg-black/30 border border-white/10 rounded-xl p-3.5 text-white text-sm sm:text-base leading-relaxed focus:outline-none focus:border-blue-500 [.light-theme_&]:focus:!border-[#007aff] min-h-[220px] resize-none [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:placeholder:!text-black/35"
+            autoFocus
+          />
+          <div className="flex justify-end gap-3 pt-1">
+            <button 
+              onClick={() => { setIsEditing(false); setEditValue(content); }}
+              className="px-4 py-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/5 text-xs sm:text-sm transition [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/10 cursor-pointer"
+            >
+              取消
+            </button>
+            <button 
+              onClick={handleSave} 
+              className="px-5 py-1.5 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-[#0066d6] transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Save className="w-3.5 h-3.5 stroke-[2.5]" />
+              保存
+            </button>
           </div>
         </div>
       ) : (
-        <motion.div 
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          className="w-full flex flex-col"
-        >
-          {isEditing ? (
-            <textarea 
-              value={editValue}
-              onChange={e => setEditValue(e.target.value)}
-              className="w-full bg-black/40 border border-white/20 rounded-xl p-3 text-white/90 text-sm sm:text-base leading-relaxed focus:outline-none focus:border-purple-500 min-h-[200px] resize-none"
-              autoFocus
-            />
-          ) : (
-            <div className="text-white/90 whitespace-pre-wrap text-sm sm:text-base leading-relaxed max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar break-words w-full">
-              {content}
-            </div>
-          )}
-          <button 
-            onClick={() => { setIsExpanded(false); setIsEditing(false); }}
-            className="mt-3 flex items-center justify-center gap-1 text-purple-400 text-sm font-medium py-1.5 hover:bg-white/5 rounded-lg transition w-full cursor-pointer"
+        <div className="w-full">
+          <div 
+            className="group cursor-pointer w-full"
+            onClick={handleCardClick}
           >
-            <ChevronUp className="w-4 h-4" /> 收起 
-          </button>
-        </motion.div>
+            <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">
+              <FormattedCardContent content={content} character={character} clampLines={3} />
+            </div>
+            <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
+              <span>展开全文</span>
+              <ChevronDown className="w-3 h-3" />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-
-function Section({ title, content, onSave }: { title: string; content?: string; onSave?: (val: string) => void }) {
+function Section({ 
+  title, 
+  content, 
+  character,
+  onSave, 
+  onMoveDown,
+  onOpenReader,
+  onOpenEdit 
+}: { 
+  title: string; 
+  content?: string; 
+  character?: CharacterCard | null;
+  onSave?: (val: string) => void; 
+  onMoveDown?: () => void;
+  onOpenReader?: () => void;
+  onOpenEdit?: () => void;
+}) {
   const [isAdding, setIsAdding] = useState(false);
 
   return (
     <div>
-      <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-3">
-        <h3 className="text-lg font-semibold text-white/90">{title}</h3>
-        {(!content || content.trim() === '') && onSave && (
-          <button onClick={() => setIsAdding(true)} className="text-purple-400 hover:text-purple-300 flex items-center gap-1 text-sm bg-purple-500/10 px-2 py-1 rounded-lg transition">
-            <Plus className="w-4 h-4" /> 添加
-          </button>
-        )}
+      <div className="flex items-center justify-between border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] pb-2 mb-3">
+        <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a]">{title}</h3>
+        <div className="flex items-center gap-1.5">
+          {(!content || content.trim() === '') && onSave && (
+            <button 
+              onClick={() => {
+                if (onOpenEdit) {
+                  onOpenEdit();
+                } else {
+                  setIsAdding(true);
+                }
+              }} 
+              className="px-2.5 py-1 rounded-full text-xs sm:text-sm font-medium flex items-center gap-1 transition cursor-pointer active:scale-95 bg-transparent hover:bg-white/10 text-white [.light-theme_&]:!bg-transparent [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/5 border-0 outline-none"
+            >
+              <Plus className="w-3.5 h-3.5 text-white [.light-theme_&]:!text-[#0f172a]" />
+              <span>添加</span>
+            </button>
+          )}
+        </div>
       </div>
       {content && content.trim() !== '' ? (
-        <TextPreview title={title} content={content} onSave={onSave} />
+        <TextPreview 
+          title={title} 
+          content={content || ''} 
+          character={character} 
+          onSave={onSave} 
+          onMoveDown={onMoveDown}
+          onOpenReader={onOpenReader}
+          onOpenEdit={onOpenEdit}
+        />
       ) : (
-        <p className="text-white/30 text-sm italic">暂无内容</p>
+        <div 
+          className={`w-full p-3.5 rounded-2xl transition-all flex flex-col overflow-hidden mb-2 bg-transparent border-0 shadow-none [.light-theme_&]:!bg-transparent [.light-theme_&]:!border-none [.light-theme_&]:!shadow-none ${onSave || onOpenEdit ? 'cursor-pointer hover:bg-white/5 [.light-theme_&]:hover:!bg-black/5' : ''}`}
+          onClick={() => {
+            if (onOpenEdit) {
+              onOpenEdit();
+            } else if (onSave) {
+              setIsAdding(true);
+            }
+          }}
+        >
+          <div className="text-white/40 [.light-theme_&]:!text-slate-400 text-sm italic">
+            暂无内容
+          </div>
+        </div>
       )}
 
       <FullScreenTextModal
@@ -1596,6 +3174,8 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
   const [viewingEntryIndex, setViewingEntryIndex] = useState<number | null>(null);
   const [editingEntryIndex, setEditingEntryIndex] = useState<number | null>(null);
   const [editingEntry, setEditingEntry] = useState<any>(null);
+  const [isEditingBookName, setIsEditingBookName] = useState(false);
+  const [bookNameDraft, setBookNameDraft] = useState('');
 
   useBackHandler(editingEntryIndex !== null, () => {
     setEditingEntryIndex(null);
@@ -1603,7 +3183,28 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
     return true;
   });
 
+  const rawBookName = book.name || (book.data && book.data.name) || '';
+  const currentBookName = rawBookName || 'Worldbook';
   const entries = book.entries ? (Array.isArray(book.entries) ? book.entries : Object.values(book.entries)) : [];
+
+  useEffect(() => {
+    setBookNameDraft(rawBookName);
+  }, [rawBookName]);
+
+  const commitBookName = (draft: string) => {
+    const trimmed = draft.trim();
+    if (!trimmed || trimmed === rawBookName) {
+      setBookNameDraft(rawBookName);
+      setIsEditingBookName(false);
+      return;
+    }
+    const newBook = { ...book, name: trimmed };
+    if (newBook.data && typeof newBook.data === 'object') {
+      newBook.data = { ...newBook.data, name: trimmed };
+    }
+    onUpdate(newBook);
+    setIsEditingBookName(false);
+  };
 
   const handleAdd = () => {
     setEditingEntry({ keys: [], content: '', name: '', comment: '', order: 100, constant: false, selective: true, extensions: { position: 1 } });
@@ -1646,6 +3247,42 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
          newBook.entries = obj;
       }
       onUpdate(newBook);
+    }
+  };
+
+  const handleMove = (i: number, direction: number) => {
+    const targetIdx = i + direction;
+    if (targetIdx < 0 || targetIdx >= entries.length) return;
+    const newEntries = [...entries];
+    const itemA = { ...newEntries[i] };
+    const itemB = { ...newEntries[targetIdx] };
+
+    // Swap order values if distinct
+    const orderA = itemA.order ?? itemA.insertion_order;
+    const orderB = itemB.order ?? itemB.insertion_order;
+    if (orderA !== undefined && orderB !== undefined && orderA !== orderB) {
+      if (itemA.order !== undefined) itemA.order = orderB;
+      if (itemA.insertion_order !== undefined) itemA.insertion_order = orderB;
+      if (itemB.order !== undefined) itemB.order = orderA;
+      if (itemB.insertion_order !== undefined) itemB.insertion_order = orderA;
+    }
+
+    newEntries[i] = itemB;
+    newEntries[targetIdx] = itemA;
+
+    const newBook = { ...book };
+    if (Array.isArray(book.entries)) {
+       newBook.entries = newEntries;
+    } else {
+       const obj: any = {};
+       newEntries.forEach((e: any, idx: number) => { obj[String(idx)] = { ...e, uid: e.uid !== undefined ? e.uid : idx }; });
+       newBook.entries = obj;
+    }
+    onUpdate(newBook);
+    if (viewingEntryIndex === i) {
+      setViewingEntryIndex(targetIdx);
+    } else if (viewingEntryIndex === targetIdx) {
+      setViewingEntryIndex(i);
     }
   };
 
@@ -1715,7 +3352,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     type="text" 
                     value={editingEntry.comment || editingEntry.name || ''}
                     onChange={(e) => setEditingEntry({...editingEntry, comment: e.target.value, name: e.target.value})}
-                    className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-purple-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                    className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 [.light-theme_&]:focus:!border-[#007aff] transition [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:placeholder:!text-black/35"
                     placeholder="条目的标题，不影响匹配"
                   />
                 </div>
@@ -1725,7 +3362,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     type="text" 
                     value={(editingEntry.keys || []).join(', ')}
                     onChange={(e) => setEditingEntry({...editingEntry, keys: e.target.value.split(',').map((k: string)=>k.trim()).filter((k: string)=>k)})}
-                    className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-purple-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                    className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 [.light-theme_&]:focus:!border-[#007aff] transition [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:placeholder:!text-black/35"
                   />
                 </div>
 
@@ -1736,7 +3373,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                       type="number" 
                       value={editingEntry.order ?? 100}
                       onChange={(e) => setEditingEntry({...editingEntry, order: parseInt(e.target.value) || 0})}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-purple-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 [.light-theme_&]:focus:!border-[#007aff] transition [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#1c1c1e]"
                     />
                   </div>
                   <div>
@@ -1744,7 +3381,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     <select
                       value={editingEntry.extensions?.position ?? editingEntry.position ?? 1}
                       onChange={(e) => setEditingEntry({...editingEntry, extensions: {...(editingEntry.extensions || {}), position: parseInt(e.target.value)}})}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-purple-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 [.light-theme_&]:focus:!border-[#007aff] transition [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#1c1c1e]"
                     >
                       <option value={0}>0 - 角色设定前 (Before Char Def)</option>
                       <option value={1}>1 - 角色设定后 (After Char Def)</option>
@@ -1761,7 +3398,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                       type="checkbox"
                       checked={!!editingEntry.constant}
                       onChange={(e) => setEditingEntry({...editingEntry, constant: e.target.checked})}
-                      className="rounded bg-black/30 border-white/10 text-purple-500 focus:ring-purple-500/20 [.light-theme_&]:bg-white [.light-theme_&]:border-black/20"
+                      className="rounded bg-black/30 border-white/10 text-blue-500 accent-[#007aff] focus:ring-blue-500/20 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/20"
                     />
                     常驻激活 (Constant)
                   </label>
@@ -1770,7 +3407,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                       type="checkbox"
                       checked={editingEntry.selective !== false}
                       onChange={(e) => setEditingEntry({...editingEntry, selective: e.target.checked})}
-                      className="rounded bg-black/30 border-white/10 text-purple-500 focus:ring-purple-500/20 [.light-theme_&]:bg-white [.light-theme_&]:border-black/20"
+                      className="rounded bg-black/30 border-white/10 text-blue-500 accent-[#007aff] focus:ring-blue-500/20 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/20"
                     />
                     条件触发 (Selective)
                   </label>
@@ -1781,7 +3418,7 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                   <textarea 
                     value={editingEntry.content || editingEntry.entry || ''}
                     onChange={(e) => setEditingEntry({...editingEntry, content: e.target.value, entry: e.target.value})}
-                    className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-purple-500 transition min-h-[150px] resize-none [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                    className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 [.light-theme_&]:focus:!border-[#007aff] transition min-h-[150px] resize-none [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:placeholder:!text-black/35"
                   />
                 </div>
               </div>
@@ -1792,11 +3429,15 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
                     setEditingEntryIndex(null);
                     setEditingEntry(null);
                   }} 
-                  className="px-4 py-2 rounded-lg text-white/60 hover:text-white hover:bg-white/5 transition [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/10"
+                  className="px-4 py-2 rounded-lg text-white/60 hover:text-white hover:bg-white/5 transition [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/10 cursor-pointer"
                 >
                   取消
                 </button>
-                <button onClick={saveEntry} className="px-6 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition flex items-center gap-2 shadow-lg shadow-purple-500/20">
+                <button 
+                  onClick={saveEntry} 
+                  className="px-6 py-2 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-[#0066d6] transition flex items-center gap-2 shadow-xs cursor-pointer"
+                >
+                  <Save className="w-4 h-4 stroke-[2.5]" />
                   保存
                 </button>
               </div>
@@ -1809,17 +3450,46 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
   };
 
   return (
-    <div className="flex flex-col gap-4 w-full h-full relative">
-      <div className="flex items-center justify-between mb-2">
-        <div>
-          <h2 className="text-xl font-bold text-white mb-1">
-            {book.name || (book.data && book.data.name) || 'Worldbook'}
-          </h2>
-          <p className="text-sm text-white/60">
-            {book.description || (book.data && book.data.description) || '包含世界观、设定和背景信息'}
-          </p>
+    <div className="flex flex-col gap-3 w-full h-full relative">
+      <div className="flex items-center justify-between gap-3 border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] pb-2.5">
+        <div className="min-w-0 flex-1">
+          {isEditingBookName ? (
+            <input
+              type="text"
+              value={bookNameDraft}
+              onChange={(e) => setBookNameDraft(e.target.value)}
+              onBlur={() => commitBookName(bookNameDraft)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.currentTarget.blur();
+                } else if (e.key === 'Escape') {
+                  setBookNameDraft(rawBookName);
+                  setIsEditingBookName(false);
+                }
+              }}
+              placeholder="输入世界书名称"
+              className="w-full bg-transparent border-b border-blue-500/80 text-lg font-semibold text-white/95 placeholder:text-white/30 focus:outline-none py-0.5 leading-snug [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:placeholder:!text-[#94a3b8]"
+              autoFocus
+            />
+          ) : (
+            <h3
+              onClick={() => {
+                setBookNameDraft(rawBookName);
+                setIsEditingBookName(true);
+              }}
+              title="点击修改世界书名称"
+              className="inline-block max-w-full text-lg font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a] truncate cursor-text rounded-md px-1.5 -mx-1.5 py-0.5 hover:bg-white/[0.06] [.light-theme_&]:hover:bg-black/[0.04] transition-colors"
+            >
+              {currentBookName}
+            </h3>
+          )}
+          {(book.description || (book.data && book.data.description)) && (
+            <p className="text-xs text-white/60 [.light-theme_&]:!text-[#64748b] mt-0.5">
+              {book.description || (book.data && book.data.description)}
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
 
           
           <button 
@@ -1844,17 +3514,21 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
               const bytes = new TextEncoder().encode(jsonStr);
               await downloadOrShareFile(exportFileName, bytes.buffer, 'application/json', true);
             }}
-            className="p-2 rounded-full bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition"
+            className="w-9 h-9 rounded-full soft-pill flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs"
             title={getDownloadTooltip("导出世界书")}
           >
-            <Download className="w-5 h-5" />
+            <Download className="w-4.5 h-4.5 opacity-80" />
           </button>
           <button 
             onClick={() => setShowControls(!showControls)}
-            className={`p-2 rounded-full transition ${showControls ? 'bg-purple-500 text-white' : 'bg-purple-500/20 text-purple-300 hover:bg-purple-500/30'}`}
+            className={`w-9 h-9 rounded-full flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 ${
+              showControls 
+                ? 'bg-blue-600 text-white border border-blue-500 shadow-sm [.light-theme_&]:!border-blue-600' 
+                : 'soft-pill'
+            }`}
             title="管理世界书"
           >
-            <Edit2 className="w-5 h-5" />
+            <Edit2 className="w-4.5 h-4.5 opacity-80" />
           </button>
         </div>
       </div>
@@ -1865,27 +3539,58 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="flex gap-3 overflow-hidden mb-4"
+            className="overflow-hidden"
           >
-            <button 
-              onClick={handleAdd}
-              className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2"
-            >
-              <Plus className="w-4 h-4" /> 添加条目
-            </button>
-            <button 
-              onClick={onDelete}
-              className="flex-1 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2"
-            >
-              <Trash2 className="w-4 h-4" /> 删除世界书
-            </button>
+            <div className="grid grid-cols-3 sm:flex sm:justify-end items-center gap-1.5 sm:gap-2 w-full shrink-0">
+              <button
+                type="button"
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  if (isEditingBookName) {
+                    commitBookName(bookNameDraft);
+                  } else {
+                    setBookNameDraft(rawBookName);
+                    setIsEditingBookName(true);
+                  }
+                }}
+                className={`px-1.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 shrink-0 whitespace-nowrap ${
+                  isEditingBookName
+                    ? 'bg-blue-600 text-white border border-blue-500 shadow-sm [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!border-[#007aff] [.light-theme_&]:!text-white'
+                    : 'soft-pill'
+                }`}
+                title="修改世界书名称"
+              >
+                <Edit2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-80 shrink-0" />
+                <span>更名</span>
+              </button>
+              <button 
+                type="button"
+                onClick={handleAdd}
+                className="soft-pill px-1.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 shrink-0 whitespace-nowrap"
+              >
+                <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-80 shrink-0" />
+                <span>添加条目</span>
+              </button>
+              <button 
+                type="button"
+                onClick={onDelete}
+                className="px-1.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 shrink-0 whitespace-nowrap bg-red-500/15 hover:bg-red-500/25 text-rose-400 [.light-theme_&]:!bg-rose-50 [.light-theme_&]:hover:!bg-rose-100 [.light-theme_&]:!text-rose-600 border border-rose-500/20 [.light-theme_&]:!border-rose-200"
+              >
+                <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                <span>删除世界书</span>
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
       
       <div className="space-y-3">
         {entries.length === 0 ? (
-          <p className="text-center text-white/40 py-8">暂无条目。</p>
+          <div className="w-full detail-card p-8 rounded-2xl flex flex-col items-center justify-center text-center">
+            <Book className="w-12 h-12 mb-3 opacity-40 text-slate-400 [.light-theme_&]:!text-slate-500" />
+            <p className="detail-card-text text-sm font-medium">世界书中暂无条目</p>
+            <p className="detail-card-text-muted text-xs mt-1">请点击上方管理或添加条目</p>
+          </div>
         ) : (
           entries.map((entry: any, i: number) => {
             const isEnabled = entry.disable !== undefined ? !entry.disable : entry.enabled !== false;
@@ -1895,55 +3600,98 @@ export function WorldbookViewer({ book, onUpdate, onDelete }: { book: any; onUpd
             const order = entry.order !== undefined ? entry.order : (entry.insertion_order || 50);
 
             return (
-              <div key={i} className={`w-full bg-white/5 p-3 rounded-xl border ${isEnabled ? 'border-white/10' : 'border-white/5 opacity-60'} flex gap-3 transition-opacity overflow-hidden`}>
+              <div key={i} className={`w-full detail-card p-3.5 rounded-2xl ${isEnabled ? '' : 'opacity-60'} flex gap-3 transition-opacity overflow-hidden mb-2`}>
                 <div className="flex-1 min-w-0 w-full">
-                  <div className="flex flex-wrap sm:flex-nowrap justify-between items-start gap-2 mb-1 w-full">
-                    <div className="flex flex-col min-w-0 flex-1">
-                      <h4 className="font-semibold text-purple-300 truncate">
-                        {title}
-                      </h4>
-                      {keysDisplay && keysDisplay !== title && (
-                        <p className="text-xs text-white/40 truncate mt-0.5">
-                          关键词: {keysDisplay}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+                  <div className="flex justify-between items-center gap-2 mb-1.5 w-full">
+                    <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 text-sm truncate flex-1 min-w-0">
+                      {title}
+                    </h4>
+                    <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
                       <button
-                        onClick={() => handleToggleEnable(i)}
-                        className={`text-[10px] px-1.5 py-0.5 rounded-full transition whitespace-nowrap ${isEnabled ? 'bg-green-500/20 text-green-400' : 'bg-white/10 text-white/40'}`}
+                        type="button"
+                        disabled={i === 0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMove(i, -1);
+                        }}
+                        className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+                        title="上移条目"
                       >
-                        {isEnabled ? '已启用' : '已禁用'}
+                        <ArrowUp className="w-3.5 h-3.5" />
                       </button>
-                      <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded-full text-white/60 whitespace-nowrap">
-                        顺序: {order}
-                      </span>
-                      <button onClick={() => handleEdit(i)} className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition">
+                      <button
+                        type="button"
+                        disabled={i === entries.length - 1}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMove(i, 1);
+                        }}
+                        className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+                        title="下移条目"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEdit(i);
+                        }} 
+                        className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] cursor-pointer"
+                        title="编辑"
+                      >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
-                      <button onClick={() => handleDelete(i)} className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(i);
+                        }} 
+                        className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-red-500 cursor-pointer"
+                        title="删除"
+                      >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleEnable(i);
+                      }}
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition whitespace-nowrap border cursor-pointer ${isEnabled ? 'bg-green-500/10 text-green-400 border-green-500/20 [.light-theme_&]:!bg-[#E7F9EE] [.light-theme_&]:!text-[#1DB954] [.light-theme_&]:!border-[#1DB954]/20' : 'bg-white/5 text-white/30 border-white/5 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#8E8E93] [.light-theme_&]:!border-transparent'}`}
+                      title={isEnabled ? "点击禁用" : "点击启用"}
+                    >
+                      {isEnabled ? '已启用' : '已禁用'}
+                    </button>
+                    <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-white/70 border border-white/10 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#3A3A3C] [.light-theme_&]:!border-transparent whitespace-nowrap font-medium shadow-2xs">
+                      顺序: {order}
+                    </span>
+                    {keysDisplay && keysDisplay !== title && (
+                      <span className="text-[11px] text-white/40 [.light-theme_&]:!text-slate-400 truncate max-w-[180px] sm:max-w-xs" title={`关键词: ${keysDisplay}`}>
+                        关键词: {keysDisplay}
+                      </span>
+                    )}
                   </div>
                   <div 
                     className="group cursor-pointer mt-2 w-full"
                     onClick={() => setViewingEntryIndex(viewingEntryIndex === i ? null : i)}
                   >
                     {viewingEntryIndex === i ? (
-                      <div className="text-white/90 whitespace-pre-wrap text-sm leading-relaxed pr-2 break-words w-full" onClick={e => e.stopPropagation()}>
+                      <div className="detail-card-text whitespace-pre-wrap text-sm leading-relaxed pr-2 break-words w-full" onClick={e => e.stopPropagation()}>
                         {entry.content || entry.entry || ''}
                         <button 
                           onClick={(e) => { e.stopPropagation(); setViewingEntryIndex(null); }}
-                          className="mt-3 flex items-center justify-center gap-1 text-purple-400 text-sm font-medium py-1.5 hover:bg-white/5 rounded-lg transition w-full cursor-pointer"
+                          className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] [.light-theme_&]:!text-blue-600 text-xs font-medium py-1.5 hover:bg-[#60A5FA]/10 [.light-theme_&]:hover:bg-blue-50 rounded-lg transition w-full cursor-pointer"
                         >
-                          <ChevronUp className="w-4 h-4" /> 收起 
+                          <ChevronUp className="w-3.5 h-3.5" /> 收起 
                         </button>
                       </div>
                     ) : (
                       <>
-                        <div className="text-white/70 text-sm line-clamp-2 break-words w-full">{entry.content || entry.entry || ''}</div>
-                        <div className="mt-1.5 text-purple-400 text-xs font-medium flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                        <div className="detail-card-text-muted text-sm line-clamp-3 break-words w-full">{entry.content || entry.entry || ''}</div>
+                        <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
                           <span>展开全文</span>
                           <ChevronDown className="w-3 h-3" />
                         </div>

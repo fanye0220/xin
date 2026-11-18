@@ -1,7 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Upload, Download, Share2, Trash2, Edit2, Check, X as XIcon, ChevronDown, ChevronUp, Plus, Save } from 'lucide-react';
+import { Upload, Download, Share2, Trash2, Edit2, Check, X as XIcon, ChevronDown, ChevronUp, Plus, Save, ArrowUp, ArrowDown } from 'lucide-react';
 import { CharacterCard, saveCharacter } from '../lib/db';
+import { AutoResizingIframe } from './MessageContent';
 import { useBackHandler } from '../lib/useBackHandler';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getDownloadTooltip } from '../lib/appBridge';
@@ -9,13 +10,15 @@ import { getDownloadTooltip } from '../lib/appBridge';
 interface Props {
   character: CharacterCard;
   onUpdate: (updatedCharacter: CharacterCard) => void;
+  isLightMode?: boolean;
 }
 
-export function CharacterRegexSection({ character, onUpdate }: Props) {
+export function CharacterRegexSection({ character, onUpdate, isLightMode = false }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<any>({});
+  const [renderPreviewIndices, setRenderPreviewIndices] = useState<Record<number, boolean>>({});
 
   useBackHandler(editingIndex !== null, () => {
     setEditingIndex(null);
@@ -96,6 +99,12 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
     });
   };
 
+  const handleToggleEnable = (index: number) => {
+    const newScripts = [...regexScripts];
+    newScripts[index] = { ...newScripts[index], disabled: !newScripts[index].disabled };
+    saveRegexScripts(newScripts);
+  };
+
   const handleDelete = (index: number) => {
     if (confirm('确定要删除这条正则吗？')) {
       const newScripts = [...regexScripts];
@@ -107,12 +116,27 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
     }
   };
 
+  const handleMove = (index: number, direction: number) => {
+    const targetIdx = index + direction;
+    if (targetIdx < 0 || targetIdx >= regexScripts.length) return;
+    const newScripts = [...regexScripts];
+    const temp = newScripts[index];
+    newScripts[index] = newScripts[targetIdx];
+    newScripts[targetIdx] = temp;
+    saveRegexScripts(newScripts);
+    if (expandedIndex === index) {
+      setExpandedIndex(targetIdx);
+    } else if (expandedIndex === targetIdx) {
+      setExpandedIndex(index);
+    }
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center mb-4">
+    <div className="space-y-4">
+      <div className="flex items-center justify-between border-b border-white/10 [.light-theme_&]:!border-[#e2e8f0] pb-2 mb-3">
         <div>
-          <h3 className="text-xl font-bold">正则替换</h3>
-          <p className="text-white/60 text-sm mt-1">
+          <h3 className="text-lg font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a]">正则替换</h3>
+          <p className="text-xs text-white/60 [.light-theme_&]:!text-slate-500 mt-0.5">
             用于对聊天内容进行自动替换的正则表达式
           </p>
         </div>
@@ -129,10 +153,10 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
               });
               setEditingIndex(-1);
             }}
-            className="p-2 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition"
+            className="w-9 h-9 rounded-full soft-pill flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs"
             title="新增正则规则"
           >
-            <Plus className="w-5 h-5" />
+            <Plus className="w-4.5 h-4.5 opacity-80" />
           </button>
           <input 
             type="file" 
@@ -143,115 +167,212 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="p-2 rounded-full bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition"
+            className="w-9 h-9 rounded-full soft-pill flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs"
             title="导入正则"
           >
-            <Upload className="w-5 h-5" />
+            <Upload className="w-4.5 h-4.5 opacity-80" />
           </button>
           {regexScripts.length > 0 && (
             <button
               onClick={() => handleExport(true)}
-              className="p-2 rounded-full bg-green-500/20 text-green-300 hover:bg-green-500/30 transition"
+              className="w-9 h-9 rounded-full soft-pill flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs"
               title={getDownloadTooltip("导出全部正则")}
             >
-              <Download className="w-5 h-5" />
+              <Download className="w-4.5 h-4.5 opacity-80" />
             </button>
           )}
         </div>
       </div>
 
       {regexScripts.length === 0 ? (
-        <div className="flex flex-col items-center justify-center p-8 text-white/40 border border-white/5 rounded-2xl bg-white/5">
+        <div className="flex flex-col items-center justify-center p-8 rounded-2xl bg-white/5 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!shadow-xs text-white/40 [.light-theme_&]:!text-[#64748b]">
           <Edit2 className="w-12 h-12 mb-3 opacity-50" />
-          <p>当前角色未包含正则替换</p>
+          <p className="text-sm font-medium">当前角色未包含正则替换</p>
         </div>
       ) : (
         <div className="space-y-2">
           {regexScripts.map((script, index) => {
             const isExpanded = expandedIndex === index;
             const title = script.scriptName || script.name || `正则替换 ${index + 1}`;
+            const isEnabled = !script.disabled;
             return (
               <div 
                 key={script.id || index} 
-                className="bg-white/5 border border-white/10 rounded-xl p-4 transition-colors hover:bg-white/10 group flex flex-col"
+                className={`w-full detail-card p-3.5 rounded-2xl ${isEnabled ? '' : 'opacity-60'} flex flex-col transition-all overflow-hidden mb-2`}
               >
-                <div className="flex justify-between items-start w-full gap-4">
+                <div className="flex justify-between items-center gap-2 mb-1.5 w-full">
                   <div 
-                    className="flex flex-col flex-1 min-w-0 pb-1 cursor-pointer group" 
+                    className="flex flex-col min-w-0 flex-1 cursor-pointer group"
                     onClick={() => setExpandedIndex(isExpanded ? null : index)}
                   >
-                    <div className="flex gap-2 mb-1.5 flex-wrap items-center">
-                      <span className={`w-2 h-2 rounded-full flex-none ${script.disabled ? 'bg-red-500/50' : 'bg-green-500'}`}></span>
-                      <span className="font-semibold text-white/90 break-words line-clamp-2 leading-snug">{title}</span>
-                    </div>
-
-                    {isExpanded ? (
-                      <div className="text-white/90 whitespace-pre-wrap text-sm leading-relaxed pr-2 break-words w-full" onClick={e => e.stopPropagation()}>
-                        <div className="mt-2 space-y-3">
-                          <div>
-                            <span className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-1 block">匹配规则 (RegEx)</span>
-                            <div className="font-mono text-sm break-all font-medium text-blue-300">
-                              {script.regex || script.findRegex || '未设定'}
-                            </div>
-                          </div>
-                          <div>
-                            <span className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-1 block">替换内容</span>
-                            <div className="font-mono text-sm break-all font-medium text-green-300">
-                              {script.replacementString || script.replaceString || ''}
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap gap-2 text-xs text-white/60">
-                            {script.placement && Array.isArray(script.placement) && (
-                              <span className="px-2 py-1 bg-black/40 rounded-md border border-white/5">插入位置: {script.placement.join(', ')}</span>
-                            )}
-                            {script.disabled && (
-                              <span className="px-2 py-1 bg-red-500/20 text-red-300 rounded-md border border-red-500/20">已禁用</span>
-                            )}
-                          </div>
-                        </div>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); setExpandedIndex(null); }}
-                          className="mt-3 flex items-center justify-center gap-1 text-purple-400 text-sm font-medium py-1.5 hover:bg-white/5 rounded-lg transition w-full cursor-pointer"
-                        >
-                          <ChevronUp className="w-4 h-4" /> 收起 
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="text-white/70 text-sm line-clamp-2 break-words w-full font-mono">
-                          {script.regex || script.findRegex || '未设定'}
-                        </div>
-                        <div className="mt-1.5 text-purple-400 text-xs font-medium flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                          <span>展开全文</span>
-                          <ChevronDown className="w-3 h-3" />
-                        </div>
-                      </>
-                    )}
+                    <h4 className="font-semibold text-blue-300 [.light-theme_&]:!text-blue-700 text-sm truncate">
+                      {title}
+                    </h4>
                   </div>
-                  
-                  <div className="flex items-center gap-1 flex-none opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+                    <button
+                      type="button"
+                      disabled={index === 0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMove(index, -1);
+                      }}
+                      className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+                      title="上移规则"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={index === regexScripts.length - 1}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMove(index, 1);
+                      }}
+                      className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+                      title="下移规则"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
                         setEditForm({ ...script });
                         setEditingIndex(index);
                       }}
-                      className="p-2 text-white/60 hover:text-blue-400 hover:bg-blue-500/20 rounded-lg transition"
+                      className="p-1 hover:bg-white/10 rounded text-white/60 hover:text-white transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-[#0f172a] cursor-pointer"
                       title="编辑"
                     >
-                      <Edit2 className="w-4 h-4" />
+                      <Edit2 className="w-3.5 h-3.5" />
                     </button>
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDelete(index);
                       }}
-                      className="p-2 text-white/60 hover:text-red-400 hover:bg-red-500/20 rounded-lg transition"
+                      className="p-1 hover:bg-red-500/20 rounded text-white/60 hover:text-red-400 transition [.light-theme_&]:text-slate-400 [.light-theme_&]:hover:text-red-500 cursor-pointer"
                       title="删除"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleToggleEnable(index);
+                    }}
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition whitespace-nowrap border cursor-pointer ${isEnabled ? 'bg-green-500/10 text-green-400 border-green-500/20 [.light-theme_&]:!bg-[#E7F9EE] [.light-theme_&]:!text-[#1DB954] [.light-theme_&]:!border-[#1DB954]/20' : 'bg-white/5 text-white/30 border-white/5 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#8E8E93] [.light-theme_&]:!border-transparent'}`}
+                    title={isEnabled ? "点击禁用" : "点击启用"}
+                  >
+                    {isEnabled ? '已启用' : '已禁用'}
+                  </button>
+                  {script.placement && Array.isArray(script.placement) && script.placement.length > 0 && (
+                    <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-white/70 border border-white/10 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#3A3A3C] font-medium">
+                      位置: {script.placement.join(', ')}
+                    </span>
+                  )}
+                </div>
+
+                <div 
+                  className="w-full cursor-pointer group"
+                  onClick={() => setExpandedIndex(isExpanded ? null : index)}
+                >
+                  {isExpanded ? (
+                    <div className="detail-card-text text-sm leading-relaxed pr-2 break-words w-full" onClick={e => e.stopPropagation()}>
+                      <div className="mt-2 space-y-3">
+                        <div>
+                          <span className="text-xs font-semibold uppercase tracking-wider mb-1 block text-white/50 [.light-theme_&]:!text-slate-500">匹配规则 (RegEx)</span>
+                          <div className="font-mono text-sm break-all font-medium text-blue-300 [.light-theme_&]:!text-blue-600">
+                            {script.regex || script.findRegex || '未设定'}
+                          </div>
+                        </div>
+                        <div>
+                          {(() => {
+                            const rawRep = String(script.replacementString ?? script.replaceString ?? '');
+                            const hasHtml = /<(?:!DOCTYPE|html|style|div|section|details|table|article|main|aside|header|footer|svg)\b/i.test(rawRep);
+                            const showRendered = hasHtml && !!renderPreviewIndices[index];
+                            const previewHtml = hasHtml
+                              ? rawRep
+                                  .replace(/\r\n/g, '\n')
+                                  .replace(/\r/g, '\n')
+                                  .trim()
+                                  .replace(/^(?:`{3,}|~{3,})[^\n]*\n?/i, '')
+                                  .replace(/\n?(?:`{3,}|~{3,})\s*$/i, '')
+                                  .trim()
+                                  .replace(/\{\{char\}\}/gi, character.name || '角色')
+                                  .replace(/\{\{user\}\}/gi, 'User')
+                                  .replace(/\{\{match\}\}/gi, '示例内容')
+                                  .replace(/\$(\d+)/g, (_, n) => `示例文本${n}`)
+                              : '';
+                            return (
+                              <>
+                                <div className="flex items-center justify-between gap-2 mb-1.5">
+                                  <span className="text-xs font-semibold uppercase tracking-wider text-white/50 [.light-theme_&]:!text-slate-500">替换内容</span>
+                                  {hasHtml && (
+                                    <div className="inline-flex rounded-full p-0.5 bg-white/10 [.light-theme_&]:bg-black/5">
+                                      <button
+                                        type="button"
+                                        onClick={() => setRenderPreviewIndices((prev) => ({ ...prev, [index]: false }))}
+                                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium transition cursor-pointer ${!showRendered ? 'bg-blue-500 text-white shadow-xs' : 'text-white/60 hover:text-white [.light-theme_&]:text-slate-600 [.light-theme_&]:hover:text-slate-900'}`}
+                                      >
+                                        源码
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setRenderPreviewIndices((prev) => ({ ...prev, [index]: true }))}
+                                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium transition cursor-pointer ${showRendered ? 'bg-blue-500 text-white shadow-xs' : 'text-white/60 hover:text-white [.light-theme_&]:text-slate-600 [.light-theme_&]:hover:text-slate-900'}`}
+                                      >
+                                        渲染预览
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                                {showRendered ? (
+                                  <div className="rounded-xl overflow-hidden border border-white/10 [.light-theme_&]:border-black/10 bg-black/10 [.light-theme_&]:bg-black/[0.02]">
+                                    <AutoResizingIframe
+                                      htmlContent={previewHtml}
+                                      themeMode={isLightMode ? 'light' : 'dark'}
+                                      characterName={character.name}
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="font-mono text-sm break-all font-medium text-green-300 [.light-theme_&]:!text-[#1DB954]">
+                                    {rawRep}
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-xs">
+                          {script.placement && Array.isArray(script.placement) && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] bg-white/10 text-white/70 [.light-theme_&]:!bg-[#F2F2F7] [.light-theme_&]:!text-[#3A3A3C] font-medium">
+                              插入位置: {script.placement.join(', ')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setExpandedIndex(null); }}
+                        className="mt-3 flex items-center justify-center gap-1 text-[#60A5FA] [.light-theme_&]:!text-blue-600 text-xs font-medium py-1.5 hover:bg-[#60A5FA]/10 [.light-theme_&]:hover:bg-blue-50 rounded-lg transition w-full cursor-pointer"
+                      >
+                        <ChevronUp className="w-3.5 h-3.5" /> 收起 
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="detail-card-text-muted text-sm line-clamp-2 break-words w-full font-mono">
+                        {script.regex || script.findRegex || '未设定'}
+                      </div>
+                      <div className="mt-1.5 text-[#60A5FA] [.light-theme_&]:!text-blue-600 group-hover:text-blue-400 [.light-theme_&]:group-hover:!text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors">
+                        <span>展开全文</span>
+                        <ChevronDown className="w-3 h-3" />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -294,7 +415,7 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
                       type="text"
                       value={editForm.scriptName || editForm.name || ''}
                       onChange={(e) => setEditForm({ ...editForm, scriptName: e.target.value })}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500 transition [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 [.light-theme_&]:focus:!border-[#007aff] transition [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:placeholder:!text-black/35"
                       placeholder="例如: 屏蔽特定格式的星号动作"
                     />
                   </div>
@@ -304,7 +425,7 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
                     <textarea
                       value={editForm.regex || editForm.findRegex || ''}
                       onChange={(e) => setEditForm({ ...editForm, regex: e.target.value })}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500 transition font-mono min-h-[100px] [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 [.light-theme_&]:focus:!border-[#007aff] transition font-mono min-h-[100px] [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:placeholder:!text-black/35"
                       placeholder="输入合法的正则表达式"
                     />
                   </div>
@@ -314,7 +435,7 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
                     <textarea
                       value={editForm.replacementString ?? editForm.replaceString ?? ''}
                       onChange={(e) => setEditForm({ ...editForm, replacementString: e.target.value })}
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500 transition font-mono min-h-[100px] [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
+                      className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 [.light-theme_&]:focus:!border-[#007aff] transition font-mono min-h-[100px] [.light-theme_&]:!bg-black/5 [.light-theme_&]:!border-black/10 [.light-theme_&]:!text-[#1c1c1e] [.light-theme_&]:placeholder:!text-black/35"
                       placeholder="输入替换内容，可使用 $1, $2 等捕获组"
                     />
                   </div>
@@ -325,7 +446,7 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
                          type="checkbox"
                          checked={!editForm.disabled}
                          onChange={(e) => setEditForm({ ...editForm, disabled: !e.target.checked })}
-                         className="rounded bg-black/30 border-white/10 text-purple-500 focus:ring-purple-500/20 [.light-theme_&]:bg-white [.light-theme_&]:border-black/20"
+                         className="rounded bg-black/30 border-white/10 text-blue-500 accent-[#007aff] focus:ring-blue-500/20 [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/20"
                        />
                        启用
                      </label>
@@ -350,9 +471,9 @@ export function CharacterRegexSection({ character, onUpdate }: Props) {
                       saveRegexScripts(newScripts);
                       setEditingIndex(null);
                     }}
-                    className="px-6 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition flex items-center gap-2 shadow-lg shadow-purple-500/20"
+                    className="px-6 py-2 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-[#0066d6] transition flex items-center gap-2 shadow-xs cursor-pointer"
                   >
-                    <Save className="w-4 h-4" />
+                    <Save className="w-4 h-4 stroke-[2.5]" />
                     保存
                   </button>
                 </div>

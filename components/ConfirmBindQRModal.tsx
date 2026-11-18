@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Link as LinkIcon, ArrowRight, Sparkles, Check, Trash2 } from "lucide-react";
+import { X, Link2, ArrowRight, Check } from "lucide-react";
 import { CharacterCard, getCharacterBlob } from "../lib/db";
-import { getFallbackAvatar, resolveAvatarUrl } from "../lib/avatar";
+import { getFallbackAvatar, isFallbackMiuImage, resolveAvatarUrl, safeCreateObjectURL } from "../lib/avatar";
+import { useBackHandler } from "../lib/useBackHandler";
 
 interface Props {
   isOpen: boolean;
@@ -10,14 +12,17 @@ interface Props {
   onConfirm: (deleteSource: boolean) => void;
   qrChar: CharacterCard | null;
   targetChar: CharacterCard | null;
+  isLightMode?: boolean;
 }
 
 function ItemCardPreview({
   char,
   isQR,
+  isLightMode,
 }: {
   char: CharacterCard;
   isQR?: boolean;
+  isLightMode?: boolean;
 }) {
   const defaultFallback = getFallbackAvatar(
     char.name || char.id,
@@ -45,13 +50,13 @@ function ItemCardPreview({
           );
       });
     } else if (char.avatarBlob) {
-      objectUrl = URL.createObjectURL(char.avatarBlob);
-      if (isMounted) setUrl(objectUrl);
+      objectUrl = safeCreateObjectURL(char.avatarBlob);
+      if (isMounted && objectUrl) setUrl(objectUrl);
     } else if (char.hasBlobsSeparated || (char as any).hasBlobsSeparated) {
       getCharacterBlob(char.id).then((blobs) => {
         if (blobs?.avatarBlob && isMounted) {
-          objectUrl = URL.createObjectURL(blobs.avatarBlob);
-          setUrl(objectUrl);
+          objectUrl = safeCreateObjectURL(blobs.avatarBlob);
+          if (objectUrl) setUrl(objectUrl);
         }
       });
     }
@@ -62,25 +67,34 @@ function ItemCardPreview({
   }, [char]);
 
   return (
-    <div className="flex flex-col items-center text-center p-3.5 rounded-2xl bg-white/5 border border-white/10 flex-1 min-w-0 shadow-lg">
-      <div className="w-16 h-16 rounded-2xl overflow-hidden shrink-0 bg-black/40 shadow-inner mb-2.5 border border-white/10">
+    <div
+      className="flex flex-col items-center text-center p-3 sm:p-4 rounded-2xl flex-1 min-w-0 border version-candidate-card transition-all"
+    >
+      <div className="w-13 h-13 sm:w-16 sm:h-16 rounded-2xl overflow-hidden shrink-0 mb-2">
         <img
           src={url || defaultFallback}
           alt={char.name}
-          className="w-full h-full object-cover"
+          className={`w-full h-full ${
+            isFallbackMiuImage(url || defaultFallback)
+              ? 'object-contain p-1 bg-white'
+              : 'object-cover'
+          }`}
           onError={(e) => {
             e.currentTarget.src = defaultFallback;
           }}
         />
       </div>
-      <h4 className="font-semibold text-white text-sm truncate w-full" title={char.name}>
+      <h4
+        className="font-bold text-xs sm:text-sm truncate w-full version-candidate-name px-1"
+        title={char.name}
+      >
         {char.name}
       </h4>
       <span
-        className={`text-[11px] mt-1 px-2.5 py-0.5 rounded-full font-medium ${
+        className={`text-[10px] sm:text-[11px] mt-1.5 px-2.5 py-0.5 rounded-full font-medium tracking-tight whitespace-nowrap ${
           isQR
-            ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
-            : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+            ? "bg-blue-500/15 text-blue-500 dark:text-blue-400 border border-blue-500/20 font-semibold"
+            : "soft-pill font-medium"
         }`}
       >
         {isQR ? "快速回复 (QR)" : "目标角色卡"}
@@ -95,90 +109,153 @@ export function ConfirmBindQRModal({
   onConfirm,
   qrChar,
   targetChar,
+  isLightMode: propIsLightMode,
 }: Props) {
-  const [deleteSource, setDeleteSource] = useState(true);
+  const [deleteSource, setDeleteSource] = useState(() => {
+    const saved = localStorage.getItem('tavern_bind_qr_delete_source');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const [isLightMode, setIsLightMode] = useState(() => {
+    if (typeof propIsLightMode === 'boolean') return propIsLightMode;
+    return (
+      document.documentElement.classList.contains('light-theme') ||
+      localStorage.getItem('tavern_theme') === 'light'
+    );
+  });
+
+  useEffect(() => {
+    if (typeof propIsLightMode === 'boolean') {
+      setIsLightMode(propIsLightMode);
+      return;
+    }
+    const checkTheme = () => {
+      setIsLightMode(
+        document.documentElement.classList.contains('light-theme') ||
+        localStorage.getItem('tavern_theme') === 'light'
+      );
+    };
+    checkTheme();
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+    window.addEventListener('storage', checkTheme);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('storage', checkTheme);
+    };
+  }, [propIsLightMode]);
+
+  useBackHandler(isOpen, () => {
+    onClose();
+    return true;
+  });
+
+  useEffect(() => {
+    if (isOpen) {
+      const saved = localStorage.getItem('tavern_bind_qr_delete_source');
+      if (saved !== null) {
+        setDeleteSource(saved === 'true');
+      }
+    }
+  }, [isOpen, qrChar?.id, targetChar?.id]);
+
+  const handleToggleDeleteSource = () => {
+    setDeleteSource((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('tavern_bind_qr_delete_source', String(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  const handleConfirm = () => {
+    try {
+      localStorage.setItem('tavern_bind_qr_delete_source', String(deleteSource));
+    } catch (e) {}
+    onConfirm(deleteSource);
+  };
 
   if (!isOpen || !qrChar || !targetChar) return null;
 
-  return (
+  return createPortal(
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <div 
+        className={`fixed inset-0 z-[120] flex items-center justify-center p-4 backdrop-blur-sm ${
+          isLightMode ? 'light-theme bg-black/35' : 'bg-black/80'
+        }`}
+        onTouchStart={(e) => e.stopPropagation()}
+        onTouchEnd={(e) => e.stopPropagation()}
+      >
         <motion.div
           initial={{ opacity: 0, scale: 0.92, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.92, y: 15 }}
           transition={{ type: "spring", duration: 0.3, bounce: 0.1 }}
-          className="bg-slate-900 border border-white/15 rounded-3xl p-6 w-full max-w-md shadow-2xl relative overflow-hidden"
+          className="version-modal-box rounded-3xl p-5 sm:p-6 w-[92vw] sm:w-full max-w-lg shadow-2xl relative overflow-hidden"
         >
-          {/* Top background glow */}
-          <div className="absolute -top-20 -left-20 w-48 h-48 bg-purple-500/20 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute -top-20 -right-20 w-48 h-48 bg-pink-500/20 rounded-full blur-3xl pointer-events-none" />
-
           {/* Header */}
-          <div className="flex items-center justify-between pb-4 border-b border-white/10 relative z-10">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-600 to-pink-600 flex items-center justify-center text-white shadow-md shadow-purple-500/20">
-                <LinkIcon className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-white leading-tight">
-                  绑定快速回复
-                </h3>
-                <p className="text-xs text-white/50">拖拽匹配快速绑定</p>
-              </div>
+          <div className="flex items-center justify-between pb-3.5 border-b version-modal-border">
+            <div>
+              <h3 className="text-base sm:text-lg font-bold leading-tight version-modal-title">
+                绑定快速回复
+              </h3>
+              <p className="text-xs sm:text-sm mt-0.5 font-normal version-modal-desc">
+                拖拽匹配角色并绑定
+              </p>
             </div>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-full hover:bg-white/10 text-white/60 hover:text-white transition"
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full version-modal-close-btn flex items-center justify-center transition cursor-pointer"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
 
           {/* Cards Connection Visualization */}
-          <div className="py-5 relative z-10">
+          <div className="py-3.5 sm:py-4 relative z-10 space-y-3">
             <div className="flex items-center gap-2">
-              <ItemCardPreview char={qrChar} isQR={true} />
+              <ItemCardPreview char={qrChar} isQR={true} isLightMode={isLightMode} />
 
-              <div className="flex flex-col items-center justify-center shrink-0 px-1">
-                <div className="w-8 h-8 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-300 shadow-md">
-                  <ArrowRight className="w-4 h-4" />
-                </div>
-                <span className="text-[10px] text-purple-300/80 font-medium mt-1">
-                  绑定至
-                </span>
+              <div className="flex items-center justify-center shrink-0 px-1 sm:px-1.5">
+                <ArrowRight className="w-5 h-5 text-blue-500 dark:text-blue-400 stroke-[2.2]" />
               </div>
 
-              <ItemCardPreview char={targetChar} isQR={false} />
+              <ItemCardPreview char={targetChar} isQR={false} isLightMode={isLightMode} />
             </div>
 
-            <p className="text-xs text-slate-300 mt-4 leading-relaxed bg-white/5 p-3 rounded-xl border border-white/5">
-              确定要将快速回复「<span className="text-purple-300 font-medium">{qrChar.name}</span>」绑定到角色「<span className="text-blue-300 font-medium">{targetChar.name}</span>」吗？
-              绑定后，该角色的快捷回复集中将包含此内容，在聊天中可直接呼出使用。
-            </p>
+            <div className="text-xs sm:text-sm leading-relaxed p-3 sm:p-3.5 rounded-2xl border font-medium version-candidate-card flex items-center gap-2.5">
+              <div className="w-6 h-6 rounded-lg bg-blue-500/15 text-blue-500 dark:text-blue-400 flex items-center justify-center shrink-0">
+                <Link2 className="w-3.5 h-3.5 stroke-[2.2]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                确认将快速回复「<span className="font-bold version-candidate-name">{qrChar.name}</span>」合并存入角色卡「<span className="font-bold version-candidate-name">{targetChar.name}</span>」中？
+              </div>
+            </div>
 
             {/* Delete Source Option */}
             <div
-              onClick={() => setDeleteSource(!deleteSource)}
-              className="flex items-start gap-3 p-3.5 mt-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition cursor-pointer select-none"
+              onClick={handleToggleDeleteSource}
+              className="flex items-center justify-between gap-2.5 p-2.5 sm:p-3 px-3.5 rounded-2xl border transition cursor-pointer select-none version-candidate-card"
             >
-              <div
-                className={`w-5 h-5 rounded-md flex items-center justify-center border transition shrink-0 mt-0.5 ${
-                  deleteSource
-                    ? "bg-purple-600 border-purple-500 text-white"
-                    : "border-white/30 bg-black/30"
-                }`}
-              >
-                {deleteSource && <Check className="w-3.5 h-3.5" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <span className="text-sm font-medium text-white block">
-                  绑定后将独立 QR 卡片移至回收站
-                </span>
-                <span className="text-xs text-white/50 block mt-0.5">
-                  推荐勾选，避免在列表中残留重复冗余的独立快速回复卡
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <div
+                  className={`w-4.5 h-4.5 rounded-md flex items-center justify-center transition shrink-0 version-checkbox-icon ${
+                    deleteSource ? 'is-checked' : ''
+                  }`}
+                >
+                  {deleteSource && <Check className="w-3 h-3 stroke-[2.5]" />}
+                </div>
+                <span className="text-xs sm:text-sm font-semibold version-candidate-name truncate">
+                  绑定后将原独立 QR 卡片移至回收站
                 </span>
               </div>
+              <span className="text-[11px] version-candidate-sub opacity-60 shrink-0 hidden sm:inline">
+                避免重复残留
+              </span>
             </div>
           </div>
 
@@ -187,21 +264,22 @@ export function ConfirmBindQRModal({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-3 px-4 rounded-xl bg-white/10 hover:bg-white/15 text-white/80 font-medium transition text-sm active:scale-95"
+              className="soft-pill flex-1 py-3 sm:py-3.5 px-4 rounded-2xl font-semibold transition-all text-sm sm:text-base active:scale-95 cursor-pointer text-center"
             >
               取消
             </button>
             <button
               type="button"
-              onClick={() => onConfirm(deleteSource)}
-              className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-medium shadow-lg shadow-purple-500/25 transition text-sm flex items-center justify-center gap-1.5 active:scale-95"
+              onClick={handleConfirm}
+              className="flex-1 py-3 sm:py-3.5 px-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white border border-blue-600 [.light-theme_&]:!bg-blue-600 [.light-theme_&]:!border-blue-600 [.light-theme_&]:!text-white font-bold shadow-sm transition-all text-sm sm:text-base flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
             >
-              <LinkIcon className="w-4 h-4" />
+              <Link2 className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.2]" />
               确认绑定
             </button>
           </div>
         </motion.div>
       </div>
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }

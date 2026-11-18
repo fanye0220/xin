@@ -2,10 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { getMemosForCharacter, saveMemo, deleteMemo, CharacterMemo } from '../lib/db';
+import { safeCreateObjectURL } from '../lib/avatar';
 import { getDownloadTooltip } from '../lib/appBridge';
-import { StickyNote, Image as ImageIcon, File, Trash2, Plus, Download, X, Share2, Pin, Edit, FileUp, Eye } from 'lucide-react';
+import { StickyNote, Image as ImageIcon, File, Trash2, Plus, Download, X, Share2, Pin, Edit, FileUp, Eye, Save, ChevronDown, ChevronUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 
@@ -76,7 +78,7 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
     );
 }
 
-export function CharacterMemosSection({ characterId }: { characterId: string }) {
+export function CharacterMemosSection({ characterId, isLightMode = false }: { characterId: string; isLightMode?: boolean }) {
   const [memos, setMemos] = useState<CharacterMemo[]>([]);
   const [isAddingMode, setIsAddingMode] = useState(false);
   const [isReorderingMode, setIsReorderingMode] = useState(false);
@@ -85,7 +87,18 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
   const [viewingMemoFile, setViewingMemoFile] = useState<CharacterMemo | null>(null);
   const [isEditingMemo, setIsEditingMemo] = useState(false);
   const [editMemoContent, setEditMemoContent] = useState('');
+  const [expandedMemoIds, setExpandedMemoIds] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const toggleMemoExpand = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setExpandedMemoIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const loadMemos = async () => {
     const list = await getMemosForCharacter(characterId);
@@ -130,7 +143,7 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
 
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const isImage = file.type.startsWith('image/');
+        const isImage = file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|svg|avif)$/i.test(file.name);
         
         let content = file.name;
         let finalBlob: Blob | undefined = file;
@@ -192,32 +205,35 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
 
   return (
     <div className="space-y-6 pb-20">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <h3 className="text-xl font-bold text-white flex items-center gap-2">
-           <StickyNote className="w-5 h-5 text-blue-400 shrink-0" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-1 pt-1">
+        <h3 className="text-xl font-bold text-white/90 [.light-theme_&]:!text-[#0f172a]">
            <span className="truncate">备忘录与剧场</span>
         </h3>
-        <div className="flex gap-2 self-start sm:self-auto w-full sm:w-auto">
+        <div className="grid grid-cols-3 sm:flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto shrink-0">
             <button
                 onClick={() => setIsReorderingMode(!isReorderingMode)}
-                className={`flex-1 sm:flex-none justify-center px-3 py-2 ${isReorderingMode ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-white/5 text-white/70 border-white/10'} hover:bg-white/10 border rounded-lg text-sm transition flex items-center gap-1.5`}
+                className={`px-2 sm:px-4 py-2 sm:py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 shrink-0 whitespace-nowrap ${
+                  isReorderingMode 
+                    ? 'bg-blue-600 text-white border border-blue-500 shadow-sm [.light-theme_&]:!border-blue-600' 
+                    : 'soft-pill'
+                }`}
             >
-                <Edit className="w-4 h-4" />
-                {isReorderingMode ? '完成' : '排序'}
+                <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-80 shrink-0" />
+                <span>{isReorderingMode ? '完成' : '排序'}</span>
             </button>
             <button
                 onClick={() => setIsAddingMode(true)}
-                className="flex-1 sm:flex-none justify-center px-3 py-2 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 rounded-lg text-sm transition flex items-center gap-1.5"
+                className="soft-pill px-2 sm:px-4 py-2 sm:py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 shrink-0 whitespace-nowrap"
             >
-                <Plus className="w-4 h-4" />
-                笔记
+                <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-80 shrink-0" />
+                <span>新建笔记</span>
             </button>
             <button
                 onClick={() => fileInputRef.current?.click()}
-                className="flex-1 sm:flex-none justify-center px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-lg text-sm transition flex items-center gap-1.5"
+                className="soft-pill px-2 sm:px-4 py-2 sm:py-2 rounded-full text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs focus:outline-none focus:ring-0 shrink-0 whitespace-nowrap"
             >
-                <FileUp className="w-4 h-4" />
-                更多
+                <FileUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-80 shrink-0" />
+                <span>导入文件</span>
             </button>
         </div>
         <input 
@@ -226,7 +242,7 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
             className="hidden" 
             ref={fileInputRef} 
             onChange={handleFileUpload} 
-            accept=".txt,.md,.json,.jsonl,.js,.css,.html"
+            accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg,.txt,.md,.json,.jsonl,.js,.css,.html"
         />
       </div>
 
@@ -237,46 +253,48 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex justify-center items-center p-4 sm:p-6"
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex justify-center items-center p-4 sm:p-6 [.light-theme_&]:bg-black/40"
             onClick={() => setIsAddingMode(false)}
           >
             <motion.div 
               initial={{ scale: 0.95, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="bg-slate-900 border border-white/10 shadow-2xl rounded-2xl flex flex-col w-full max-h-[85vh] max-w-3xl overflow-hidden"
+              transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+              className="bg-slate-900 border border-white/10 shadow-2xl rounded-2xl flex flex-col w-full max-h-[85vh] max-w-3xl overflow-hidden [.light-theme_&]:bg-[#FCFCFC] [.light-theme_&]:border-black/5"
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex-none p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/20">
-                 <h3 className="font-bold text-lg text-white flex items-center gap-2">
-                    <Plus className="w-5 h-5 text-purple-400" />
+               <div className="flex-none p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/20 [.light-theme_&]:border-black/5 [.light-theme_&]:bg-black/5">
+                 <h3 className="text-lg font-semibold text-white [.light-theme_&]:text-[#1c1c1e]">
                     新建笔记
                  </h3>
-                 <button onClick={() => setIsAddingMode(false)} className="p-2 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white rounded-xl transition">
+                 <button onClick={() => setIsAddingMode(false)} className="p-1 hover:bg-white/10 rounded-full text-white/60 hover:text-white transition [.light-theme_&]:hover:bg-black/10 [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] cursor-pointer">
                     <X className="w-5 h-5" />
                  </button>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-900 flex flex-col gap-4">
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
                 <textarea 
-                  className="flex-1 bg-white/5 border border-white/10 rounded-xl p-4 text-white resize-none min-h-[200px] focus:outline-none focus:border-purple-500/50"
+                  className="w-full bg-black/30 border border-white/10 rounded-lg p-4 text-white text-sm focus:outline-none focus:border-blue-500 transition min-h-[220px] resize-none [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                   placeholder="在这里写下脑洞、小剧场或设定补充（支持 Markdown）"
                   value={newText}
                   onChange={e => setNewText(e.target.value)}
                   autoFocus
                 />
               </div>
-              <div className="flex-none p-4 sm:p-6 border-t border-white/10 flex justify-end gap-2 bg-black/20">
+              <div className="flex-none p-4 sm:p-6 border-t border-white/10 bg-black/20 flex justify-end gap-3 [.light-theme_&]:border-black/5 [.light-theme_&]:bg-black/5">
                   <button 
                     onClick={() => setIsAddingMode(false)}
-                    className="px-5 py-2.5 rounded-xl text-sm bg-white/5 hover:bg-white/10 text-white/70 transition"
+                    className="px-4 py-2 rounded-lg text-white/60 hover:text-white hover:bg-white/5 transition [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/10 cursor-pointer"
                   >
                       取消
                   </button>
                   <button 
                     onClick={handleCreateTextMemo}
-                    className="px-5 py-2.5 rounded-xl text-sm bg-purple-500 hover:bg-purple-600 text-white transition font-medium shadow-lg shadow-purple-500/20 disabled:opacity-50"
+                    className="px-6 py-2 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
                     disabled={!newText.trim()}
                   >
+                      <Save className="w-4 h-4 stroke-[2.5]" />
                       保存笔记
                   </button>
               </div>
@@ -287,11 +305,11 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
 , document.body)}
 
       {memos.length === 0 && !isAddingMode ? (
-         <div className="flex flex-col items-center justify-center p-12 bg-white/5 rounded-2xl border border-white/10 text-center border-dashed border-2">
-            <StickyNote className="w-12 h-12 text-white/20 mb-4" />
-            <h4 className="text-white/80 font-medium mb-2">暂无备忘信息</h4>
-            <p className="text-white/40 text-sm max-w-sm">
-              你可以用它来记录设定补充、剧本大纲、贴图或是存储写好的小剧场。
+         <div className="flex flex-col items-center justify-center p-8 rounded-2xl bg-white/5 border border-white/5 [.light-theme_&]:!bg-[#f8fafc] [.light-theme_&]:!border-[#e2e8f0] text-white/40 [.light-theme_&]:!text-[#64748b] text-center">
+            <StickyNote className="w-12 h-12 mb-3 opacity-50" />
+            <p className="text-sm font-medium">当前角色暂无备忘信息</p>
+            <p className="text-xs text-white/30 [.light-theme_&]:!text-[#94a3b8] mt-1">
+              可记录设定补充、剧本大纲、贴图或存储小剧场
             </p>
          </div>
       ) : (
@@ -306,92 +324,228 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
                       key={memo.id} 
                       value={memo} 
                       dragListener={isReorderingMode}
-                      className={`bg-white/5 border ${memo.isPinned ? 'border-purple-500/50 shadow-[0_0_15px_rgba(168,85,247,0.15)]' : 'border-white/10'} rounded-xl overflow-hidden group break-inside-avoid shadow-lg relative ${isReorderingMode ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                      className={`rounded-2xl overflow-hidden group break-inside-avoid shadow-xs relative w-full max-w-full bg-white/5 border border-white/10 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] ${isReorderingMode ? 'cursor-grab active:cursor-grabbing' : ''}`}
                   >
-                                            {memo.type !== 'file' && (
-                          <div className="absolute top-3 right-3 flex gap-2 z-10 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                              <button
-                                  onClick={() => handleTogglePin(memo)}
-                                 className={`p-2 bg-black/40 ${memo.isPinned ? 'text-purple-400' : 'text-white/50 hover:text-white'} hover:bg-white/10 rounded-lg transition`}
-                                 title={memo.isPinned ? "取消置顶" : "置顶记录"}
-                              >
-                                 <Pin className={`w-4 h-4 ${memo.isPinned ? 'fill-current' : ''}`} />
-                              </button>
-                              <button
-                                  onClick={() => handleDelete(memo.id)}
-                                 className="p-2 bg-black/40 hover:bg-red-500/80 text-white/50 hover:text-white rounded-lg transition"
-                              >
-                                 <Trash2 className="w-4 h-4" />
-                              </button>
-                          </div>
-                      )}
-                      {memo.type !== 'file' && memo.isPinned && (
-                          <div className="absolute top-3 right-3 flex gap-2 z-10 hidden sm:flex sm:group-hover:opacity-0 transition-opacity pointer-events-none">
-                              <div className="p-2 text-purple-400">
-                                 <Pin className="w-4 h-4 fill-current" />
-                              </div>
-                          </div>
-                      )}
+                      {memo.type === 'text' && (() => {
+                        const isExpanded = expandedMemoIds.has(memo.id);
+                        const isLongDocument = memo.content.length > 180 || (memo.content.match(/\n/g) || []).length >= 4;
 
-                                            {memo.type === 'text' && (
-                          <div className="p-5 cursor-pointer group/text relative" onClick={() => { setReadingMemo(memo); setEditMemoContent(memo.content); setIsEditingMemo(false); }}>
-                             <div className="prose prose-sm prose-invert memo-prose-adapt max-w-none text-white/80 leading-relaxed markdown-body line-clamp-[8]">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                    {memo.content}
+                        return (
+                          <div
+                            className="p-4 sm:p-5 cursor-pointer group/text relative w-full max-w-full overflow-hidden"
+                            onClick={() => {
+                              setReadingMemo(memo);
+                              setEditMemoContent(memo.content);
+                              setIsEditingMemo(false);
+                            }}
+                          >
+                            <div className="relative w-full max-w-full overflow-hidden">
+                              <div
+                                className={`prose prose-sm prose-invert [.light-theme_&]:!prose-slate memo-prose-adapt max-w-full w-full text-white/85 [.light-theme_&]:!text-[#0f172a] leading-relaxed markdown-body break-words break-all overflow-hidden transition-all duration-200 ${
+                                  isLongDocument && !isExpanded ? 'max-h-[140px] sm:max-h-[160px] overflow-hidden' : ''
+                                }`}
+                              >
+                                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                                  {memo.content}
                                 </ReactMarkdown>
-                             </div>
-                             <div className="absolute inset-0 bg-gradient-to-t from-[#1b2234] via-transparent to-transparent opacity-0 group-hover/text:opacity-100 transition-opacity flex items-end justify-center pb-4">
-                               <span className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-xs text-white shadow-lg pointer-events-none">
-                                 点击全屏阅读
-                               </span>
-                             </div>
-                             <div className="mt-4 text-[11px] text-white/30 relative z-10">
-                                {new Date(memo.createdAt).toLocaleString()}
-                             </div>
+                              </div>
+
+                              {isLongDocument && !isExpanded && (
+                                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-slate-900/95 via-slate-900/70 to-transparent [.light-theme_&]:from-[#ffffff] [.light-theme_&]:via-[#ffffff]/80" />
+                              )}
+                            </div>
+
+                            <div 
+                              className="mt-3 flex items-center justify-between gap-2 pt-2.5 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0] relative z-10 w-full"
+                              style={{ borderColor: isLightMode ? '#e2e8f0' : 'rgba(255, 255, 255, 0.1)' }}
+                            >
+                              {isLongDocument ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => toggleMemoExpand(memo.id, e)}
+                                  className="text-xs font-semibold text-[#007aff] [.light-theme_&]:!text-[#007aff] flex items-center gap-1 cursor-pointer transition active:scale-95 py-1 px-2.5 -ml-2 rounded-lg hover:bg-white/5 [.light-theme_&]:hover:!bg-black/5 shrink-0"
+                                  title={isExpanded ? '折叠收起' : '展开全文'}
+                                >
+                                  <span>{isExpanded ? '收起全文' : '展开全文'}</span>
+                                  {isExpanded ? (
+                                    <ChevronUp className="w-3.5 h-3.5 stroke-[2.2]" />
+                                  ) : (
+                                    <ChevronDown className="w-3.5 h-3.5 stroke-[2.2]" />
+                                  )}
+                                </button>
+                              ) : (
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className="text-[11px] text-white/40 [.light-theme_&]:!text-slate-400">
+                                    便签记事
+                                  </span>
+                                  {memo.isPinned && (
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-[#007aff]/15 text-[#007aff] border border-[#007aff]/25 [.light-theme_&]:!bg-[#007aff]/12 [.light-theme_&]:!text-[#007aff] [.light-theme_&]:!border-[#007aff]/25 shrink-0">
+                                      置顶
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+
+                              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                                <span className="text-[11px] text-white/40 [.light-theme_&]:!text-slate-500">
+                                  {new Date(memo.createdAt).toLocaleDateString()} {new Date(memo.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handleTogglePin(memo); }}
+                                  className={`soft-pill p-2 rounded-xl transition active:scale-95 cursor-pointer shadow-xs ${
+                                      memo.isPinned 
+                                          ? '!bg-[#007aff] !text-white !border-[#007aff] [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!text-white [.light-theme_&]:!border-[#007aff] shadow-sm' 
+                                          : 'hover:!text-white [.light-theme_&]:hover:!text-[#0f172a]'
+                                  }`} 
+                                  title={memo.isPinned ? "取消置顶" : "置顶记事"}
+                                >
+                                  <Pin className={`w-3.5 h-3.5 ${memo.isPinned ? 'fill-current' : ''}`} />
+                                </button>
+
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handleDelete(memo.id); }}
+                                  className="soft-pill p-2 rounded-xl transition active:scale-95 cursor-pointer shadow-xs hover:!text-red-400 hover:!border-red-500/30 [.light-theme_&]:hover:!text-red-600 [.light-theme_&]:hover:!border-red-300" 
+                                  title="删除"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
                           </div>
-                      )}
+                        );
+                      })()}
 
                       {memo.type === 'image' && memo.blob && (
-                          <div className="relative">
+                          <div className="relative w-full overflow-hidden">
                              <MemoImage memo={memo} />
-                             <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent flex justify-between items-end">
-                                <span className="text-xs text-white/60">{new Date(memo.createdAt).toLocaleString()}</span>
-                             </div>
-                             <div className="absolute bottom-3 right-3 flex gap-2 transition opacity-100 md:opacity-0 md:group-hover:opacity-100">
-                                 <button onClick={() => setViewingMemoFile(memo)} className="p-1.5 bg-black/40 hover:bg-purple-500 text-white/70 hover:text-white rounded-lg transition" title="查看数据">
-                                    <Eye className="w-4 h-4" />
-                                 </button>
-                                 
-                                 <button onClick={() => handleDownloadFile(memo, true)} className="p-1.5 bg-black/40 hover:bg-blue-500 text-white/70 hover:text-white rounded-lg transition" title={getDownloadTooltip("下载")}>
-                                    <Download className="w-4 h-4" />
-                                 </button>
+                             <div 
+                               className="p-3 bg-white/5 [.light-theme_&]:!bg-[#f8fafc] border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0] flex items-center justify-between gap-2"
+                               style={{ borderColor: isLightMode ? '#e2e8f0' : 'rgba(255, 255, 255, 0.1)' }}
+                             >
+                                <div className="flex items-center gap-1.5 text-xs text-white/60 [.light-theme_&]:!text-[#64748b] truncate">
+                                   <span>{new Date(memo.createdAt).toLocaleDateString()} {new Date(memo.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                   {memo.isPinned && (
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-[#007aff]/15 text-[#007aff] border border-[#007aff]/25 [.light-theme_&]:!bg-[#007aff]/12 [.light-theme_&]:!text-[#007aff] [.light-theme_&]:!border-[#007aff]/25 shrink-0">
+                                        置顶
+                                      </span>
+                                   )}
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                    <button 
+                                        onClick={() => handleDownloadFile(memo, true)} 
+                                        className="soft-pill px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs text-[#007aff] [.light-theme_&]:!text-[#007aff]" 
+                                        title={getDownloadTooltip("下载图片")}
+                                    >
+                                        <Download className="w-3.5 h-3.5" />
+                                        <span>下载</span>
+                                    </button>
+                                    <button 
+                                        onClick={() => handleTogglePin(memo)} 
+                                        className={`soft-pill p-2 rounded-xl transition active:scale-95 cursor-pointer shadow-xs ${
+                                            memo.isPinned 
+                                                ? '!bg-[#007aff] !text-white !border-[#007aff] [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!text-white [.light-theme_&]:!border-[#007aff] shadow-sm' 
+                                                : 'hover:!text-white [.light-theme_&]:hover:!text-[#0f172a]'
+                                        }`} 
+                                        title={memo.isPinned ? "取消置顶" : "置顶图片"}
+                                    >
+                                        <Pin className={`w-3.5 h-3.5 ${memo.isPinned ? 'fill-current' : ''}`} />
+                                    </button>
+                                    <button 
+                                        onClick={() => handleDelete(memo.id)} 
+                                        className="soft-pill p-2 rounded-xl transition active:scale-95 cursor-pointer shadow-xs hover:!text-red-400 hover:!border-red-500/30 [.light-theme_&]:hover:!text-red-600 [.light-theme_&]:hover:!border-red-300" 
+                                        title="删除"
+                                    >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
                              </div>
                           </div>
                       )}
 
                       {memo.type === 'file' && memo.blob && (
-                          <div className="p-4 sm:p-5 flex items-center gap-4">
-                              <div className="w-12 h-12 bg-blue-500/20 text-blue-400 rounded-xl flex items-center justify-center shrink-0 shadow-inner">
-                                  <File className="w-6 h-6" />
+                          <div className="p-3.5 sm:p-4.5 flex flex-col gap-3">
+                              {/* Top Row: File Icon + File Name & Meta */}
+                              <div className="flex items-center gap-3 min-w-0">
+                                  <div className="w-10 h-10 sm:w-11 sm:h-11 bg-blue-500/10 text-[#007aff] [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-[#007aff] rounded-xl flex items-center justify-center shrink-0 shadow-inner">
+                                      <File className="w-5 h-5 sm:w-5.5 sm:h-5.5" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                      <div
+                                          onClick={() => setViewingMemoFile(memo)}
+                                          className="text-sm font-semibold text-white/90 [.light-theme_&]:!text-[#0f172a] truncate cursor-pointer hover:text-[#007aff] [.light-theme_&]:hover:text-[#007aff] transition"
+                                          title={memo.content}
+                                      >
+                                          {memo.content}
+                                      </div>
+                                      <div className="flex items-center gap-1.5 sm:gap-2 text-xs text-white/40 [.light-theme_&]:!text-slate-500 mt-0.5 truncate">
+                                          <span>{new Date(memo.createdAt).toLocaleDateString()} {new Date(memo.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                          {memo.blob?.size ? (
+                                              <>
+                                                  <span>·</span>
+                                                  <span>
+                                                      {memo.blob.size < 1024 
+                                                          ? `${memo.blob.size} B` 
+                                                          : memo.blob.size < 1024 * 1024 
+                                                              ? `${(memo.blob.size / 1024).toFixed(1)} KB` 
+                                                              : `${(memo.blob.size / (1024 * 1024)).toFixed(1)} MB`}
+                                                  </span>
+                                              </>
+                                          ) : null}
+                                          {memo.isPinned && (
+                                              <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-[#007aff]/15 text-[#007aff] border border-[#007aff]/25 [.light-theme_&]:!bg-[#007aff]/12 [.light-theme_&]:!text-[#007aff] [.light-theme_&]:!border-[#007aff]/25 shrink-0">
+                                                  置顶
+                                              </span>
+                                          )}
+                                      </div>
+                                  </div>
                               </div>
-                              <div className="flex-1 min-w-0">
-                                  <div className="text-[15px] font-medium text-white/90 truncate">{memo.content}</div>
-                                  <div className="text-xs text-white/40 mt-1">{new Date(memo.createdAt).toLocaleString()}</div>
-                              </div>
-                              <div className="flex gap-1 sm:gap-2 shrink-0 items-center">
-                                  <button onClick={() => setViewingMemoFile(memo)} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition" title="查看内容">
-                                      <Eye className="w-5 h-5" />
-                                  </button>
-                                  
-                                  <button onClick={() => handleDownloadFile(memo, true)} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition" title={getDownloadTooltip("下载")}>
-                                      <Download className="w-5 h-5" />
-                                  </button>
-                                  <button onClick={() => handleTogglePin(memo)} className={`w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-full transition ${memo.isPinned ? 'text-purple-400' : 'text-white/70 hover:text-white'}`} title={memo.isPinned ? "取消置顶" : "置顶"}>
-                                      <Pin className={`w-5 h-5 ${memo.isPinned ? 'fill-current' : ''}`} />
-                                  </button>
-                                  <button onClick={() => handleDelete(memo.id)} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-full transition shadow-sm" title="删除">
-                                      <Trash2 className="w-5 h-5" />
-                                  </button>
+
+                              {/* Bottom Action Bar: Soft-pill buttons & Grey divider line */}
+                              <div 
+                                className="flex items-center justify-between pt-2.5 border-t border-white/10 [.light-theme_&]:!border-[#e2e8f0]"
+                                style={{ borderColor: isLightMode ? '#e2e8f0' : 'rgba(255, 255, 255, 0.1)' }}
+                              >
+                                  <div className="flex items-center gap-1.5 sm:gap-2">
+                                      <button 
+                                          onClick={() => setViewingMemoFile(memo)} 
+                                          className="soft-pill px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs" 
+                                          title="查看文件内容"
+                                      >
+                                          <Eye className="w-3.5 h-3.5 opacity-80" />
+                                          <span>查看</span>
+                                      </button>
+                                      
+                                      <button 
+                                          onClick={() => handleDownloadFile(memo, true)} 
+                                          className="soft-pill px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs text-[#007aff] [.light-theme_&]:!text-[#007aff]" 
+                                          title={getDownloadTooltip("下载")}
+                                      >
+                                          <Download className="w-3.5 h-3.5" />
+                                          <span>下载文件</span>
+                                      </button>
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5">
+                                      <button 
+                                          onClick={() => handleTogglePin(memo)} 
+                                          className={`soft-pill p-2 rounded-xl transition active:scale-95 cursor-pointer shadow-xs ${
+                                              memo.isPinned 
+                                                  ? '!bg-[#007aff] !text-white !border-[#007aff] [.light-theme_&]:!bg-[#007aff] [.light-theme_&]:!text-white [.light-theme_&]:!border-[#007aff] shadow-sm' 
+                                                  : 'hover:!text-white [.light-theme_&]:hover:!text-[#0f172a]'
+                                          }`} 
+                                          title={memo.isPinned ? "取消置顶" : "置顶文件"}
+                                      >
+                                          <Pin className={`w-3.5 h-3.5 ${memo.isPinned ? 'fill-current' : ''}`} />
+                                      </button>
+                                      <button 
+                                          onClick={() => handleDelete(memo.id)} 
+                                          className="soft-pill p-2 rounded-xl transition active:scale-95 cursor-pointer shadow-xs hover:!text-red-400 hover:!border-red-500/30 [.light-theme_&]:hover:!text-red-600 [.light-theme_&]:hover:!border-red-300" 
+                                          title="删除"
+                                      >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                  </div>
                               </div>
                           </div>
                       )}
@@ -416,51 +570,57 @@ export function CharacterMemosSection({ characterId }: { characterId: string }) 
              initial={{ opacity: 0 }}
              animate={{ opacity: 1 }}
              exit={{ opacity: 0 }}
-             className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex justify-center items-center p-4 sm:p-6"
+             transition={{ duration: 0.18 }}
+             className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex justify-center items-center p-4 sm:p-6 [.light-theme_&]:bg-black/40"
              onClick={() => setReadingMemo(null)}
            >
              <motion.div
                initial={{ scale: 0.95, opacity: 0, y: 20 }}
                animate={{ scale: 1, opacity: 1, y: 0 }}
                exit={{ scale: 0.95, opacity: 0, y: 20 }}
-               className="bg-slate-900 border border-white/10 shadow-2xl rounded-2xl flex flex-col w-full max-h-[85vh] max-w-4xl overflow-hidden"
+               transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+               className="bg-slate-900 border border-white/10 shadow-2xl rounded-2xl flex flex-col w-full max-h-[85vh] max-w-4xl overflow-hidden [.light-theme_&]:bg-[#FCFCFC] [.light-theme_&]:border-black/5"
                onClick={e => e.stopPropagation()}
              >
-               <div className="flex-none p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/20">
+               <div className="flex-none p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/20 [.light-theme_&]:border-black/5 [.light-theme_&]:bg-black/5">
                   <div className="flex items-center gap-3">
                      <StickyNote className="w-5 h-5 text-blue-400" />
-                     <h3 className="font-bold text-lg text-white">备忘录</h3>
-                     <span className="text-sm text-white/40 ml-2 hidden sm:inline">{new Date(readingMemo.createdAt).toLocaleString()}</span>
+                     <h3 className="font-semibold text-lg text-white [.light-theme_&]:text-[#1c1c1e]">备忘录</h3>
+                     <span className="text-sm text-white/40 [.light-theme_&]:text-slate-400 ml-2 hidden sm:inline">{new Date(readingMemo.createdAt).toLocaleString()}</span>
                   </div>
                   <div className="flex items-center gap-2">
                      {!isEditingMemo && readingMemo.type === 'text' && (
-                        <button onClick={() => setIsEditingMemo(true)} className="p-2 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white rounded-xl transition" title="编辑笔记">
-                           <Edit className="w-5 h-5" />
+                        <button onClick={() => setIsEditingMemo(true)} className="p-1.5 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition [.light-theme_&]:hover:bg-black/10 [.light-theme_&]:!text-slate-600 [.light-theme_&]:hover:!text-[#1c1c1e] cursor-pointer" title="编辑笔记">
+                           <Edit className="w-4.5 h-4.5" />
                         </button>
                      )}
-                     <button onClick={() => { handleDelete(readingMemo.id); setReadingMemo(null); }} className="p-2 bg-white/5 hover:bg-red-500/20 text-white/50 hover:text-red-400 rounded-xl transition">
-                        <Trash2 className="w-5 h-5" />
+                     <button onClick={() => { handleDelete(readingMemo.id); setReadingMemo(null); }} className="p-1.5 hover:bg-red-500/20 text-[#ff3b30] hover:text-red-400 [.light-theme_&]:!text-[#ff3b30] [.light-theme_&]:hover:!bg-red-50 rounded-full transition cursor-pointer active:scale-95" title="删除">
+                        <Trash2 className="w-4.5 h-4.5 stroke-[2.2]" />
                      </button>
-                     <button onClick={() => setReadingMemo(null)} className="p-2 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white rounded-xl transition">
+                     <button onClick={() => setReadingMemo(null)} className="p-1.5 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition [.light-theme_&]:hover:bg-black/10 [.light-theme_&]:!text-slate-600 [.light-theme_&]:hover:!text-[#1c1c1e] cursor-pointer" title="关闭">
                         <X className="w-5 h-5" />
                      </button>
                   </div>
                </div>
-               <div className="flex-1 overflow-y-auto p-4 sm:p-8 md:p-12 bg-slate-900 relative">
+               <div className="flex-1 overflow-y-auto p-4 sm:p-8 md:p-12 relative">
                   {isEditingMemo ? (
                     <div className="h-full flex flex-col gap-4">
                        <textarea 
-                           className="flex-1 bg-white/5 border border-white/10 rounded-xl p-4 text-white resize-none focus:outline-none focus:border-purple-500/50"
+                           className="w-full flex-1 bg-black/30 border border-white/10 rounded-xl p-4 text-white text-sm sm:text-base focus:outline-none focus:border-blue-500 transition min-h-[220px] resize-none [.light-theme_&]:bg-black/5 [.light-theme_&]:border-black/10 [.light-theme_&]:text-[#1c1c1e]"
                            value={editMemoContent}
                            onChange={e => setEditMemoContent(e.target.value)}
+                           autoFocus
                        />
-                       <div className="flex justify-end gap-2">
-                           <button onClick={() => setIsEditingMemo(false)} className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 transition">取消</button>
-                           <button onClick={handleSaveEdit} className="px-4 py-2 rounded-lg bg-purple-500 hover:bg-purple-600 text-white transition font-medium" disabled={!editMemoContent.trim()}>保存</button>
+                       <div className="flex justify-end gap-3 pt-2">
+                           <button onClick={() => setIsEditingMemo(false)} className="px-4 py-2 rounded-lg text-white/60 hover:text-white hover:bg-white/5 transition [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] [.light-theme_&]:hover:bg-black/10 cursor-pointer">取消</button>
+                           <button onClick={handleSaveEdit} className="px-6 py-2 rounded-full font-bold text-xs sm:text-sm bg-white text-black hover:bg-neutral-200 [.light-theme_&]:!bg-black [.light-theme_&]:!text-white [.light-theme_&]:hover:!bg-neutral-800 transition flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-50" disabled={!editMemoContent.trim()}>
+                              <Save className="w-4 h-4 stroke-[2.5]" />
+                              保存
+                           </button>
                        </div>
                     </div>
                   ) : (
-                    <div className="prose prose-invert memo-prose-adapt prose-base sm:prose-lg max-w-none text-white/80 leading-relaxed markdown-body" onClick={e => e.stopPropagation()}>
+                    <div className="prose prose-invert [.light-theme_&]:!prose-slate memo-prose-adapt prose-base sm:prose-lg max-w-none text-white/80 [.light-theme_&]:!text-[#0f172a] leading-relaxed markdown-body" onClick={e => e.stopPropagation()}>
                        <ReactMarkdown 
                            remarkPlugins={[remarkGfm]}
                            components={{
@@ -487,9 +647,13 @@ function MemoImage({ memo }: { memo: CharacterMemo }) {
 
     useEffect(() => {
         if (!memo.blob) return;
-        const objectUrl = URL.createObjectURL(memo.blob);
-        setUrl(objectUrl);
-        return () => URL.revokeObjectURL(objectUrl);
+        const objectUrl = safeCreateObjectURL(memo.blob);
+        if (objectUrl) {
+          setUrl(objectUrl);
+          return () => {
+            if (objectUrl.startsWith('blob:')) URL.revokeObjectURL(objectUrl);
+          };
+        }
     }, [memo]);
 
     if (!url) return <div className="h-48 bg-white/5 animate-pulse" />;
@@ -603,29 +767,30 @@ function FileContentModal({ memo, onClose }: { memo: CharacterMemo, onClose: () 
   }, [memo]);
 
   return createPortal(
-    <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4 sm:p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 [.light-theme_&]:bg-black/40" onClick={onClose}>
         <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl"
+            transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+            className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden [.light-theme_&]:bg-[#FCFCFC] [.light-theme_&]:border-black/5"
             onClick={e => e.stopPropagation()}
         >
-            <div className="flex items-center justify-between p-4 border-b border-white/10 bg-black/20">
-               <h3 className="font-semibold text-white/90 truncate pr-4 flex items-center gap-2">
+            <div className="flex-none p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/20 [.light-theme_&]:border-black/5 [.light-theme_&]:bg-black/5">
+               <h3 className="font-semibold text-lg text-white [.light-theme_&]:text-[#1c1c1e] truncate pr-4 flex items-center gap-2">
                  <File className="w-5 h-5 text-blue-400" />
                  {memo.content}
                </h3>
-               <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition">
-                  <X className="w-5 h-5 text-white/60" />
+               <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-full text-white/60 hover:text-white transition [.light-theme_&]:hover:bg-black/10 [.light-theme_&]:text-slate-500 [.light-theme_&]:hover:text-[#1c1c1e] cursor-pointer">
+                  <X className="w-5 h-5" />
                </button>
             </div>
-            <div className="flex-1 overflow-auto p-4 custom-scrollbar bg-[#0f111a]">
+            <div className="flex-1 overflow-auto p-4 sm:p-6 custom-scrollbar bg-black/20 [.light-theme_&]:bg-[#f8fafc]">
                {loading ? (
-                  <div className="flex items-center justify-center h-full text-white/50">正在解析数据...</div>
+                  <div className="flex items-center justify-center h-full text-white/50 [.light-theme_&]:text-slate-400">正在解析数据...</div>
                ) : (
-                  <pre className="text-[13px] text-slate-300 font-mono whitespace-pre-wrap break-all">
-                     {content.length > 50000 ? content.substring(0, 50000) + "\n\n... (内容过大，为防止卡顿已截断显示)" : content}
+                  <pre className="text-[13px] text-slate-300 [.light-theme_&]:text-[#0f172a] font-mono whitespace-pre-wrap break-all">
+                     {content.length > 50000 ? content.substring(0, 50000) + "\n\n... 内容过大，为防止卡顿已截断显示" : content}
                   </pre>
                )}
             </div>
