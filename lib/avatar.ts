@@ -1,77 +1,235 @@
-import { createAvatar } from '@dicebear/core';
-import { bottts } from '@dicebear/collection';
+import { getPlaceholderUrl } from './placeholder';
 
-export function getFallbackAvatar(seed: string, category?: string): string {
-  const cat = (category || '').toLowerCase();
-  
-  try {
-    const avatar = createAvatar(bottts, {
-      seed: seed || 'default',
-      size: 100
-    });
-    const svgStr = avatar.toString();
-    // Use standard URL encoding for SVG data URI, which has the widest compatibility across mobile WebViews
-    return `data:image/svg+xml,${encodeURIComponent(svgStr)}`;
-  } catch {
-    const fallbackRobot = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="g-rb" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#4f46e5"/></linearGradient></defs><rect width="100" height="100" rx="24" fill="url(#g-rb)"/><rect x="28" y="32" width="44" height="36" rx="10" fill="#ffffff"/><circle cx="40" cy="48" r="5" fill="#4f46e5"/><circle cx="60" cy="48" r="5" fill="#4f46e5"/><rect x="42" y="58" width="16" height="4" rx="2" fill="#4f46e5"/><rect x="47" y="22" width="6" height="10" rx="3" fill="#ffffff"/><circle cx="50" cy="20" r="4" fill="#ffffff"/></svg>';
-    return `data:image/svg+xml,${encodeURIComponent(fallbackRobot)}`;
+function stringToHash(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
   }
+  return Math.abs(hash);
 }
 
-export function resolveAvatarUrl(avatarFallback: string | undefined | null, seed: string, category?: string): string {
+const PALETTES = [
+  { name: 'Violet Dusk', start: '#6366f1', end: '#a855f7' },
+  { name: 'Slate Graphite', start: '#475569', end: '#1e293b' },
+  { name: 'Cobalt Sky', start: '#0284c7', end: '#2563eb' },
+  { name: 'Emerald Jade', start: '#059669', end: '#0f766e' },
+  { name: 'Amber Flare', start: '#d97706', end: '#ea580c' },
+  { name: 'Crimson Rose', start: '#e11d48', end: '#9f1239' },
+  { name: 'Royal Indigo', start: '#4f46e5', end: '#3730a3' },
+  { name: 'Obsidian Dark', start: '#27272a', end: '#09090b' },
+  { name: 'Aether Teal', start: '#0d9488', end: '#115e59' },
+  { name: 'Orchid Purple', start: '#9333ea', end: '#581c87' },
+  { name: 'Midnight Cyan', start: '#0891b2', end: '#155e75' },
+  { name: 'Champagne Taupe', start: '#78716c', end: '#44403c' },
+];
+
+export function isFallbackMiuImage(url: string | undefined | null): boolean {
+  if (!url || typeof url !== 'string') return true;
+  // 用户当前生效的默认占位图(内置 or 自己换的那张)一律算占位图
+  if (url === getPlaceholderUrl()) return true;
+  const lower = url.toLowerCase();
+  // 安卓本机卡片图: 卡片库就存在 Download/MIU/ 下, 路径里必然带 "miu",
+  // 但它是实实在在的真卡片图, 绝不能因为目录名被当成占位图 —— 否则整张图会被
+  // 塞进小白底里缩成一团(object-contain), 也就是"我的图怎么小小地出现"。
+  //   file 形式: https://appassets.androidplatform.net/localfile?path=/storage/.../MIU/x.png
+  //   Capacitor: https://localhost/_capacitor_file_/storage/.../MIU/x.png
+  if (
+    lower.includes('appassets.androidplatform.net/localfile') ||
+    lower.includes('/_capacitor_file_/')
+  ) {
+    return false;
+  }
+  return (
+    lower.includes('miu') ||
+    lower.includes('dicebear') ||
+    lower.includes('bottts') ||
+    lower.startsWith('data:image/svg')
+  );
+}
+
+export function getFallbackAvatar(seed?: string, category?: string): string {
+  // 全局唯一的默认占位图入口: 用户可以在「设置 → 关于 → 默认占位图」里把它换掉,
+  // 换一次所有用到默认图的地方(列表/详情/文件夹封面/TT拉取/云端/回收站/查重)全跟着变。
+  // 详见 lib/placeholder.ts
+  return getPlaceholderUrl();
+}
+
+export function resolveAvatarUrl(avatarFallback: string | undefined | null, seed?: string, category?: string): string {
   if (
     avatarFallback &&
     typeof avatarFallback === 'string' &&
     avatarFallback.trim().length > 0 &&
     avatarFallback !== 'undefined' &&
-    avatarFallback !== 'null' &&
-    !avatarFallback.includes('api.dicebear.com') &&
-    (avatarFallback.startsWith('data:image/') || 
-     avatarFallback.startsWith('http://') || 
-     avatarFallback.startsWith('https://') || 
-     avatarFallback.startsWith('blob:'))
+    avatarFallback !== 'null'
   ) {
-    // 强制修复本地 IndexedDB 里残留的老版本带有 charset=utf-8 / base64 声明的 bug 图片
-    if (avatarFallback.startsWith('data:image/svg+xml;charset=utf-8,') || avatarFallback.startsWith('data:image/svg+xml;base64,')) {
+    const lower = avatarFallback.toLowerCase();
+    // 只要包含任何老版本/占位符标志（miu, bottts, dicebear, svg）, 统一归一化返回最新的 5866e70e miu 官方图
+    if (
+      lower.includes('miu') ||
+      lower.includes('bottts') ||
+      lower.includes('dicebear') ||
+      lower.startsWith('data:image/svg')
+    ) {
       return getFallbackAvatar(seed, category);
     }
-    return avatarFallback;
+    // 只有真正的 HTTP(S)/Blob/Data(PNG/JPG) 照片才原样返回
+    if (
+      avatarFallback.startsWith('http://') ||
+      avatarFallback.startsWith('https://') ||
+      avatarFallback.startsWith('blob:') ||
+      avatarFallback.startsWith('data:image/')
+    ) {
+      return avatarFallback;
+    }
   }
   return getFallbackAvatar(seed, category);
 }
 
 /**
- * 把一张原图压成一张小缩略图, 专门给列表/卡片这种小尺寸展示场景用,
- * 避免列表里也要解码整张原图(参考卡库的做法: 列表只读小缩略图,
- * 详情页才用原图)。
+ * 安全创建 Object URL，防止传入非 Blob/File 对象时导致 URL.createObjectURL 抛出 TypeError Overload resolution failed 崩溃。
+ */
+export function safeCreateObjectURL(blob: any): string | null {
+  if (!blob) return null;
+  
+  // 如果本身就是合法的 URL 字符串(如 data: 或 blob: 或 http 或 本地路径), 直接返回
+  if (typeof blob === 'string') {
+    const trimmed = blob.trim();
+    if (
+      trimmed.startsWith('blob:') ||
+      trimmed.startsWith('data:') ||
+      trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://') ||
+      trimmed.startsWith('/') ||
+      trimmed.startsWith('file:')
+    ) {
+      return trimmed;
+    }
+    return null;
+  }
+
+  try {
+    if (blob instanceof Blob || blob instanceof File) {
+      return URL.createObjectURL(blob);
+    }
+    if (blob instanceof ArrayBuffer) {
+      return URL.createObjectURL(new Blob([blob]));
+    }
+    if (ArrayBuffer.isView(blob)) {
+      const view = blob as any;
+      if (view.buffer && view.buffer instanceof ArrayBuffer) {
+        const sliced = view.buffer.slice(view.byteOffset || 0, (view.byteOffset || 0) + (view.byteLength || 0));
+        return URL.createObjectURL(new Blob([sliced]));
+      }
+      return URL.createObjectURL(new Blob([blob as any]));
+    }
+    if (typeof blob === 'object') {
+      if (blob.buffer && blob.buffer instanceof ArrayBuffer) {
+        const offset = blob.byteOffset || 0;
+        const length = blob.byteLength || blob.buffer.byteLength;
+        return URL.createObjectURL(new Blob([blob.buffer.slice(offset, offset + length)]));
+      }
+      if (Array.isArray(blob.data)) {
+        return URL.createObjectURL(new Blob([new Uint8Array(blob.data)]));
+      }
+      if (blob._data || blob.data) {
+        const d = blob._data || blob.data;
+        if (d instanceof ArrayBuffer || ArrayBuffer.isView(d)) {
+          return safeCreateObjectURL(d);
+        }
+        if (Array.isArray(d)) {
+          return URL.createObjectURL(new Blob([new Uint8Array(d)]));
+        }
+      }
+      // 尝试原生 createObjectURL (例如 Worker/Polyfill 或跨 frame 传过来的 Blob)
+      try {
+        return URL.createObjectURL(blob);
+      } catch {
+        // 如果原生失败，尝试包装进 Blob
+        return URL.createObjectURL(new Blob([blob]));
+      }
+    }
+  } catch (err) {
+    console.warn('safeCreateObjectURL handled error:', err);
+  }
+  return null;
+}
+
+let _supportsWebpEncode: boolean | null = null;
+
+async function encodeCanvasThumbnail(
+  canvas: HTMLCanvasElement,
+  quality: number,
+): Promise<Blob | null> {
+  if (_supportsWebpEncode !== false) {
+    const webpBlob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob((b) => resolve(b), 'image/webp', quality);
+    });
+    if (webpBlob && webpBlob.type === 'image/webp') {
+      _supportsWebpEncode = true;
+      return webpBlob;
+    }
+    _supportsWebpEncode = false;
+  }
+  return new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((b) => resolve(b), 'image/jpeg', quality);
+  });
+}
+
+/**
+ * 把一张原图压成高清缩略图, 专门给列表/卡片展示场景用,
+ * 优先走 createImageBitmap 异步解码 + WebP(不支持时自动降级 JPEG), 体积小且不卡主线程。
  *
  * @param blob 原图
- * @param maxSize 缩略图长边最大像素, 默认 200(够卡片列表用了)
- * @param quality JPEG 压缩质量, 默认 0.82
+ * @param maxSize 缩略图长边最大像素, 默认 480
+ * @param quality 压缩质量, 默认 0.85
  */
 export async function generateThumbnail(
   blob: Blob,
-  maxSize: number = 200,
-  quality: number = 0.82,
+  maxSize: number = 480,
+  quality: number = 0.85,
 ): Promise<Blob> {
-  const objectUrl = URL.createObjectURL(blob);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = (e) => reject(e);
-      el.src = objectUrl;
-    });
+  let bitmap: ImageBitmap | null = null;
+  let objectUrl: string | null = null;
 
-    let { width, height } = img;
-    if (width <= maxSize && height <= maxSize) {
+  try {
+    let source: CanvasImageSource;
+    let width = 0;
+    let height = 0;
+
+    if (typeof createImageBitmap === 'function') {
+      try {
+        bitmap = await createImageBitmap(blob);
+        width = bitmap.width;
+        height = bitmap.height;
+        source = bitmap;
+      } catch {
+        bitmap = null;
+      }
+    }
+
+    if (!bitmap) {
+      objectUrl = safeCreateObjectURL(blob);
+      if (!objectUrl) return blob;
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = (e) => reject(e);
+        el.src = objectUrl!;
+      });
+      width = img.width;
+      height = img.height;
+      source = img;
+    }
+
+    if (!width || !height || (width <= maxSize && height <= maxSize)) {
       return blob;
     }
     if (width > height) {
-      height = Math.round((height * maxSize) / width);
+      height = Math.max(1, Math.round((height * maxSize) / width));
       width = maxSize;
     } else {
-      width = Math.round((width * maxSize) / height);
+      width = Math.max(1, Math.round((width * maxSize) / height));
       height = maxSize;
     }
 
@@ -80,15 +238,74 @@ export async function generateThumbnail(
     canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (!ctx) return blob;
-    ctx.drawImage(img, 0, 0, width, height);
+    ctx.drawImage(source, 0, 0, width, height);
 
-    const thumbBlob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob((b) => resolve(b), 'image/jpeg', quality);
-    });
+    const thumbBlob = await encodeCanvasThumbnail(canvas, quality);
+    canvas.width = 0;
+    canvas.height = 0;
     return thumbBlob || blob;
-  } catch {
-    return blob;
   } finally {
-    URL.revokeObjectURL(objectUrl);
+    if (bitmap) {
+      try {
+        bitmap.close();
+      } catch {}
+    }
+    if (objectUrl && objectUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(objectUrl);
+    }
   }
+}
+
+/**
+ * 计算 Blob 的内容特征签名（极速采样头部+尾部+中间内容+精确字节数）。
+ * 用于 100% 精确去重，避免重复卡片合并后产生相同的历史头像差分。
+ */
+export async function getBlobFingerprint(blob: Blob | null | undefined): Promise<string | null> {
+  if (!blob || !(blob instanceof Blob)) return null;
+  const size = blob.size;
+  if (size === 0) return 'empty_0';
+
+  try {
+    // 小于 64KB 的图片直接对全量做 SHA-256
+    if (size <= 65536) {
+      const buf = await blob.arrayBuffer();
+      const digest = await crypto.subtle.digest('SHA-256', buf);
+      return `${size}_` + Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // 大文件：采样前 16KB、中间 16KB、尾部 16KB
+    const head = blob.slice(0, 16384);
+    const midStart = Math.floor(size / 2) - 8192;
+    const mid = blob.slice(midStart, midStart + 16384);
+    const tail = blob.slice(Math.max(0, size - 16384));
+
+    const [hBuf, mBuf, tBuf] = await Promise.all([
+      head.arrayBuffer(),
+      mid.arrayBuffer(),
+      tail.arrayBuffer(),
+    ]);
+
+    const combined = new Uint8Array(hBuf.byteLength + mBuf.byteLength + tBuf.byteLength);
+    combined.set(new Uint8Array(hBuf), 0);
+    combined.set(new Uint8Array(mBuf), hBuf.byteLength);
+    combined.set(new Uint8Array(tBuf), hBuf.byteLength + mBuf.byteLength);
+
+    const digest = await crypto.subtle.digest('SHA-256', combined);
+    return `${size}_` + Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (err) {
+    // Fallback if subtle crypto fails
+    return `${size}_${blob.type}`;
+  }
+}
+
+/**
+ * 校验两个 Blob 内容是否完全相同
+ */
+export async function areBlobsIdentical(b1?: Blob | null, b2?: Blob | null): Promise<boolean> {
+  if (!b1 || !b2) return false;
+  if (b1 === b2) return true;
+  if (b1.size !== b2.size) return false;
+  const fp1 = await getBlobFingerprint(b1);
+  const fp2 = await getBlobFingerprint(b2);
+  return Boolean(fp1 && fp2 && fp1 === fp2);
 }

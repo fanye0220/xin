@@ -1,3 +1,5 @@
+import { safeCreateObjectURL } from "./avatar";
+
 /**
  * 参考卡库的做法: 缩略图 URL 用一个"有上限"的 LRU 缓存管理,
  * 不管库里有多少张卡, 内存里同时挂着的 blob URL 数量永远有天花板,
@@ -7,7 +9,8 @@
  * 快速滚动时不会一下子涌进来一堆解码任务同时抢 CPU。
  */
 
-const MAX_CACHED_URLS = 120;
+const MAX_CACHED_URLS = 240;
+const MAX_FOLDER_COVER_URLS = 300;
 
 interface CacheEntry {
   url: string;
@@ -15,6 +18,7 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>(); // Map 天然按插入/访问顺序排列,用来做 LRU
+const folderCoverCache = new Map<string, CacheEntry>(); // 文件夹封面专用独立缓存, 绝不被列表滚动淘汰 revoke
 
 function touch(key: string, entry: CacheEntry) {
   cache.delete(key);
@@ -45,8 +49,12 @@ export function peekCachedUrl(key: string): string | undefined {
 export function putCachedBlobUrl(key: string, blob: Blob): string {
   const prev = cache.get(key);
   if (prev?.isBlobUrl) URL.revokeObjectURL(prev.url);
-  const url = URL.createObjectURL(blob);
-  const entry: CacheEntry = { url, isBlobUrl: true };
+  const url = safeCreateObjectURL(blob);
+  if (!url) {
+    return "";
+  }
+  const isBlobUrl = url.startsWith("blob:");
+  const entry: CacheEntry = { url, isBlobUrl };
   touch(key, entry);
   evictIfNeeded();
   return url;
@@ -60,6 +68,70 @@ export function putCachedStaticUrl(key: string, url: string): string {
   touch(key, entry);
   evictIfNeeded();
   return url;
+}
+
+function touchFolderCover(key: string, entry: CacheEntry) {
+  folderCoverCache.delete(key);
+  folderCoverCache.set(key, entry);
+}
+
+function evictFolderCoversIfNeeded() {
+  while (folderCoverCache.size > MAX_FOLDER_COVER_URLS) {
+    const oldestKey = folderCoverCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    const entry = folderCoverCache.get(oldestKey);
+    folderCoverCache.delete(oldestKey);
+    if (entry?.isBlobUrl) {
+      URL.revokeObjectURL(entry.url);
+    }
+  }
+}
+
+/** 文件夹封面专用：命中缓存直接返回 */
+export function peekFolderCoverUrl(key: string): string | undefined {
+  const entry = folderCoverCache.get(key);
+  if (!entry) return undefined;
+  touchFolderCover(key, entry);
+  return entry.url;
+}
+
+/** 文件夹封面专用：写入新的 blob URL，受独立上限保护，绝不被普通卡片列表挤掉 */
+export function putFolderCoverBlobUrl(key: string, blob: Blob): string {
+  const prev = folderCoverCache.get(key);
+  if (prev?.isBlobUrl) URL.revokeObjectURL(prev.url);
+  const url = safeCreateObjectURL(blob);
+  if (!url) return "";
+  const isBlobUrl = url.startsWith("blob:");
+  const entry: CacheEntry = { url, isBlobUrl };
+  touchFolderCover(key, entry);
+  evictFolderCoversIfNeeded();
+  return url;
+}
+
+/** 检查是否为文件夹封面专用缓存所持有的 blob URL */
+export function isFolderCoverBlobUrl(url: string): boolean {
+  if (!url || !url.startsWith("blob:")) return false;
+  for (const entry of folderCoverCache.values()) {
+    if (entry.isBlobUrl && entry.url === url) return true;
+  }
+  return false;
+}
+
+/**
+ * 这个 URL 是不是本缓存创建并持有的 blob URL（包括卡片缩略图与文件夹封面）。
+ * 页面侧(比如文件夹预览)要释放自己用过的 blob URL 时, 必须先用它过滤一遍 ——
+ * 缓存持有的 URL 由 LRU 淘汰时统一释放, 页面再 revoke 一次就"双重释放"了:
+ * 图片会当场裂掉退回占位图, 之后复用同一个缓存 URL 的地方也一直是裂的。
+ */
+export function isCachedBlobUrl(url: string): boolean {
+  if (!url || !url.startsWith("blob:")) return false;
+  for (const entry of cache.values()) {
+    if (entry.isBlobUrl && entry.url === url) return true;
+  }
+  for (const entry of folderCoverCache.values()) {
+    if (entry.isBlobUrl && entry.url === url) return true;
+  }
+  return false;
 }
 
 /** 主动移除某一项(比如角色被删除时), 不等 LRU 自然淘汰 */
@@ -76,6 +148,13 @@ export function evictCharacterThumb(charId: string) {
   for (const key of Array.from(cache.keys())) {
     if (key === charId || key.startsWith(`${charId}:`)) {
       releaseCachedUrl(key);
+    }
+  }
+  for (const key of Array.from(folderCoverCache.keys())) {
+    if (key.includes(charId)) {
+      const entry = folderCoverCache.get(key);
+      folderCoverCache.delete(key);
+      if (entry?.isBlobUrl) URL.revokeObjectURL(entry.url);
     }
   }
 }

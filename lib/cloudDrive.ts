@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { getAuth } from 'firebase/auth';
-import { getCharacter, getFolders, getCachedMeta, getChatsForCharacter, getChatById, isActualCharacterCard } from './db';
+import { getCharacter, getFolders, getCachedMeta, getChatsForCharacter, getChatById, isActualCharacterCard, UserPersona } from './db';
+import { safeCreateObjectURL } from './avatar';
 import { uploadBlobToDrive } from './driveUpload';
 
 const CLOUD_FOLDER_NAME = 'AIs_Studio_Cloud_Cards';
@@ -137,7 +138,8 @@ async function blobToBase64(blob: Blob): Promise<string> {
 async function generateThumbnail(blob: Blob): Promise<string | null> {
   return new Promise((resolve) => {
     const img = new Image();
-    const url = URL.createObjectURL(blob);
+    const url = safeCreateObjectURL(blob);
+    if (!url) return resolve(null);
     img.onload = () => {
       const canvas = document.createElement('canvas');
       const MAX_WIDTH = 256;
@@ -163,25 +165,24 @@ async function generateThumbnail(blob: Blob): Promise<string | null> {
       ctx.drawImage(img, 0, 0, width, height);
       
       const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-      URL.revokeObjectURL(url);
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
       
       const b64 = dataUrl.split(',')[1];
       resolve(b64);
     };
     img.onerror = () => {
-      URL.revokeObjectURL(url);
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
       resolve(null);
     };
     img.src = url;
   });
 }
 
-
-
 async function convertToPNG(blob: Blob): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    const url = URL.createObjectURL(blob);
+    const url = safeCreateObjectURL(blob);
+    if (!url) return reject(new Error('Failed to create object URL for PNG conversion'));
     img.onload = () => {
       const canvas = document.createElement('canvas');
       canvas.width = img.width;
@@ -189,13 +190,13 @@ async function convertToPNG(blob: Blob): Promise<Blob> {
       const ctx = canvas.getContext('2d');
       if (ctx) ctx.drawImage(img, 0, 0);
       canvas.toBlob((b) => {
-        URL.revokeObjectURL(url);
+        if (url.startsWith('blob:')) URL.revokeObjectURL(url);
         if (b) resolve(b);
         else reject(new Error("Canvas toBlob failed"));
       }, 'image/png');
     };
     img.onerror = () => {
-      URL.revokeObjectURL(url);
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
       reject(new Error("Image load failed"));
     };
     img.src = url;
@@ -281,8 +282,38 @@ function detectCloudCardType(rawData: any): CloudCardType {
     toolTarget.blur_strength !== undefined ||
     outer.main_text_color !== undefined ||
     toolTarget.main_text_color !== undefined ||
+    outer.quote_text_color !== undefined ||
+    toolTarget.quote_text_color !== undefined ||
+    outer.italics_text_color !== undefined ||
+    toolTarget.italics_text_color !== undefined ||
+    outer.underline_text_color !== undefined ||
+    toolTarget.underline_text_color !== undefined ||
+    outer.blur_tint_color !== undefined ||
+    toolTarget.blur_tint_color !== undefined ||
+    outer.chat_tint_color !== undefined ||
+    toolTarget.chat_tint_color !== undefined ||
+    outer.user_mes_blur_tint_color !== undefined ||
+    toolTarget.user_mes_blur_tint_color !== undefined ||
+    outer.bot_mes_blur_tint_color !== undefined ||
+    toolTarget.bot_mes_blur_tint_color !== undefined ||
+    outer.shadow_color !== undefined ||
+    toolTarget.shadow_color !== undefined ||
+    outer.border_color !== undefined ||
+    toolTarget.border_color !== undefined ||
     outer.chat_display !== undefined ||
-    toolTarget.chat_display !== undefined
+    toolTarget.chat_display !== undefined ||
+    outer.theme_name !== undefined ||
+    toolTarget.theme_name !== undefined ||
+    outer.chat_width !== undefined ||
+    toolTarget.chat_width !== undefined ||
+    outer.font_scale !== undefined ||
+    toolTarget.font_scale !== undefined ||
+    outer.avatar_style !== undefined ||
+    toolTarget.avatar_style !== undefined ||
+    outer.custom_css !== undefined ||
+    toolTarget.custom_css !== undefined ||
+    outer.type === 'theme' ||
+    toolTarget.type === 'theme'
   ) return 'theme';
 
   // 5. Script
@@ -646,6 +677,93 @@ function guessMimeFromExt(ext: string): string {
 
 
 
+/**
+ * 从云端路径 (如 "角色卡", "角色卡/日常生活", "工具区/预设", "工具区/预设/自定义文件夹")
+ * 映射解析出 App 本地的真正目标用户文件夹 ID。
+ *
+ * 核心规则：
+ * 1. 顶层系统大类 ("角色卡", "工具区", "聊天记录") 并非用户文件夹，还原回 App 时一律剔除；
+ * 2. 工具区小类头 ("预设", "世界书", "美化", "快速回复", "脚本") 属于类型归类，若其后没有更深层的用户子文件夹，也不作为 App 本地文件夹创建；
+ * 3. 只有真正包含用户自定义文件夹路径时，才在 App 中自动查找/创建对应文件夹；
+ * 4. 若无指定文件夹，但存在同名卡自动分类设置，自动继承本地同名卡片的文件夹分类。
+ */
+export async function resolveAppFolderFromCloudPath(
+  folderPathStr?: string | null,
+  charName?: string
+): Promise<string | null> {
+  let targetFolderId: string | null = null;
+
+  if (folderPathStr) {
+    let parts = folderPathStr.split('/').filter(Boolean);
+
+    // 1. 剥离云端顶层系统大类 ("角色卡", "角色卡片", "角色卡包", "characters", "工具区", "tools", "聊天记录", "人设库" 等)
+    const systemBuckets = [
+      '角色卡', '角色卡片', '角色卡包', '角色卡片包', '角色包', '角色', '卡包', '卡片',
+      'characters', 'cards', 'character', 'card',
+      '工具区', '工具包', '工具', 'tools', 'presets', '预设', '世界书', 'world_info',
+      '聊天记录', '聊天', 'chats', 'chat',
+      '人设库', '人设', 'personas', 'persona'
+    ];
+    while (parts.length > 0 && systemBuckets.includes(parts[0].toLowerCase().trim())) {
+      parts.shift();
+    }
+
+    // 2. 剥离工具区顶层小类 ("预设", "世界书", "美化", "快速回复", "脚本", "正则脚本")
+    const toolSubHeaders = ['预设', 'preset', '世界书', 'worldbook', '美化', 'theme', '快速回复', 'qr', '脚本', 'script', '正则脚本'];
+    if (parts.length > 0 && toolSubHeaders.includes(parts[0].toLowerCase())) {
+      parts.shift();
+    }
+
+    // 3. 在 App 本地按剩余路径查找或递归创建嵌套文件夹
+    if (parts.length > 0) {
+      const { getFolders, saveFolder } = await import('./db');
+      const allFolders = await getFolders();
+      let currentParentId: string | null = null;
+
+      for (const part of parts) {
+        let found = allFolders.find(
+          (f) => f.name === part && (f.parentId || null) === currentParentId
+        );
+        if (!found) {
+          const newFolder = {
+            id: crypto.randomUUID(),
+            name: part,
+            parentId: currentParentId,
+            createdAt: Date.now(),
+          };
+          await saveFolder(newFolder);
+          allFolders.push(newFolder);
+          found = newFolder;
+        }
+        currentParentId = found.id;
+      }
+      targetFolderId = currentParentId;
+    }
+  }
+
+  // 4. 若无指定文件夹，且开启了「同名卡自动跟随分类」，继承本地已有同名卡的分类文件夹
+  if (!targetFolderId && charName) {
+    const autoCategorizeSameName = localStorage.getItem("miu_auto_categorize_same_name") !== "false";
+    if (autoCategorizeSameName) {
+      const { getCachedMeta } = await import('./db');
+      const existingMeta = await getCachedMeta();
+      const cleanName = charName.trim().toLowerCase();
+      const existingWithFolder = existingMeta.find(
+        (m) =>
+          !m.deletedAt &&
+          m.folderId &&
+          m.name &&
+          m.name.trim().toLowerCase() === cleanName,
+      );
+      if (existingWithFolder && existingWithFolder.folderId) {
+        targetFolderId = existingWithFolder.folderId;
+      }
+    }
+  }
+
+  return targetFolderId;
+}
+
 export async function computeCharacterCloudPathParts(
   char: any,
   allFolders?: any[]
@@ -713,6 +831,7 @@ export async function uploadCharacterToCloud(
   token: string,
   charId: string,
   onProgress?: (msg: string) => void,
+  forceOverwrite: boolean = false,
 ): Promise<'uploaded' | 'skipped' | 'moved'> {
   if (onProgress) onProgress("准备云端数据...");
   const char = await getCharacter(charId);
@@ -732,11 +851,20 @@ export async function uploadCharacterToCloud(
   }
 
   const { pathParts, folderPath } = await computeCharacterCloudPathParts(char);
-  const { getChatsForCharacter } = await import('./db');
+  const { getChatsForCharacter, getMemosForCharacter, getUserPersonas } = await import('./db');
   const extraAvatars = (char.avatarHistory || []).filter(b => !char.avatarBlob || !(b.size === char.avatarBlob.size && b.type === char.avatarBlob.type));
   
   const hasExtraAvatars = extraAvatars.length > 0;
   const chats = await getChatsForCharacter(char.id);
+  const memos = await getMemosForCharacter(char.id);
+  const hasMemos = memos.length > 0;
+  const versionHistory = char.versionHistory || [];
+  const hasVersions = versionHistory.length > 0;
+  const allPersonas = await getUserPersonas().catch(() => [] as UserPersona[]);
+  const boundPersonas = allPersonas.filter(
+    (p) => Array.isArray(p.boundCharacterIds) && p.boundCharacterIds.includes(char.id),
+  );
+  const hasBoundPersonas = boundPersonas.length > 0;
 
   const targetParentId = await resolveDriveFolderPath(token, folderId, pathParts);
 
@@ -790,10 +918,118 @@ export async function uploadCharacterToCloud(
         }
       }
     }
+
+    if (hasVersions) {
+      const versionsFolder = zip.folder("版本历史");
+      if (versionsFolder) {
+        for (let i = 0; i < versionHistory.length; i++) {
+          const snap = versionHistory[i];
+          const snapSafeName = (snap.versionName || `v${i + 1}`).replace(/[\\/:*?"<>|]/g, "_");
+          if (snap.completeCardPngBlob) {
+            versionsFolder.file(`${snapSafeName}.png`, snap.completeCardPngBlob);
+          } else if (snap.avatarBlob) {
+            try {
+              const arrayBuf = await snap.avatarBlob.arrayBuffer();
+              const injected = injectTavernData(arrayBuf, snap.data);
+              versionsFolder.file(`${snapSafeName}.png`, injected);
+            } catch(e) {
+              versionsFolder.file(`${snapSafeName}.json`, JSON.stringify(snap.data, null, 2));
+            }
+          } else {
+            versionsFolder.file(`${snapSafeName}.json`, JSON.stringify(snap.data, null, 2));
+          }
+        }
+      }
+    }
+    
+    if (hasMemos) {
+      const memosFolder = zip.folder("备忘录与剧场");
+      if (memosFolder) {
+        for (let i = 0; i < memos.length; i++) {
+          const m = memos[i];
+          const mSafeName = (m.content || 'memo').replace(/[\\/:*?"<>|]/g, "_");
+          if (m.type === 'text') {
+            memosFolder.file(`memo_${i + 1}_${m.id}.md`, m.content);
+          } else if (m.blob) {
+            memosFolder.file(`memo_${i + 1}_${mSafeName}`, m.blob);
+          }
+        }
+      }
+    }
+
+    if (hasBoundPersonas) {
+      const personasFolder = zip.folder("挂载人设");
+      if (personasFolder) {
+        for (let i = 0; i < boundPersonas.length; i++) {
+          const p = boundPersonas[i];
+          const pSafeName = (p.name || `persona_${i + 1}`).replace(/[\\/:*?"<>|]/g, "_");
+          let avatarRef: string | undefined;
+          if (p.avatarBlob) {
+            const ext = getAvatarExtension(p.avatarBlob);
+            avatarRef = `persona_${i + 1}_avatar.${ext}`;
+            personasFolder.file(avatarRef, p.avatarBlob);
+          }
+          personasFolder.file(
+            `persona_${i + 1}_${pSafeName}.json`,
+            JSON.stringify(
+              {
+                id: p.id,
+                name: p.name,
+                content: p.content,
+                isDefault: !!p.isDefault,
+                avatarUrlFallback: p.avatarUrlFallback,
+                createdAt: p.createdAt,
+                updatedAt: p.updatedAt,
+                avatarRef,
+              },
+              null,
+              2,
+            ),
+          );
+        }
+      }
+    }
+
+    const qrExport = buildQuickRepliesExport(char.data, safeName);
+    if (qrExport) {
+      zip.file(`${safeName}_qr.json`, JSON.stringify(qrExport, null, 2));
+    }
     
     const studioMeta: any = {
       folderPath,
-      createdAt: char.createdAt
+      createdAt: char.createdAt,
+      memos: memos.map((m, i) => ({
+        id: m.id,
+        type: m.type,
+        content: m.content,
+        isPinned: m.isPinned,
+        order: m.order,
+        createdAt: m.createdAt,
+        fileRef: m.type === 'text' ? `memo_${i + 1}_${m.id}.md` : `memo_${i + 1}_${(m.content || 'memo').replace(/[\\/:*?"<>|]/g, "_")}`
+      })),
+      versionHistory: versionHistory.map(v => ({
+        id: v.id,
+        versionName: v.versionName,
+        note: v.note,
+        createdAt: v.createdAt,
+        fileModifiedAt: v.fileModifiedAt,
+        cardName: v.cardName,
+        sourceCharId: v.sourceCharId,
+        tags: v.tags,
+        data: v.data,
+      })),
+      boundPersonas: hasBoundPersonas
+        ? boundPersonas.map((p, i) => ({
+            id: p.id,
+            name: p.name,
+            content: p.content,
+            isDefault: !!p.isDefault,
+            avatarUrlFallback: p.avatarUrlFallback,
+            createdAt: p.createdAt,
+            updatedAt: p.updatedAt,
+            avatarRef: p.avatarBlob ? `persona_${i + 1}_avatar.${getAvatarExtension(p.avatarBlob)}` : undefined,
+          }))
+        : undefined,
     };
     if ((char as any).sourceUrl) studioMeta.sourceUrl = (char as any).sourceUrl;
     
@@ -811,7 +1047,7 @@ export async function uploadCharacterToCloud(
   
   const hasHistory = extraAvatars.length > 0;
   const hasChats = Boolean(chats && chats.length > 0);
-  if (!hasHistory && !hasChats && char.avatarBlob && (char.avatarBlob.type === 'image/png' || !char.avatarBlob.type)) {
+  if (!hasHistory && !hasChats && !hasVersions && !hasMemos && !hasBoundPersonas && char.avatarBlob && (char.avatarBlob.type === 'image/png' || !char.avatarBlob.type)) {
     if (onProgress) onProgress("打包角色数据(PNG)...");
     try {
       const buffer = await char.avatarBlob.arrayBuffer();
@@ -825,7 +1061,7 @@ export async function uploadCharacterToCloud(
       fileName = `${safeName}_${char.id}.zip`;
       mimeType = 'application/zip';
     }
-  } else if (!hasHistory && !hasChats && !char.avatarBlob) {
+  } else if (!hasHistory && !hasChats && !hasVersions && !hasMemos && !hasBoundPersonas && !char.avatarBlob) {
     if (onProgress) onProgress("打包角色数据(JSON)...");
     finalBlob = new Blob([JSON.stringify(char.data, null, 2)], { type: 'application/json' });
     fileName = `${safeName}_${char.id}.json`;
@@ -839,10 +1075,33 @@ export async function uploadCharacterToCloud(
 
   
   if (onProgress) onProgress("计算数据指纹...");
-  const dataStr = JSON.stringify(char.data);
-  const avatarInfo = char.avatarBlob ? char.avatarBlob.size.toString() : 'no-avatar';
-  const historyInfo = extraAvatars.length > 0 ? extraAvatars.map(b => b.size.toString()).join(',') : 'no-history';
-  const rawHashData = dataStr + "|" + avatarInfo + "|" + historyInfo;
+  const dataStr = JSON.stringify(char.data || {});
+  const avatarInfo = char.avatarBlob ? `${char.avatarBlob.size}_${char.avatarBlob.type}` : 'no-avatar';
+  const historyInfo = extraAvatars.length > 0 ? extraAvatars.map(b => `${b.size}_${b.type}`).join(',') : 'no-history';
+  const versionInfo = hasVersions ? versionHistory.map(v => `${v.id}_${v.fileModifiedAt || v.createdAt}_${v.versionName || ''}`).join(',') : 'no-versions';
+  const memoInfo = hasMemos ? memos.map(m => `${m.id}_${m.content || ''}_${m.isPinned ? 1 : 0}_${m.order || 0}_${m.blob ? m.blob.size : 0}_${m.createdAt || 0}`).join(',') : 'no-memos';
+  const chatInfo = chats.length > 0 ? chats.map(c => `${c.id}_${c.messages?.length || 0}_${c.name || ''}`).join(',') : 'no-chats';
+  const personaInfo = hasBoundPersonas
+    ? boundPersonas
+        .map((p) => `${p.id}_${p.name || ''}_${p.updatedAt || p.createdAt || 0}_${p.avatarBlob ? p.avatarBlob.size : 0}_${(p.content || '').length}`)
+        .join(',')
+    : 'no-personas';
+  
+  const rawHashData = [
+    char.id,
+    char.name || '',
+    char.updatedAt || 0,
+    (char.tags || []).join(','),
+    folderPath,
+    dataStr,
+    avatarInfo,
+    historyInfo,
+    versionInfo,
+    memoInfo,
+    chatInfo,
+    personaInfo,
+  ].join("|");
+
   const hashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawHashData));
   const contentHash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 
@@ -870,7 +1129,7 @@ export async function uploadCharacterToCloud(
   }
 
   const q = `appProperties has { key='charId' and value='${char.id}' } and trashed=false`;
-  const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive&fields=files(id,name,appProperties,parents)`, {
+  const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive&fields=files(id,name,appProperties,parents,size)`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   if (!searchRes.ok) {
@@ -879,6 +1138,7 @@ export async function uploadCharacterToCloud(
   const searchData = await searchRes.json();
   
   let targetFileId = '';
+  let targetFileIsNewlyCreated = false;
   let finalCharName = char.name || "未命名";
 
   let existingFile: any = null;
@@ -888,7 +1148,7 @@ export async function uploadCharacterToCloud(
     // 如果根据 charId 没查到，在整个云盘中根据 contentHash 全局查找（可能之前传在根目录或其他旧目录）
     const qHash = `(appProperties has { key='isChar' and value='true' } or appProperties has { key='cardType' }) and appProperties has { key='contentHash' and value='${contentHash}' } and trashed=false`;
     try {
-      const searchResHash = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qHash)}&spaces=drive&fields=files(id,name,appProperties,parents)`, {
+      const searchResHash = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qHash)}&spaces=drive&fields=files(id,name,appProperties,parents,size)`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (searchResHash.ok) {
@@ -907,7 +1167,10 @@ export async function uploadCharacterToCloud(
     const currentCloudFolder = existingFile.appProperties?.folderPath || '';
     const folderChanged = currentCloudFolder !== folderPath || existingParents.length !== 1 || existingParents[0] !== targetParentId;
 
-    if (existingFile.appProperties?.contentHash === contentHash) {
+    const existingSize = existingFile.size != null ? Number(existingFile.size) : 0;
+    const isCorruptedOrEmpty = existingSize <= 10; // 上次上传被打断留下的 0 字节损坏占位文件，强制重新上传修补
+
+    if (!forceOverwrite && !isCorruptedOrEmpty && existingFile.appProperties?.contentHash === contentHash) {
       if (folderChanged) {
         if (onProgress) onProgress("内容一致，正在同步移动并更新云端文件夹嵌套...");
         await moveCloudFileToParent(existingFile.id, existingParents);
@@ -939,7 +1202,7 @@ export async function uploadCharacterToCloud(
     finalCharName = existingFile.appProperties?.charName || finalCharName;
     metadata.appProperties.charName = finalCharName;
     
-    if (onProgress) onProgress("更新云端文件信息与分类...");
+    if (onProgress) onProgress(isCorruptedOrEmpty ? "检测到云端文件损坏/0字节(此前中断)，正在重新补充上传..." : "更新云端文件信息与分类...");
     await fetch(`https://www.googleapis.com/drive/v3/files/${targetFileId}`, {
       method: 'POST',
       headers: {
@@ -954,7 +1217,7 @@ export async function uploadCharacterToCloud(
     if (onProgress) onProgress("检查同名卡片...");
     const safeQueryName = finalCharName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const qName = `name contains '${safeQueryName}' and '${targetParentId}' in parents and trashed=false`;
-    const searchResName = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qName)}&spaces=drive&fields=files(id,name,appProperties,parents)`, {
+    const searchResName = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qName)}&spaces=drive&fields=files(id,name,appProperties,parents,size)`, {
       headers: { Authorization: `Bearer ${token}` }
     });
     if (!searchResName.ok) {
@@ -966,7 +1229,10 @@ export async function uploadCharacterToCloud(
        const exactMatches = searchDataName.files.filter((f:any) => f.appProperties?.charName === finalCharName || f.appProperties?.charName?.startsWith(finalCharName + '_'));
        if (exactMatches.length > 0) {
           const identical = exactMatches.find((f:any) => f.appProperties?.contentHash === contentHash);
-          if (identical) {
+          const idSize = identical?.size != null ? Number(identical.size) : 0;
+          const isIdenticalCorrupted = idSize <= 10;
+
+          if (!forceOverwrite && identical && !isIdenticalCorrupted) {
              const idParents = Array.isArray(identical.parents) ? identical.parents : [];
              const idFolder = identical.appProperties?.folderPath || '';
              const idFolderChanged = idFolder !== folderPath || idParents.length !== 1 || idParents[0] !== targetParentId;
@@ -1024,32 +1290,78 @@ export async function uploadCharacterToCloud(
     if (!createRes.ok) throw new Error("Failed to create file");
     const createdData = await createRes.json();
     targetFileId = createdData.id;
+    targetFileIsNewlyCreated = true;
   }
 
   if (onProgress) onProgress("上传实体数据...");
   const uploadRes = await uploadBlobToDrive(token, targetFileId, finalBlob, mimeType);
 
   if (!uploadRes.ok) {
-    throw new Error("上传失败: " + uploadRes.statusText);
+    // 只清掉"本次刚新建的空壳文件"。云端原本就存在的卡绝不能在这里删——
+    // 以前是无条件 DELETE targetFileId，结果大文件补传一失败，连用户云端
+    // 已有的那张卡一起被永久删掉（files.delete 不进回收站），卡库里就"搜不到"了。
+    if (targetFileIsNewlyCreated && targetFileId) {
+      try {
+        await fetch(`https://www.googleapis.com/drive/v3/files/${targetFileId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      } catch {}
+    }
+    throw new Error(`上传失败: HTTP ${uploadRes.status} ${uploadRes.statusText}`.trim());
   }
   
   if (onProgress) onProgress("上传完成！");
   return 'uploaded';
 }
-export async function listCloudCharacters(token: string) {
-  const q = `(appProperties has { key='isChar' and value='true' } or appProperties has { key='isChat' and value='true' }) and trashed=false`;
-  const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,thumbnailLink,appProperties,size,createdTime,parents)&pageSize=1000`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  if (!response.ok) throw new Error("Failed to list cloud characters");
-  const data = await response.json();
-  const files = data.files || [];
-  return files.filter((f: any) => {
-    if (f.appProperties?.fileKind && f.appProperties.fileKind.startsWith('avatar_')) {
-      return false;
+export async function listCloudCharacters(
+  token: string,
+  onProgress?: (msg: string, loaded: number) => void,
+) {
+  const q = `(appProperties has { key='isChar' and value='true' } or appProperties has { key='isChat' and value='true' } or appProperties has { key='isPersona' and value='true' }) and trashed=false`;
+  // nextPageToken 必须写进 fields，否则 Google 不会回翻页令牌 —— 以前就是漏了这个，
+  // 所以云端文件一超过 1000 条，后面的卡就彻底不出现在卡库里（搜不到、也对不了本地）。
+  const fields = 'nextPageToken,files(id,name,thumbnailLink,appProperties,size,createdTime,parents)';
+  const MAX_PAGES = 40; // 40 × 1000 = 4 万条，正常够用，也能防止令牌异常时无限翻页
+
+  const collected: any[] = [];
+  let pageToken: string | undefined;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent(fields)}&pageSize=1000`
+      + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    if (!response.ok) {
+      // 第一页就失败：照旧抛错（登录/权限问题要让用户看到）。
+      // 翻到后面某一页失败：把已拿到的先返回 —— 宁可少几页，也不能让整个云端卡库打不开。
+      if (collected.length === 0) throw new Error(`Failed to list cloud characters (HTTP ${response.status})`);
+      console.warn(`[cloud] 云端列表第 ${page + 1} 页拉取失败(HTTP ${response.status})，先返回已拿到的 ${collected.length} 条`);
+      break;
     }
-    return true;
-  });
+
+    const data = await response.json();
+    collected.push(...(data.files || []));
+    pageToken = data.nextPageToken;
+    if (onProgress) onProgress(`已拉取 ${collected.length} 张云端卡片...`, collected.length);
+    if (!pageToken) break;
+    // 让出主线程，别让连续几页请求把界面顶住
+    await new Promise((r) => setTimeout(r, 0));
+  }
+
+  // 翻页期间云端可能正好被改动，理论上会出现同一条重复返回；按文件 id 去重。
+  // （同名重复卡是不同的文件 id，不受影响，查重/双端对比照旧。）
+  const seen = new Set<string>();
+  const files: any[] = [];
+  for (const f of collected) {
+    if (!f || !f.id || seen.has(f.id)) continue;
+    if (f.appProperties?.fileKind && f.appProperties.fileKind.startsWith('avatar_')) continue;
+    seen.add(f.id);
+    files.push(f);
+  }
+  return files;
 }
 
 
@@ -1080,12 +1392,22 @@ export async function downloadCloudCharacter(token: string, fileId: string, file
      let zipMeta: any = null;
      let zipAvatarHistory: Blob[] = [];
      let zipChats: any[] = [];
+     const zipVersionBlobs = new Map<string, Blob>();
      for (const [filename, file] of Object.entries(zip.files)) {
        if (file.dir) continue;
        const lowerName = filename.toLowerCase();
        if (lowerName === 'studio_meta.json' || lowerName.endsWith('/studio_meta.json')) {
          const text = await file.async('text');
          try { zipMeta = JSON.parse(text); } catch(e){}
+       } else if (
+         lowerName.startsWith('版本历史/') ||
+         lowerName.includes('/版本历史/') ||
+         lowerName.startsWith('versions/') ||
+         lowerName.includes('/versions/')
+       ) {
+         const vBase = filename.split('/').pop() || '';
+         const b = await file.async('blob');
+         zipVersionBlobs.set(vBase, b);
        } else if (
          lowerName.startsWith('替换头像/') ||
          lowerName.includes('/替换头像/') ||
@@ -1135,6 +1457,10 @@ export async function downloadCloudCharacter(token: string, fileId: string, file
          lowerName.endsWith('.json') &&
          !lowerName.startsWith('chat_') &&
          !lowerName.includes('/chat_') &&
+         !lowerName.startsWith('挂载人设/') &&
+         !lowerName.includes('/挂载人设/') &&
+         !lowerName.startsWith('personas/') &&
+         !lowerName.includes('/personas/') &&
          !lowerName.endsWith('_qr.json') &&
          !lowerName.includes('_qr.json')
        ) {
@@ -1183,17 +1509,147 @@ export async function downloadCloudCharacter(token: string, fileId: string, file
        }
      }
      
-     return { jsonData: zipJson, avatarBlob: zipAvatar, studioMeta: zipMeta, avatarHistory: zipAvatarHistory, chats: zipChats };
+     let zipVersionHistory: any[] = [];
+     if (zipMeta && Array.isArray(zipMeta.versionHistory)) {
+       zipVersionHistory = zipMeta.versionHistory.map((snap: any, index: number) => {
+         const snapSafeName = (snap.versionName || `v${index + 1}`).replace(/[\\/:*?"<>|]/g, "_");
+         const vBlob = zipVersionBlobs.get(`${snapSafeName}.png`) || zipVersionBlobs.get(`${snap.id}.png`);
+         return {
+           ...snap,
+           avatarBlob: vBlob,
+           completeCardPngBlob: vBlob,
+         };
+       });
+     }
+
+     let zipMemos: any[] = [];
+     const memoFiles = new Map<string, { file: any, isText: boolean }>();
+     for (const [filename, file] of Object.entries(zip.files)) {
+       if (file.dir) continue;
+       const lowerName = filename.toLowerCase();
+       if (
+         lowerName.startsWith('备忘录与剧场/') ||
+         lowerName.includes('/备忘录与剧场/') ||
+         lowerName.startsWith('memos/') ||
+         lowerName.includes('/memos/')
+       ) {
+         const mBase = filename.split('/').pop() || '';
+         memoFiles.set(mBase, { file, isText: lowerName.endsWith('.md') || lowerName.endsWith('.txt') });
+       }
+     }
+
+     if (zipMeta && Array.isArray(zipMeta.memos)) {
+       for (const mMeta of zipMeta.memos) {
+         let memoBlob: Blob | undefined = undefined;
+         let memoContent = mMeta.content || '';
+         if (mMeta.fileRef) {
+           const entry = memoFiles.get(mMeta.fileRef);
+           if (entry) {
+             if (mMeta.type === 'text') {
+               try {
+                 memoContent = await entry.file.async('text');
+               } catch (e) {}
+             } else {
+               memoBlob = await entry.file.async('blob');
+             }
+           }
+         }
+         zipMemos.push({
+           id: mMeta.id || crypto.randomUUID(),
+           characterId: '',
+           type: mMeta.type || 'text',
+           content: memoContent,
+           blob: memoBlob,
+           isPinned: mMeta.isPinned,
+           order: mMeta.order,
+           createdAt: mMeta.createdAt || Date.now(),
+         });
+       }
+     }
+     
+     let zipBoundPersonas: any[] = [];
+     const personaFiles = new Map<string, any>();
+     for (const [filename, file] of Object.entries(zip.files)) {
+       if (file.dir) continue;
+       const lowerName = filename.toLowerCase();
+       if (
+         lowerName.startsWith('挂载人设/') ||
+         lowerName.includes('/挂载人设/') ||
+         lowerName.startsWith('personas/') ||
+         lowerName.includes('/personas/')
+       ) {
+         const pBase = filename.split('/').pop() || '';
+         if (pBase) personaFiles.set(pBase, file);
+       }
+     }
+
+     const loadPersonaAvatar = async (avatarRef?: string): Promise<Blob | undefined> => {
+       if (!avatarRef) return undefined;
+       const entry = personaFiles.get(avatarRef);
+       if (!entry) return undefined;
+       const ext = avatarRef.split('.').pop()?.toLowerCase();
+       let mime = 'image/png';
+       if (ext === 'jpg' || ext === 'jpeg') mime = 'image/jpeg';
+       else if (ext === 'webp') mime = 'image/webp';
+       else if (ext === 'gif') mime = 'image/gif';
+       const b = await entry.async('blob');
+       return new Blob([b], { type: mime });
+     };
+
+     if (zipMeta && Array.isArray(zipMeta.boundPersonas)) {
+       for (const pMeta of zipMeta.boundPersonas) {
+         const pAvatar = await loadPersonaAvatar(pMeta.avatarRef);
+         zipBoundPersonas.push({
+           id: pMeta.id || crypto.randomUUID(),
+           name: pMeta.name || '未命名人设',
+           content: pMeta.content || '',
+           isDefault: !!pMeta.isDefault,
+           avatarBlob: pAvatar,
+           avatarUrlFallback: pMeta.avatarUrlFallback,
+           createdAt: pMeta.createdAt || Date.now(),
+           updatedAt: pMeta.updatedAt || Date.now(),
+         });
+       }
+     } else if (personaFiles.size > 0) {
+       for (const [pBase, pFile] of personaFiles.entries()) {
+         if (!pBase.toLowerCase().endsWith('.json')) continue;
+         try {
+           const parsed = JSON.parse(await pFile.async('text'));
+           if (parsed && (parsed.name || parsed.content !== undefined)) {
+             const pAvatar = await loadPersonaAvatar(parsed.avatarRef);
+             zipBoundPersonas.push({
+               id: parsed.id || crypto.randomUUID(),
+               name: parsed.name || '未命名人设',
+               content: parsed.content || '',
+               isDefault: !!parsed.isDefault,
+               avatarBlob: pAvatar,
+               avatarUrlFallback: parsed.avatarUrlFallback,
+               createdAt: parsed.createdAt || Date.now(),
+               updatedAt: parsed.updatedAt || Date.now(),
+             });
+           }
+         } catch (e) {}
+       }
+     }
+
+     return { jsonData: zipJson, avatarBlob: zipAvatar, studioMeta: zipMeta, avatarHistory: zipAvatarHistory, chats: zipChats, versionHistory: zipVersionHistory, memos: zipMemos, boundPersonas: zipBoundPersonas };
   };
 
+  let versionHistory: any[] = [];
+  let memos: any[] = [];
+  let boundPersonas: any[] = [];
+
   if (fName.endsWith('.zip')) {
-     if (onProgress) onProgress("正在解压卡片...");
+     if (onProgress) onProgress("正在解压卡片与备忘录...");
      const res = await tryParseZip(blob);
      jsonData = res.jsonData;
      avatarBlob = res.avatarBlob;
      studioMeta = res.studioMeta;
      if (res.avatarHistory) avatarHistory = res.avatarHistory;
      if (res.chats) chats = res.chats;
+     if (res.versionHistory) versionHistory = res.versionHistory;
+     if (res.memos) memos = res.memos;
+     if (res.boundPersonas) boundPersonas = res.boundPersonas;
   } else if (fName.endsWith('.json')) {
      const text = await blob.text();
      jsonData = JSON.parse(text);
@@ -1309,19 +1765,33 @@ export async function downloadCloudCharacter(token: string, fileId: string, file
   }
 
   if (!jsonData) throw new Error("无效的云端卡片格式或未找到卡片数据");
-  return { jsonData, avatarBlob, studioMeta, avatarHistory, chats };
+  return { jsonData, avatarBlob, studioMeta, avatarHistory, chats, versionHistory, memos, boundPersonas };
 }
-export async function syncLibraryToCloud(token: string, onProgress?: (msg: string) => void) {
+export type CloudLibrarySyncResult = {
+  success: number;
+  moved: number;
+  skipped: number;
+  failed: number;
+  failedSamples: string[];
+  total: number;
+};
+
+export async function syncLibraryToCloud(
+  token: string,
+  onProgress?: (msg: string) => void
+): Promise<CloudLibrarySyncResult> {
   if (onProgress) onProgress('准备同步到云端卡库...');
   const { getCachedMeta } = await import('./db');
   const allChars = (await getCachedMeta()).filter((c) => !c.deletedAt);
   let successCount = 0;
+  let movedCount = 0;
   let skippedCount = 0;
   let failCount = 0;
   let completedCount = 0;
+  const failedSamples: string[] = [];
 
   const isAndroid = Capacitor.isNativePlatform();
-  const CONCURRENCY = isAndroid ? 1 : 3;
+  const CONCURRENCY = isAndroid ? 2 : 4;
   let currentIndex = 0;
 
   const uploadWorker = async () => {
@@ -1332,16 +1802,21 @@ export async function syncLibraryToCloud(token: string, onProgress?: (msg: strin
         const result = await uploadCharacterToCloud(token, char.id, () => {});
         if (result === 'skipped') {
           skippedCount++;
+        } else if (result === 'moved') {
+          movedCount++;
         } else {
           successCount++;
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error("Sync char error", char.id, e);
         failCount++;
+        if (failedSamples.length < 5) {
+          failedSamples.push(`${char.name || char.id}: ${e?.message || String(e)}`);
+        }
       } finally {
         completedCount++;
-        if (onProgress) onProgress(`正在批量同步至云端... (${completedCount}/${allChars.length})`);
-        await new Promise(r => setTimeout(r, isAndroid ? 200 : 50));
+        if (onProgress) onProgress(`正在同步至云端卡库... (${completedCount}/${allChars.length})`);
+        await new Promise(r => setTimeout(r, isAndroid ? 150 : 40));
       }
     }
   };
@@ -1353,7 +1828,28 @@ export async function syncLibraryToCloud(token: string, onProgress?: (msg: strin
   
   await Promise.all(workers);
 
-  if (onProgress) onProgress(`同步完成! 成功: ${successCount} 个, 跳过: ${skippedCount} 个, 失败: ${failCount} 个`);
+  const personaRes = await syncUserPersonasToCloud(token, (msg) => {
+    if (onProgress) onProgress(msg);
+  });
+  successCount += personaRes.success;
+  movedCount += personaRes.moved;
+  skippedCount += personaRes.skipped;
+  failCount += personaRes.failed;
+  for (const s of personaRes.failedSamples) {
+    if (failedSamples.length < 5) failedSamples.push(s);
+  }
+
+  if (onProgress) {
+    onProgress(`云端卡库同步完成! 上传/更新: ${successCount} 个, 移动: ${movedCount} 个, 一致跳过: ${skippedCount} 个${failCount > 0 ? `, 失败: ${failCount} 个` : ''}`);
+  }
+  return {
+    success: successCount,
+    moved: movedCount,
+    skipped: skippedCount,
+    failed: failCount,
+    failedSamples,
+    total: allChars.length + personaRes.total,
+  };
 }
 
 export async function syncFolderStructureToCloud(
@@ -1470,6 +1966,48 @@ export async function syncFolderStructureToCloud(
     }
   }
 
+  const personaFiles = cloudChars.filter((cf) => cf.appProperties?.isPersona === 'true');
+  if (personaFiles.length > 0) {
+    const personaFolderId = await resolveDriveFolderPath(token, rootFolderId, ['人设库']);
+    for (const pf of personaFiles) {
+      const pParents = Array.isArray(pf.parents) ? pf.parents : [];
+      const curPath = pf.appProperties?.folderPath || '';
+      const needMove = curPath !== '人设库' || pParents.length !== 1 || pParents[0] !== personaFolderId;
+      if (!needMove) continue;
+      try {
+        const removeParents = pParents.filter((id: string) => id !== personaFolderId);
+        let moveUrl = `https://www.googleapis.com/drive/v3/files/${pf.id}?addParents=${encodeURIComponent(personaFolderId)}&fields=id,parents`;
+        if (removeParents.length > 0) {
+          moveUrl += `&removeParents=${encodeURIComponent(removeParents.join(','))}`;
+        }
+        await fetch(moveUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-HTTP-Method-Override': 'PATCH',
+          },
+        });
+        await fetch(`https://www.googleapis.com/drive/v3/files/${pf.id}`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'X-HTTP-Method-Override': 'PATCH',
+          },
+          body: JSON.stringify({
+            appProperties: {
+              ...(pf.appProperties || {}),
+              folderPath: '人设库',
+            },
+          }),
+        });
+        moved++;
+      } catch (err) {
+        console.warn('Sync persona folder failed:', err);
+      }
+    }
+  }
+
   return { moved, unchanged, total: localChars.length };
 }
 
@@ -1479,6 +2017,288 @@ export async function deleteCloudCharacter(token: string, fileId: string) {
     headers: { Authorization: `Bearer ${token}` }
   });
   if (!response.ok) throw new Error("Delete failed");
+}
+
+export async function uploadUserPersonaToCloud(
+  token: string,
+  persona: UserPersona,
+  charNameMap?: Map<string, string>,
+): Promise<'uploaded' | 'skipped' | 'moved'> {
+  const safeName = getSafeFilename(persona.name || 'Persona');
+  const folderPath = '人设库';
+  const rootFolderId = await getCloudFolderId(token);
+  const targetParentId = await resolveDriveFolderPath(token, rootFolderId, [folderPath]);
+
+  let nameMap = charNameMap;
+  if (!nameMap && Array.isArray(persona.boundCharacterIds) && persona.boundCharacterIds.length > 0) {
+    const metas = await getCachedMeta();
+    nameMap = new Map<string, string>();
+    for (const m of metas) {
+      if (!m.deletedAt && m.name) nameMap.set(m.id, m.name);
+    }
+  }
+
+  const boundCharacterNames = (persona.boundCharacterIds || [])
+    .map((cid) => ({ id: cid, name: nameMap?.get(cid) || '' }))
+    .filter((item) => item.id);
+
+  const personaPayloadObj = {
+    id: persona.id,
+    name: persona.name,
+    content: persona.content,
+    isDefault: !!persona.isDefault,
+    boundCharacterIds: persona.boundCharacterIds || [],
+    boundCharacterNames,
+    avatarUrlFallback: persona.avatarUrlFallback,
+    createdAt: persona.createdAt,
+    updatedAt: persona.updatedAt,
+  };
+
+  const avatarInfo = persona.avatarBlob
+    ? `${persona.avatarBlob.size}_${persona.avatarBlob.type}`
+    : 'no-avatar';
+  const rawHashData = [
+    persona.id,
+    persona.name || '',
+    persona.content || '',
+    persona.isDefault ? '1' : '0',
+    (persona.boundCharacterIds || []).slice().sort().join(','),
+    persona.avatarUrlFallback || '',
+    avatarInfo,
+    folderPath,
+    persona.updatedAt || persona.createdAt || 0,
+  ].join('|');
+  const contentHash = await hashString(rawHashData);
+
+  let finalBlob: Blob;
+  let fileName: string;
+  let mimeType: string;
+
+  if (persona.avatarBlob) {
+    const zip = new JSZip();
+    const ext = getAvatarExtension(persona.avatarBlob);
+    zip.file('persona.json', JSON.stringify(personaPayloadObj, null, 2));
+    zip.file(`avatar.${ext}`, persona.avatarBlob);
+    zip.file(
+      'studio_meta.json',
+      JSON.stringify({
+        type: 'user_persona',
+        folderPath,
+        personaId: persona.id,
+        createdAt: persona.createdAt,
+        updatedAt: persona.updatedAt,
+      }),
+    );
+    finalBlob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+    fileName = `${safeName}_${persona.id}.zip`;
+    mimeType = 'application/zip';
+  } else {
+    finalBlob = new Blob([JSON.stringify(personaPayloadObj, null, 2)], {
+      type: 'application/json',
+    });
+    fileName = `${safeName}_${persona.id}.json`;
+    mimeType = 'application/json';
+  }
+
+  let thumbB64: string | null = null;
+  if (persona.avatarBlob) {
+    thumbB64 = await generateThumbnail(persona.avatarBlob);
+  }
+
+  const appProperties: Record<string, string> = {
+    isPersona: 'true',
+    personaId: persona.id,
+    personaName: persona.name || '',
+    charName: persona.name || '',
+    folderPath,
+    isDefault: persona.isDefault ? 'true' : 'false',
+    createdAt: String(persona.createdAt || Date.now()),
+    contentHash,
+  };
+
+  const q = `appProperties has { key='isPersona' and value='true' } and appProperties has { key='personaId' and value='${persona.id}' } and trashed=false`;
+  const searchRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive&fields=files(id,name,appProperties,parents,size)`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!searchRes.ok) throw new Error(`云端人设查询失败: HTTP ${searchRes.status}`);
+  const searchData = await searchRes.json();
+  const existing = searchData.files && searchData.files.length > 0 ? searchData.files[0] : null;
+
+  const movePersonaFile = async (fileId: string, existingParents: string[]) => {
+    const removeParents = existingParents.filter((id) => id !== targetParentId);
+    let moveUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?addParents=${encodeURIComponent(targetParentId)}&fields=id,parents`;
+    if (removeParents.length > 0) {
+      moveUrl += `&removeParents=${encodeURIComponent(removeParents.join(','))}`;
+    }
+    await fetch(moveUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'X-HTTP-Method-Override': 'PATCH',
+      },
+    });
+  };
+
+  if (existing) {
+    const existingParents = Array.isArray(existing.parents) ? existing.parents : [];
+    const curFolder = existing.appProperties?.folderPath || '';
+    const folderChanged = curFolder !== folderPath || existingParents.length !== 1 || existingParents[0] !== targetParentId;
+    const existingSize = existing.size != null ? Number(existing.size) : 0;
+    const isCorruptedOrEmpty = existingSize <= 10;
+
+    if (!isCorruptedOrEmpty && existing.appProperties?.contentHash === contentHash) {
+      if (folderChanged) {
+        await movePersonaFile(existing.id, existingParents);
+        await fetch(`https://www.googleapis.com/drive/v3/files/${existing.id}`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'X-HTTP-Method-Override': 'PATCH',
+          },
+          body: JSON.stringify({ appProperties }),
+        });
+        return 'moved';
+      }
+      return 'skipped';
+    }
+
+    const patchMeta: any = { name: fileName, appProperties };
+    if (thumbB64) {
+      patchMeta.contentHints = { thumbnail: { image: thumbB64, mimeType: 'image/jpeg' } };
+    }
+    await fetch(`https://www.googleapis.com/drive/v3/files/${existing.id}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'X-HTTP-Method-Override': 'PATCH',
+      },
+      body: JSON.stringify(patchMeta),
+    });
+    if (folderChanged) {
+      await movePersonaFile(existing.id, existingParents);
+    }
+    const uploadRes = await uploadBlobToDrive(token, existing.id, finalBlob, mimeType);
+    if (!uploadRes.ok) throw new Error(`上传人设失败: HTTP ${uploadRes.status}`);
+    return 'uploaded';
+  }
+
+  const createMeta: any = {
+    name: fileName,
+    appProperties,
+    parents: [targetParentId],
+  };
+  if (thumbB64) {
+    createMeta.contentHints = { thumbnail: { image: thumbB64, mimeType: 'image/jpeg' } };
+  }
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(createMeta),
+  });
+  if (!createRes.ok) throw new Error('创建云端人设文件失败');
+  const created = await createRes.json();
+  const uploadRes = await uploadBlobToDrive(token, created.id, finalBlob, mimeType);
+  if (!uploadRes.ok) {
+    try {
+      await fetch(`https://www.googleapis.com/drive/v3/files/${created.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {}
+    throw new Error(`上传人设失败: HTTP ${uploadRes.status}`);
+  }
+  return 'uploaded';
+}
+
+export async function syncUserPersonasToCloud(
+  token: string,
+  onProgress?: (msg: string, current?: number, total?: number) => void,
+): Promise<CloudLibrarySyncResult> {
+  const { getUserPersonas, getCachedMeta } = await import('./db');
+  const personas = await getUserPersonas();
+  if (personas.length === 0) {
+    return { success: 0, moved: 0, skipped: 0, failed: 0, failedSamples: [], total: 0 };
+  }
+
+  const metas = await getCachedMeta();
+  const charNameMap = new Map<string, string>();
+  for (const m of metas) {
+    if (!m.deletedAt && m.name) charNameMap.set(m.id, m.name);
+  }
+
+  let success = 0;
+  let moved = 0;
+  let skipped = 0;
+  let failed = 0;
+  const failedSamples: string[] = [];
+
+  for (let i = 0; i < personas.length; i++) {
+    const p = personas[i];
+    if (onProgress) onProgress(`正在同步人设库 (${i + 1}/${personas.length})...`, i + 1, personas.length);
+    try {
+      const res = await uploadUserPersonaToCloud(token, p, charNameMap);
+      if (res === 'uploaded') success++;
+      else if (res === 'moved') moved++;
+      else skipped++;
+    } catch (e: any) {
+      failed++;
+      if (failedSamples.length < 5) {
+        failedSamples.push(`人设「${p.name || p.id}」: ${e?.message || String(e)}`);
+      }
+    }
+  }
+
+  return { success, moved, skipped, failed, failedSamples, total: personas.length };
+}
+
+export async function downloadCloudPersona(
+  token: string,
+  fileId: string,
+  fileName?: string,
+): Promise<{
+  persona: Partial<UserPersona> & { boundCharacterNames?: Array<{ id: string; name: string }> };
+  avatarBlob?: Blob;
+}> {
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error('下载云端人设失败');
+  const blob = await response.blob();
+  const lower = (fileName || '').toLowerCase();
+
+  if (lower.endsWith('.json')) {
+    const parsed = JSON.parse(await blob.text());
+    return { persona: parsed, avatarBlob: undefined };
+  }
+
+  try {
+    const zip = await JSZip.loadAsync(blob);
+    let parsedPersona: any = null;
+    let avatarBlob: Blob | undefined;
+    for (const [name, entry] of Object.entries(zip.files)) {
+      if (entry.dir) continue;
+      const lName = name.toLowerCase();
+      if (lName === 'persona.json' || lName.endsWith('/persona.json')) {
+        parsedPersona = JSON.parse(await entry.async('text'));
+      } else if (lName.startsWith('avatar.') || lName.includes('/avatar.')) {
+        const ext = name.split('.').pop() || 'png';
+        const raw = await entry.async('blob');
+        avatarBlob = new Blob([raw], { type: raw.type || guessMimeFromExt(ext) });
+      }
+    }
+    if (!parsedPersona) throw new Error('人设压缩包内缺少 persona.json');
+    return { persona: parsedPersona, avatarBlob };
+  } catch (e: any) {
+    // Fallback: try parsing as plain JSON
+    const parsed = JSON.parse(await blob.text());
+    return { persona: parsed, avatarBlob: undefined };
+  }
 }
 
 export async function uploadChatsToCloud(

@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { getCharacters, saveCharacter, getCharacter } from './db';
-import { generateTagsForCharacters } from './ai';
 
 export interface TaggingLog {
   id: string;
@@ -23,19 +22,57 @@ export interface RetagReviewItem {
   newTags: string[];
 }
 
+/**
+ * 校验某个简介/总结内容是否为 AI 的拒绝/道歉回复（例如之前未加破限词时的拒答）
+ */
+export function isRefusalOrApologySummary(text: string | null | undefined): boolean {
+  if (!text || typeof text !== 'string') return false;
+  const s = text.trim().toLowerCase();
+  if (!s) return false;
+
+  const refusalPatterns = [
+    /i('m|\s+am)\s+sorry/,
+    /sorry,\s*but\s*i/,
+    /i\s+cannot\s+(fulfill|generate|assist|create|provide|process)/,
+    /i\s+am\s+(unable|not\s+able)\s+to/,
+    /as\s+an\s+ai/,
+    /safety\s+guidelines/,
+    /content\s+policy/,
+    /inappropriate\s+content/,
+    /抱歉[，,!\s]*我?(无法|不能|无法提供|不能协助|无法生成|无法满足|不能生成|处理)/,
+    /非常抱歉[，,!\s]*/,
+    /十分抱歉[，,!\s]*/,
+    /作为一个(ai|人工智能|语言模型)/,
+    /违反了(安全|内容)策略/,
+    /无法为您生成/,
+    /不能为您生成/,
+    /无法处理此类内容/,
+    /不适宜的内容/,
+  ];
+
+  return refusalPatterns.some(pattern => pattern.test(s));
+}
+
 class TaggerState {
   isTagging = false;
-  taggingMode: 'untagged' | 'tagged' | null = null;
+  taggingMode: 'untagged' | 'tagged' | 'summary' | null = null;
+  summarySubMode: 'unsummarized' | 'summarized' = 'unsummarized';
   isPaused = false;
+  isCompleted = false;
   stopRequested = false;
   apiKeyMissing = false;
   progress: TaggingProgress = { current: 0, total: 0, success: 0, failed: 0 };
   logs: TaggingLog[] = [];
   untaggedCharacters: any[] = [];
   taggedCharacters: any[] = [];
+  unsummarizedCharacters: any[] = [];
+  summarizedCharacters: any[] = [];
   retagReviewQueue: RetagReviewItem[] = [];
   batchSize = 10;
   logsExpanded = true;
+  /** 因为是退到后台才自动暂停（不是用户自己按的暂停），回到前台要能接着跑。 */
+  visibilityPaused = false;
+  pauseWaiters: Array<() => void> = [];
   
   listeners: Set<() => void> = new Set();
   errorCallback: ((msg: string) => void) | null = null;
@@ -54,30 +91,83 @@ class TaggerState {
   }
 
   async loadCharacters() {
-    const response = await getCharacters(1, 10000, 'all', '', [], 'newest_import', false);
-    const allChars = response.characters;
+    const { getCachedMeta } = await import('./db');
+    const allMeta = await getCachedMeta();
     
     this.untaggedCharacters = [];
     this.taggedCharacters = [];
+    this.unsummarizedCharacters = [];
+    this.summarizedCharacters = [];
 
-    allChars.forEach(c => {
-      const data = c.data?.data || c.data;
-      const rawData = c.data;
-      const isPreset = !!(rawData.prompts || rawData.temperature !== undefined || rawData.top_p !== undefined);
-      const isStandaloneWorldbook = rawData.entries !== undefined;
-      const isTheme = rawData.blur_strength !== undefined || rawData.main_text_color !== undefined || rawData.chat_display !== undefined;
-      const isQR = Array.isArray(rawData) ? rawData.length > 0 && rawData[0].label !== undefined : (rawData.quick_replies !== undefined || rawData.qrList !== undefined);
-      const isScript = rawData.type === 'script' && rawData.content !== undefined && rawData.name !== undefined;
-      const tags = data.tags || [];
+    allMeta.forEach(m => {
+      // 1. Skip soft-deleted / trash characters
+      if (m.deletedAt) return;
+
+      // 2. Skip tool / QR / non-character cards
+      if (m.isTool || m.isQR || (m.category && m.category !== '未归类')) return;
+
+      // 3. Skip empty ghost cards without character content
+      const charName = m.name;
+      if (!charName) return;
+
+      const tags = m.tags || [];
       const isBeautify = tags.some((t: string) => t.includes('美化') || t.includes('预设') || t.includes('UI') || t.includes('主题') || t.includes('工具') || t.includes('插件') || t.includes('正则') || t.includes('组件') || t.includes('工作流'));
-      
-      if (isPreset || isBeautify || isStandaloneWorldbook || isTheme || isQR || isScript) return;
-      
+      if (isBeautify) return;
+
+      const lightweightChar: any = {
+        id: m.id,
+        name: m.name,
+        tags: m.tags || [],
+        aiSummary: m.aiSummary,
+        category: m.category,
+        avatarUrlFallback: m.avatarUrlFallback,
+        localFilePath: m.localFilePath,
+        hasBlobsSeparated: m.hasBlobsSeparated,
+        updatedAt: m.updatedAt,
+        createdAt: m.createdAt,
+        fileModifiedAt: m.fileModifiedAt,
+        tokenCount: m.tokenCount,
+        data: {
+          name: m.name,
+          tags: m.tags || [],
+          aiSummary: m.aiSummary
+        }
+      };
+
       if (!tags || tags.length === 0) {
-        this.untaggedCharacters.push(c);
+        this.untaggedCharacters.push(lightweightChar);
       } else {
-        this.taggedCharacters.push(c);
+        this.taggedCharacters.push(lightweightChar);
       }
+
+      const summary = typeof m.aiSummary === 'string' ? m.aiSummary.trim() : '';
+      if (!summary || isRefusalOrApologySummary(summary)) {
+        // 无简介或之前生成的是 AI 道歉/拒绝语：归入「未总结/待重新生成」队列！
+        this.unsummarizedCharacters.push(lightweightChar);
+      } else {
+        this.summarizedCharacters.push(lightweightChar);
+      }
+    });
+
+    // 优先把上次包含道歉/拒绝回复的失败卡片排在最前面，其次按导入/创建时间倒序！
+    this.unsummarizedCharacters.sort((a, b) => {
+      const aSummary = a.aiSummary || a.data?.aiSummary;
+      const bSummary = b.aiSummary || b.data?.aiSummary;
+      const aIsRefusal = isRefusalOrApologySummary(aSummary);
+      const bIsRefusal = isRefusalOrApologySummary(bSummary);
+
+      if (aIsRefusal && !bIsRefusal) return -1;
+      if (!aIsRefusal && bIsRefusal) return 1;
+
+      const timeA = a.createdAt || a.fileModifiedAt || a.updatedAt || 0;
+      const timeB = b.createdAt || b.fileModifiedAt || b.updatedAt || 0;
+      return timeB - timeA;
+    });
+
+    this.summarizedCharacters.sort((a, b) => {
+      const timeA = a.updatedAt || a.createdAt || a.fileModifiedAt || 0;
+      const timeB = b.updatedAt || b.createdAt || b.fileModifiedAt || 0;
+      return timeB - timeA;
     });
 
     this.notify();
@@ -95,12 +185,54 @@ class TaggerState {
 
   togglePause() {
     this.isPaused = !this.isPaused;
+    this.visibilityPaused = false;
+    if (!this.isPaused) this.releasePauseWaiters();
     this.notify();
+  }
+
+  /** 退到后台就把打标停下来：不然 WebView 里的定时器和 AI 请求会在后台一直跑。 */
+  handleVisibility(visible: boolean) {
+    if (!visible) {
+      if (this.isTagging && !this.isPaused) {
+        this.visibilityPaused = true;
+        this.isPaused = true;
+        this.notify();
+      }
+      return;
+    }
+    if (this.visibilityPaused) {
+      this.visibilityPaused = false;
+      if (this.isTagging) this.isPaused = false;
+      this.releasePauseWaiters();
+      this.notify();
+    }
+  }
+
+  private releasePauseWaiters() {
+    const waiters = this.pauseWaiters;
+    this.pauseWaiters = [];
+    for (const resolve of waiters) resolve();
+  }
+
+  /** 暂停时不靠 500ms 空转轮询，直接挂起等恢复（省电）。 */
+  private waitWhilePaused(): Promise<void> {
+    if (!this.isPaused || this.stopRequested) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.pauseWaiters.push(resolve);
+    });
   }
 
   stopTagging() {
     this.stopRequested = true;
     this.isPaused = false;
+    this.visibilityPaused = false;
+    this.releasePauseWaiters();
+    this.isCompleted = false;
+    this.notify();
+  }
+
+  clearCompleted() {
+    this.isCompleted = false;
     this.notify();
   }
 
@@ -108,6 +240,9 @@ class TaggerState {
     this.stopRequested = true;
     this.isTagging = false;
     this.isPaused = false;
+    this.visibilityPaused = false;
+    this.releasePauseWaiters();
+    this.isCompleted = false;
     this.logs = [];
     this.progress = { current: 0, total: 0, success: 0, failed: 0 };
     this.retagReviewQueue = [];
@@ -125,6 +260,9 @@ class TaggerState {
     this.isTagging = true;
     this.taggingMode = 'tagged';
     this.isPaused = false;
+    this.visibilityPaused = false;
+    this.releasePauseWaiters();
+    this.isCompleted = false;
     this.stopRequested = false;
     this.apiKeyMissing = false;
     
@@ -143,21 +281,25 @@ class TaggerState {
     for (let i = 0; i < charsToProcess.length; i += API_BATCH_SIZE) {
       if (this.stopRequested) break;
       
-      while (this.isPaused) {
-        if (this.stopRequested) break;
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+      await this.waitWhilePaused();
       
       if (this.stopRequested) break;
 
       const batch = charsToProcess.slice(i, i + API_BATCH_SIZE);
-      const batchData = batch.map(c => c.data?.data || c.data);
+      const fullBatch = await Promise.all(
+        batch.map(async (c) => {
+          if (c.data?.description || c.data?.first_mes) return c;
+          const full = await getCharacter(c.id);
+          return full || c;
+        })
+      );
       
       try {
-        const tagsList = await generateTagsForCharacters(batchData);
+        const { generateTagsForCharacters } = await import('./ai');
+        const tagsList = await generateTagsForCharacters(fullBatch);
 
-        for (let j = 0; j < batch.length; j++) {
-          const char = batch[j];
+        for (let j = 0; j < fullBatch.length; j++) {
+          const char = fullBatch[j];
           const tags = tagsList[j];
 
           if (tags && tags.length > 0) {
@@ -208,6 +350,9 @@ class TaggerState {
     
     this.isTagging = false;
     this.isPaused = false;
+    if (!this.stopRequested && this.progress.total > 0) {
+      this.isCompleted = true;
+    }
     this.notify();
   }
 
@@ -286,6 +431,9 @@ class TaggerState {
     this.isTagging = true;
     this.taggingMode = 'untagged';
     this.isPaused = false;
+    this.visibilityPaused = false;
+    this.releasePauseWaiters();
+    this.isCompleted = false;
     this.stopRequested = false;
     this.apiKeyMissing = false;
     
@@ -304,28 +452,32 @@ class TaggerState {
     for (let i = 0; i < charsToProcess.length; i += API_BATCH_SIZE) {
       if (this.stopRequested) break;
       
-      while (this.isPaused) {
-        if (this.stopRequested) break;
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+      await this.waitWhilePaused();
       
       if (this.stopRequested) break;
 
       const batch = charsToProcess.slice(i, i + API_BATCH_SIZE);
-      const batchData = batch.map(c => c.data?.data || c.data);
+      const fullBatch = await Promise.all(
+        batch.map(async (c) => {
+          if (c.data?.description || c.data?.first_mes) return c;
+          const full = await getCharacter(c.id);
+          return full || c;
+        })
+      );
       
       try {
-        const tagsList = await generateTagsForCharacters(batchData);
+        const { generateTagsForCharacters } = await import('./ai');
+        const tagsList = await generateTagsForCharacters(fullBatch);
 
-        for (let j = 0; j < batch.length; j++) {
-          const char = batch[j];
+        for (let j = 0; j < fullBatch.length; j++) {
+          const char = fullBatch[j];
           const tags = tagsList[j];
 
           if (tags && tags.length > 0) {
             const updatedChar = { ...char };
-            if (updatedChar.data.data) {
+            if (updatedChar.data?.data) {
               updatedChar.data.data.tags = tags;
-            } else {
+            } else if (updatedChar.data) {
               updatedChar.data.tags = tags;
             }
             await saveCharacter(updatedChar);
@@ -372,21 +524,139 @@ class TaggerState {
     
     this.isTagging = false;
     this.isPaused = false;
+    if (!this.stopRequested && this.progress.total > 0) {
+      this.isCompleted = true;
+    }
+    await this.loadCharacters();
+  }
+
+  async startBatchSummary(mode: 'unsummarized' | 'summarized' = 'unsummarized', customChars?: any[]) {
+    const pool = customChars && customChars.length > 0
+      ? customChars
+      : (mode === 'summarized' ? this.summarizedCharacters : this.unsummarizedCharacters);
+
+    if (pool.length === 0 || this.isTagging) return;
+
+    this.isTagging = true;
+    this.taggingMode = 'summary';
+    this.summarySubMode = mode;
+    this.isPaused = false;
+    this.visibilityPaused = false;
+    this.releasePauseWaiters();
+    this.isCompleted = false;
+    this.stopRequested = false;
+    this.apiKeyMissing = false;
+
+    const charsToProcess = this.batchSize === 0 ? pool : pool.slice(0, this.batchSize);
+    this.progress = { current: 0, total: charsToProcess.length, success: 0, failed: 0 };
+
+    this.logs = charsToProcess.map(c => ({
+      id: c.id,
+      name: c.data?.data?.name || c.data?.name || c.name || '未知角色',
+      status: 'pending' as const
+    }));
+    this.notify();
+
+    for (let i = 0; i < charsToProcess.length; i++) {
+      if (this.stopRequested) break;
+
+      await this.waitWhilePaused();
+
+      if (this.stopRequested) break;
+
+      const char = charsToProcess[i];
+      try {
+        const fullChar = await getCharacter(char.id) || char;
+        const { generateSummaryForCharacter } = await import('./ai');
+        const summary = await generateSummaryForCharacter(fullChar);
+
+        if (summary) {
+          fullChar.aiSummary = summary;
+          if (fullChar.data?.data) {
+            fullChar.data.data.aiSummary = summary;
+          } else if (fullChar.data) {
+            fullChar.data.aiSummary = summary;
+          }
+          await saveCharacter(fullChar);
+
+          // 同步内存引用，以便界面即时更新
+          char.aiSummary = summary;
+          if (char.data?.data) {
+            char.data.data.aiSummary = summary;
+          } else if (char.data) {
+            char.data.aiSummary = summary;
+          }
+
+          this.progress.current++;
+          this.progress.success++;
+          const logIndex = this.logs.findIndex(l => l.id === char.id);
+          if (logIndex !== -1) {
+            this.logs[logIndex] = { ...this.logs[logIndex], status: 'success', tags: [summary.substring(0, 30) + '...'] };
+          }
+        } else {
+          this.progress.current++;
+          this.progress.failed++;
+          const logIndex = this.logs.findIndex(l => l.id === char.id);
+          if (logIndex !== -1) {
+            this.logs[logIndex] = { ...this.logs[logIndex], status: 'failed', errorMsg: 'AI未返回有效总结' };
+          }
+          if (this.errorCallback) this.errorCallback(`角色 ${char.data?.data?.name || char.data?.name || char.name} 总结失败：AI未返回有效总结`);
+        }
+      } catch (error: any) {
+        if (error.message === "API_KEY_MISSING") {
+          this.apiKeyMissing = true;
+          this.isTagging = false;
+          if (this.errorCallback) this.errorCallback("总结中断：未配置 API Key");
+          this.notify();
+          return;
+        }
+
+        console.error(`Failed to summarize char ${char.id}:`, error);
+        this.progress.current++;
+        this.progress.failed++;
+        const logIndex = this.logs.findIndex(l => l.id === char.id);
+        if (logIndex !== -1) {
+          this.logs[logIndex] = { ...this.logs[logIndex], status: 'failed', errorMsg: error.message || String(error) };
+        }
+        if (this.errorCallback) this.errorCallback(`总结中断：API 请求失败 (${error.message || String(error)})`);
+      }
+
+      this.notify();
+      await new Promise(resolve => setTimeout(resolve, 800));
+    }
+
+    this.isTagging = false;
+    this.isPaused = false;
+    if (!this.stopRequested && this.progress.total > 0) {
+      this.isCompleted = true;
+    }
     await this.loadCharacters();
   }
 }
 
 export const taggerState = new TaggerState();
 
+// 退到后台（页面不可见）就自动暂停打标，回到前台自动接着跑。
+if (typeof document !== 'undefined') {
+  const syncVisibility = () => taggerState.handleVisibility(document.visibilityState === 'visible');
+  document.addEventListener('visibilitychange', syncVisibility);
+  window.addEventListener('pageshow', syncVisibility);
+  window.addEventListener('pagehide', () => taggerState.handleVisibility(false));
+}
+
 export function useTaggerState() {
   const [state, setState] = useState({
     isTagging: taggerState.isTagging,
     taggingMode: taggerState.taggingMode,
+    summarySubMode: taggerState.summarySubMode,
     isPaused: taggerState.isPaused,
+    isCompleted: taggerState.isCompleted,
     progress: taggerState.progress,
     logs: taggerState.logs,
     untaggedCharacters: taggerState.untaggedCharacters,
     taggedCharacters: taggerState.taggedCharacters,
+    unsummarizedCharacters: taggerState.unsummarizedCharacters,
+    summarizedCharacters: taggerState.summarizedCharacters,
     retagReviewQueue: taggerState.retagReviewQueue,
     batchSize: taggerState.batchSize,
     apiKeyMissing: taggerState.apiKeyMissing,
@@ -398,11 +668,15 @@ export function useTaggerState() {
       setState({
         isTagging: taggerState.isTagging,
         taggingMode: taggerState.taggingMode,
+        summarySubMode: taggerState.summarySubMode,
         isPaused: taggerState.isPaused,
+        isCompleted: taggerState.isCompleted,
         progress: { ...taggerState.progress },
         logs: [...taggerState.logs],
         untaggedCharacters: [...taggerState.untaggedCharacters],
         taggedCharacters: [...taggerState.taggedCharacters],
+        unsummarizedCharacters: [...taggerState.unsummarizedCharacters],
+        summarizedCharacters: [...taggerState.summarizedCharacters],
         retagReviewQueue: [...taggerState.retagReviewQueue],
         batchSize: taggerState.batchSize,
         apiKeyMissing: taggerState.apiKeyMissing,

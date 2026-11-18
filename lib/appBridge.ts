@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { safeCreateObjectURL } from './avatar';
 
 export const isAndroid = () => {
   if (typeof window === 'undefined') return false;
@@ -501,6 +502,37 @@ export async function exportFileToMIU(
   }
 }
 
+/**
+ * 把已经导出落盘的图片再复制一份进系统相册（在相册里显示为一个叫 "MIU" 的相册）。
+ *
+ * 为什么需要：导出目录 Download/MIU 里放了 .nomedia，是有意不让相册扫描到卡片库的，
+ * 结果就是单卡导出后在相册里根本找不到，只能去文件管理器翻，分享起来很麻烦。
+ * 这里额外放一份到 Pictures/MIU，相册/图库就能直接看到、直接分享。
+ *
+ * 需要 APK 里带 saveImageToAlbum 这个原生方法；老 APK 没有就静默跳过，不影响导出本身。
+ *
+ * @param absolutePath 已落盘的源文件绝对路径（通常来自 exportFileToMIU）
+ * @param displayName  相册里显示的文件名，例如 "筱原冬弥.png"
+ * @param mimeType     图片 MIME，默认 image/png
+ * @returns            是否成功放进相册
+ */
+export async function saveExportedImageToAlbum(
+  absolutePath: string,
+  displayName: string,
+  mimeType: string = "image/png"
+): Promise<boolean> {
+  if (!isAndroid()) return false;
+  const android = (window as any).Android;
+  if (!android?.saveImageToAlbum) return false;
+  try {
+    const result = await android.saveImageToAlbum(absolutePath, displayName, mimeType);
+    return !!result;
+  } catch (e) {
+    console.warn("saveExportedImageToAlbum failed:", e);
+    return false;
+  }
+}
+
 export async function shareLocalFileOnAndroid(absolutePath: string, mimeType: string = "*/*"): Promise<boolean> {
   if (!isAndroid()) return false;
   if ((window as any).Android && (window as any).Android.shareLocalFile) {
@@ -540,12 +572,14 @@ export async function shareLocalFileOnAndroid(absolutePath: string, mimeType: st
  * @param data 文件二进制数据，可为 ArrayBuffer 或 Blob
  * @param mimeType MIME 类型，默认根据扩展名推断
  * @param share 是否拉起分享面板，默认 true
+ * @param options.toAlbum 是否额外把图片复制一份到系统相册（仅 Android、仅图片类型生效）
  */
 export async function downloadOrShareFile(
   filename: string,
   data: ArrayBuffer | Blob,
   mimeType?: string,
-  share: boolean = true
+  share: boolean = true,
+  options: { toAlbum?: boolean } = {}
 ): Promise<{ success: boolean; path?: string | null }> {
   const ext = filename.split(".").pop()?.toLowerCase() || "";
   const detectedMime =
@@ -559,7 +593,7 @@ export async function downloadOrShareFile(
       : ext === "json"
       ? "application/json"
       : ext === "jsonl"
-      ? "application/jsonl"
+      ? "text/plain"
       : ext === "zip"
       ? "application/zip"
       : ext === "txt"
@@ -570,20 +604,35 @@ export async function downloadOrShareFile(
 
   if (isAndroid()) {
     try {
-      const savedPath = await exportFileToMIU(filename, buffer, detectedMime, share);
-      return { success: true, path: savedPath };
+      const wantAlbum = !!options.toAlbum && detectedMime.indexOf("image/") === 0;
+      // 要放相册时先只落盘、不弹分享面板：这样相册里那份一定在分享面板出现之前就写好，
+      // 用户就算把分享取消了，相册里也已经能看到了。
+      const savedPath = await exportFileToMIU(filename, buffer, detectedMime, share && !wantAlbum);
+      if (savedPath) {
+        if (wantAlbum) {
+          await saveExportedImageToAlbum(savedPath, filename, detectedMime);
+          if (share) {
+            await shareLocalFileOnAndroid(savedPath, detectedMime);
+          }
+        }
+        return { success: true, path: savedPath };
+      }
     } catch (err) {
-      console.error("downloadOrShareFile: exportFileToMIU error, falling back to shareFileOnAndroid:", err);
-      await shareFileOnAndroid(filename, buffer, detectedMime);
-      return { success: true };
+      console.error("downloadOrShareFile: exportFileToMIU error, falling back:", err);
+    }
+
+    try {
+      const shared = await shareFileOnAndroid(filename, buffer, detectedMime);
+      if (shared) return { success: true };
+    } catch (err) {
+      console.error("downloadOrShareFile: shareFileOnAndroid error, falling back to web download:", err);
     }
   }
 
-  // 非 Android 原生容器（网页端）
+  // 非 Android 原生容器，或原生写盘/分享失败时，退回到通用网页端 Blob 下载流程
   const blob = data instanceof Blob ? data : new Blob([buffer], { type: detectedMime });
 
-  // 仅在移动端浏览器环境（手机网页端）且 share 为 true 时，才尝试唤起手机系统的分享面板
-  // PC / 桌面端测试时（!isMobileDevice()），直接跳过系统分享，直接执行标准的浏览器文件下载
+  // 仅在移动端浏览器环境且 share 为 true 时，才尝试唤起手机系统的分享面板
   if (share && isMobileDevice() && typeof navigator !== "undefined" && navigator.share && navigator.canShare) {
     try {
       const file = new File([blob], filename, { type: detectedMime });
@@ -596,21 +645,40 @@ export async function downloadOrShareFile(
       }
     } catch (e: any) {
       if (e.name === "AbortError") {
-        // 手机端用户主动取消了系统分享面板，直接返回，不再二次弹出网页下载打扰用户
         return { success: true };
       }
     }
   }
 
-  // 常规浏览器直接下载（PC 桌面端测试，或不支持 Web Share 的浏览器环境）
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  return { success: true };
+  // 常规浏览器直接触发 Blob 文件下载
+  try {
+    const url = safeCreateObjectURL(blob);
+    if (!url) return { success: false };
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    return { success: true };
+  } catch (err) {
+    console.error("downloadOrShareFile: web download fallback failed:", err);
+    return { success: false };
+  }
 }
 
+/**
+ * 打开外部链接。
+ * Android（Capacitor WebView）默认不支持多窗口，window.open 会被直接丢弃，
+ * 需要同窗口跳转，由原生 shouldOverrideUrlLoading → launchIntent 交给系统浏览器打开；
+ * 网页端仍用新标签页，避免离开当前页面。
+ */
+export function openExternalUrl(url: string): void {
+  if (!url) return;
+  if (isAndroid()) {
+    window.location.href = url;
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
