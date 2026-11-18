@@ -1,5 +1,12 @@
 import { useState, useEffect } from 'react';
-import { getCharacters, saveCharacter, getCharacter } from './db';
+import {
+  getCharacters,
+  saveCharacter,
+  getCharacter,
+  extractCharacterTags,
+  syncTagsAcrossCard,
+  syncMetaTagsFromCharactersIfNeeded,
+} from './db';
 
 export interface TaggingLog {
   id: string;
@@ -91,6 +98,7 @@ class TaggerState {
   }
 
   async loadCharacters() {
+    await syncMetaTagsFromCharactersIfNeeded();
     const { getCachedMeta } = await import('./db');
     const allMeta = await getCachedMeta();
     
@@ -110,14 +118,14 @@ class TaggerState {
       const charName = m.name;
       if (!charName) return;
 
-      const tags = m.tags || [];
+      const tags = extractCharacterTags(m);
       const isBeautify = tags.some((t: string) => t.includes('美化') || t.includes('预设') || t.includes('UI') || t.includes('主题') || t.includes('工具') || t.includes('插件') || t.includes('正则') || t.includes('组件') || t.includes('工作流'));
       if (isBeautify) return;
 
       const lightweightChar: any = {
         id: m.id,
         name: m.name,
-        tags: m.tags || [],
+        tags,
         aiSummary: m.aiSummary,
         category: m.category,
         avatarUrlFallback: m.avatarUrlFallback,
@@ -129,12 +137,12 @@ class TaggerState {
         tokenCount: m.tokenCount,
         data: {
           name: m.name,
-          tags: m.tags || [],
+          tags,
           aiSummary: m.aiSummary
         }
       };
 
-      if (!tags || tags.length === 0) {
+      if (tags.length === 0) {
         this.untaggedCharacters.push(lightweightChar);
       } else {
         this.taggedCharacters.push(lightweightChar);
@@ -306,7 +314,7 @@ class TaggerState {
             const fullChar = await getCharacter(char.id) || char;
             this.retagReviewQueue.push({
               char: fullChar,
-              oldTags: fullChar.data?.data?.tags || fullChar.data?.tags || [],
+              oldTags: extractCharacterTags(fullChar),
               newTags: tags
             });
             this.progress.current++;
@@ -364,11 +372,7 @@ class TaggerState {
     const updatedChar = { ...item.char };
     const finalTags = customTags || item.newTags;
 
-    if (updatedChar.data.data) {
-      updatedChar.data.data.tags = finalTags;
-    } else {
-      updatedChar.data.tags = finalTags;
-    }
+    syncTagsAcrossCard(updatedChar, finalTags);
     await saveCharacter(updatedChar);
     
     this.retagReviewQueue.splice(idx, 1);
@@ -388,11 +392,7 @@ class TaggerState {
     if (this.retagReviewQueue.length === 0) return;
     for (const item of this.retagReviewQueue) {
       const updatedChar = { ...item.char };
-      if (updatedChar.data.data) {
-        updatedChar.data.data.tags = item.newTags;
-      } else {
-        updatedChar.data.tags = item.newTags;
-      }
+      syncTagsAcrossCard(updatedChar, item.newTags);
       await saveCharacter(updatedChar);
       this.taggedCharacters = this.taggedCharacters.filter(c => c.id !== item.char.id);
     }
@@ -405,11 +405,7 @@ class TaggerState {
     for (const item of this.retagReviewQueue) {
       const updatedChar = { ...item.char };
       const combined = Array.from(new Set([...item.oldTags, ...item.newTags]));
-      if (updatedChar.data.data) {
-        updatedChar.data.data.tags = combined;
-      } else {
-        updatedChar.data.tags = combined;
-      }
+      syncTagsAcrossCard(updatedChar, combined);
       await saveCharacter(updatedChar);
       this.taggedCharacters = this.taggedCharacters.filter(c => c.id !== item.char.id);
     }
@@ -457,29 +453,39 @@ class TaggerState {
       if (this.stopRequested) break;
 
       const batch = charsToProcess.slice(i, i + API_BATCH_SIZE);
-      const fullBatch = await Promise.all(
+      const loadedBatch = await Promise.all(
         batch.map(async (c) => {
-          if (c.data?.description || c.data?.first_mes) return c;
           const full = await getCharacter(c.id);
           return full || c;
         })
       );
-      
+
+      const needTagBatch: any[] = [];
+      for (const fullChar of loadedBatch) {
+        const existing = extractCharacterTags(fullChar);
+        if (existing.length > 0) {
+          this.progress.current++;
+          this.progress.success++;
+          const logIndex = this.logs.findIndex(l => l.id === fullChar.id);
+          if (logIndex !== -1) this.logs[logIndex] = { ...this.logs[logIndex], status: 'success', tags: existing };
+          this.notify();
+        } else {
+          needTagBatch.push(fullChar);
+        }
+      }
+      if (needTagBatch.length === 0) continue;
+
       try {
         const { generateTagsForCharacters } = await import('./ai');
-        const tagsList = await generateTagsForCharacters(fullBatch);
+        const tagsList = await generateTagsForCharacters(needTagBatch);
 
-        for (let j = 0; j < fullBatch.length; j++) {
-          const char = fullBatch[j];
+        for (let j = 0; j < needTagBatch.length; j++) {
+          const char = needTagBatch[j];
           const tags = tagsList[j];
 
           if (tags && tags.length > 0) {
             const updatedChar = { ...char };
-            if (updatedChar.data?.data) {
-              updatedChar.data.data.tags = tags;
-            } else if (updatedChar.data) {
-              updatedChar.data.tags = tags;
-            }
+            syncTagsAcrossCard(updatedChar, tags);
             await saveCharacter(updatedChar);
             
             this.progress.current++;
@@ -637,11 +643,24 @@ class TaggerState {
 export const taggerState = new TaggerState();
 
 // 退到后台（页面不可见）就自动暂停打标，回到前台自动接着跑。
+// 同时监听角色库更新事件：手动打标或外部保存后自动同步未打标/已打标列表。
 if (typeof document !== 'undefined') {
   const syncVisibility = () => taggerState.handleVisibility(document.visibilityState === 'visible');
   document.addEventListener('visibilitychange', syncVisibility);
   window.addEventListener('pageshow', syncVisibility);
   window.addEventListener('pagehide', () => taggerState.handleVisibility(false));
+
+  let reloadTimer: ReturnType<typeof setTimeout> | null = null;
+  window.addEventListener('charactersUpdated', () => {
+    if (taggerState.isTagging) return;
+    if (reloadTimer) clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(() => {
+      reloadTimer = null;
+      if (!taggerState.isTagging) {
+        taggerState.loadCharacters().catch(() => {});
+      }
+    }, 120);
+  });
 }
 
 export function useTaggerState() {

@@ -9,8 +9,8 @@ import { safeCreateObjectURL } from "./avatar";
  * 快速滚动时不会一下子涌进来一堆解码任务同时抢 CPU。
  */
 
-const MAX_CACHED_URLS = 240;
-const MAX_FOLDER_COVER_URLS = 300;
+const MAX_CACHED_URLS = 600;
+const MAX_FOLDER_COVER_URLS = 1200;
 
 interface CacheEntry {
   url: string;
@@ -46,11 +46,17 @@ export function peekCachedUrl(key: string): string | undefined {
 }
 
 /** 写入一个新的 blob URL(会被 revoke 管理), 超出上限会自动淘汰最久未用的 */
-export function putCachedBlobUrl(key: string, blob: Blob): string {
+export function putCachedBlobUrl(key: string, blob: Blob, options?: { forceReplace?: boolean }): string {
+  if (!blob || (blob instanceof Blob && blob.size === 0)) return "";
   const prev = cache.get(key);
+  if (prev?.url && !options?.forceReplace) {
+    touch(key, prev);
+    return prev.url;
+  }
   if (prev?.isBlobUrl) URL.revokeObjectURL(prev.url);
   const url = safeCreateObjectURL(blob);
   if (!url) {
+    if (prev) cache.delete(key);
     return "";
   }
   const isBlobUrl = url.startsWith("blob:");
@@ -63,6 +69,10 @@ export function putCachedBlobUrl(key: string, blob: Blob): string {
 /** 写入一个不需要 revoke 的静态 URL(data:/http/本地文件路径这类) */
 export function putCachedStaticUrl(key: string, url: string): string {
   const prev = cache.get(key);
+  if (prev?.url === url && !prev.isBlobUrl) {
+    touch(key, prev);
+    return url;
+  }
   if (prev?.isBlobUrl) URL.revokeObjectURL(prev.url);
   const entry: CacheEntry = { url, isBlobUrl: false };
   touch(key, entry);
@@ -96,11 +106,19 @@ export function peekFolderCoverUrl(key: string): string | undefined {
 }
 
 /** 文件夹封面专用：写入新的 blob URL，受独立上限保护，绝不被普通卡片列表挤掉 */
-export function putFolderCoverBlobUrl(key: string, blob: Blob): string {
+export function putFolderCoverBlobUrl(key: string, blob: Blob, options?: { forceReplace?: boolean }): string {
+  if (!blob || (blob instanceof Blob && blob.size === 0)) return "";
   const prev = folderCoverCache.get(key);
+  if (prev?.url && !options?.forceReplace) {
+    touchFolderCover(key, prev);
+    return prev.url;
+  }
   if (prev?.isBlobUrl) URL.revokeObjectURL(prev.url);
   const url = safeCreateObjectURL(blob);
-  if (!url) return "";
+  if (!url) {
+    if (prev) folderCoverCache.delete(key);
+    return "";
+  }
   const isBlobUrl = url.startsWith("blob:");
   const entry: CacheEntry = { url, isBlobUrl };
   touchFolderCover(key, entry);

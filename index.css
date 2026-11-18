@@ -382,9 +382,6 @@ button:focus-visible,
 /* Greeting Reader Markdown and Think Block rendering */
 .greeting-reader-prose {
   color: inherit !important;
-  white-space: pre-wrap !important;
-  text-align: justify !important;
-  text-justify: inter-ideograph !important;
   word-break: break-word !important;
   overflow-wrap: break-word !important;
   --tw-prose-body: currentColor !important;
@@ -400,10 +397,24 @@ button:focus-visible,
   margin-bottom: 1.25em !important;
   margin-top: 0 !important;
   line-height: inherit !important;
+  white-space: pre-wrap;
   text-align: justify !important;
   text-justify: inter-ideograph !important;
   word-break: break-word !important;
   overflow-wrap: break-word !important;
+}
+.greeting-reader-prose details,
+.greeting-reader-prose summary,
+.greeting-reader-prose table,
+.greeting-reader-prose ul,
+.greeting-reader-prose ol,
+.greeting-reader-prose blockquote,
+.greeting-reader-prose center {
+  white-space: normal;
+  text-align: start;
+}
+.greeting-reader-prose center {
+  text-align: center;
 }
 .greeting-reader-prose p:last-child {
   margin-bottom: 0 !important;

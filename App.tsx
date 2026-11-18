@@ -6,15 +6,15 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CharacterList } from './components/CharacterList';
+import { CharacterDetail } from './components/CharacterDetail';
 import { SyncWidget } from './components/SyncWidget';
 import { checkForAppUpdates, VersionInfo } from './config/version';
-import { migrateDatabase, getFolders, getCharacter, CharacterCard } from './lib/db';
+import { migrateDatabase, getFolders, getCharacterFast, peekCharacterMeta, CharacterCard } from './lib/db';
 import { useTaggerState } from './lib/taggerState';
 import { isAndroid } from './lib/appBridge';
 import { handleBackRequest } from './lib/useBackHandler';
 import { Tag, Loader2, AlertCircle, Pause, X, CheckCircle2 } from 'lucide-react';
 
-const CharacterDetail = lazy(() => import('./components/CharacterDetail').then(m => ({ default: m.CharacterDetail })));
 const ImportModal = lazy(() => import('./components/ImportModal').then(m => ({ default: m.ImportModal })));
 const FolderSidebar = lazy(() => import('./components/FolderSidebar').then(m => ({ default: m.FolderSidebar })));
 const TrashBin = lazy(() => import('./components/TrashBin').then(m => ({ default: m.TrashBin })));
@@ -157,22 +157,41 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
+  const [selectedCharPreview, setSelectedCharPreview] = useState<CharacterCard | null>(null);
   const [summaryModalChar, setSummaryModalChar] = useState<CharacterCard | null>(null);
+  const selectReqIdRef = useRef(0);
+
+  const buildPreviewCard = (id: string): CharacterCard | null => {
+    const meta = peekCharacterMeta(id);
+    if (!meta) return null;
+    return {
+      ...meta,
+      tokenCount: meta.tokenCount,
+      permanentTokens: meta.permanentTokens,
+      data: meta.creator ? { creator: meta.creator } : {},
+    } as unknown as CharacterCard;
+  };
 
   const handleSelectChar = useCallback(async (id: string | null, skipSummaryModal = false) => {
+    const reqId = ++selectReqIdRef.current;
     if (!id) {
       setSelectedCharId(null);
+      setSelectedCharPreview(null);
       setSummaryModalChar(null);
       return;
     }
     const showSummaryPopup = localStorage.getItem('miu_show_summary_popup') !== 'false';
-    if (skipSummaryModal || !showSummaryPopup) {
+    const cachedMeta = peekCharacterMeta(id);
+    if (skipSummaryModal || !showSummaryPopup || (cachedMeta && !cachedMeta.aiSummary?.trim())) {
+      setSelectedCharPreview(buildPreviewCard(id));
       setSelectedCharId(id);
       setSummaryModalChar(null);
       return;
     }
+
     try {
-      const char = await getCharacter(id);
+      const char = await getCharacterFast(id);
+      if (reqId !== selectReqIdRef.current) return;
       if (char) {
         const charData = char.data?.data || char.data || {};
         const summary = char.aiSummary || charData.aiSummary;
@@ -180,10 +199,15 @@ export default function App() {
           setSummaryModalChar(char);
           return;
         }
+        setSelectedCharPreview(char);
+      } else {
+        setSelectedCharPreview(buildPreviewCard(id));
       }
     } catch (e) {
       console.error('Error checking character summary:', e);
+      setSelectedCharPreview(buildPreviewCard(id));
     }
+    if (reqId !== selectReqIdRef.current) return;
     setSelectedCharId(id);
     setSummaryModalChar(null);
   }, []);
@@ -566,22 +590,21 @@ export default function App() {
           </AnimatePresence>
         </Suspense>
 
-        <Suspense fallback={null}>
-          <AnimatePresence>
-            {selectedCharId && (
-              <CharacterDetail
-                key={selectedCharId}
-                id={selectedCharId}
-                onBack={handleCloseCharacterDetail}
-                onOpenChat={setGlobalChatViewerId}
-                onOpenImport={handleOpenImportModal}
-                onOpenSettings={() => setIsSettingsOpen(true)}
-                refreshKey={refreshKey}
-                isLightMode={isLightMode}
-              />
-            )}
-          </AnimatePresence>
-        </Suspense>
+        <AnimatePresence>
+          {selectedCharId && (
+            <CharacterDetail
+              key={selectedCharId}
+              id={selectedCharId}
+              initialCharacter={selectedCharPreview}
+              onBack={handleCloseCharacterDetail}
+              onOpenChat={setGlobalChatViewerId}
+              onOpenImport={handleOpenImportModal}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              refreshKey={refreshKey}
+              isLightMode={isLightMode}
+            />
+          )}
+        </AnimatePresence>
       </div>
 
       <AnimatePresence>

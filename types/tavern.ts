@@ -86,17 +86,29 @@ export function parseTavernCard(rawData: any): TavernCardV2 {
     .map((item: any) => (typeof item === 'string' ? item : item?.message || item?.text || item?.content || ''))
     .filter((s: string) => typeof s === 'string' && s.length > 0);
 
-  // Extract tags reliably
-  let rawTags =
-    innerData.tags ||
-    rawData.tags ||
-    innerData.categories ||
-    rawData.categories ||
-    [];
-  if (typeof rawTags === 'string') {
-    rawTags = rawTags.split(',').map((t: string) => t.trim()).filter(Boolean);
+  // Extract tags reliably (avoid empty array [] shadowing non-empty fallback fields)
+  const tagCandidates = [
+    innerData.tags,
+    rawData.tags,
+    innerData.categories,
+    rawData.categories,
+  ];
+  let tags: string[] = [];
+  for (const candidate of tagCandidates) {
+    if (Array.isArray(candidate)) {
+      const cleaned = candidate.map((t: any) => String(t).trim()).filter(Boolean);
+      if (cleaned.length > 0) {
+        tags = Array.from(new Set(cleaned));
+        break;
+      }
+    } else if (typeof candidate === 'string' && candidate.trim()) {
+      const cleaned = candidate.split(/[,，/|\\;；\n]/).map((t: string) => t.trim()).filter(Boolean);
+      if (cleaned.length > 0) {
+        tags = Array.from(new Set(cleaned));
+        break;
+      }
+    }
   }
-  const tags = Array.isArray(rawTags) ? rawTags.map(String).filter(Boolean) : [];
 
   const name =
     innerData.name ||

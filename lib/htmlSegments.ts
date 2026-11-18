@@ -14,13 +14,13 @@ const VOID_TAGS = new Set([
   'br', 'hr', 'img', 'input', 'meta', 'link', 'source', 'area', 'base', 'col', 'embed', 'param', 'track', 'wbr',
 ]);
 
-const WIDGET_BLOCK_TAGS = 'div|section|main|article|table|center|template|body|aside|form|details';
+const WIDGET_BLOCK_TAGS = 'div|section|main|article|table|center|template|body|aside|form|details|header|footer|nav|fieldset|figure';
 
 const FENCE_WIDGET_HINT =
-  /<(?:!DOCTYPE\s+html|html|body|style|script|div|section|main|article|template|svg|table|center|details)\b/i;
+  /<(?:!DOCTYPE\s+html|html|body|style|script|div|section|main|article|template|svg|table|center|details|header|footer|nav|fieldset|figure)\b/i;
 
 const FENCE_WIDGET_STRONG_HEAD =
-  /^(?:<!DOCTYPE\s+html|<html\b|<body\b|<head\b|<style\b|<script\b|<svg\b|<(?:div|section|main|article|aside|form|table|center|template|details)\b[^>]*\b(?:class|style|id)\s*=)/i;
+  /^(?:<!DOCTYPE\s+html|<html\b|<body\b|<head\b|<style\b|<script\b|<svg\b|<(?:div|section|main|article|aside|form|table|center|template|details|header|footer|nav|fieldset|figure)\b[^>]*\b(?:class|style|id)\s*=)/i;
 
 const HTML_FENCE_LANGS = new Set(['html', 'htm', 'hmtl', 'htlm', 'xhtml', 'xml', 'svg', 'html5']);
 const NEUTRAL_FENCE_LANGS = new Set(['', 'text', 'txt', 'plaintext']);

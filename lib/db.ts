@@ -803,6 +803,8 @@ export async function getOrCreateNestedFolder(
 export interface FolderPreviewItem {
   url: string;
   seed: string;
+  charId?: string;
+  cacheKey?: string;
   tags?: string[];
   isTool?: boolean;
   /** 这张其实是「默认占位图」而不是真卡片图 —— 渲染端据此走 object-contain 小白底, 不会拉满 */
@@ -876,13 +878,133 @@ export async function getFolderPreviews(
     return undefined;
   };
 
+  const getCoverCacheKey = (m: CharMeta) =>
+    `folder_cover_${m.id}:${m.updatedAt || m.createdAt || 0}`;
+
+  // 第一遍先收集每个文件夹的排序候选列表，识别出需要从 "thumbs" 表批量预读的卡片 ID
+  const folderCandidates = new Map<string, CharMeta[]>();
+  const batchThumbCandidates = new Map<string, CharMeta>();
+
+  for (const folderId of folderIds) {
+    const directMetas = metasByFolder.get(folderId);
+    const metas: CharMeta[] = directMetas ? directMetas.slice() : [];
+
+    // 如果当前文件夹直属卡片为空，递归查找子孙文件夹里的卡片作为预览候选
+    if (metas.length === 0) {
+      const seen = new Set<string>([folderId]);
+      const stack = [...(childrenByParent.get(folderId) || [])];
+      while (stack.length > 0) {
+        const cId = stack.pop()!;
+        if (seen.has(cId)) continue;
+        seen.add(cId);
+        const subMetas = metasByFolder.get(cId);
+        if (subMetas && subMetas.length > 0) {
+          for (const sm of subMetas) metas.push(sm);
+        }
+        const subChildren = childrenByParent.get(cId);
+        if (subChildren) {
+          for (const sc of subChildren) {
+            if (!seen.has(sc)) stack.push(sc);
+          }
+        }
+      }
+    }
+
+    const sortedMetas = metas.slice().sort((a, b) => {
+      const aTool = isToolMeta(a);
+      const bTool = isToolMeta(b);
+      if (aTool !== bTool) return aTool ? 1 : -1;
+      let diff = 0;
+      switch (coverSortBy) {
+        case 'custom': {
+          const ao = a.sortOrder;
+          const bo = b.sortOrder;
+          if (ao !== undefined && bo !== undefined) diff = ao - bo;
+          else if (ao !== undefined) diff = -1;
+          else if (bo !== undefined) diff = 1;
+          else diff = (b.createdAt || 0) - (a.createdAt || 0);
+          break;
+        }
+        case 'oldest_import':
+          diff = (a.createdAt || 0) - (b.createdAt || 0);
+          break;
+        case 'recently_modified':
+          diff = (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+          break;
+        case 'tokens_desc':
+          diff = (b.tokenCount || 0) - (a.tokenCount || 0);
+          break;
+        case 'tokens_asc':
+          diff = (a.tokenCount || 0) - (b.tokenCount || 0);
+          break;
+        case 'a_z':
+          diff = (a.name || '').localeCompare(b.name || '', 'zh-CN');
+          break;
+        case 'z_a':
+          diff = (b.name || '').localeCompare(a.name || '', 'zh-CN');
+          break;
+        case 'newest_import':
+        default:
+          diff = (b.createdAt || 0) - (a.createdAt || 0);
+          break;
+      }
+      if (diff !== 0) return diff;
+      // 关键稳定键：相同时间戳或名称时，固定按 ID 排序，保证每次计算顺序绝对一致，绝不跳动
+      return (a.id || '').localeCompare(b.id || '');
+    });
+
+    folderCandidates.set(folderId, sortedMetas);
+
+    // 预扫描前 6 张可能需要读缩略图的候选卡，打包进单次 readonly 事务里批量读取
+    let queued = 0;
+    for (const m of sortedMetas) {
+      if (queued >= 6) break;
+      if (cheapImageUrl(m)) {
+        queued++;
+        continue;
+      }
+      if (noImageCharIds.has(m.id)) continue;
+      if (peekFolderCoverUrl(getCoverCacheKey(m))) {
+        queued++;
+        continue;
+      }
+      batchThumbCandidates.set(m.id, m);
+      queued++;
+    }
+  }
+
+  // 一次性批量读取 "thumbs" 表，避免几十上百个文件夹各自并发开启几百个独立 IDB 事务
+  if (batchThumbCandidates.size > 0) {
+    try {
+      const db = await initDB();
+      const tx = db.transaction("thumbs", "readonly");
+      const store = tx.objectStore("thumbs");
+      const batchList = Array.from(batchThumbCandidates.values());
+      const records = await Promise.all(batchList.map((m) => store.get(m.id)));
+      await tx.done;
+
+      for (let i = 0; i < batchList.length; i++) {
+        const m = batchList[i];
+        const rec = records[i];
+        if (!rec || (rec.thumbVersion !== 3 && rec.thumbVersion !== 4)) continue;
+        if (rec.noImage) {
+          noImageCharIds.add(m.id);
+        } else if (rec.thumbBlob && (!(rec.thumbBlob instanceof Blob) || rec.thumbBlob.size > 0)) {
+          putFolderCoverBlobUrl(getCoverCacheKey(m), rec.thumbBlob);
+        }
+      }
+    } catch (e) {
+      console.warn("Batch folder cover thumb read failed:", e);
+    }
+  }
+
   const readThumbUrl = async (m: CharMeta): Promise<string | undefined> => {
     try {
-      const cacheKey = `folder_cover_${m.id}:${m.updatedAt || m.createdAt || 0}`;
+      const cacheKey = getCoverCacheKey(m);
       const cached = peekFolderCoverUrl(cacheKey);
       if (cached) return cached;
       const thumbBlob = await getCharacterThumb(m.id);
-      if (!thumbBlob) return undefined;
+      if (!thumbBlob || (thumbBlob instanceof Blob && thumbBlob.size === 0)) return undefined;
       return putFolderCoverBlobUrl(cacheKey, thumbBlob) || undefined;
     } catch {
       return undefined;
@@ -891,73 +1013,7 @@ export async function getFolderPreviews(
 
   await Promise.all(
     folderIds.map(async (folderId) => {
-      const directMetas = metasByFolder.get(folderId);
-      const metas: CharMeta[] = directMetas ? directMetas.slice() : [];
-
-      // 如果当前文件夹直属卡片为空，递归查找子孙文件夹里的卡片作为预览候选
-      if (metas.length === 0) {
-        const seen = new Set<string>([folderId]);
-        const stack = [...(childrenByParent.get(folderId) || [])];
-        while (stack.length > 0) {
-          const cId = stack.pop()!;
-          if (seen.has(cId)) continue;
-          seen.add(cId);
-          const subMetas = metasByFolder.get(cId);
-          if (subMetas && subMetas.length > 0) {
-            for (const sm of subMetas) metas.push(sm);
-          }
-          const subChildren = childrenByParent.get(cId);
-          if (subChildren) {
-            for (const sc of subChildren) {
-              if (!seen.has(sc)) stack.push(sc);
-            }
-          }
-        }
-      }
-
-      const sortedMetas = metas.slice().sort((a, b) => {
-        const aTool = isToolMeta(a);
-        const bTool = isToolMeta(b);
-        if (aTool !== bTool) return aTool ? 1 : -1;
-        let diff = 0;
-        switch (coverSortBy) {
-          case 'custom': {
-            const ao = a.sortOrder;
-            const bo = b.sortOrder;
-            if (ao !== undefined && bo !== undefined) diff = ao - bo;
-            else if (ao !== undefined) diff = -1;
-            else if (bo !== undefined) diff = 1;
-            else diff = (b.createdAt || 0) - (a.createdAt || 0);
-            break;
-          }
-          case 'oldest_import':
-            diff = (a.createdAt || 0) - (b.createdAt || 0);
-            break;
-          case 'recently_modified':
-            diff = (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
-            break;
-          case 'tokens_desc':
-            diff = (b.tokenCount || 0) - (a.tokenCount || 0);
-            break;
-          case 'tokens_asc':
-            diff = (a.tokenCount || 0) - (b.tokenCount || 0);
-            break;
-          case 'a_z':
-            diff = (a.name || '').localeCompare(b.name || '', 'zh-CN');
-            break;
-          case 'z_a':
-            diff = (b.name || '').localeCompare(a.name || '', 'zh-CN');
-            break;
-          case 'newest_import':
-          default:
-            diff = (b.createdAt || 0) - (a.createdAt || 0);
-            break;
-        }
-        if (diff !== 0) return diff;
-        // 关键稳定键：相同时间戳或名称时，固定按 ID 排序，保证每次计算顺序绝对一致，绝不跳动
-        return (a.id || '').localeCompare(b.id || '');
-      });
-
+      const sortedMetas = folderCandidates.get(folderId) || [];
       const pickedItems: FolderPreviewItem[] = [];
       let firstMeta: CharMeta | undefined;
       // 探查深度放宽至 50 张卡：只要文件夹内有带头像的卡，就坚定找出来作为封面，绝不轻易误判成全空 miu
@@ -976,6 +1032,8 @@ export async function getFolderPreviews(
         pickedItems.push({
           url,
           seed: meta.name || meta.id,
+          charId: meta.id,
+          cacheKey: getCoverCacheKey(meta),
           tags: meta.tags,
           isTool: meta.isTool,
           isFallback: false,
@@ -988,6 +1046,8 @@ export async function getFolderPreviews(
             firstMeta.tags?.join(',') || (firstMeta.isTool ? 'tool' : undefined),
           ),
           seed: firstMeta.name || firstMeta.id,
+          charId: firstMeta.id,
+          cacheKey: getCoverCacheKey(firstMeta),
           tags: firstMeta.tags,
           isTool: firstMeta.isTool,
           isFallback: true,
@@ -1167,6 +1227,7 @@ export interface CharMeta {
   isTool?: boolean;
   category?: string;
   aiSummary?: string;
+  creator?: string;
 
   tokenCount?: number;
   permanentTokens?: number;
@@ -1182,9 +1243,31 @@ export interface CharMeta {
   dupFirstLen?: number;
 }
 
+function extractPrimaryCreator(val: any): string {
+  const outer = val?.data && typeof val.data === "object" ? val.data : {};
+  const d = outer?.data && typeof outer.data === "object" ? outer.data : outer;
+  const candidates = [
+    d.creator,
+    d.author,
+    outer.creator,
+    outer.author,
+    val?.creator,
+    val?.author,
+    d.extensions?.creator,
+    d.extensions?.author,
+    outer.extensions?.creator,
+    outer.extensions?.author,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) {
+      return c.trim();
+    }
+  }
+  return "";
+}
+
 function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
-  let charTags = val.data?.data?.tags || val.data?.tags || val.tags;
-  if (!Array.isArray(charTags)) charTags = [];
+  const charTags = extractCharacterTags(val);
   const cat = getCharacterCategoryPrefix(val, foldersMap);
   const isTool = cat !== "未归类";
   const isQR = cat === "快速回复";
@@ -1204,6 +1287,7 @@ function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
 
   const summary = val.aiSummary || val.data?.aiSummary || val.data?.data?.aiSummary;
   const aiSummary = typeof summary === "string" ? summary : undefined;
+  const creator = extractPrimaryCreator(val);
 
   let tokenCount = val.tokenCount;
   let permanentTokens = val.permanentTokens;
@@ -1238,6 +1322,7 @@ function buildCharMeta(val: any, foldersMap?: Map<string, string>): CharMeta {
     isQR,
     category: cat,
     aiSummary,
+    creator,
     localFilePath: val.localFilePath,
     hasBlobsSeparated: val.hasBlobsSeparated,
     avatarUrlFallback: storedFallbackAvatar,
@@ -1588,6 +1673,11 @@ async function buildMetaCache(): Promise<CharMeta[]> {
   cachedMeta = newMeta;
   return cachedMeta;
 }
+
+export function peekCharacterMeta(id: string): CharMeta | undefined {
+  if (!cachedMeta) return undefined;
+  return cachedMeta.find((m) => m.id === id);
+}
 export type SearchScope =
   | "basic"
   | "all"
@@ -1685,45 +1775,104 @@ export function getCharacterSearchScore(
   return getCharacterSearchScoreUtil(c.name || "", c.tags || [], rawFolderPath, rawQuery);
 }
 
+function normalizeDeepSearchText(str: string): string {
+  if (!str) return "";
+  return str.replace(/[\u3000\s]+/g, " ").trim().toLowerCase();
+}
+
+function stripHtmlCodeForSearch(raw: string): string {
+  if (!raw) return "";
+  let text = raw;
+  if (text.includes("<")) {
+    text = text
+      .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+      .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+      .replace(/<!--[\s\S]*?-->/g, " ")
+      .replace(/<\/?[a-zA-Z!][^>]*>/g, " ");
+  }
+  return normalizeDeepSearchText(text);
+}
+
 function extractDeepSearchDoc(char: any): DeepSearchDoc {
   const outer = char?.data && typeof char.data === "object" ? char.data : {};
   const d = outer?.data && typeof outer.data === "object" ? outer.data : outer;
 
-  const creator = [d.creator, d.author, outer.creator, outer.author]
-    .filter((v) => typeof v === "string" && v.trim())
-    .join(" ")
-    .toLowerCase();
+  const creatorSeen = new Set<string>();
+  const creatorParts: string[] = [];
+  for (const rawCreator of [
+    d.creator,
+    d.author,
+    outer.creator,
+    outer.author,
+    char?.creator,
+    char?.author,
+    d.extensions?.creator,
+    d.extensions?.author,
+    outer.extensions?.creator,
+    outer.extensions?.author,
+  ]) {
+    if (typeof rawCreator === "string") {
+      const cleaned = normalizeDeepSearchText(rawCreator);
+      if (cleaned && !creatorSeen.has(cleaned)) {
+        creatorSeen.add(cleaned);
+        creatorParts.push(cleaned);
+      }
+    }
+  }
+  const creator = creatorParts.join(" ");
 
-  const creatorNotes = [
+  const notesSeen = new Set<string>();
+  const notesParts: string[] = [];
+  for (const rawNote of [
     d.creator_notes,
     outer.creator_notes,
+    d.creatorcomment,
+    outer.creatorcomment,
+    d.creator_comment,
+    outer.creator_comment,
+    char?.creator_notes,
     d.extensions?.creator_notes,
     outer.extensions?.creator_notes,
-  ]
-    .filter((v) => typeof v === "string" && v.trim())
-    .join("\n")
-    .toLowerCase();
+  ]) {
+    if (typeof rawNote === "string" && rawNote.trim()) {
+      const cleaned = stripHtmlCodeForSearch(rawNote);
+      if (cleaned && !notesSeen.has(cleaned)) {
+        notesSeen.add(cleaned);
+        notesParts.push(cleaned);
+      }
+    }
+  }
+  const creatorNotes = notesParts.join("\n");
 
   const greetingsParts: string[] = [];
-  if (typeof d.first_mes === "string" && d.first_mes.trim()) greetingsParts.push(d.first_mes);
-  if (typeof outer.first_mes === "string" && outer.first_mes.trim() && outer.first_mes !== d.first_mes) {
-    greetingsParts.push(outer.first_mes);
-  }
-  if (Array.isArray(d.alternate_greetings)) {
-    for (const g of d.alternate_greetings) {
-      if (typeof g === "string" && g.trim()) greetingsParts.push(g);
+  const pushGreeting = (g: any) => {
+    if (typeof g === "string" && g.trim()) {
+      const cleaned = stripHtmlCodeForSearch(g);
+      if (cleaned) greetingsParts.push(cleaned);
     }
+  };
+  pushGreeting(d.first_mes);
+  if (outer.first_mes !== d.first_mes) pushGreeting(outer.first_mes);
+  if (Array.isArray(d.alternate_greetings)) {
+    for (const g of d.alternate_greetings) pushGreeting(g);
+  }
+  if (Array.isArray(outer.alternate_greetings)) {
+    for (const g of outer.alternate_greetings) pushGreeting(g);
   }
   if (Array.isArray(d.extensions?.alternate_greetings)) {
-    for (const g of d.extensions.alternate_greetings) {
-      if (typeof g === "string" && g.trim()) greetingsParts.push(g);
-    }
+    for (const g of d.extensions.alternate_greetings) pushGreeting(g);
   }
-  const greetings = greetingsParts.join("\n").toLowerCase();
+  if (Array.isArray(outer.extensions?.alternate_greetings)) {
+    for (const g of outer.extensions.alternate_greetings) pushGreeting(g);
+  }
+  const greetings = Array.from(new Set(greetingsParts)).join("\n");
 
   const contentParts: string[] = [];
   const pushText = (v: any) => {
-    if (typeof v === "string" && v.trim()) contentParts.push(v);
+    if (typeof v === "string" && v.trim()) {
+      const cleaned = stripHtmlCodeForSearch(v);
+      if (cleaned) contentParts.push(cleaned);
+    }
   };
   pushText(char?.aiSummary);
   pushText(d.aiSummary);
@@ -1779,16 +1928,15 @@ function extractDeepSearchDoc(char: any): DeepSearchDoc {
       : [];
   for (const r of regexList) {
     if (!r || typeof r !== "object") continue;
+    // 只索引脚本名称，跳过 findRegex/replaceString 中的大段 HTML/CSS/JS 正则代码噪声
     pushText(r.scriptName);
-    pushText(r.findRegex);
-    pushText(r.replaceString);
   }
 
   return {
     creator,
     creatorNotes,
     greetings,
-    content: contentParts.join("\n").toLowerCase(),
+    content: contentParts.join("\n"),
   };
 }
 
@@ -1799,15 +1947,49 @@ async function getDeepCharTextMap(): Promise<Map<string, DeepSearchDoc>> {
   deepCharCachePromise = (async () => {
     const db = await initDB();
     const map = new Map<string, DeepSearchDoc>();
-    const tx = db.transaction("characters", "readonly");
-    let cursor = await tx.store.openCursor();
-    while (cursor) {
-      const char = cursor.value;
-      if (char && !char.deletedAt) {
-        map.set(char.id, extractDeepSearchDoc(char));
+    const backfilledCreators = new Map<string, string>();
+    const allKeys = await db.getAllKeys("characters");
+    const CHUNK = 60;
+
+    for (let i = 0; i < allKeys.length; i += CHUNK) {
+      const chunkKeys = allKeys.slice(i, i + CHUNK);
+      const tx = db.transaction("characters", "readonly");
+      const rows = (await Promise.all(
+        chunkKeys.map((k) => tx.store.get(k)),
+      )) as (CharacterCard | undefined)[];
+      await tx.done;
+
+      for (const char of rows) {
+        if (char && !char.deletedAt) {
+          map.set(char.id, extractDeepSearchDoc(char));
+          backfilledCreators.set(char.id, extractPrimaryCreator(char));
+        }
       }
-      cursor = await cursor.continue();
+      if (i + CHUNK < allKeys.length) {
+        await new Promise((r) => setTimeout(r, 0));
+      }
     }
+
+    // 顺手把 creator 补写到内存索引与后台 char_meta，后续搜「作者」直接毫秒级内存命中
+    if (cachedMeta && backfilledCreators.size > 0) {
+      const toPersist: CharMeta[] = [];
+      for (const meta of cachedMeta) {
+        if (meta.creator === undefined && backfilledCreators.has(meta.id)) {
+          meta.creator = backfilledCreators.get(meta.id) || "";
+          toPersist.push(meta);
+        }
+      }
+      if (toPersist.length > 0) {
+        void (async () => {
+          try {
+            const putTx = db.transaction("char_meta", "readwrite");
+            for (const m of toPersist) putTx.store.put(m);
+            await putTx.done;
+          } catch {}
+        })();
+      }
+    }
+
     deepCharTextCache = map;
     return map;
   })().finally(() => {
@@ -1824,20 +2006,27 @@ async function getDeepMemoTextMap(): Promise<Map<string, string>> {
   deepMemoCachePromise = (async () => {
     const db = await initDB();
     const partsMap = new Map<string, string[]>();
-    const tx = db.transaction("memos", "readonly");
-    let cursor = await tx.store.openCursor();
-    while (cursor) {
-      const memo = cursor.value;
-      if (memo && memo.characterId && typeof memo.content === "string" && memo.content.trim()) {
-        const list = partsMap.get(memo.characterId) || [];
-        list.push(memo.content);
-        partsMap.set(memo.characterId, list);
+    const allKeys = await db.getAllKeys("memos");
+    const CHUNK = 200;
+
+    for (let i = 0; i < allKeys.length; i += CHUNK) {
+      const chunkKeys = allKeys.slice(i, i + CHUNK);
+      const tx = db.transaction("memos", "readonly");
+      const rows = (await Promise.all(chunkKeys.map((k) => tx.store.get(k)))) as any[];
+      await tx.done;
+
+      for (const memo of rows) {
+        if (memo && memo.characterId && typeof memo.content === "string" && memo.content.trim()) {
+          const list = partsMap.get(memo.characterId) || [];
+          list.push(stripHtmlCodeForSearch(memo.content));
+          partsMap.set(memo.characterId, list);
+        }
       }
-      cursor = await cursor.continue();
     }
+
     const map = new Map<string, string>();
     partsMap.forEach((parts, charId) => {
-      map.set(charId, parts.join("\n").toLowerCase());
+      map.set(charId, parts.join("\n"));
     });
     deepMemoTextCache = map;
     return map;
@@ -1846,6 +2035,96 @@ async function getDeepMemoTextMap(): Promise<Map<string, string>> {
   });
 
   return deepMemoCachePromise;
+}
+
+function matchesSearchTerms(
+  text: string,
+  terms: string[],
+  allowStripAtPrefix: boolean = false
+): boolean {
+  if (!text) return false;
+  return terms.every((t) => {
+    if (containsPositiveMatch(text, t)) return true;
+    if (allowStripAtPrefix && t.startsWith("@") && t.length > 1) {
+      return containsPositiveMatch(text, t.slice(1));
+    }
+    return false;
+  });
+}
+
+function getScopedCharacterSearchScore(
+  c: CharMeta,
+  rawQuery: string,
+  folderPathMap: Record<string, string>,
+  searchScope: SearchScope
+): number {
+  if (searchScope === "basic") {
+    return getCharacterSearchScore(c, rawQuery, folderPathMap);
+  }
+
+  const normalizedQuery = normalizeDeepSearchText(rawQuery);
+  if (!normalizedQuery) return 0;
+
+  const doc = deepCharTextCache?.get(c.id);
+  const memoText = deepMemoTextCache?.get(c.id) || "";
+  const creatorText = normalizeDeepSearchText(doc?.creator || c.creator || "");
+
+  if (searchScope === "creator") {
+    const cleanQuery = normalizedQuery.startsWith("@") && normalizedQuery.length > 1
+      ? normalizedQuery.slice(1)
+      : normalizedQuery;
+    const cleanCreator = creatorText.startsWith("@") ? creatorText.slice(1) : creatorText;
+    if (creatorText === normalizedQuery || (cleanCreator && cleanCreator === cleanQuery)) return 100000;
+    if (creatorText.startsWith(normalizedQuery) || (cleanCreator && cleanCreator.startsWith(cleanQuery))) return 80000;
+    if (containsPositiveMatch(creatorText, cleanQuery)) return 60000;
+    return 20000;
+  }
+
+  if (searchScope === "all") {
+    let best = matchesCharacterSearch(c, rawQuery, folderPathMap)
+      ? getCharacterSearchScore(c, rawQuery, folderPathMap)
+      : 0;
+
+    if (creatorText) {
+      const cleanQuery = normalizedQuery.startsWith("@") && normalizedQuery.length > 1
+        ? normalizedQuery.slice(1)
+        : normalizedQuery;
+      const cleanCreator = creatorText.startsWith("@") ? creatorText.slice(1) : creatorText;
+      if (creatorText === normalizedQuery || (cleanCreator && cleanCreator === cleanQuery)) {
+        best = Math.max(best, 90000);
+      } else if (creatorText.startsWith(normalizedQuery) || (cleanCreator && cleanCreator.startsWith(cleanQuery))) {
+        best = Math.max(best, 75000);
+      } else if (containsPositiveMatch(creatorText, cleanQuery)) {
+        best = Math.max(best, 55000);
+      }
+    }
+
+    if (doc?.creatorNotes && containsPositiveMatch(doc.creatorNotes, normalizedQuery)) {
+      best = Math.max(best, 18000);
+    }
+    if (memoText && containsPositiveMatch(memoText, normalizedQuery)) {
+      best = Math.max(best, 15000);
+    }
+    if (doc?.greetings && containsPositiveMatch(doc.greetings, normalizedQuery)) {
+      best = Math.max(best, 10000);
+    }
+    if (doc?.content && containsPositiveMatch(doc.content, normalizedQuery)) {
+      best = Math.max(best, 5000);
+    }
+    return best || 1000;
+  }
+
+  let fieldText = "";
+  if (searchScope === "creator_notes") fieldText = doc?.creatorNotes || "";
+  else if (searchScope === "greetings") fieldText = doc?.greetings || "";
+  else if (searchScope === "content") fieldText = doc?.content || "";
+  else if (searchScope === "memos") fieldText = memoText;
+
+  if (fieldText && containsPositiveMatch(fieldText, normalizedQuery)) {
+    const idx = fieldText.indexOf(normalizedQuery);
+    return 60000 - Math.min(idx, 20000);
+  }
+  return 10000;
 }
 
 export async function filterCharacterMetasBySearch(
@@ -1861,17 +2140,27 @@ export async function filterCharacterMetasBySearch(
     return metas.filter((c) => matchesCharacterSearch(c, trimmed, folderPathMap));
   }
 
-  const terms = trimmed.toLowerCase().split(/\s+/).filter(Boolean);
+  const normalized = normalizeDeepSearchText(trimmed);
+  const terms = normalized.split(" ").filter(Boolean);
   if (terms.length === 0) return metas;
-
-  const matchesTerms = (text: string) => {
-    if (!text) return false;
-    return terms.every((t) => text.includes(t));
-  };
 
   if (searchScope === "memos") {
     const memoMap = await getDeepMemoTextMap();
-    return metas.filter((c) => matchesTerms(memoMap.get(c.id) || ""));
+    return metas.filter((c) => matchesSearchTerms(memoMap.get(c.id) || "", terms));
+  }
+
+  if (searchScope === "creator") {
+    const allHaveCreatorMeta = metas.every((c) => c.creator !== undefined);
+    if (allHaveCreatorMeta) {
+      return metas.filter((c) =>
+        matchesSearchTerms(normalizeDeepSearchText(c.creator || ""), terms, true),
+      );
+    }
+    const charMap = await getDeepCharTextMap();
+    return metas.filter((c) => {
+      const creatorText = charMap.get(c.id)?.creator || normalizeDeepSearchText(c.creator || "");
+      return matchesSearchTerms(creatorText, terms, true);
+    });
   }
 
   const charMap = await getDeepCharTextMap();
@@ -1883,10 +2172,10 @@ export async function filterCharacterMetasBySearch(
       const memoText = memoMap.get(c.id) || "";
       const folderPath = c.folderId && folderPathMap[c.folderId] ? folderPathMap[c.folderId] : "";
       const combined = [
-        (c.name || "").toLowerCase(),
-        (c.tags || []).join(" ").toLowerCase(),
-        folderPath.toLowerCase(),
-        doc?.creator || "",
+        normalizeDeepSearchText(c.name || ""),
+        normalizeDeepSearchText((c.tags || []).join(" ")),
+        normalizeDeepSearchText(folderPath),
+        doc?.creator || normalizeDeepSearchText(c.creator || ""),
         doc?.creatorNotes || "",
         doc?.greetings || "",
         doc?.content || "",
@@ -1894,17 +2183,16 @@ export async function filterCharacterMetasBySearch(
       ]
         .filter(Boolean)
         .join("\n");
-      return matchesTerms(combined);
+      return matchesSearchTerms(combined, terms, true);
     });
   }
 
   return metas.filter((c) => {
     const doc = charMap.get(c.id);
     if (!doc) return false;
-    if (searchScope === "creator") return matchesTerms(doc.creator);
-    if (searchScope === "creator_notes") return matchesTerms(doc.creatorNotes);
-    if (searchScope === "greetings") return matchesTerms(doc.greetings);
-    if (searchScope === "content") return matchesTerms(doc.content);
+    if (searchScope === "creator_notes") return matchesSearchTerms(doc.creatorNotes, terms);
+    if (searchScope === "greetings") return matchesSearchTerms(doc.greetings, terms);
+    if (searchScope === "content") return matchesSearchTerms(doc.content, terms);
     return false;
   });
 }
@@ -2040,8 +2328,8 @@ export async function getCharacters(
 
   if (searchQuery) {
     allMeta.sort((a, b) => {
-      const scoreA = getCharacterSearchScore(a, searchQuery, folderPathMap);
-      const scoreB = getCharacterSearchScore(b, searchQuery, folderPathMap);
+      const scoreA = getScopedCharacterSearchScore(a, searchQuery, folderPathMap, searchScope);
+      const scoreB = getScopedCharacterSearchScore(b, searchQuery, folderPathMap, searchScope);
       if (scoreA !== scoreB) {
         return scoreB - scoreA;
       }
@@ -2071,13 +2359,14 @@ export async function getCharacters(
     const fetchStore = fetchTx ? fetchTx.store : null;
 
     for (const meta of paginatedMeta) {
+      const lightweightData = meta.creator ? { creator: meta.creator } : {};
       if (meta.hasBlobsSeparated) {
         // Fast path for migrated
         characters.push({
           ...meta,
           tokenCount: meta.tokenCount,
           permanentTokens: meta.permanentTokens,
-          data: {} // Empty data
+          data: lightweightData
         } as unknown as CharacterCard);
       } else {
         // Must fetch the old bloated character to get its avatarBlob
@@ -2087,7 +2376,7 @@ export async function getCharacters(
             ...fullChar, 
             tokenCount: meta.tokenCount ?? fullChar.tokenCount,
             permanentTokens: meta.permanentTokens ?? fullChar.permanentTokens,
-            data: {}, 
+            data: meta.creator ? { creator: meta.creator } : extractPrimaryCreator(fullChar) ? { creator: extractPrimaryCreator(fullChar) } : {}, 
             tags: meta.tags, 
             isQR: meta.isQR, 
             isTool: meta.isTool 
@@ -2102,7 +2391,7 @@ export async function getCharacters(
             ...meta, 
             tokenCount: meta.tokenCount,
             permanentTokens: meta.permanentTokens,
-            data: {} 
+            data: lightweightData 
           } as unknown as CharacterCard);
         }
       }
@@ -2314,8 +2603,8 @@ export async function getCharacterListSummaryAndSlice(params: {
   const sortedViewMeta = viewMeta.slice();
   if (searchQuery) {
     sortedViewMeta.sort((a, b) => {
-      const scoreA = getCharacterSearchScore(a, searchQuery, folderPathMap);
-      const scoreB = getCharacterSearchScore(b, searchQuery, folderPathMap);
+      const scoreA = getScopedCharacterSearchScore(a, searchQuery, folderPathMap, searchScope);
+      const scoreB = getScopedCharacterSearchScore(b, searchQuery, folderPathMap, searchScope);
       if (scoreA !== scoreB) return scoreB - scoreA;
       return applyStandardSort(a, b, sortBy);
     });
@@ -2334,7 +2623,7 @@ export async function getCharacterListSummaryAndSlice(params: {
           ...meta,
           tokenCount: meta.tokenCount,
           permanentTokens: meta.permanentTokens,
-          data: {},
+          data: meta.creator ? { creator: meta.creator } : {},
         }) as unknown as CharacterCard,
     );
   } else {
@@ -2342,21 +2631,23 @@ export async function getCharacterListSummaryAndSlice(params: {
     const fetchTx = db.transaction("characters", "readonly");
     const fetchStore = fetchTx.store;
     for (const meta of paginatedMeta) {
+      const lightweightData = meta.creator ? { creator: meta.creator } : {};
       if (meta.hasBlobsSeparated) {
         characters.push({
           ...meta,
           tokenCount: meta.tokenCount,
           permanentTokens: meta.permanentTokens,
-          data: {},
+          data: lightweightData,
         } as unknown as CharacterCard);
       } else {
         const fullChar = await fetchStore.get(meta.id);
         if (fullChar) {
+          const fallbackCreator = meta.creator || extractPrimaryCreator(fullChar);
           const strippedChar = {
             ...fullChar,
             tokenCount: meta.tokenCount ?? fullChar.tokenCount,
             permanentTokens: meta.permanentTokens ?? fullChar.permanentTokens,
-            data: {},
+            data: fallbackCreator ? { creator: fallbackCreator } : {},
             tags: meta.tags,
             isQR: meta.isQR,
             isTool: meta.isTool,
@@ -2368,7 +2659,7 @@ export async function getCharacterListSummaryAndSlice(params: {
             ...meta,
             tokenCount: meta.tokenCount,
             permanentTokens: meta.permanentTokens,
-            data: {},
+            data: lightweightData,
           } as unknown as CharacterCard);
         }
       }
@@ -2445,6 +2736,112 @@ export async function getAllTags(): Promise<string[]> {
   return tagsCache;
 }
 
+/**
+ * 标签在卡片里可能落在三个位置：CharacterCard.tags、data.tags、data.data.tags。
+ * 统一按「内层优先」读取，避免某一处是空数组时把其它位置的真实标签遮掉。
+ */
+export function extractCharacterTags(value: any): string[] {
+  if (!value || typeof value !== "object") return [];
+  const candidates = [value.data?.data?.tags, value.data?.tags, value.tags];
+  for (const candidate of candidates) {
+    const list = normalizeTagList(candidate);
+    if (list.length > 0) return list;
+  }
+  return [];
+}
+
+function normalizeTagList(value: any): string[] {
+  let raw: any[] = [];
+  if (Array.isArray(value)) {
+    raw = value;
+  } else if (typeof value === "string") {
+    raw = value.split(/[,，/|\\;；\n]/);
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const tag = String(item ?? "").trim();
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    out.push(tag);
+  }
+  return out;
+}
+
+/** 把最终标签写回卡片的三处位置，保证列表、详情与打标读到的始终是同一份。 */
+export function syncTagsAcrossCard(character: any, tags: string[]): string[] {
+  const clean = normalizeTagList(tags);
+  if (!character || typeof character !== "object") return clean;
+  character.tags = [...clean];
+  const data = character.data;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    if (data.data && typeof data.data === "object" && !Array.isArray(data.data)) {
+      data.data.tags = [...clean];
+      if ("tags" in data) data.tags = [...clean];
+    } else {
+      data.tags = [...clean];
+    }
+  }
+  return clean;
+}
+
+const META_TAGS_SYNC_FLAG = "tavern_meta_tags_sync_v1";
+let metaTagsSyncPromise: Promise<void> | null = null;
+
+/**
+ * 老数据的 char_meta.tags 可能与卡片本身不一致（空索引/旧打标写入只改了内层）。
+ * 打标页依赖索引判断「未打标」，所以在打开打标页前做一次一次性对齐。
+ */
+export function syncMetaTagsFromCharactersIfNeeded(): Promise<void> {
+  if (metaTagsSyncPromise) return metaTagsSyncPromise;
+  metaTagsSyncPromise = (async () => {
+    try {
+      if (
+        typeof localStorage !== "undefined" &&
+        localStorage.getItem(META_TAGS_SYNC_FLAG) === "true"
+      ) {
+        return;
+      }
+      const db = await initDB();
+      const metas = await db.getAll("char_meta");
+      if (metas.length === 0) return;
+      const metaById = new Map(metas.map((m) => [m.id, m]));
+      const chars = await db.getAll("characters");
+      const changed: CharMeta[] = [];
+      for (const char of chars) {
+        const meta = metaById.get(char.id);
+        if (!meta) continue;
+        const tags = extractCharacterTags(char);
+        const metaTags = Array.isArray(meta.tags) ? meta.tags : [];
+        const same =
+          tags.length === metaTags.length &&
+          tags.every((t, i) => t === metaTags[i]);
+        if (same) continue;
+        meta.tags = tags;
+        changed.push(meta);
+      }
+      if (changed.length > 0) {
+        const tx = db.transaction("char_meta", "readwrite");
+        for (const meta of changed) tx.objectStore("char_meta").put(meta);
+        await tx.done;
+        if (cachedMeta) {
+          for (const meta of changed) {
+            const hit = cachedMeta.find((m) => m.id === meta.id);
+            if (hit) hit.tags = [...meta.tags];
+          }
+        }
+        tagsCache = null;
+      }
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(META_TAGS_SYNC_FLAG, "true");
+      }
+    } catch (err) {
+      console.warn("[MetaCache] 标签索引对齐失败:", err);
+    }
+  })();
+  return metaTagsSyncPromise;
+}
+
 export async function renameTag(oldTag: string, newTag: string): Promise<void> {
   invalidateCache();
   const db = await initDB();
@@ -2455,14 +2852,10 @@ export async function renameTag(oldTag: string, newTag: string): Promise<void> {
 
   while (cursor) {
     const char = cursor.value;
-    const charTags = char.data?.data?.tags || char.data?.tags;
-    if (charTags && Array.isArray(charTags) && charTags.includes(oldTag)) {
-      const newTags = charTags.map((t: string) => (t === oldTag ? newTag : t));
-      if (char.data?.data) {
-        char.data.data.tags = Array.from(new Set(newTags));
-      } else {
-        char.data.tags = Array.from(new Set(newTags));
-      }
+    const charTags = extractCharacterTags(char);
+    if (charTags.includes(oldTag)) {
+      const newTags = charTags.map((t) => (t === oldTag ? newTag : t));
+      syncTagsAcrossCard(char, newTags);
       char.updatedAt = Date.now();
       await cursor.update(char);
       await metaStore.put(buildCharMeta(char));
@@ -2482,14 +2875,10 @@ export async function deleteTag(tagToDelete: string): Promise<void> {
 
   while (cursor) {
     const char = cursor.value;
-    const charTags = char.data?.data?.tags || char.data?.tags;
-    if (charTags && Array.isArray(charTags) && charTags.includes(tagToDelete)) {
-      const newTags = charTags.filter((t: string) => t !== tagToDelete);
-      if (char.data?.data) {
-        char.data.data.tags = newTags;
-      } else {
-        char.data.tags = newTags;
-      }
+    const charTags = extractCharacterTags(char);
+    if (charTags.includes(tagToDelete)) {
+      const newTags = charTags.filter((t) => t !== tagToDelete);
+      syncTagsAcrossCard(char, newTags);
       char.updatedAt = Date.now();
       await cursor.update(char);
       await metaStore.put(buildCharMeta(char));
@@ -2556,7 +2945,7 @@ export async function prewarmCharacterThumbs(chars: CharacterCard[]): Promise<vo
       if (!rec || (rec.thumbVersion !== 3 && rec.thumbVersion !== 4)) continue;
       if (rec.noImage) {
         noImageCharIds.add(needIds[i].id);
-      } else if (rec.thumbBlob) {
+      } else if (rec.thumbBlob && (!(rec.thumbBlob instanceof Blob) || rec.thumbBlob.size > 0)) {
         putCachedBlobUrl(needIds[i].key, rec.thumbBlob);
       }
     }
@@ -2586,7 +2975,7 @@ export async function getCharacterThumb(id: string): Promise<Blob | null> {
           noImageCharIds.add(id);
           return null;
         }
-        if (fastThumb.thumbBlob) {
+        if (fastThumb.thumbBlob && (!(fastThumb.thumbBlob instanceof Blob) || fastThumb.thumbBlob.size > 0)) {
           return fastThumb.thumbBlob;
         }
       }
@@ -2595,7 +2984,7 @@ export async function getCharacterThumb(id: string): Promise<Blob | null> {
     return withReadSlot(async () => {
       const blobs = await db.get("blobs", id);
       const tv = (blobs as any)?.thumbVersion;
-      if (blobs?.thumbBlob && (tv === 3 || tv === 4)) {
+      if (blobs?.thumbBlob && (!(blobs.thumbBlob instanceof Blob) || blobs.thumbBlob.size > 0) && (tv === 3 || tv === 4)) {
         db.put("thumbs", { thumbBlob: blobs.thumbBlob, thumbVersion: tv }, id).catch(() => {});
         return blobs.thumbBlob;
       }
@@ -2617,8 +3006,8 @@ export async function getCharacterThumb(id: string): Promise<Blob | null> {
         }
       }
 
-      if (!avatarBlob) {
-        if (blobs?.thumbBlob) {
+      if (!avatarBlob || (avatarBlob instanceof Blob && avatarBlob.size === 0)) {
+        if (blobs?.thumbBlob && (!(blobs.thumbBlob instanceof Blob) || blobs.thumbBlob.size > 0)) {
           db.put("thumbs", { thumbBlob: blobs.thumbBlob, thumbVersion: 4 }, id).catch(() => {});
           return blobs.thumbBlob;
         }
@@ -2657,25 +3046,30 @@ export async function getCharacterThumb(id: string): Promise<Blob | null> {
   return task;
 }
 
-export async function getCharacter(
+export async function getCharacterFast(
   id: string,
 ): Promise<CharacterCard | undefined> {
   const db = await initDB();
   const char = await db.get("characters", id);
   if (char) {
-    // Sanitize leaked properties from older versions
     delete (char as any)._isExplicitAvatarUpdate;
     delete (char as any)._oldFolderId;
     delete (char as any)._wasDeleted;
     delete (char as any)._previousFilePath;
+  }
+  return char;
+}
 
-    if (char.hasBlobsSeparated) {
-      const blobs = await db.get("blobs", id);
-      if (blobs) {
-        char.avatarBlob = blobs.avatarBlob;
-        char.originalFile = blobs.originalFile;
-        char.avatarHistory = blobs.avatarHistory;
-      }
+export async function getCharacter(
+  id: string,
+): Promise<CharacterCard | undefined> {
+  const char = await getCharacterFast(id);
+  if (char && char.hasBlobsSeparated) {
+    const blobs = await getCharacterBlob(id);
+    if (blobs) {
+      char.avatarBlob = blobs.avatarBlob;
+      char.originalFile = blobs.originalFile;
+      char.avatarHistory = blobs.avatarHistory;
     }
   }
   return char;
