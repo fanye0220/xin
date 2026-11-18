@@ -14,6 +14,7 @@ import {
 
 interface AutoResizingIframeProps {
   htmlContent: string;
+  sharedHeadTags?: string;
   themeMode?: 'light' | 'dark';
   swipes?: string[];
   characterName?: string;
@@ -24,8 +25,82 @@ interface AutoResizingIframeProps {
   worldbookEntries?: WorldbookRuntimeEntry[];
 }
 
+/**
+ * 与 JS-Slash-Runner (`src/panel/render/iframe.ts`) 对齐：
+ * 将 HTML/CSS/JS 中的 `vh` / `dvh` / `svh` / `lvh` 替换为基于父窗口视口高度的
+ * `var(--TH-viewport-height)`，避免自适应高度的 iframe 与视口单位互相撑高导致死循环或错位。
+ */
+function replaceVhInContent(content: string): string {
+  const hasAnyVh = /\d+(?:\.\d+)?(?:d|s|l)?vh\b/i.test(content);
+  if (!hasAnyVh) return content;
+
+  const convertVhToVariable = (value: string) =>
+    value.replace(/(\d+(?:\.\d+)?)(?:d|s|l)?vh\b/gi, (match, num) => {
+      const parsed = parseFloat(num);
+      if (!isFinite(parsed)) return match;
+      const varExpr = 'var(--TH-viewport-height)';
+      if (parsed === 100) return varExpr;
+      return `calc(${varExpr} * ${parsed / 100})`;
+    });
+
+  // 1) CSS 声明块中的 height / min-height / max-height
+  content = content.replace(
+    /((?:min-|max-)?height\s*:\s*)([^;{}]*?\d+(?:\.\d+)?(?:d|s|l)?vh)(?=\s*[;}!])/gi,
+    (_m, prefix: string, value: string) => `${prefix}${convertVhToVariable(value)}`
+  );
+
+  // 2) 行内 style="..."
+  content = content.replace(
+    /(style\s*=\s*(["']))([\s\S]*?)(\2)/gi,
+    (match, prefix: string, _q: string, styleContent: string, suffix: string) => {
+      if (!/(?:min-|max-)?height\s*:\s*[^;]*\d+(?:\.\d+)?(?:d|s|l)?vh/i.test(styleContent)) {
+        return match;
+      }
+      const replaced = styleContent.replace(
+        /((?:min-|max-)?height\s*:\s*)([^;]*?\d+(?:\.\d+)?(?:d|s|l)?vh)/gi,
+        (_m, p1: string, p2: string) => `${p1}${convertVhToVariable(p2)}`
+      );
+      return `${prefix}${replaced}${suffix}`;
+    }
+  );
+
+  // 3) JS: element.style.minHeight / height / maxHeight = "...vh"
+  content = content.replace(
+    /(\.style\.(?:minHeight|maxHeight|height)\s*=\s*(["']))([\s\S]*?)(\2)/gi,
+    (match, prefix: string, _q: string, val: string, suffix: string) => {
+      if (!/\b\d+(?:\.\d+)?(?:d|s|l)?vh\b/i.test(val)) return match;
+      return `${prefix}${convertVhToVariable(val)}${suffix}`;
+    }
+  );
+
+  // 4) JS: setProperty('min-height' | 'height' | 'max-height', "...vh")
+  content = content.replace(
+    /(setProperty\s*\(\s*(["'])(?:min-|max-)?height\2\s*,\s*(["']))([\s\S]*?)(\3\s*(?:,[^)]*)?\))/gi,
+    (match, prefix: string, _q1: string, _q2: string, val: string, suffix: string) => {
+      if (!/\b\d+(?:\.\d+)?(?:d|s|l)?vh\b/i.test(val)) return match;
+      return `${prefix}${convertVhToVariable(val)}${suffix}`;
+    }
+  );
+
+  return content;
+}
+
+/** 检测当前段是否仅包含 <style> / <link> / <meta> / <title> / 注释，不含 <script> 与可见 DOM */
+function isPureStyleHeadSegment(html: string): boolean {
+  if (!html || /<script\b/i.test(html)) return false;
+  const stripped = html
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, '')
+    .replace(/<link\b[^>]*>/gi, '')
+    .replace(/<meta\b[^>]*>/gi, '')
+    .replace(/<title\b[^>]*>[\s\S]*?<\/title\s*>/gi, '')
+    .trim();
+  return stripped.length === 0;
+}
+
 export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = React.memo(({
   htmlContent,
+  sharedHeadTags = '',
   themeMode = 'dark',
   swipes = [],
   characterName = 'Character',
@@ -37,7 +112,7 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = React.memo(
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [reportedHeight, setReportedHeight] = useState<number>(200);
+  const [reportedHeight, setReportedHeight] = useState<number>(120);
   const [hasEnteredViewport, setHasEnteredViewport] = useState<boolean>(() => typeof IntersectionObserver === 'undefined');
   const iframeId = useMemo(() => `th-frame-${Math.random().toString(36).substring(2, 9)}`, []);
 
@@ -74,7 +149,7 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = React.memo(
         event.data?.id === iframeId &&
         typeof event.data?.height === 'number'
       ) {
-        const nextH = Math.max(60, Math.ceil(event.data.height));
+        const nextH = Math.max(24, Math.ceil(event.data.height));
         setReportedHeight((prev) => (Math.abs(prev - nextH) >= 2 ? nextH : prev));
       }
     };
@@ -127,7 +202,8 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = React.memo(
   const finalHtml = useMemo(() => {
     if (!hasEnteredViewport) return '';
 
-    const hasJs = /<script\b|\bon[a-z]+\s*=/i.test(cleanHtml);
+    const normalizedHtml = replaceVhInContent(cleanHtml);
+    const hasJs = /<script\b|\bon[a-z]+\s*=/i.test(normalizedHtml);
     let runtimeTag = '';
     if (hasJs) {
       const parsedSwipes = swipesKey ? swipesKey.split('\u0000') : [];
@@ -135,8 +211,8 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = React.memo(
         statData: statData || {},
         characterName,
         userName: 'User',
-        currentMessage: currentMessage || cleanHtml,
-        swipes: parsedSwipes.length > 0 ? parsedSwipes : [currentMessage || cleanHtml],
+        currentMessage: currentMessage || normalizedHtml,
+        swipes: parsedSwipes.length > 0 ? parsedSwipes : [currentMessage || normalizedHtml],
         currentSwipeId,
         messageId,
         worldbookEntries,
@@ -147,27 +223,57 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = React.memo(
       }
     }
 
-    // 按需预注入 JS-Slash-Runner 生态常用内置库（静态无脚本组件不触发任何外链请求）
-    const hasJquery = /<script\b[^>]*src\s*=\s*["'][^"']*jquery[^"']*["']/i.test(cleanHtml);
-    const hasLodash = /<script\b[^>]*src\s*=\s*["'][^"']*lodash[^"']*["']/i.test(cleanHtml);
-    const hasYaml = /<script\b[^>]*src\s*=\s*["'][^"']*(?:js-yaml|yaml)[^"']*["']/i.test(cleanHtml);
-    const hasVue = /<script\b[^>]*src\s*=\s*["'][^"']*vue[^"']*["']/i.test(cleanHtml);
+    // 按需预注入 JS-Slash-Runner 生态常用内置库（与 src/iframe/third_party_message.html 对齐）
+    const hasJquery = /<script\b[^>]*src\s*=\s*["'][^"']*jquery(?:\.min)?\.js["']/i.test(normalizedHtml);
+    const hasJqueryUi = /<script\b[^>]*src\s*=\s*["'][^"']*jquery-ui[^"']*["']/i.test(normalizedHtml);
+    const hasLodash = /<script\b[^>]*src\s*=\s*["'][^"']*lodash[^"']*["']/i.test(normalizedHtml);
+    const hasYaml = /<script\b[^>]*src\s*=\s*["'][^"']*(?:js-yaml|yaml)[^"']*["']/i.test(normalizedHtml);
+    const hasVue = /<script\b[^>]*src\s*=\s*["'][^"']*vue(?:\.runtime)?(?:\.global)?(?:\.prod)?(?:\.min)?\.js["']/i.test(normalizedHtml);
+    const hasVueRouter = /<script\b[^>]*src\s*=\s*["'][^"']*vue-router[^"']*["']/i.test(normalizedHtml);
+    const hasTailwind = /<script\b[^>]*src\s*=\s*["'][^"']*tailwind[^"']*["']/i.test(normalizedHtml);
+    const hasFontAwesome = /<link\b[^>]*href\s*=\s*["'][^"']*font-?awesome[^"']*["']/i.test(normalizedHtml);
 
-    const needsJquery = hasJs && !hasJquery && /(?:jQuery|\$\s*\(|\$\.)/.test(cleanHtml);
-    const needsLodash = hasJs && !hasLodash && /(?:\b_\.[a-zA-Z]|\blodash\b)/.test(cleanHtml);
-    const needsYaml = hasJs && !hasYaml && /\b(?:YAML|jsyaml)\b/i.test(cleanHtml);
-    const needsVue = hasJs && !hasVue && /\b(?:Vue\.|createApp|v-for|v-if|v-else|v-show|v-model)\b/.test(cleanHtml);
-    const needsFontAwesome = /\bfa[rsbld]?\b|\bfa-/i.test(cleanHtml);
+    const needsJquery = hasJs && !hasJquery && /(?:jQuery|\$\s*\(|\$\.)/.test(normalizedHtml);
+    const needsJqueryUi =
+      hasJs &&
+      !hasJqueryUi &&
+      /\.(?:draggable|droppable|resizable|selectable|sortable|accordion|autocomplete|datepicker|dialog|progressbar|slider|spinner|tabs|tooltip)\s*\(|\bui-widget\b/.test(
+        normalizedHtml
+      );
+    const needsLodash = hasJs && !hasLodash && /(?:\b_\.[a-zA-Z]|\blodash\b)/.test(normalizedHtml);
+    const needsYaml = hasJs && !hasYaml && /\b(?:YAML|jsyaml)\b/i.test(normalizedHtml);
+    const needsVue = hasJs && !hasVue && /\b(?:Vue\.|createApp|v-for|v-if|v-else|v-show|v-model)\b/.test(normalizedHtml);
+    const needsVueRouter = hasJs && !hasVueRouter && /\b(?:VueRouter|createRouter)\b/.test(normalizedHtml);
+    const needsFontAwesome = !hasFontAwesome && /\bfa[rsbld]?\b|\bfa-/i.test(normalizedHtml);
+
+    const hasCustomTailwindConfig = /\btailwind\.config\b/.test(normalizedHtml);
+    const needsTailwind =
+      !hasTailwind &&
+      (hasCustomTailwindConfig ||
+        /<style\b[^>]*type\s*=\s*["']text\/tailwindcss["']/i.test(normalizedHtml) ||
+        /\b@(?:apply|theme)\b/.test(normalizedHtml) ||
+        /\b(?:class|className|:class)\s*=\s*["'`][^"'`]*(?:\b(?:flex|inline-flex|grid|inline-grid|grid-cols-|col-span-|gap-[xy0-9]|space-[xy]-|items-(?:start|center|end|stretch|baseline)|justify-(?:start|center|end|between|around|evenly)|rounded-(?:none|sm|md|lg|xl|2xl|3xl|full)|bg-(?:black|white|transparent|slate|zinc|gray|neutral|stone|red|orange|amber|yellow|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)|text-(?:xs|sm|base|lg|xl|2xl|3xl|slate|zinc|gray|white|black|emerald|sky|rose|amber|indigo|violet|purple|cyan|teal)|font-(?:thin|light|normal|medium|semibold|bold|extrabold|mono|serif|sans)|p[xytrbl]?-\d|m[xytrbl]?-\d|w-(?:full|screen|fit|auto|\d+\/\d+)|h-(?:full|screen|fit|auto)|max-w-|min-w-|border-(?:white|black|slate|zinc|gray|t|b|l|r|0|2)|shadow-|backdrop-blur|transition(?:-all|-colors|-opacity|-transform)?|overflow-(?:hidden|auto|x-auto|y-auto)|sm:|md:|lg:|hover:|dark:))/i.test(
+          normalizedHtml
+        ));
 
     const libTags = [
-      needsJquery ? '<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>' : '',
+      needsTailwind
+        ? hasCustomTailwindConfig
+          ? '<script src="https://cdn.tailwindcss.com"></script>'
+          : '<script src="https://testingcf.jsdelivr.net/npm/@tailwindcss/browser@4" onerror="(function(){var s=document.createElement(\'script\');s.src=\'https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4\';document.head.appendChild(s);})()"></script>'
+        : '',
+      needsJquery || needsJqueryUi
+        ? '<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>'
+        : '',
+      needsJqueryUi
+        ? '<link rel="stylesheet" href="https://testingcf.jsdelivr.net/npm/jquery-ui/themes/base/theme.min.css"><script src="https://testingcf.jsdelivr.net/npm/jquery-ui/dist/jquery-ui.min.js"></script><script src="https://testingcf.jsdelivr.net/npm/jquery-ui-touch-punch/jquery.ui.touch-punch.min.js"></script>'
+        : '',
       needsLodash ? '<script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>' : '',
       needsYaml
         ? '<script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script><script>if(window.jsyaml&&!window.YAML){window.YAML={parse:window.jsyaml.load.bind(window.jsyaml),stringify:window.jsyaml.dump.bind(window.jsyaml)};}</script>'
         : '',
-      needsVue
-        ? '<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.5.13/vue.global.prod.min.js"></script>'
-        : '',
+      needsVue ? '<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.5.13/vue.global.prod.min.js"></script>' : '',
+      needsVueRouter ? '<script src="https://testingcf.jsdelivr.net/npm/vue-router/dist/vue-router.global.prod.min.js"></script>' : '',
     ]
       .filter(Boolean)
       .join('\n    ');
@@ -176,185 +282,145 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = React.memo(
       ? '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">'
       : '';
 
-    const scriptContent = `
-    ${runtimeTag}
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no">
-    ${fontAwesomeTag}
-    ${libTags}
-    <style>
-      :root {
-        color-scheme: ${isLight ? 'light' : 'dark'};
-      }
-      :where(*, *::before, *::after) {
-        box-sizing: border-box;
-      }
-      html {
-        background-color: transparent;
-        margin: 0;
-        padding: 0;
-        width: 100%;
-        max-width: 100%;
-        overflow-x: hidden;
-        overflow-anchor: none;
-      }
-      body {
-        background-color: transparent;
-        margin: 0;
-        padding: 4px 0 12px 0;
-        width: 100%;
-        max-width: 100%;
-        overflow-x: hidden;
-        overflow-anchor: none;
-        color: ${defaultTextColor};
-        font-size: 16px;
-        line-height: 1.65;
-        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
-      }
+    // 仅对“完全无自带样式”的纯文本分支选项卡片提供保底样式，避免污染带样式/交互脚本的状态栏选项卡与按钮
+    const hasAuthorStyles =
+      /<style\b|<link\b[^>]*rel\s*=\s*["']?stylesheet|\bstyle\s*=/i.test(normalizedHtml) ||
+      Boolean(sharedHeadTags) ||
+      needsTailwind;
 
-      html, body {
-        min-height: 0 !important;
-        height: auto !important;
-      }
-
-      :where(body > div, body > section, body > main, body > article, body > form, body > table, body > details) {
-        max-width: 100%;
-      }
-      /* 状态栏卡片常见写法：内部写死 360 / 392 / 480 / 520px。
-         手机气泡通常只有 300 多 px，超出部分会被 iframe 裁掉，看起来像「突出来」。
-         这里只限制最大宽度，不动文字大小和图片比例。 */
-      :where(body div, body section, body main, body article, body aside, body form,
-             body table, body details, body header, body footer, body nav,
-             body pre, body blockquote, body figure, body figcaption) {
-        max-width: 100% !important;
-      }
-      summary[style*="list-style: none"]::-webkit-details-marker,
-      summary[style*="list-style:none"]::-webkit-details-marker {
-        display: none;
-      }
-
-      :where(img, video) {
-        max-width: 100%;
-        height: auto;
-      }
-      :where(canvas, svg, table) {
-        max-width: 100%;
-      }
-
-      /* 针对陆戾等角色状态栏（学生证、折叠菜单、淘宝/百度模块）自适应酒馆显示 */
-      .cosmos-id-wrapper {
-        width: 100% !important;
-        max-width: 400px !important;
-        margin: 12px auto !important;
-        box-sizing: border-box !important;
-      }
-      .cosmos-id-card,
-      .cosmos-details,
-      .cosmos-summary,
-      .cosmos-content-box {
-        width: 100% !important;
-        max-width: 100% !important;
-        box-sizing: border-box !important;
-      }
-      .cosmos-id-body {
-        max-width: 100% !important;
-        box-sizing: border-box !important;
-      }
-      .cosmos-info-area {
-        min-width: 0 !important;
-        box-sizing: border-box !important;
-      }
-      .cosmos-info-row {
-        word-break: break-all !important;
-      }
-
-      @media (max-width: 440px) {
-        .cosmos-id-wrapper {
-          max-width: 100% !important;
-          margin: 8px auto !important;
-        }
-        .cosmos-id-card {
-          padding: 12px 10px !important;
-        }
-        .cosmos-id-body {
-          gap: 10px !important;
-        }
-        .cosmos-photo-area {
-          width: 78px !important;
-        }
-        .cosmos-photo {
-          width: 78px !important;
-          height: 104px !important;
-        }
-        .cosmos-summary {
-          padding: 8px 12px !important;
-          font-size: 12px !important;
-        }
-        .cosmos-content-box {
-          padding: 10px 12px !important;
-          font-size: 12px !important;
-        }
-      }
-
-      /* SillyTavern / TavernHelper Choice & Branching Card Defaults (0 specificity via :where) */
-      :where(.fate-card, .choice-card, .menu-item, .option-card, .branch-card, .scenario-card, [data-greeting], [data-target], [data-index]) {
+    const fallbackChoiceCss = hasAuthorStyles
+      ? ''
+      : `
+      :where(.fate-card, .choice-card, .branch-card, .scenario-card, [data-greeting]) {
         display: block;
-        padding: 16px 20px;
-        margin: 12px 0;
+        padding: 14px 18px;
+        margin: 10px 0;
         border-radius: 12px;
         border: 1px solid ${cardBorder};
         background: ${cardBg};
         color: ${defaultTextColor};
         cursor: pointer;
-        transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+        transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
         text-decoration: none;
       }
-      :where(.fate-card, .choice-card, .menu-item, .option-card, .branch-card, .scenario-card, [data-greeting], [data-target], [data-index]):hover {
+      :where(.fate-card, .choice-card, .branch-card, .scenario-card, [data-greeting]):hover {
         background: ${cardHoverBg};
         border-color: #38bdf8;
-        transform: translateY(-2px);
-      }
-      :where(.fate-card, .choice-card, .menu-item, .scenario-card, [data-target]):active {
-        transform: scale(0.99);
-      }
+        transform: translateY(-1px);
+      }`;
 
+    const scriptContent = `
+    ${runtimeTag}
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    ${fontAwesomeTag}
+    ${libTags}
+    <style>
+      :root {
+        color-scheme: ${isLight ? 'light' : 'dark'};
+        --mainFontSize: 15px;
+        --fontScale: 1;
+        --TH-viewport-height: 720px;
+        --SmartThemeBodyColor: ${defaultTextColor};
+        --SmartThemeEmColor: ${isLight ? '#475569' : '#cbd5e1'};
+        --SmartThemeUnderlineColor: ${isLight ? '#2563eb' : '#60a5fa'};
+        --SmartThemeQuoteColor: ${isLight ? '#0284c7' : '#7dd3fc'};
+        --SmartThemeShadowColor: ${isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(0, 0, 0, 0.5)'};
+        --SmartThemeBorderColor: ${isLight ? 'rgba(0, 0, 0, 0.14)' : 'rgba(255, 255, 255, 0.16)'};
+        --SmartThemeBlurTintColor: ${isLight ? 'rgba(255, 255, 255, 0.85)' : 'rgba(18, 20, 28, 0.78)'};
+        --SmartThemeChatTintColor: ${isLight ? 'rgba(248, 250, 252, 0.92)' : 'rgba(15, 17, 23, 0.85)'};
+        --SmartThemeBotMesBlurTintColor: ${isLight ? 'rgba(241, 245, 249, 0.9)' : 'rgba(24, 27, 36, 0.8)'};
+        --SmartThemeUserMesBlurTintColor: ${isLight ? 'rgba(224, 242, 254, 0.9)' : 'rgba(30, 41, 59, 0.8)'};
+      }
+      :where(*, *::before, *::after) {
+        box-sizing: border-box;
+      }
+      html, body {
+        background-color: transparent;
+        margin: 0 !important;
+        padding: 0;
+        width: 100%;
+        max-width: 100% !important;
+        min-height: 0 !important;
+        height: auto !important;
+        overflow: hidden !important;
+        overflow-anchor: none;
+      }
+      body {
+        color: ${defaultTextColor};
+        font-size: 15px;
+        line-height: 1.55;
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+        -webkit-text-size-adjust: 100%;
+      }
+      summary[style*="list-style: none"]::-webkit-details-marker,
+      summary[style*="list-style:none"]::-webkit-details-marker {
+        display: none;
+      }
+      :where(img, video, canvas, svg) {
+        max-width: 100%;
+      }
+      :where(img, video) {
+        height: auto;
+      }
+      ${fallbackChoiceCss}
       ::-webkit-scrollbar {
         width: 4px;
         height: 4px;
       }
       ::-webkit-scrollbar-thumb {
-        background: rgba(125, 125, 125, 0.2);
+        background: rgba(125, 125, 125, 0.25);
         border-radius: 4px;
       }
     </style>
+    ${sharedHeadTags ? replaceVhInContent(sharedHeadTags) : ''}
     <script>
       (function() {
         const frameId = "${iframeId}";
+        const cardHasJs = ${hasJs ? 'true' : 'false'};
         let lastHeight = 0;
         let resizeTimer = null;
-        let lastViewportH = 0;
-        let lastMeasured = -1;
-        let vpLocked = false;
+        let lastFitAvailW = 0;
+        let currentZoom = 1;
+        let isFitting = false;
 
-        // Global click listener for branching choice cards (swipe/greeting navigation)
+        function updateViewportVar() {
+          let h = 0;
+          try {
+            h = window.parent && window.parent !== window ? window.parent.innerHeight : window.innerHeight;
+          } catch (e) {
+            h = window.innerHeight;
+          }
+          if (!h || h < 200) h = 720;
+          document.documentElement.style.setProperty('--TH-viewport-height', Math.round(h) + 'px');
+        }
+        updateViewportVar();
+
+        // 仅在明确的开场白跳转链接/属性（或无脚本静态选项卡）上拦截点击，不抢占状态栏内部 tab/按钮事件
         document.addEventListener('click', function(e) {
-          const target = e.target.closest('a, button, [data-index], [data-greeting], [data-target], .choice-card, .fate-card, .menu-item, .option-card, .branch-card, .scenario-card');
+          const target = e.target.closest('a, button, [data-greeting], [data-index], [data-target], .choice-card, .fate-card, .branch-card, .scenario-card');
           if (!target) return;
+          if (target.hasAttribute('onclick') || target.closest('[role="tab"], [role="tablist"], [data-tab], .tabs, .tab-bar, nav')) {
+            return;
+          }
 
           const href = target.getAttribute('href') || '';
-          const dataTarget = target.getAttribute('data-target') || target.getAttribute('data-index') || target.getAttribute('data-greeting');
+          const explicitGreeting = target.getAttribute('data-greeting');
+          const softTarget = target.getAttribute('data-target') || target.getAttribute('data-index');
           const text = (target.innerText || target.textContent || '').trim();
 
           let targetIdx = null;
 
-          if (dataTarget && !isNaN(parseInt(dataTarget))) {
-            targetIdx = parseInt(dataTarget);
+          if (explicitGreeting && !isNaN(parseInt(explicitGreeting))) {
+            targetIdx = parseInt(explicitGreeting);
           } else if (href && /#?(?:greeting|branch|swipe|opt)[-_]?(\\d+)/i.test(href)) {
             const m = href.match(/#?(?:greeting|branch|swipe|opt)[-_]?(\\d+)/i);
             if (m) targetIdx = parseInt(m[1]);
-          } else if (href && /^#(\\d+)$/.test(href)) {
+          } else if (href && /^#(\\d+)$/.test(href) && !cardHasJs) {
             targetIdx = parseInt(href.substring(1));
-          } else if (target.matches('[data-greeting], .fate-card, .choice-card, .branch-card, .scenario-card')) {
+          } else if (!cardHasJs && softTarget && !isNaN(parseInt(softTarget))) {
+            targetIdx = parseInt(softTarget);
+          } else if (!cardHasJs && target.matches('[data-greeting], .fate-card, .choice-card, .branch-card, .scenario-card')) {
             const numMatch = text.match(/(?:^|[^\\d])([1-9]\\d?)[.、\\s]/);
             if (numMatch) {
               targetIdx = parseInt(numMatch[1]);
@@ -368,221 +434,80 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = React.memo(
           }
         }, true);
 
-        const VIEWPORT_UNIT_RE = /([0-9.]+)\s*(?:vh|dvh|svh|lvh)/i;
-
-        function oneScreenPx() {
-          let h = 0;
-          try { h = window.parent && window.parent !== window ? window.parent.innerHeight : 0; } catch (e) { h = 0; }
-          if (!h || h < 200) h = 720;
-          return Math.round(h);
-        }
-
-        function ruleName(rule) {
-          try { return (rule.constructor && rule.constructor.name) || ''; } catch (e) { return ''; }
-        }
-
-        function ruleAppliesNow(rule) {
+        // 对固定像素宽度且超出手机容器的卡片做等比适配缩放，避免截断或嵌套元素被强行压扁错位
+        function fitOverflowToViewport(forceFit) {
+          const docEl = document.documentElement;
+          const body = document.body;
+          if (!docEl || !body) return 1;
+          const availW = docEl.clientWidth || window.innerWidth || 0;
+          if (!availW || availW < 120) return 1;
+          if (!forceFit && Math.abs(availW - lastFitAvailW) < 2 && currentZoom === 1) {
+            // 仅在容器宽度或显式 DOM 变化时重测，但若当前可能新增了宽内容也允许检查
+          }
+          isFitting = true;
           try {
-            const name = ruleName(rule);
-            if (name === 'CSSMediaRule' || (rule.media && rule.conditionText)) {
-              return window.matchMedia(rule.conditionText).matches;
-            }
-            if (name === 'CSSSupportsRule') {
-              return window.CSS && window.CSS.supports ? window.CSS.supports(rule.conditionText) : true;
-            }
-          } catch (e) { return false; }
-          return true;
-        }
+            lastFitAvailW = availW;
+            if (body.style.zoom) body.style.zoom = '';
+            docEl.style.removeProperty('overflow-x');
+            body.style.removeProperty('overflow-x');
 
-        function collectSizingRules(rules, out, depth) {
-          if (!rules || depth > 4) return;
-          for (let r = 0; r < rules.length; r++) {
-            let rule = null;
-            try { rule = rules[r]; } catch (e) { continue; }
-            if (!rule) continue;
-            if (!rule.selectorText && rule.cssRules && rule.cssRules.length) {
-              if (!ruleAppliesNow(rule)) continue;
-              collectSizingRules(rule.cssRules, out, depth + 1);
-              continue;
+            const naturalW = Math.max(body.scrollWidth || 0, docEl.scrollWidth || 0);
+            if (naturalW > availW + 14) {
+              const nextZoom = Math.max(0.58, Math.min(1, availW / naturalW));
+              if ('zoom' in body.style) {
+                body.style.zoom = nextZoom.toFixed(4);
+                currentZoom = nextZoom;
+                if (naturalW * nextZoom > availW + 8) {
+                  docEl.style.setProperty('overflow-x', 'auto', 'important');
+                  body.style.setProperty('overflow-x', 'auto', 'important');
+                }
+                return currentZoom;
+              } else {
+                docEl.style.setProperty('overflow-x', 'auto', 'important');
+                body.style.setProperty('overflow-x', 'auto', 'important');
+              }
             }
-            if (!rule.selectorText || !rule.style) continue;
-            const h = rule.style.height || '';
-            const mn = rule.style.minHeight || '';
-            const mx = rule.style.maxHeight || '';
-            if (h || mn || mx) {
-              out.push({
-                sel: rule.selectorText,
-                h: h,
-                hImp: rule.style.getPropertyPriority('height') === 'important',
-                mn: mn,
-                mnImp: rule.style.getPropertyPriority('min-height') === 'important',
-                mx: mx,
-                mxImp: rule.style.getPropertyPriority('max-height') === 'important',
-              });
-            }
+            currentZoom = 1;
+            return 1;
+          } catch (e) {
+            return 1;
+          } finally {
+            setTimeout(function() { isFitting = false; }, 32);
           }
         }
 
-        function vpToPx(val) {
-          const m = String(val || '').match(VIEWPORT_UNIT_RE);
-          if (!m) return null;
-          const pct = parseFloat(m[1]);
-          if (!isFinite(pct) || pct <= 0) return null;
-          return Math.max(80, Math.round(oneScreenPx() * (pct / 100)));
-        }
+        function reportHeight(forceFit) {
+          const body = document.body;
+          if (!body) return;
 
-        function hasAbsoluteFillChild(el) {
-          try {
-            const kids = el.querySelectorAll('*');
-            for (let i = 0; i < kids.length && i < 40; i++) {
-              const pos = window.getComputedStyle(kids[i]).position;
-              if (pos === 'absolute') return true;
-            }
-          } catch (e) {}
-          return false;
-        }
-
-        let lastRelaxAt = 0;
-        let isRelaxing = false;
-        function relaxViewportSizedBoxes() {
-          isRelaxing = true;
-          try {
-            if (!document.body) return;
-            const nowAt = Date.now();
-            if (nowAt - lastRelaxAt < 200) return;
-            lastRelaxAt = nowAt;
-
-            const rules = [];
-            for (let s = 0; s < document.styleSheets.length; s++) {
-              let cssRules = null;
-              try { cssRules = document.styleSheets[s].cssRules; } catch (e) { continue; }
-              collectSizingRules(cssRules, rules, 0);
-            }
-
-            const descendants = document.body.querySelectorAll('*');
-            for (let i = 0; i < descendants.length; i++) {
-              const el = descendants[i];
-              const tag = el.tagName;
-              if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'LINK' || tag === 'META') continue;
-
-              // Find winning height/minHeight/maxHeight in active stylesheets (respecting @media overrides)
-              let winH = '', winHImp = false;
-              let winMn = '', winMnImp = false;
-              let winMx = '', winMxImp = false;
-              for (let r = 0; r < rules.length; r++) {
-                const rule = rules[r];
-                let matched = false;
-                try { matched = el.matches(rule.sel); } catch (e) { matched = false; }
-                if (!matched) continue;
-                if (rule.h && (!winHImp || rule.hImp)) { winH = rule.h; winHImp = rule.hImp; }
-                if (rule.mn && (!winMnImp || rule.mnImp)) { winMn = rule.mn; winMnImp = rule.mnImp; }
-                if (rule.mx && (!winMxImp || rule.mxImp)) { winMx = rule.mx; winMxImp = rule.mxImp; }
-              }
-
-              // Inline styles written by the card itself (ignore values previously written by MIU)
-              if (!el.hasAttribute('data-miu-vp-h') && el.style.height) winH = el.style.height;
-              if (!el.hasAttribute('data-miu-vp-mn') && el.style.minHeight) winMn = el.style.minHeight;
-              if (!el.hasAttribute('data-miu-vp-mx') && el.style.maxHeight) winMx = el.style.maxHeight;
-
-              const hPx = VIEWPORT_UNIT_RE.test(winH) ? vpToPx(winH) : null;
-              const mnPx = VIEWPORT_UNIT_RE.test(winMn) ? vpToPx(winMn) : null;
-              const mxPx = VIEWPORT_UNIT_RE.test(winMx) ? vpToPx(winMx) : null;
-
-              if (hPx !== null) {
-                const m = winH.match(VIEWPORT_UNIT_RE);
-                const pct = m ? parseFloat(m[1]) : 100;
-                const cs = window.getComputedStyle(el);
-                const isShell = cs.overflowY !== 'visible' || pct < 98 || hasAbsoluteFillChild(el);
-                // 整屏高度的卡片（100vh / 85vh）在消息里会变成一块比气泡高很多的大块，
-                // 按宽度比例收一收（约 9:19.5），超出部分让卡片自己滚动。
-                const cardCap = Math.round(Math.max(320, Math.min(oneScreenPx(), (window.innerWidth || 360) * 1.95)));
-                const fittedH = hPx > cardCap ? cardCap : hPx;
-                const targetH = isShell ? (fittedH + 'px') : 'auto';
-                if (el.style.height !== targetH) {
-                  el.setAttribute('data-miu-vp-h', '1');
-                  el.style.setProperty('height', targetH, 'important');
-                }
-                if (hPx > cardCap) {
-                  el.style.setProperty('overflow-y', 'auto', 'important');
-                }
-                if (!isShell && mnPx === null) {
-                  el.setAttribute('data-miu-vp-mn', '1');
-                  el.style.setProperty('min-height', fittedH + 'px', 'important');
-                }
-              }
-
-              if (mnPx !== null && hPx === null) {
-                const cs = window.getComputedStyle(el);
-                const needsMin = cs.overflowY !== 'visible' || hasAbsoluteFillChild(el);
-                const mnCap = Math.round(Math.max(320, Math.min(oneScreenPx(), (window.innerWidth || 360) * 1.95)));
-                const targetMn = needsMin ? (Math.min(mnPx, mnCap) + 'px') : '0px';
-                if (el.style.minHeight !== targetMn) {
-                  el.setAttribute('data-miu-vp-mn', '1');
-                  el.style.setProperty('min-height', targetMn, 'important');
-                }
-              }
-
-              if (mxPx !== null) {
-                const targetMx = mxPx + 'px';
-                if (el.style.maxHeight !== targetMx) {
-                  el.setAttribute('data-miu-vp-mx', '1');
-                  el.style.setProperty('max-height', targetMx, 'important');
-                }
-              }
-            }
-          } catch (e) {} finally {
-            setTimeout(function() { isRelaxing = false; }, 0);
+          updateViewportVar();
+          if (forceFit) {
+            currentZoom = fitOverflowToViewport(true);
           }
-        }
-
-        function reportHeight(force) {
-          if (!document.body) return;
-
-          const viewportH = window.innerHeight || document.documentElement.clientHeight || 0;
-
-          if (force || viewportH !== lastViewportH) relaxViewportSizedBoxes();
 
           let maxBottom = 0;
-          const children = document.body.children;
+          const children = body.children;
           for (let i = 0; i < children.length; i++) {
             const el = children[i];
-            if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'META') continue;
+            if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'META' || el.tagName === 'LINK') continue;
             let elPos = '';
             try { elPos = window.getComputedStyle(el).position; } catch (e) {}
             if (elPos === 'fixed') continue;
             const rect = el.getBoundingClientRect();
+            if (rect.width === 0 && rect.height === 0) continue;
             const bottom = rect.bottom + window.scrollY;
             if (bottom > maxBottom) {
               maxBottom = bottom;
             }
           }
 
-          const bodyRect = document.body.getBoundingClientRect();
-          const contentH = Math.max(bodyRect.height, document.body.scrollHeight || 0);
-          const measured = Math.max(maxBottom, contentH, 0);
+          const bodyRect = body.getBoundingClientRect();
+          const rawScrollH = body.scrollHeight || 0;
+          const scaledScrollH = currentZoom < 1 ? rawScrollH * currentZoom : rawScrollH;
+          const measured = Math.max(maxBottom, bodyRect.height, scaledScrollH, 0);
+          const calculated = Math.min(Math.max(24, Math.ceil(measured + 6)), 30000);
 
-          if (force) vpLocked = false;
-
-          if (!vpLocked && lastViewportH > 0 && viewportH !== lastViewportH && lastMeasured > 0) {
-            const ratioBefore = lastMeasured / lastViewportH;
-            const ratioNow = measured / viewportH;
-            if (Math.abs(ratioBefore - ratioNow) <= 0.02) vpLocked = true;
-          }
-          lastViewportH = viewportH;
-          lastMeasured = measured;
-
-          if (vpLocked) return;
-
-          let padV = 0;
-          try {
-            const bodyStyle = window.getComputedStyle(document.body);
-            padV = (parseFloat(bodyStyle.paddingTop) || 0) + (parseFloat(bodyStyle.paddingBottom) || 0);
-          } catch (e) {}
-          if (!force && viewportH > 0 && Math.abs(measured - viewportH) <= padV + 4) return;
-
-          const calculated = Math.min(Math.ceil(measured + 16), 30000);
-
-          if (calculated > 20 && Math.abs(calculated - lastHeight) >= 2) {
+          if (Math.abs(calculated - lastHeight) >= 2) {
             lastHeight = calculated;
             window.parent.postMessage({ type: 'th_resize', id: frameId, height: calculated }, '*');
           }
@@ -602,55 +527,76 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = React.memo(
           } catch (err) {}
         }, true);
 
-        function debouncedReport(force) {
+        document.addEventListener('load', function(e) {
+          const el = e && e.target;
+          if (!el) return;
+          if (el.tagName === 'IMG' || el.tagName === 'LINK') {
+            debouncedReport(true);
+          }
+        }, true);
+
+        function debouncedReport(forceFit) {
           if (resizeTimer) clearTimeout(resizeTimer);
           resizeTimer = setTimeout(function() {
-            reportHeight(force);
-          }, 80);
+            reportHeight(!!forceFit);
+          }, 60);
         }
 
         window.addEventListener('load', function() { reportHeight(true); });
-        window.addEventListener('resize', function() { debouncedReport(false); });
+        window.addEventListener('resize', function() { debouncedReport(true); });
         document.addEventListener('DOMContentLoaded', function() { reportHeight(true); });
         document.addEventListener('click', function() { debouncedReport(true); });
         document.addEventListener('transitionend', function() { debouncedReport(false); });
         document.addEventListener('animationend', function() { debouncedReport(false); });
         document.addEventListener('toggle', function() { reportHeight(true); }, true);
 
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(function() { debouncedReport(true); });
+        }
+
         if (window.MutationObserver) {
           const obs = new MutationObserver(function() {
-            if (isRelaxing) return;
-            debouncedReport(false);
+            if (isFitting) return;
+            debouncedReport(true);
           });
           const obsOpts = {
             childList: true,
             subtree: true,
             attributes: true,
-            attributeFilter: ['class', 'open', 'hidden', 'data-active', 'aria-expanded'],
+            attributeFilter: ['class', 'open', 'hidden', 'data-active', 'aria-expanded', 'style'],
           };
           if (document.body) {
             obs.observe(document.body, obsOpts);
           } else {
-            document.addEventListener('DOMContentLoaded', () => {
+            document.addEventListener('DOMContentLoaded', function() {
               if (document.body) obs.observe(document.body, obsOpts);
             });
           }
         }
 
-        if (window.ResizeObserver && document.body) {
-          const ro = new ResizeObserver(function() { debouncedReport(false); });
-          ro.observe(document.body);
+        if (window.ResizeObserver) {
+          const startRo = function() {
+            if (!document.body) return;
+            const ro = new ResizeObserver(function() {
+              if (isFitting) return;
+              debouncedReport(false);
+            });
+            ro.observe(document.body);
+          };
+          if (document.body) startRo();
+          else document.addEventListener('DOMContentLoaded', startRo);
         }
 
-        setTimeout(function() { reportHeight(false); }, 160);
-        setTimeout(function() { reportHeight(false); }, 600);
+        setTimeout(function() { reportHeight(true); }, 150);
+        setTimeout(function() { reportHeight(true); }, 500);
+        setTimeout(function() { reportHeight(true); }, 1100);
 
         reportHeight(true);
       })();
     </script>
   `;
 
-    let result = cleanHtml;
+    let result = normalizedHtml;
     if (/<head[^>]*>/i.test(result)) {
       result = result.replace(/<head[^>]*>/i, (m) => `${m}${scriptContent}`);
     } else if (/<\/head>/i.test(result)) {
@@ -662,12 +608,13 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = React.memo(
     } else if (/<\/html>/i.test(result)) {
       result = result.replace(/<\/html>/i, () => `${scriptContent}</html>`);
     } else {
-      result = `<!DOCTYPE html><html><head>${scriptContent}</head><body>${cleanHtml}</body></html>`;
+      result = `<!DOCTYPE html><html><head>${scriptContent}</head><body>${normalizedHtml}</body></html>`;
     }
     return result;
   }, [
     hasEnteredViewport,
     cleanHtml,
+    sharedHeadTags,
     isLight,
     defaultTextColor,
     cardBg,
@@ -684,21 +631,21 @@ export const AutoResizingIframe: React.FC<AutoResizingIframeProps> = React.memo(
   ]);
 
   return (
-    <div ref={containerRef} className="w-full max-w-full my-2 relative overflow-hidden rounded-2xl transition-all" style={{ contain: 'layout' }}>
+    <div ref={containerRef} className="w-full max-w-full my-1.5 relative overflow-hidden rounded-xl transition-all" style={{ contain: 'layout' }}>
       {hasEnteredViewport ? (
         <iframe
           ref={iframeRef}
           srcDoc={finalHtml}
           loading="lazy"
-          className="w-full max-w-full border-0 rounded-2xl overflow-hidden bg-transparent block"
-          style={{ height: `${iframeHeight}px`, minHeight: '80px', width: '100%', maxWidth: '100%', display: 'block' }}
+          className="w-full max-w-full border-0 bg-transparent block"
+          style={{ height: `${iframeHeight}px`, minHeight: '24px', width: '100%', maxWidth: '100%', display: 'block' }}
           sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
           title="Tavern Widget"
         />
       ) : (
         <div
-          className="w-full max-w-full rounded-2xl"
-          style={{ height: `${iframeHeight}px`, minHeight: '80px' }}
+          className="w-full max-w-full rounded-xl"
+          style={{ height: `${iframeHeight}px`, minHeight: '24px' }}
         />
       )}
     </div>
@@ -729,7 +676,21 @@ export const MessageContent: React.FC<MessageContentProps> = React.memo(({
   currentSwipeId = 0,
   messageId = 0,
 }) => {
-  const segments = useMemo(() => splitHtmlSegments(content), [content]);
+  const { visibleSegments, sharedHeadTags } = useMemo(() => {
+    const rawSegments = splitHtmlSegments(content);
+    const headChunks: string[] = [];
+    const filtered = rawSegments.filter((seg) => {
+      if (seg.type === 'html' && isPureStyleHeadSegment(seg.content)) {
+        headChunks.push(seg.content);
+        return false;
+      }
+      return true;
+    });
+    return {
+      visibleSegments: filtered,
+      sharedHeadTags: headChunks.join('\n'),
+    };
+  }, [content]);
 
   const effectiveSource = mvuSourceText ?? content;
   const statData = useMemo(
@@ -749,7 +710,7 @@ export const MessageContent: React.FC<MessageContentProps> = React.memo(({
 
   return (
     <div className="flex flex-col gap-2.5 w-full max-w-full">
-      {segments.map((seg, index) => {
+      {visibleSegments.map((seg, index) => {
         if (!seg.content.trim()) return null;
 
         if (seg.type === 'html') {
@@ -757,6 +718,7 @@ export const MessageContent: React.FC<MessageContentProps> = React.memo(({
             <AutoResizingIframe
               key={`widget-${index}`}
               htmlContent={seg.content}
+              sharedHeadTags={sharedHeadTags}
               themeMode={themeMode}
               swipes={swipes}
               characterName={characterName}

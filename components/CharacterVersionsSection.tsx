@@ -1690,7 +1690,13 @@ export function CharacterVersionsSection({
           existingChar.avatarUrlFallback = targetFallback;
         }
         if (snapshot.tags) {
-          existingChar.tags = snapshot.tags;
+          existingChar.tags = [...snapshot.tags];
+          if (existingChar.data?.data && typeof existingChar.data.data === 'object') {
+            existingChar.data.data.tags = [...snapshot.tags];
+            if ('tags' in existingChar.data) existingChar.data.tags = [...snapshot.tags];
+          } else if (existingChar.data && typeof existingChar.data === 'object') {
+            existingChar.data.tags = [...snapshot.tags];
+          }
         }
         await saveCharacter(existingChar);
       } else {

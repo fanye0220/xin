@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { X, Sparkles, RefreshCw, Loader2, ArrowLeft, Check, AlertCircle, Plus, Tag } from 'lucide-react';
-import { CharacterCard, saveCharacter, getCharacter } from '../lib/db';
+import { CharacterCard, saveCharacter, getCharacter, extractCharacterTags, syncTagsAcrossCard } from '../lib/db';
 import { generateTagsForCharacters } from '../lib/ai';
 import {getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL, isFallbackMiuImage } from '../lib/avatar';
 import { useBackHandler } from '../lib/useBackHandler';
@@ -43,7 +43,7 @@ export function CharacterRetagModal({
 
   const charData = character.data?.data || character.data || {};
   const name = character.name || charData.name || charData.char_name || '未命名角色';
-  const existingTags: string[] = (Array.isArray(charData.tags) ? charData.tags : character.tags) || [];
+  const existingTags: string[] = extractCharacterTags(character);
 
   const defaultFallback = getFallbackAvatar(name || character.id, character.tags?.join(',') || (character.isTool ? 'tool' : undefined));
   const initialUrl = resolveAvatarUrl(character.avatarUrlFallback, name || character.id);
@@ -154,21 +154,16 @@ export function CharacterRetagModal({
         : selectedList;
 
       const fullChar = await getCharacter(character.id) || character;
-      let updatedData = typeof fullChar.data === 'object' && fullChar.data !== null ? { ...fullChar.data } : fullChar.data;
-      if (updatedData && typeof updatedData === 'object') {
-        if (updatedData.data) {
-          updatedData.data = { ...updatedData.data, tags: finalTags };
-        } else if (!Array.isArray(updatedData)) {
-          updatedData.tags = finalTags;
-        }
-      }
+      const updatedData = typeof fullChar.data === 'object' && fullChar.data !== null
+        ? JSON.parse(JSON.stringify(fullChar.data))
+        : fullChar.data;
 
       const updatedChar: CharacterCard = {
         ...fullChar,
-        tags: finalTags,
         data: updatedData,
         updatedAt: Date.now(),
       };
+      syncTagsAcrossCard(updatedChar, finalTags);
 
       await saveCharacter(updatedChar);
       window.dispatchEvent(new CustomEvent('charactersUpdated'));

@@ -2570,28 +2570,30 @@ export function UserPersonaManager({ onClose, isLightMode }: Props) {
                               }`}
                             />
                           </div>
-                          <div className="flex items-center gap-1.5 shrink-0 justify-between sm:justify-end">
+                          <div className="flex items-center gap-2 shrink-0 justify-between sm:justify-end">
                             <span className={`text-xs font-semibold ${isLightMode ? 'text-[#475569]' : 'text-white/60'}`}>
-                              已选 {stSelectedIds.size} / {stPullList.length}
+                              已选 <strong className={isLightMode ? 'text-[#007aff] font-bold' : 'text-blue-400 font-bold'}>{stSelectedIds.size}</strong> / {stPullList.length}
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => setStSelectedIds(new Set(filteredSt.map((x) => x.id)))}
-                              className={`text-xs px-2.5 py-1.5 rounded-full font-semibold cursor-pointer border-0 ${
-                                isLightMode ? '!bg-[#f1f5f9] !text-[#334155] hover:!bg-[#e2e8f0]' : 'bg-white/10 text-white/80 hover:bg-white/15'
-                              }`}
-                            >
-                              全选
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setStSelectedIds(new Set())}
-                              className={`text-xs px-2.5 py-1.5 rounded-full font-semibold cursor-pointer border-0 ${
-                                isLightMode ? '!bg-[#f1f5f9] !text-[#334155] hover:!bg-[#e2e8f0]' : 'bg-white/10 text-white/80 hover:bg-white/15'
-                              }`}
-                            >
-                              清空
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setStSelectedIds(new Set(filteredSt.map((x) => x.id)))}
+                                className={`text-xs px-3 py-1.5 rounded-full font-semibold cursor-pointer border-0 whitespace-nowrap transition ${
+                                  isLightMode ? '!bg-[#f1f5f9] !text-[#334155] hover:!bg-[#e2e8f0]' : 'bg-white/10 text-white/80 hover:bg-white/15'
+                                }`}
+                              >
+                                全选
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setStSelectedIds(new Set())}
+                                className={`text-xs px-3 py-1.5 rounded-full font-semibold cursor-pointer border-0 whitespace-nowrap transition ${
+                                  isLightMode ? '!bg-[#f1f5f9] !text-[#334155] hover:!bg-[#e2e8f0]' : 'bg-white/10 text-white/80 hover:bg-white/15'
+                                }`}
+                              >
+                                清空
+                              </button>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -2675,7 +2677,7 @@ export function UserPersonaManager({ onClose, isLightMode }: Props) {
                         <button
                           type="button"
                           onClick={handleClosePullModal}
-                          className={`flex-1 py-3 px-4 rounded-2xl font-semibold text-xs sm:text-sm cursor-pointer transition active:scale-95 text-center border-0 ${
+                          className={`flex-1 py-3 px-4 rounded-2xl font-semibold text-xs sm:text-sm cursor-pointer transition active:scale-95 flex items-center justify-center whitespace-nowrap border-0 ${
                             isLightMode
                               ? '!bg-[#f1f5f9] !text-[#0f172a] hover:!bg-[#e2e8f0]'
                               : 'bg-white/10 hover:bg-white/20 text-white/90'
@@ -2687,16 +2689,16 @@ export function UserPersonaManager({ onClose, isLightMode }: Props) {
                           type="button"
                           disabled={stSelectedIds.size === 0 || stPullLoading || stPullImporting}
                           onClick={handleConfirmStPull}
-                          className={`flex-1 py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm disabled:opacity-40 flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer border-0 ${
+                          className={`flex-1 py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm disabled:opacity-40 flex items-center justify-center gap-2 whitespace-nowrap transition active:scale-95 cursor-pointer border-0 ${
                             isLightMode
                               ? '!bg-[#86b9f4] !text-[#ffffff] hover:!bg-[#a7cbf6]'
                               : 'bg-blue-600 hover:bg-blue-500 text-white'
                           }`}
                         >
                           {stPullImporting ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <Loader2 className="w-4 h-4 animate-spin shrink-0" />
                           ) : (
-                            <Download className="w-4 h-4" />
+                            <Download className="w-4 h-4 shrink-0" />
                           )}
                           <span>{stPullImporting ? '正在导入...' : `拉取选中 (${stSelectedIds.size})`}</span>
                         </button>
@@ -2743,28 +2745,30 @@ export function UserPersonaManager({ onClose, isLightMode }: Props) {
                             }`}
                           />
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0 justify-between sm:justify-end">
+                        <div className="flex items-center gap-2 shrink-0 justify-between sm:justify-end">
                           <span className={`text-xs font-semibold ${isLightMode ? 'text-[#475569]' : 'text-white/60'}`}>
-                            已选 {ttSelectedIds.size} / {ttPullList.length}
+                            已选 <strong className={isLightMode ? 'text-[#007aff] font-bold' : 'text-blue-400 font-bold'}>{ttSelectedIds.size}</strong> / {ttPullList.length}
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => setTtSelectedIds(new Set(filteredTt.map((c) => c.id)))}
-                            className={`text-xs px-2.5 py-1.5 rounded-full font-semibold cursor-pointer border-0 ${
-                              isLightMode ? '!bg-[#f1f5f9] !text-[#334155] hover:!bg-[#e2e8f0]' : 'bg-white/10 text-white/80 hover:bg-white/15'
-                            }`}
-                          >
-                            全选
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setTtSelectedIds(new Set())}
-                            className={`text-xs px-2.5 py-1.5 rounded-full font-semibold cursor-pointer border-0 ${
-                              isLightMode ? '!bg-[#f1f5f9] !text-[#334155] hover:!bg-[#e2e8f0]' : 'bg-white/10 text-white/80 hover:bg-white/15'
-                            }`}
-                          >
-                            清空
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setTtSelectedIds(new Set(filteredTt.map((c) => c.id)))}
+                              className={`text-xs px-3 py-1.5 rounded-full font-semibold cursor-pointer border-0 whitespace-nowrap transition ${
+                                isLightMode ? '!bg-[#f1f5f9] !text-[#334155] hover:!bg-[#e2e8f0]' : 'bg-white/10 text-white/80 hover:bg-white/15'
+                              }`}
+                            >
+                              全选
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setTtSelectedIds(new Set())}
+                              className={`text-xs px-3 py-1.5 rounded-full font-semibold cursor-pointer border-0 whitespace-nowrap transition ${
+                                isLightMode ? '!bg-[#f1f5f9] !text-[#334155] hover:!bg-[#e2e8f0]' : 'bg-white/10 text-white/80 hover:bg-white/15'
+                              }`}
+                            >
+                              清空
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -2846,7 +2850,7 @@ export function UserPersonaManager({ onClose, isLightMode }: Props) {
                       <button
                         type="button"
                         onClick={handleClosePullModal}
-                        className={`flex-1 py-3 px-4 rounded-2xl font-semibold text-xs sm:text-sm cursor-pointer transition active:scale-95 text-center border-0 ${
+                        className={`flex-1 py-3 px-4 rounded-2xl font-semibold text-xs sm:text-sm cursor-pointer transition active:scale-95 flex items-center justify-center whitespace-nowrap border-0 ${
                           isLightMode
                             ? '!bg-[#f1f5f9] !text-[#0f172a] hover:!bg-[#e2e8f0]'
                             : 'bg-white/10 hover:bg-white/20 text-white/90'
@@ -2859,13 +2863,13 @@ export function UserPersonaManager({ onClose, isLightMode }: Props) {
                           type="button"
                           disabled={ttSelectedIds.size === 0}
                           onClick={handleConfirmTtPull}
-                          className={`flex-1 py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm disabled:opacity-40 flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer border-0 ${
+                          className={`flex-1 py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm disabled:opacity-40 flex items-center justify-center gap-2 whitespace-nowrap transition active:scale-95 cursor-pointer border-0 ${
                             isLightMode
                               ? '!bg-[#86b9f4] !text-[#ffffff] hover:!bg-[#a7cbf6]'
                               : 'bg-blue-600 hover:bg-blue-500 text-white'
                           }`}
                         >
-                          <Download className="w-4 h-4" />
+                          <Download className="w-4 h-4 shrink-0" />
                           <span>拉取选中 ({ttSelectedIds.size})</span>
                         </button>
                       ) : (
@@ -2873,16 +2877,16 @@ export function UserPersonaManager({ onClose, isLightMode }: Props) {
                           type="button"
                           disabled={ttImporting || (ttWaitingList && !listStalled) || (ttPullState.phase === 'pulling' && !pullStalled)}
                           onClick={startTtPersonaPull}
-                          className={`flex-1 py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm disabled:opacity-40 flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer border-0 ${
+                          className={`flex-1 py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm disabled:opacity-40 flex items-center justify-center gap-2 whitespace-nowrap transition active:scale-95 cursor-pointer border-0 ${
                             isLightMode
                               ? '!bg-[#86b9f4] !text-[#ffffff] hover:!bg-[#a7cbf6]'
                               : 'bg-blue-600 hover:bg-blue-500 text-white'
                           }`}
                         >
                           {ttImporting || ttWaitingList || ttPullState.phase === 'pulling' ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <Loader2 className="w-4 h-4 animate-spin shrink-0" />
                           ) : (
-                            <RefreshCw className="w-4 h-4" />
+                            <RefreshCw className="w-4 h-4 shrink-0" />
                           )}
                           <span>
                             {ttImporting
@@ -2890,7 +2894,7 @@ export function UserPersonaManager({ onClose, isLightMode }: Props) {
                               : ttPullState.phase === 'pulling'
                                 ? `拉取中 ${ttPullState.done}/${ttPullState.total}`
                                 : ttWaitingList && !listStalled
-                                  ? '载入中…'
+                                  ? '载入中'
                                   : '重新请求'}
                           </span>
                         </button>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Folder } from "../lib/db";
 import { getFallbackAvatar, isFallbackMiuImage, safeCreateObjectURL } from "../lib/avatar";
 import { Folder as FolderIcon, Sparkles, Plus } from "lucide-react";
@@ -6,6 +6,8 @@ import { Folder as FolderIcon, Sparkles, Plus } from "lucide-react";
 export interface FolderPreviewItem {
   url: string;
   seed?: string;
+  charId?: string;
+  cacheKey?: string;
   tags?: string[];
   isTool?: boolean;
   /** 上游已经判定这张就是「默认占位图」(不是真卡片图) */
@@ -18,6 +20,7 @@ export interface FolderPreviewItem {
  * 特意做成带 state 的组件: 以前的兜底是直接改 DOM 的 img.src, className 还停在
  * 按旧 URL 算出来的 object-cover 上 —— 于是加载失败时占位图会被拉满裁切成巨图。
  * 走 state 之后 className 会跟着重算, 占位图永远是"小白底 + 居中"。
+ * 同时去掉 loading="lazy" / decoding="async"，并支持失效 blob URL 自愈重读。
  */
 const CoverImage = React.memo(function CoverImage({
   item,
@@ -27,27 +30,66 @@ const CoverImage = React.memo(function CoverImage({
   padClass: string;
 }) {
   const seed = item?.seed;
+  const charId = item?.charId;
+  const cacheKey = item?.cacheKey;
   const initialUrl = item?.url || '';
-  const initialFallback = Boolean(item?.isFallback) || isFallbackMiuImage(initialUrl);
-  const [src, setSrc] = useState(initialUrl);
+  const initialFallback =
+    Boolean(item?.isFallback) || !initialUrl || isFallbackMiuImage(initialUrl);
+  const [src, setSrc] = useState(() => initialUrl || getFallbackAvatar(seed));
   const [isFallback, setIsFallback] = useState(initialFallback);
+  const retriedRef = useRef(false);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    setSrc(initialUrl);
-    setIsFallback(Boolean(item?.isFallback) || isFallbackMiuImage(initialUrl));
-  }, [initialUrl, item?.isFallback, seed]);
+    mountedRef.current = true;
+    retriedRef.current = false;
+    const nextUrl = item?.url || '';
+    const nextFallback =
+      Boolean(item?.isFallback) || !nextUrl || isFallbackMiuImage(nextUrl);
+    setSrc(nextUrl || getFallbackAvatar(seed));
+    setIsFallback(nextFallback);
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [initialUrl, item?.isFallback, seed, charId]);
 
   return (
     <img
-      src={src || undefined}
+      src={src}
       alt=""
-      loading="lazy"
-      decoding="async"
       className={`w-full h-full pointer-events-none ${
         isFallback ? `object-contain ${padClass} bg-white` : 'object-cover'
       }`}
       onError={() => {
         if (isFallback) return;
+        if (!retriedRef.current && charId) {
+          retriedRef.current = true;
+          Promise.all([import("../lib/db"), import("../lib/thumbCache")])
+            .then(async ([{ getCharacterThumb }, { putFolderCoverBlobUrl }]) => {
+              const thumbBlob = await getCharacterThumb(charId);
+              if (!mountedRef.current) return;
+              if (thumbBlob && (!(thumbBlob instanceof Blob) || thumbBlob.size > 0)) {
+                const freshUrl = putFolderCoverBlobUrl(
+                  cacheKey || `folder_cover_retry_${charId}`,
+                  thumbBlob,
+                  { forceReplace: true },
+                );
+                if (freshUrl) {
+                  setSrc(freshUrl);
+                  setIsFallback(false);
+                  return;
+                }
+              }
+              setSrc(getFallbackAvatar(seed));
+              setIsFallback(true);
+            })
+            .catch(() => {
+              if (!mountedRef.current) return;
+              setSrc(getFallbackAvatar(seed));
+              setIsFallback(true);
+            });
+          return;
+        }
         setSrc(getFallbackAvatar(seed));
         setIsFallback(true);
       }}
@@ -73,7 +115,10 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
   const [customAvatarUrl, setCustomAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (folder.avatarBlob) {
+    if (
+      folder.avatarBlob &&
+      (!(folder.avatarBlob instanceof Blob) || folder.avatarBlob.size > 0)
+    ) {
       const objectUrl = safeCreateObjectURL(folder.avatarBlob);
       setCustomAvatarUrl(objectUrl);
       return () => {
@@ -146,7 +191,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
             {items.length >= 2 && (
               <div
                 className="absolute w-8 h-10 rounded-lg overflow-hidden shadow-xs border-0 outline-none"
-                style={{ transform: "rotate(-5deg) translateX(-3px)", willChange: "transform" }}
+                style={{ transform: "rotate(-5deg) translateX(-3px)" }}
               >
                 <CoverImage item={items[1]} padClass="p-1" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent [.light-theme_&]:from-black/40 [.light-theme_&]:via-black/10 [.light-theme_&]:to-transparent pointer-events-none rounded-lg" />
@@ -154,12 +199,9 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
             )}
             {/* Front Card */}
             <div
-              className={`absolute w-8 h-10 rounded-lg overflow-hidden shadow-xs border-0 outline-none ${
-                items.length >= 2 ? "" : ""
-              }`}
+              className="absolute w-8 h-10 rounded-lg overflow-hidden shadow-xs border-0 outline-none"
               style={{
                 transform: items.length >= 2 ? "rotate(3deg) translateX(3px)" : "none",
-                willChange: "transform",
               }}
             >
               <CoverImage item={items[0]} padClass="p-1" />
@@ -194,7 +236,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
     <div
       className={`relative w-full aspect-[2/3] select-none group flex items-center justify-center ${className}`}
     >
-      <div className="relative w-full h-full flex items-center justify-center transform-gpu">
+      <div className="relative w-full h-full flex items-center justify-center">
         {/* 1. Back Layer (Rendered when 2nd card preview exists, subtly peeking from top-left) */}
         {hasBackCard && (
           <div
@@ -202,7 +244,6 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
             style={{
               transform: "rotate(-2deg) translate(-2px, -1px)",
               zIndex: 1,
-              willChange: "transform",
             }}
           >
             <CoverImage item={items[1]} padClass="p-4" />
@@ -217,7 +258,7 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
         {/* 2. Front Layer (Full-size Main Card identical to single character card size) */}
         <div
           className="absolute w-full h-full rounded-2xl overflow-hidden shadow-sm border-0 outline-none transition-all duration-300 group-hover:scale-[1.01] group-hover:-translate-y-0.5"
-          style={{ zIndex: 2, willChange: "transform" }}
+          style={{ zIndex: 2 }}
         >
           {hasFrontCard ? (
             <CoverImage item={items[0]} padClass="p-4" />
@@ -253,6 +294,9 @@ export const FrostedFolderCover = React.memo(function FrostedFolderCover({
     const f1 = typeof p1[i] === "string" ? undefined : (p1[i] as any)?.isFallback;
     const f2 = typeof p2[i] === "string" ? undefined : (p2[i] as any)?.isFallback;
     if (Boolean(f1) !== Boolean(f2)) return false;
+    const c1 = typeof p1[i] === "string" ? undefined : (p1[i] as any)?.charId;
+    const c2 = typeof p2[i] === "string" ? undefined : (p2[i] as any)?.charId;
+    if (c1 !== c2) return false;
   }
 
   return true;
@@ -278,20 +322,19 @@ export const FrostedNewFolderCover = React.memo(function FrostedNewFolderCover({
     <div
       className="relative w-full aspect-[2/3] select-none group cursor-pointer flex items-center justify-center"
     >
-      <div className="relative w-full h-full flex items-center justify-center transform-gpu">
+      <div className="relative w-full h-full flex items-center justify-center">
         {/* Back Ghost Card */}
         <div
           className="absolute w-full h-full rounded-2xl border-2 border-dashed border-white/20 bg-white/[0.04] transition-transform duration-300 origin-bottom-left group-hover:-rotate-3 group-hover:-translate-x-0.5"
           style={{
             transform: "rotate(-2deg) translate(-2px, -1px)",
             zIndex: 1,
-            willChange: "transform",
           }}
         />
         {/* Front Ghost Card */}
         <div
           className="absolute w-full h-full rounded-2xl border-2 border-dashed border-white/25 bg-white/[0.04] backdrop-blur-xs flex flex-col items-center justify-center p-2 text-center transition-all duration-300 group-hover:border-blue-400/50 group-hover:bg-blue-500/10 group-hover:scale-[1.01] group-hover:-translate-y-0.5 shadow-lg text-white/40"
-          style={{ zIndex: 2, willChange: "transform" }}
+          style={{ zIndex: 2 }}
         >
           <Plus className="w-4.5 h-4.5 sm:w-6 sm:h-6 opacity-50 mb-1 group-hover:scale-110 group-hover:text-blue-300 [.light-theme_&]:group-hover:!text-blue-600 transition-all shrink-0" />
           <span className="text-[10px] sm:text-xs font-medium tracking-wide text-white/50 group-hover:text-blue-300 [.light-theme_&]:group-hover:!text-blue-600 transition-colors select-none">新建</span>

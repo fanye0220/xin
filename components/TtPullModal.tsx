@@ -130,7 +130,7 @@ function queueThumbRequest(avatar: string) {
  * 而且只要一张 112px 的小图（几 KB），不会顺手把整张卡拉下来；
  * 也不自己起轮询定时器——有图送到时父层的 thumbRev 会变，effect 会重跑。
  */
-function PullAvatar({ avatar, rev }: { avatar: string; rev: number }) {
+function PullAvatar({ avatar, rev, kind }: { avatar: string; rev: number; kind?: TavernPullKind }) {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref);
   const [url, setUrl] = useState('');
@@ -152,6 +152,8 @@ function PullAvatar({ avatar, rev }: { avatar: string; rev: number }) {
     >
       {url ? (
         <img src={url} alt="" className={`w-full h-full ${isFallbackMiuImage(url) ? "object-contain p-1 bg-white" : "object-cover"}`} decoding="async" />
+      ) : kind === 'persona' ? (
+        <User className="w-5 h-5 text-blue-400 [.light-theme_&]:!text-[#007aff]" />
       ) : (
         <UserRound className="w-4 h-4 text-white/25 [.light-theme_&]:!text-slate-300" />
       )}
@@ -497,7 +499,7 @@ export function TtPullModal({ isOpen, onClose, onImportFiles }: Props) {
                 ) : waitingList ? (
                   <div className="py-12 text-center space-y-2 version-modal-desc">
                     <Loader2 className="w-6 h-6 mx-auto animate-spin text-blue-500" />
-                    <p className="text-sm">载入中</p>
+                    <p className="text-sm">{state.message || '正在向 TauriTavern 要列表…'}</p>
                   </div>
                 ) : currentCount === 0 ? (
                   <div className="py-12 text-center text-sm version-modal-desc">这一类还没拉取，点上面的分类去要。</div>
@@ -515,8 +517,8 @@ export function TtPullModal({ isOpen, onClose, onImportFiles }: Props) {
                         onClick={() => toggle(card.id)}
                         className={`p-3.5 rounded-2xl transition cursor-pointer flex items-center justify-between gap-3 border version-candidate-card select-none outline-none focus:outline-none ${isSelected ? 'is-selected' : ''}`}
                       >
-                        {(card.kind === 'character' || card.kind === 'persona') && (card.avatar || card.id) ? (
-                          <PullAvatar avatar={card.avatar || card.id} rev={state.thumbRev} />
+                        {card.kind === 'character' || card.kind === 'persona' ? (
+                          <PullAvatar avatar={card.avatar} rev={state.thumbRev} kind={card.kind} />
                         ) : (
                           <div className="w-11 h-11 rounded-xl shrink-0 bg-blue-500/10 [.light-theme_&]:!bg-blue-50 flex items-center justify-center text-blue-400 [.light-theme_&]:!text-blue-600">
                             <KindIcon kind={card.kind} className="w-5 h-5" />
@@ -579,7 +581,7 @@ export function TtPullModal({ isOpen, onClose, onImportFiles }: Props) {
             <button
               type="button"
               onClick={handleClose}
-              className="soft-pill flex-1 py-3 px-4 rounded-2xl font-semibold text-xs sm:text-sm cursor-pointer transition active:scale-95 text-center bg-white/10 hover:bg-white/20 text-white/90 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e2e8f0]"
+              className="flex-1 py-3 px-4 rounded-2xl font-semibold text-xs sm:text-sm cursor-pointer transition active:scale-95 flex items-center justify-center whitespace-nowrap border-0 bg-white/10 hover:bg-white/20 text-white/90 [.light-theme_&]:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a] [.light-theme_&]:hover:!bg-[#e2e8f0]"
             >
               {canPick ? '取消' : '关闭'}
             </button>
@@ -588,30 +590,32 @@ export function TtPullModal({ isOpen, onClose, onImportFiles }: Props) {
                 type="button"
                 disabled={currentSelected.size === 0}
                 onClick={handlePull}
-                className="flex-1 py-3 px-4 rounded-2xl bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 [.light-theme_&]:hover:!bg-blue-100 font-bold text-xs sm:text-sm disabled:opacity-40 flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                className="flex-1 py-3 px-4 rounded-2xl bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 [.light-theme_&]:hover:!bg-blue-100 font-bold text-xs sm:text-sm disabled:opacity-40 flex items-center justify-center gap-2 whitespace-nowrap transition active:scale-95 cursor-pointer border-0"
               >
-                <Download className="w-4 h-4" />
-                拉取选中 ({currentSelected.size})
+                <Download className="w-4 h-4 shrink-0" />
+                <span>拉取选中 ({currentSelected.size})</span>
               </button>
             ) : (
               <button
                 type="button"
                 disabled={importing || (waitingList && !listStalled) || (state.phase === 'pulling' && !pullStalled)}
                 onClick={() => requestKind(tab, true)}
-                className="flex-1 py-3 px-4 rounded-2xl bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 [.light-theme_&]:hover:!bg-blue-100 font-bold text-xs sm:text-sm disabled:opacity-40 flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                className="flex-1 py-3 px-4 rounded-2xl bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 [.light-theme_&]:!bg-blue-50 [.light-theme_&]:!text-blue-600 [.light-theme_&]:hover:!bg-blue-100 font-bold text-xs sm:text-sm disabled:opacity-40 flex items-center justify-center gap-2 whitespace-nowrap transition active:scale-95 cursor-pointer border-0"
               >
                 {importing || waitingList || state.phase === 'pulling' ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
                 ) : (
-                  <RefreshCw className="w-4 h-4" />
+                  <RefreshCw className="w-4 h-4 shrink-0" />
                 )}
-                {importing
-                  ? '正在导入…'
-                  : state.phase === 'pulling'
-                    ? `拉取中 ${state.done}/${state.total}`
-                    : waitingList
-                      ? '载入中…'
-                      : '重新请求'}
+                <span>
+                  {importing
+                    ? '正在导入…'
+                    : state.phase === 'pulling'
+                      ? `拉取中 ${state.done}/${state.total}`
+                      : waitingList
+                        ? '载入中'
+                        : '重新请求'}
+                </span>
               </button>
             )}
           </div>

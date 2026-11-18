@@ -587,6 +587,8 @@ export function GreetingFullScreenModal({
           }
           .reader-prose p {
             margin-bottom: 1.15em;
+            text-align: justify;
+            text-justify: inter-ideograph;
             ${indentFirstLine ? 'text-indent: 2em;' : ''}
           }
           .reader-prose a {
@@ -798,7 +800,7 @@ export function GreetingFullScreenModal({
                     fontSize: `${currentSizeConfig.px}px`,
                     lineHeight: currentSizeConfig.lineHeight,
                   }}
-                  className="reader-prose w-full max-w-full overflow-hidden break-words transition-all text-justify"
+                  className="reader-prose w-full max-w-full overflow-hidden break-words transition-all"
                 >
                   {renderedText ? (
                     <MessageContent

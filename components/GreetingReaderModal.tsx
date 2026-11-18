@@ -38,7 +38,7 @@ const DEFAULT_SETTINGS: GreetingReaderSettings = {
   enableMarkdown: true,
   enableMacros: true,
   enableCustomTags: true,
-  sideMargin: 24,
+  sideMargin: 16,
 };
 
 const STORAGE_KEY = 'miu_greeting_reader_settings';
@@ -51,7 +51,7 @@ function loadSettings(): GreetingReaderSettings {
       return {
         ...DEFAULT_SETTINGS,
         ...parsed,
-        sideMargin: typeof parsed.sideMargin === 'number' ? parsed.sideMargin : 24,
+        sideMargin: typeof parsed.sideMargin === 'number' ? parsed.sideMargin : 16,
       };
     }
   } catch (e) {
@@ -1048,7 +1048,7 @@ export function GreetingReaderModal({
     settings.lineHeight === 'normal' ? 'leading-[1.65]' : 'leading-[1.9]';
 
   // Screen horizontal margin (distance between text and left/right screen edges)
-  const effectiveSideMargin = Math.max(8, Math.min(64, typeof settings.sideMargin === 'number' ? settings.sideMargin : 24));
+  const effectiveSideMargin = Math.max(8, Math.min(64, typeof settings.sideMargin === 'number' ? settings.sideMargin : 16));
 
   // Resolved avatar image
   const displayAvatar = avatarUrl || resolveAvatarUrl(character.avatarUrlFallback, character.name || character.id);
@@ -1573,7 +1573,7 @@ export function GreetingReaderModal({
               <div className="p-5 sm:p-8 md:p-10 flex-1">
                 {isPreviewMode ? (
                   <div 
-                    className={`greeting-reader-prose break-words tracking-normal whitespace-pre-wrap ${lineHeightClass} w-full`}
+                    className={`greeting-reader-prose break-words tracking-normal ${lineHeightClass} w-full`}
                     style={{ fontSize: `${settings.fontSize}px`, color: themeStyles.text }}
                   >
                     <MessageContent 
@@ -1712,7 +1712,7 @@ export function GreetingReaderModal({
                     /* Rich Markdown / HTML / Tags / Macros rendering mode */
                     <div
                       onClick={handleContainerClick}
-                      className={`greeting-reader-prose break-words tracking-normal whitespace-pre-wrap ${lineHeightClass} w-full`}
+                      className={`greeting-reader-prose break-words tracking-normal ${lineHeightClass} w-full`}
                       style={{ fontSize: `${settings.fontSize}px`, color: themeStyles.text }}
                     >
                       <MessageContent 

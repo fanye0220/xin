@@ -3,7 +3,8 @@ import { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Download, Trash2, Book, MessageSquare, User, StickyNote, ChevronRight, Plus, Edit2, Power, X as XIcon, ChevronDown, ChevronUp, ExternalLink, Check, Upload, Send, Smartphone, Loader2, Share2, Folder as FolderIcon, History, AlertCircle, Maximize2, BookOpen, Sparkles, FileJson, Image as ImageIcon, Save, Heart, RefreshCw, FileText, ArrowUp, ArrowDown, Code2 } from 'lucide-react';
-import { getCharacter, deleteCharacter, saveCharacter, toggleCharacterFavorite, CharacterCard, getFolders, resolveFolderPath, getCachedMeta, getCharacterCategoryPrefix, isActualCharacterCard, stripToolNameSuffix, UserPersona, getUserPersonas, setUserPersonaForCharacter } from '../lib/db';
+import { getCharacter, getCharacterFast, getCharacterBlob, getCharacterThumb, deleteCharacter, saveCharacter, toggleCharacterFavorite, CharacterCard, getFolders, resolveFolderPath, getCachedMeta, getCharacterCategoryPrefix, isActualCharacterCard, stripToolNameSuffix, UserPersona, getUserPersonas, setUserPersonaForCharacter, extractCharacterTags, syncTagsAcrossCard } from '../lib/db';
+import { peekCachedUrl, isCachedBlobUrl } from '../lib/thumbCache';
 import { getCardTypeBadgeInfo } from '../lib/cardType';
 import { parseTavernCard } from '../types/tavern';
 import { normalizeSourceUrl } from '../lib/sourceUrl';
@@ -103,6 +104,7 @@ function buildQuickReplySet(raw: any, name: string): any {
 }
 interface Props {
   id: string;
+  initialCharacter?: CharacterCard | null;
   onBack: () => void;
   onOpenChat?: (chatId: string) => void;
   onOpenImport?: (files?: FileList | File[]) => void;
@@ -113,9 +115,15 @@ interface Props {
 
 // memo 化: 防止父组件里无关的状态变化(比如列表滚动位置、其他弹窗开关)
 // 连带触发这个 1700+ 行的大组件整体重渲染。
-export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpenChat, onOpenImport, onOpenSettings, refreshKey, isLightMode: propIsLightMode }: Props) {
-  const [character, setCharacter] = useState<CharacterCard | null>(null);
-  const [activeTab, setActiveTab] = useState<'profile' | 'greetings' | 'worldbook' | 'regex' | 'chats' | 'memos' | 'versions' | 'data_viewer' | 'theme_preview' | 'custom_css'>('profile');
+export const CharacterDetail = memo(function CharacterDetail({ id, initialCharacter, onBack, onOpenChat, onOpenImport, onOpenSettings, refreshKey, isLightMode: propIsLightMode }: Props) {
+  const [character, setCharacter] = useState<CharacterCard | null>(initialCharacter ?? null);
+  const [activeTab, setActiveTab] = useState<'profile' | 'greetings' | 'worldbook' | 'regex' | 'chats' | 'memos' | 'versions' | 'data_viewer' | 'theme_preview' | 'custom_css'>(() => {
+    const cat = (initialCharacter as any)?.category;
+    if (cat === '世界书') return 'worldbook';
+    if (cat === '美化') return 'theme_preview';
+    if (cat && cat !== '未归类' && cat !== '预设') return 'data_viewer';
+    return 'profile';
+  });
 
   const [isLightMode, setIsLightMode] = useState(() => {
     if (typeof propIsLightMode === 'boolean') return propIsLightMode;
@@ -163,7 +171,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
   const [isEditingSource, setIsEditingSource] = useState(false);
   const [tempSource, setTempSource] = useState<string>('');
   const [isEditingName, setIsEditingName] = useState(false);
-  const [editNameValue, setEditNameValue] = useState('');
+  const [editNameValue, setEditNameValue] = useState(() => initialCharacter?.name || '');
   const [isAddingAlternate, setIsAddingAlternate] = useState(false);
   const [isEditingCreator, setIsEditingCreator] = useState(false);
   const [tempCreator, setTempCreator] = useState<string>('');
@@ -177,7 +185,14 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     initialEditMode: boolean;
   } | null>(null);
 
-  const [avatarUrl, setAvatarUrl] = useState<string>('');
+  const [avatarUrl, setAvatarUrl] = useState<string>(() => {
+    if (!initialCharacter) return '';
+    if (initialCharacter.hasBlobsSeparated) {
+      const cached = peekCachedUrl(`${initialCharacter.id}:${initialCharacter.updatedAt || 0}`);
+      if (cached) return cached;
+    }
+    return resolveAvatarUrl(initialCharacter.avatarUrlFallback, initialCharacter.name || initialCharacter.id);
+  });
   const [resolvedModifiedDate, setResolvedModifiedDate] = useState<Date | null>(null);
   const [isMoveFolderOpen, setIsMoveFolderOpen] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
@@ -333,101 +348,189 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     return true;
   });
 
+  const loadedFullIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    Promise.all([getCharacter(id), getFolders()]).then(async ([char, allFolders]) => {
+    let isMounted = true;
+    loadedFullIdRef.current = null;
+    const createdUrls: string[] = [];
+
+    const hydrateModifiedDate = async (charObj: CharacterCard) => {
+      if (charObj.fileModifiedAt) {
+        if (isMounted) setResolvedModifiedDate(new Date(charObj.fileModifiedAt));
+        return;
+      }
+      try {
+        const { resolveCharacterModifiedTime } = await import('../lib/fileDate');
+        let imgBuf: ArrayBuffer | null = null;
+        if (charObj.avatarBlob) {
+          try { imgBuf = await charObj.avatarBlob.arrayBuffer(); } catch {}
+        } else if (charObj.originalFile) {
+          try { imgBuf = await charObj.originalFile.arrayBuffer(); } catch {}
+        } else if (charObj.localFilePath) {
+          try {
+            const { readLocalFileBuffer } = await import('../lib/appBridge');
+            imgBuf = await readLocalFileBuffer(charObj.localFilePath);
+          } catch {}
+        }
+
+        const resolved = resolveCharacterModifiedTime(charObj, imgBuf);
+        if (!isMounted) return;
+        if (resolved) {
+          setResolvedModifiedDate(new Date(resolved));
+          if (charObj.fileModifiedAt !== resolved) {
+            charObj.fileModifiedAt = resolved;
+            saveCharacter(charObj).catch(console.error);
+          }
+        } else if (charObj.originalFile?.lastModified) {
+          setResolvedModifiedDate(new Date(charObj.originalFile.lastModified));
+        } else {
+          setResolvedModifiedDate(null);
+        }
+      } catch {
+        if (isMounted && charObj.originalFile?.lastModified) {
+          setResolvedModifiedDate(new Date(charObj.originalFile.lastModified));
+        }
+      }
+    };
+
+    Promise.all([getCharacterFast(id), getFolders()]).then(async ([char, allFolders]) => {
+      if (!isMounted) return;
+      loadedFullIdRef.current = id;
       const fMap = new Map<string, string>();
       for (const f of allFolders) {
         fMap.set(f.id, f.name);
       }
       setFoldersMap(fMap);
-      setCharacter(char);
-      if (char) {
-        const folderPath = char.folderId ? await resolveFolderPath(char.folderId) : '';
-        if (folderPath) setCurrentFolderPath(folderPath);
-        const isActual = isActualCharacterCard(char.data || char, fMap);
-        const category = isActual ? '未归类' : getCharacterCategoryPrefix(char, fMap);
-        if (category === '世界书') {
-            setActiveTab('worldbook');
-        } else if (category === '预设') {
-            setActiveTab('profile');
-        } else if (category === '美化' || (!isActual && /美化|theme/i.test(folderPath))) {
-            setActiveTab('theme_preview');
-        } else if (category !== '未归类') {
-            setActiveTab('data_viewer');
-        } else {
-            setActiveTab('profile');
-        }
+      setCharacter(char || null);
+      if (!char) return;
 
-        setEditNameValue(char.name);
-        const url = char.avatarBlob ? safeCreateObjectURL(char.avatarBlob) : null;
-        if (url) {
-          setAvatarUrl(url);
-        } else if (char.localFilePath && char.localFilePath.match(/\.(png|jpe?g|webp|gif|bmp)$/i)) {
-            const { getLocalImageUrl } = await import('../lib/appBridge');
-            setAvatarUrl(getLocalImageUrl(char.localFilePath, char.updatedAt || char.createdAt));
+      const isActual = isActualCharacterCard(char.data || char, fMap);
+      const category = isActual ? '未归类' : getCharacterCategoryPrefix(char, fMap);
+      if (category === '世界书') {
+        setActiveTab('worldbook');
+      } else if (category === '预设') {
+        setActiveTab('profile');
+      } else if (category === '美化') {
+        setActiveTab('theme_preview');
+      } else if (category !== '未归类') {
+        setActiveTab('data_viewer');
+      } else if (!isActual && char.data?.entries !== undefined) {
+        setActiveTab('worldbook');
+      } else {
+        setActiveTab('profile');
+      }
+
+      setEditNameValue(char.name);
+      if (char.fileModifiedAt) {
+        setResolvedModifiedDate(new Date(char.fileModifiedAt));
+      }
+
+      // 先立即展示缩略图/缓存图或兜底图，避免被 5-30MB 大图 Blob 阻塞详情页打开
+      const thumbKey = `${char.id}:${char.updatedAt || 0}`;
+      const cachedThumb = char.hasBlobsSeparated ? peekCachedUrl(thumbKey) : null;
+      if (cachedThumb) {
+        setAvatarUrl(cachedThumb);
+      } else if (char.avatarBlob) {
+        const u = safeCreateObjectURL(char.avatarBlob);
+        if (u) {
+          if (u.startsWith('blob:')) createdUrls.push(u);
+          setAvatarUrl(u);
         } else {
           setAvatarUrl(resolveAvatarUrl(char.avatarUrlFallback, char.name || char.id));
         }
-        
-        // If it's a standalone worldbook, default to the worldbook tab
-        if (!isActual && category === '未归类' && char.data?.entries !== undefined) {
-          setActiveTab('worldbook');
-        }
-
-        // Authenticate real modification time from file metadata / PNG chunks
-        // 已经记过真实修改时间的卡就不要再把整张头像读进内存重解析一遍了 ——
-        // 每打开一次详情页都读一次大图, 正是详情页发卡的来源之一。
-        if (char.fileModifiedAt) {
-          setResolvedModifiedDate(new Date(char.fileModifiedAt));
-        } else {
-          try {
-            const { resolveCharacterModifiedTime } = await import('../lib/fileDate');
-            let imgBuf: ArrayBuffer | null = null;
-            if (char.avatarBlob) {
-              try { imgBuf = await char.avatarBlob.arrayBuffer(); } catch (e) {}
-            } else if (char.originalFile) {
-              try { imgBuf = await char.originalFile.arrayBuffer(); } catch (e) {}
-            } else if (char.localFilePath) {
-              try {
-                const { readLocalFileBuffer } = await import('../lib/appBridge');
-                imgBuf = await readLocalFileBuffer(char.localFilePath);
-              } catch (e) {}
+      } else if (char.localFilePath && char.localFilePath.match(/\.(png|jpe?g|webp|gif|bmp)$/i)) {
+        const { getLocalImageUrl } = await import('../lib/appBridge');
+        if (isMounted) setAvatarUrl(getLocalImageUrl(char.localFilePath, char.updatedAt || char.createdAt));
+      } else {
+        setAvatarUrl(resolveAvatarUrl(char.avatarUrlFallback, char.name || char.id));
+        if (char.hasBlobsSeparated) {
+          getCharacterThumb(char.id).then((tb) => {
+            if (!isMounted || !tb) return;
+            const tu = safeCreateObjectURL(tb);
+            if (tu) {
+              if (tu.startsWith('blob:')) createdUrls.push(tu);
+              setAvatarUrl((prev) => prev || tu);
             }
-
-            const resolved = resolveCharacterModifiedTime(char, imgBuf);
-            if (resolved) {
-              setResolvedModifiedDate(new Date(resolved));
-              if (char.fileModifiedAt !== resolved) {
-                char.fileModifiedAt = resolved;
-                saveCharacter(char).catch(console.error);
-              }
-            } else if (char.originalFile?.lastModified) {
-              setResolvedModifiedDate(new Date(char.originalFile.lastModified));
-            } else {
-              setResolvedModifiedDate(null);
-            }
-          } catch (e) {
-            if (char.originalFile?.lastModified) {
-              setResolvedModifiedDate(new Date(char.originalFile.lastModified));
-            }
-          }
+          }).catch(() => {});
         }
       }
+
+      // 异步解析目录路径（不阻塞首屏渲染）
+      if (char.folderId) {
+        resolveFolderPath(char.folderId).then((folderPath) => {
+          if (!isMounted || !folderPath) return;
+          setCurrentFolderPath(folderPath);
+          if (!isActual && /美化|theme/i.test(folderPath)) {
+            setActiveTab('theme_preview');
+          }
+        }).catch(() => {});
+      }
+
+      // 后台加载完整大图 Blob 与原始文件（不阻塞界面响应）
+      if (char.hasBlobsSeparated) {
+        getCharacterBlob(id).then((blobs) => {
+          if (!isMounted) return;
+          if (blobs) {
+            const hydrated: CharacterCard = {
+              ...char,
+              avatarBlob: blobs.avatarBlob,
+              originalFile: blobs.originalFile,
+              avatarHistory: blobs.avatarHistory,
+            };
+            setCharacter((prev) => {
+              if (!prev || prev.id !== id) return prev;
+              return {
+                ...prev,
+                avatarBlob: blobs.avatarBlob ?? prev.avatarBlob,
+                originalFile: blobs.originalFile ?? prev.originalFile,
+                avatarHistory: blobs.avatarHistory ?? prev.avatarHistory,
+              };
+            });
+            if (blobs.avatarBlob) {
+              const fullUrl = safeCreateObjectURL(blobs.avatarBlob);
+              if (fullUrl) {
+                if (fullUrl.startsWith('blob:')) createdUrls.push(fullUrl);
+                setAvatarUrl(fullUrl);
+              }
+            }
+            if (!char.fileModifiedAt) {
+              void hydrateModifiedDate(hydrated);
+            }
+          } else if (!char.fileModifiedAt) {
+            void hydrateModifiedDate(char);
+          }
+        }).catch(() => {
+          if (!char.fileModifiedAt) void hydrateModifiedDate(char);
+        });
+      } else if (!char.fileModifiedAt) {
+        void hydrateModifiedDate(char);
+      }
     });
+
+    return () => {
+      isMounted = false;
+      createdUrls.forEach((u) => {
+        if (u && u.startsWith('blob:') && !isCachedBlobUrl(u)) {
+          URL.revokeObjectURL(u);
+        }
+      });
+    };
   }, [id]);
 
   const handleNameSave = async () => {
     if (!editNameValue.trim() || !character) return;
+    const baseChar = (loadedFullIdRef.current === id ? character : await getCharacterFast(id)) || character;
     
     // Deep clone data to avoid reference mutation bugs
-    const updatedData = JSON.parse(JSON.stringify(character.data));
+    const updatedData = JSON.parse(JSON.stringify(baseChar.data || {}));
     if (updatedData.data) {
       updatedData.data.name = editNameValue.trim();
     } else {
       updatedData.name = editNameValue.trim();
     }
 
-    const updatedChar = { ...character, name: editNameValue.trim(), data: updatedData };
+    const updatedChar = { ...baseChar, name: editNameValue.trim(), data: updatedData };
     
     const promise = saveCharacter(updatedChar);
     savePromiseRef.current = promise;
@@ -436,14 +539,6 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     setIsEditingName(false);
   };
 
-  useEffect(() => {
-    return () => {
-      if (avatarUrl && avatarUrl.startsWith('blob:')) {
-        URL.revokeObjectURL(avatarUrl);
-      }
-    };
-  }, [avatarUrl]);
-
   const handleUpdateTags = async (tagsStr: string) => {
     setIsEditingTags(false);
     if (!character) return;
@@ -451,22 +546,19 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
     const newTags = Array.from(new Set(
       tagsStr.split(/[,，/|\\;；\n]/).map(t => t.trim()).filter(Boolean)
     ));
-    
-    let updatedData = typeof character.data === 'object' && character.data !== null ? { ...character.data } : character.data;
-    if (updatedData && typeof updatedData === 'object') {
-      if (updatedData.data) {
-        updatedData.data = { ...updatedData.data, tags: newTags };
-      } else if (!Array.isArray(updatedData)) {
-        updatedData.tags = newTags;
-      }
-    }
 
-    const updatedChar = { 
-      ...character, 
-      tags: newTags,
+    const baseChar = (loadedFullIdRef.current === id ? character : await getCharacterFast(id)) || character;
+    const updatedData = typeof baseChar.data === 'object' && baseChar.data !== null
+      ? JSON.parse(JSON.stringify(baseChar.data))
+      : baseChar.data;
+
+    const updatedChar: CharacterCard = {
+      ...baseChar,
       data: updatedData,
       updatedAt: Date.now(),
     };
+    syncTagsAcrossCard(updatedChar, newTags);
+
     const promise = saveCharacter(updatedChar);
     savePromiseRef.current = promise;
     await promise;
@@ -1891,9 +1983,7 @@ export const CharacterDetail = memo(function CharacterDetail({ id, onBack, onOpe
 
                     {/* Tags */}
                     {(() => {
-                      const currentTagsStr = (character.tags && character.tags.length > 0)
-                        ? character.tags.join(', ')
-                        : (data.tags && data.tags.length > 0 ? data.tags.join(', ') : '');
+                      const currentTagsStr = extractCharacterTags(character).join(', ');
                       return (
                         <div
                           onClick={() => {

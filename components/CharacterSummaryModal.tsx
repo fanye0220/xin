@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { X, Sparkles, ChevronRight, RefreshCw, Loader2, ArrowLeft, Eye, EyeOff, Tag, Save } from 'lucide-react';
-import { CharacterCard, saveCharacter, getCharacter } from '../lib/db';
+import { CharacterCard, saveCharacter, getCharacter, extractCharacterTags } from '../lib/db';
 import { generateSummaryForCharacter } from '../lib/ai';
 import {getFallbackAvatar, resolveAvatarUrl, safeCreateObjectURL, isFallbackMiuImage } from '../lib/avatar';
 import { useBackHandler } from '../lib/useBackHandler';
@@ -61,7 +61,7 @@ export function CharacterSummaryModal({
 
   const charData = character.data?.data || character.data || {};
   const name = character.name || charData.name || charData.char_name || '未命名角色';
-  const tags = (Array.isArray(charData.tags) ? charData.tags : character.tags) || [];
+  const tags = extractCharacterTags(character);
   
   const defaultFallback = getFallbackAvatar(name || character.id, character.tags?.join(',') || (character.isTool ? 'tool' : undefined));
   const initialUrl = resolveAvatarUrl(character.avatarUrlFallback, name || character.id);

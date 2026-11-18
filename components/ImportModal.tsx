@@ -64,7 +64,7 @@ const tavernAvatarCache = new Map<string, string>();
 
 /**
  * 酒馆角色卡头像候选地址。官方缩略图优先，静态目录兜底，
- * 后面几条是不同分支/旧版本用过的参数名，全部失败再走导出整卡。
+ * 后面几条是不同分支/旧版本用过的参数名。
  */
 function tavernAvatarCandidateUrls(stUrl: string, avatar: string): string[] {
   const base = String(stUrl || '').replace(/\/+$/, '');
@@ -295,7 +295,7 @@ export function TavernAvatar({ char, aiSettings, className = "w-12 h-12 sm:w-14 
       if (cancelled) return;
 
       // 1) 安卓：原生桥。绕开 WebView 的 http 混合内容限制，
-      //    内部还会在图片地址全失败时用导出整卡兜底。
+      //    内部在图片地址全失败时还会用导出整卡兜底。
       if (isAndroid() && typeof (window as any).Android?.fetchTavernAvatarAsDataUrl === 'function') {
         try {
           const dataUrl = (window as any).Android.fetchTavernAvatarAsDataUrl(stUrl, avatarKey, stUser, stPass);
@@ -309,7 +309,7 @@ export function TavernAvatar({ char, aiSettings, className = "w-12 h-12 sm:w-14 
       const probeDeadline = Date.now() + 8000;
 
       // 2) <img> 直连。网页版跨域时 fetch 会被酒馆默认 CORS 拦掉，
-      //    但图片标签本身不受限制，这是人设头像能出图的原因，卡片也照做。
+      //    但图片标签本身不受限制。
       for (const url of candidates) {
         if (cancelled) return;
         const left = probeDeadline - Date.now();
@@ -319,7 +319,7 @@ export function TavernAvatar({ char, aiSettings, className = "w-12 h-12 sm:w-14 
         }
       }
 
-      // 3) fetch 兜底：同源、或酒馆放开了 CORS 时可用。先带鉴权头，再不带。
+      // 3) fetch 兜底：同源、或酒馆放开了 CORS 时可用。
       const authHeaders = getSillyTavernAuthHeaders(aiSettings);
       const headerSets = Object.keys(authHeaders).length ? [authHeaders, {}] : [{}];
       for (const headers of headerSets) {
@@ -365,6 +365,123 @@ export function TavernAvatar({ char, aiSettings, className = "w-12 h-12 sm:w-14 
         setBlobUrl(null);
       }}
     />
+  );
+}
+
+export function TavernPersonaAvatar({ char, aiSettings, className = "w-12 h-12 sm:w-14 sm:h-14 rounded-2xl object-cover shrink-0 shadow-xs" }: { char: any, aiSettings: any, className?: string }) {
+  const avatarKey = String(char?.avatarKey || char?.avatar || '');
+  const cacheKey = avatarKey ? `persona:${avatarKey}` : '';
+  const [blobUrl, setBlobUrl] = useState<string | null>(() =>
+    cacheKey ? (tavernAvatarCache.get(cacheKey) || null) : null
+  );
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inView = useInView(containerRef);
+
+  useEffect(() => {
+    if (!inView || !avatarKey || !cacheKey) return;
+    const cached = tavernAvatarCache.get(cacheKey);
+    if (cached) {
+      setBlobUrl(cached);
+      return;
+    }
+
+    let cancelled = false;
+    const accept = (url?: string | null) => {
+      if (cancelled || !url) return false;
+      tavernAvatarCache.set(cacheKey, url);
+      setBlobUrl(url);
+      return true;
+    };
+
+    const loadAvatar = () =>
+      withReadSlot(async () => {
+        if (cancelled) return;
+        const stUrl = normalizeSillyTavernUrl(aiSettings?.sillyTavernUrl);
+        if (!stUrl) return;
+
+        // 1) 安卓：原生桥，绕开 WebView 的 http 混合内容限制
+        if (isAndroid() && typeof (window as any).Android?.fetchTavernPersonaAvatarAsDataUrl === 'function') {
+          try {
+            const dataUrl = (window as any).Android.fetchTavernPersonaAvatarAsDataUrl(
+              stUrl,
+              avatarKey,
+              aiSettings?.sillyTavernUsername || '',
+              aiSettings?.sillyTavernPassword || '',
+            );
+            if (accept(typeof dataUrl === 'string' && dataUrl.startsWith('data:') ? dataUrl : null)) return;
+          } catch {
+            /* 原生失败时继续走网络候选 */
+          }
+        }
+
+        const encodedKey = encodeURIComponent(avatarKey);
+        // 官方 persona 缩略图优先；静态目录的空格必须写成 %20，否则酒馆返回 400
+        const candidates = [
+          `${stUrl}/thumbnail?type=persona&file=${encodedKey}`,
+          `${stUrl}/User%20Avatars/${encodedKey}`,
+        ];
+
+        // 2) <img> 直连：图片标签不受酒馆默认 CORS 限制
+        const deadline = Date.now() + 8000;
+        for (const url of candidates) {
+          if (cancelled) return;
+          const left = deadline - Date.now();
+          if (left < 300) break;
+          if (await probeTavernImage(url, Math.min(3500, left))) {
+            if (accept(url)) return;
+          }
+        }
+
+        // 3) fetch 兜底：同源或酒馆放开 CORS 时可用
+        const headers = getSillyTavernAuthHeaders(aiSettings);
+        const headerSets = Object.keys(headers).length ? [headers, {}] : [{}];
+        for (const headerSet of headerSets) {
+          for (const url of candidates) {
+            if (cancelled) return;
+            try {
+              const res = await fetch(url, { headers: headerSet, credentials: 'include' });
+              if (!res.ok) continue;
+              const blob = await res.blob();
+              if (!blob || blob.size === 0) continue;
+              if (blob.type && blob.type.includes('html')) continue;
+              const objUrl = safeCreateObjectURL(blob);
+              if (accept(objUrl)) return;
+            } catch {
+              /* 换下一个候选地址 */
+            }
+          }
+        }
+      });
+
+    void loadAvatar();
+    return () => { cancelled = true; };
+  }, [avatarKey, cacheKey, aiSettings, inView]);
+
+  if (blobUrl) {
+    return (
+      <div ref={containerRef} className={`${className} overflow-hidden flex items-center justify-center`}>
+        <img
+          src={blobUrl}
+          alt={char?.name || 'User'}
+          loading="lazy"
+          decoding="async"
+          className="w-full h-full object-cover"
+          onError={() => {
+            tavernAvatarCache.delete(cacheKey);
+            setBlobUrl(null);
+          }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className={`${className} bg-blue-500/10 [.light-theme_&]:!bg-blue-50 flex items-center justify-center text-blue-400 [.light-theme_&]:!text-blue-600 border border-blue-500/15`}
+    >
+      <User className="w-5 h-5 sm:w-6 sm:h-6" />
+    </div>
   );
 }
 
@@ -609,7 +726,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
           const reqHeaders: Record<string, string> = { ...headers };
           if (csrf) reqHeaders['X-CSRF-Token'] = csrf;
           if (body !== undefined) reqHeaders['Content-Type'] = 'application/json';
-          const res = await fetchWithTimeout(url, { method, headers: reqHeaders, body }, 180000);
+          const res = await fetchWithTimeout(url, { method, headers: reqHeaders, body }, 90000);
           if (!res.ok) {
             let detail = `HTTP ${res.status}`;
             try {
@@ -640,8 +757,6 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
       const attempts: { url: string; method: 'GET' | 'POST'; body?: string }[] = [
         { url: `${stUrl}/api/characters/all`, method: 'POST', body: JSON.stringify({ shallow: true }) },
         { url: `${stUrl}/api/characters/all`, method: 'GET' },
-        { url: `${stUrl}/getcharacters`, method: 'POST', body: JSON.stringify({ shallow: true }) },
-        { url: `${stUrl}/getcharacters`, method: 'GET' },
         { url: `${stUrl}/api/characters`, method: 'GET' },
       ];
 
@@ -963,7 +1078,11 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
               payload = tavernToolPayloadRef.current.get(char.id);
               if (kind === 'persona' && payload && char.avatarKey) {
                 try {
-                  const avRes = await fetch(`${stUrl}/User%20Avatars/${encodeURIComponent(char.avatarKey)}`, { headers });
+                  const encodedKey = encodeURIComponent(char.avatarKey);
+                  let avRes = await fetch(`${stUrl}/thumbnail?type=persona&file=${encodedKey}`, { headers });
+                  if (!avRes.ok) {
+                    avRes = await fetch(`${stUrl}/User%20Avatars/${encodedKey}`, { headers });
+                  }
                   if (avRes.ok) {
                     const avBlob = await avRes.blob();
                     if (avBlob && avBlob.size > 0) {
@@ -2503,6 +2622,7 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                 charName: pName || '未命名 User',
                 folderId: 'userpersonas',
                 folderPath: '人设库',
+                avatarBlob,
                 breakdown: { totalTokens: 0, totalCharCount: pContent.length, permanentTokens: 0, items: [] } as any,
                 attachedChatsCount: 0,
                 attachedAvatarsCount: 0,
@@ -3010,14 +3130,16 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                       <div className="flex items-center justify-between mb-2.5 gap-2">
                         <div className="flex items-center gap-3 min-w-0">
                           {currentPullChar ? (
-                            (currentPullChar.kind && currentPullChar.kind !== 'character') ? (
+                            currentPullChar.kind === 'persona' ? (
+                              <TavernPersonaAvatar char={currentPullChar.avatar} aiSettings={aiSettings} className="w-10 h-10 rounded-xl object-cover shrink-0 shadow-xs border border-blue-400/30" />
+                            ) : (currentPullChar.kind && currentPullChar.kind !== 'character') ? (
                               <div className={`w-10 h-10 rounded-xl shrink-0 flex items-center justify-center ${
                                 isLightMode ? "bg-blue-50 text-blue-600" : "bg-blue-500/15 text-blue-400"
                               }`}>
                                 <TavernKindIcon kind={currentPullChar.kind} className="w-5 h-5" />
                               </div>
                             ) : (
-                              <TavernAvatar char={currentPullChar} aiSettings={aiSettings} className="w-10 h-10 rounded-xl object-cover shrink-0 shadow-xs border border-blue-400/30" />
+                              <TavernAvatar char={currentPullChar.avatar} aiSettings={aiSettings} className="w-10 h-10 rounded-xl object-cover shrink-0 shadow-xs border border-blue-400/30" />
                             )
                           ) : (
                             <Loader2 className="w-5 h-5 animate-spin text-blue-500 shrink-0" />
@@ -3181,7 +3303,9 @@ export function ImportModal({ isOpen, onClose, onImported, onNavigateFolder, fol
                                 : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10 [.light-theme_&]:!bg-white [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!bg-[#f8fafc] [.light-theme_&]:!text-[#0f172a]'
                             }`}
                           >
-                            {char.kind && char.kind !== 'character' ? (
+                            {char.kind === 'persona' ? (
+                              <TavernPersonaAvatar char={char} aiSettings={aiSettings} className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl object-cover shrink-0 shadow-xs border border-white/10 [.light-theme_&]:!border-[#e2e8f0]" />
+                            ) : char.kind && char.kind !== 'character' ? (
                               <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl shrink-0 bg-blue-500/10 [.light-theme_&]:!bg-blue-50 flex items-center justify-center text-blue-400 [.light-theme_&]:!text-blue-600 border border-blue-500/15">
                                 <TavernKindIcon kind={char.kind} className="w-5 h-5 sm:w-6 sm:h-6" />
                               </div>

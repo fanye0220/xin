@@ -9,6 +9,7 @@ import {
   BookOpen,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Trash2,
   CheckCircle2,
   Cloud,
@@ -65,12 +66,13 @@ import {
   deleteTag,
   getCharacterListSummaryAndSlice,
   isCharacterNoImage,
+  extractCharacterTags,
 } from "../lib/db";
 import { getLocalImageUrl } from "../lib/appBridge";
 import { matchesFolderSearch, getFolderSearchScore as calcFolderSearchScore } from "../lib/searchUtils";
 import { useInView } from "../lib/useInView";
 import { useContinuousInView } from "../lib/useContinuousInView";
-import { peekCachedUrl, putCachedBlobUrl, isCachedBlobUrl } from "../lib/thumbCache";
+import { peekCachedUrl, putCachedBlobUrl, isCachedBlobUrl, releaseCachedUrl } from "../lib/thumbCache";
 import { useBackHandler } from "../lib/useBackHandler";
 import { getCardBadgeInfo } from "../lib/cardBadge";
 import type JSZip from "jszip";
@@ -446,7 +448,7 @@ export function CharacterList({
         if (newItems.length === 0) {
           oldItems.forEach((it) => {
             const u = typeof it === "string" ? it : it?.url;
-            if (u && u.startsWith("blob:") && !isCachedBlobUrl(u)) urlsToRevoke.push(u);
+            if (u && u.startsWith("blob:")) urlsToRevoke.push(u);
           });
           continue;
         }
@@ -456,25 +458,28 @@ export function CharacterList({
           continue;
         }
 
-        // 检查新旧预览项的特征/Seed/路径是否完全一致
+        // 严格校验新旧预览项：不仅要 seed/charId/isFallback 一致，URL 本身也必须相同且仍有效（绝不保留已被淘汰释放的旧 blob URL）
         const isIdentical =
           oldItems.length === newItems.length &&
           oldItems.every((oldIt, idx) => {
             const newIt = newItems[idx];
-            const oldSeed = typeof oldIt === "string" ? oldIt : oldIt?.seed || oldIt?.url;
-            const newSeed = typeof newIt === "string" ? newIt : newIt?.seed || newIt?.url;
-            return oldSeed && newSeed && oldSeed === newSeed;
+            const oldUrl = typeof oldIt === "string" ? oldIt : oldIt?.url;
+            const newUrl = typeof newIt === "string" ? newIt : newIt?.url;
+            if (!oldUrl || !newUrl || oldUrl !== newUrl) return false;
+            if (oldUrl.startsWith("blob:") && !isCachedBlobUrl(oldUrl)) return false;
+            const oldFallback = typeof oldIt === "string" ? false : Boolean(oldIt?.isFallback);
+            const newFallback = typeof newIt === "string" ? false : Boolean(newIt?.isFallback);
+            if (oldFallback !== newFallback) return false;
+            const oldCharId = typeof oldIt === "string" ? undefined : oldIt?.charId;
+            const newCharId = typeof newIt === "string" ? undefined : newIt?.charId;
+            return oldCharId === newCharId;
           });
 
         if (isIdentical) {
-          // 文件夹预览无变化: 保留原 URL 引用, 绝不触发相邻文件夹封面的刷新/闪烁!
+          // 文件夹预览完全一致且 URL 仍存活: 保留原引用, 避免无效重渲染/闪烁
           mergedPreviews[fId] = oldItems;
-          newItems.forEach((it) => {
-            const u = typeof it === "string" ? it : it?.url;
-            if (u && u.startsWith("blob:")) urlsToRevoke.push(u);
-          });
         } else {
-          // 真正的封面修改: 使用新 URL, 释放旧 URL
+          // 使用新 URL, 淘汰旧 URL
           mergedPreviews[fId] = newItems;
           oldItems.forEach((it) => {
             const u = typeof it === "string" ? it : it?.url;
@@ -486,12 +491,15 @@ export function CharacterList({
       const allCurrentUrls = Object.values(mergedPreviews)
         .flat()
         .map((p) => (typeof p === "string" ? p : p.url));
+      const activeUrlSet = new Set(allCurrentUrls);
       folderPreviewUrlsRef.current = allCurrentUrls;
 
       if (urlsToRevoke.length > 0) {
         requestAnimationFrame(() => {
           urlsToRevoke.forEach((u) => {
-            if (u && u.startsWith("blob:") && !isCachedBlobUrl(u)) URL.revokeObjectURL(u);
+            if (u && u.startsWith("blob:") && !activeUrlSet.has(u) && !isCachedBlobUrl(u)) {
+              URL.revokeObjectURL(u);
+            }
           });
         });
       }
@@ -566,7 +574,24 @@ export function CharacterList({
     }
   });
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const isComposingRef = useRef(false);
+  const suppressFocusPopupRef = useRef(false);
+
+  const selectSearchScope = useCallback((nextScope: SearchScope) => {
+    setSearchScope(nextScope);
+    setIsSearchFocused(false);
+    setDebouncedSearchQuery(searchQuery);
+    suppressFocusPopupRef.current = true;
+    requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      setTimeout(() => {
+        suppressFocusPopupRef.current = false;
+      }, 150);
+    });
+  }, [searchQuery]);
 
   const saveSearchToHistory = useCallback((query: string) => {
     const trimmed = query.trim();
@@ -1212,7 +1237,7 @@ export function CharacterList({
     }),
     useSensor(TouchSensor, {
       activationConstraint: {
-        delay: 250,
+        delay: 400,
         tolerance: 8,
       },
     }),
@@ -1359,6 +1384,9 @@ export function CharacterList({
   const skipClampedPageRef = useRef<number | null>(null);
   const loadData = async () => {
     const reqId = ++loadDataReqIdRef.current;
+    if (debouncedSearchQuery.trim()) {
+      setIsSearching(true);
+    }
     try {
       const allFoldersData = await getFolders();
       if (reqId !== loadDataReqIdRef.current) return;
@@ -1570,14 +1598,20 @@ export function CharacterList({
     } finally {
       if (reqId === loadDataReqIdRef.current) {
         setHasLoadedOnce(true);
+        setIsSearching(false);
       }
     }
   };
 
   useEffect(() => {
+    if (isComposingRef.current) return;
+    if (!searchQuery) {
+      setDebouncedSearchQuery("");
+      return;
+    }
     const t = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery);
-    }, 250);
+    }, 200);
     return () => clearTimeout(t);
   }, [searchQuery]);
 
@@ -3007,7 +3041,9 @@ export function CharacterList({
                 </div>
               )}
               <p className="text-slate-400 text-xs mt-0.5 truncate [.light-theme_&]:!text-[#64748b]">
-                {folderId ? (
+                {isSearching && debouncedSearchQuery.trim() ? (
+                  `正在「${activeScopeOption.label}」中搜索...`
+                ) : folderId ? (
                   folders.length > 0 && totalCharacters > 0
                     ? `${folders.length} 个子文件夹 · ${totalCharacters} 个角色`
                     : folders.length > 0
@@ -3054,20 +3090,21 @@ export function CharacterList({
                   {searchScope !== "basic" ? (
                     <button
                       type="button"
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        setIsSearchFocused(true);
-                      }}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setIsSearchFocused((prev) => !prev)}
                       className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold shrink-0 max-w-[84px] bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-[#007aff] transition cursor-pointer"
                       title="点击切换搜索范围"
                     >
                       <span className="truncate">{activeScopeOption.label}</span>
                       <span
                         role="button"
-                        onPointerDown={(e) => {
+                        onMouseDown={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          setSearchScope("basic");
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          selectSearchScope("basic");
                         }}
                         className="opacity-70 hover:opacity-100 leading-none"
                         title="恢复默认搜索"
@@ -3076,20 +3113,32 @@ export function CharacterList({
                       </span>
                     </button>
                   ) : (
-                    <Search className="w-4 h-4 text-white/50 [.light-theme_&]:!text-[#64748b] stroke-[1.75] shrink-0 pointer-events-none" />
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setIsSearchFocused((prev) => !prev)}
+                      className="inline-flex items-center gap-0.5 shrink-0 px-1 py-0.5 -ml-0.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 [.light-theme_&]:!text-[#64748b] [.light-theme_&]:hover:!text-[#0f172a] [.light-theme_&]:hover:!bg-black/5 transition cursor-pointer"
+                      title="点击选择搜索范围（作者/全部内容/开场白等）"
+                    >
+                      <Search className="w-3.5 h-3.5 stroke-[1.85]" />
+                      <ChevronDown className="w-3 h-3 opacity-70" />
+                    </button>
                   )}
 
                   <form
                     action=""
                     onSubmit={(e) => {
                       e.preventDefault();
+                      isComposingRef.current = false;
+                      setDebouncedSearchQuery(searchQuery);
                       saveSearchToHistory(searchQuery);
                       setIsSearchFocused(false);
-                      (document.activeElement as HTMLElement)?.blur();
+                      searchInputRef.current?.blur();
                     }}
                     className="flex-1 min-w-0"
                   >
                     <input
+                      ref={searchInputRef}
                       type="text"
                       inputMode="search"
                       enterKeyHint="search"
@@ -3098,17 +3147,39 @@ export function CharacterList({
                       spellCheck="false"
                       placeholder={activeScopeOption.placeholder}
                       value={searchQuery}
-                      onFocus={() => setIsSearchFocused(true)}
-                      onClick={() => setIsSearchFocused(true)}
-                      onPointerDown={() => setIsSearchFocused(true)}
-                      onTouchStart={() => setIsSearchFocused(true)}
+                      onFocus={() => {
+                        if (!suppressFocusPopupRef.current && !searchQuery.trim()) {
+                          setIsSearchFocused(true);
+                        }
+                      }}
+                      onClick={() => {
+                        if (!suppressFocusPopupRef.current && !searchQuery.trim()) {
+                          setIsSearchFocused(true);
+                        }
+                      }}
                       onBlur={handleSearchBlur}
+                      onCompositionStart={() => {
+                        isComposingRef.current = true;
+                      }}
+                      onCompositionEnd={(e) => {
+                        isComposingRef.current = false;
+                        const val = e.currentTarget.value;
+                        setSearchQuery(val);
+                        setDebouncedSearchQuery(val);
+                        if (val.trim()) {
+                          setIsSearchFocused(false);
+                        }
+                      }}
                       onChange={(e) => {
-                        setSearchQuery(e.target.value);
-                        if (!isSearchFocused) setIsSearchFocused(true);
+                        const val = e.target.value;
+                        setSearchQuery(val);
+                        if (val.trim()) {
+                          setIsSearchFocused(false);
+                        }
                       }}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") {
+                        if (e.key === "Enter" && !isComposingRef.current) {
+                          setDebouncedSearchQuery(searchQuery);
                           saveSearchToHistory(searchQuery);
                           setIsSearchFocused(false);
                           (e.target as HTMLInputElement).blur();
@@ -3122,15 +3193,21 @@ export function CharacterList({
                     />
                   </form>
 
+                  {isSearching && (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400 [.light-theme_&]:!text-[#007aff] shrink-0" />
+                  )}
+
                   {searchQuery && (
                     <button
                       type="button"
-                      onPointerDown={(e) => {
+                      onMouseDown={(e) => {
                         e.preventDefault();
                       }}
                       onClick={() => {
+                        isComposingRef.current = false;
                         setSearchQuery("");
                         setDebouncedSearchQuery("");
+                        searchInputRef.current?.focus();
                       }}
                       className={`p-1 rounded-full transition cursor-pointer shrink-0 ${
                         isLightMode
@@ -3144,7 +3221,7 @@ export function CharacterList({
                   )}
                 </div>
 
-                {/* 搜索范围 + 搜索历史记录浮窗 - 只要选中/点击输入框即立即弹出 */}
+                {/* 搜索范围 + 搜索历史记录浮窗 - 点击空白搜索框或范围标签时弹出，输入关键词后自动收起以免遮挡结果 */}
                 <AnimatePresence>
                   {isSearchFocused && (
                     <motion.div
@@ -3168,10 +3245,8 @@ export function CharacterList({
                           {searchScope !== "basic" && (
                             <button
                               type="button"
-                              onPointerDown={(e) => {
-                                e.preventDefault();
-                                setSearchScope("basic");
-                              }}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => selectSearchScope("basic")}
                               className="text-[11px] font-medium text-blue-400 hover:text-blue-300 [.light-theme_&]:!text-[#007aff] cursor-pointer"
                             >
                               恢复默认
@@ -3185,10 +3260,8 @@ export function CharacterList({
                               <button
                                 key={opt.id}
                                 type="button"
-                                onPointerDown={(e) => {
-                                  e.preventDefault();
-                                  setSearchScope(opt.id);
-                                }}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => selectSearchScope(opt.id)}
                                 className={`px-2.5 py-1 rounded-full text-xs font-medium transition cursor-pointer active:scale-95 border-none ${
                                   isActive
                                     ? 'bg-blue-500/20 text-blue-300 font-semibold [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-[#007aff]'
@@ -3216,8 +3289,8 @@ export function CharacterList({
                         {searchHistory.length > 0 && (
                           <button
                             type="button"
-                            onPointerDown={(e) => {
-                              e.preventDefault();
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={(e) => {
                               clearAllSearchHistory(e);
                             }}
                             className="text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1 p-1 -mr-1 border-0 border-none text-slate-400 hover:text-red-500 [.light-theme_&]:!text-slate-400 [.light-theme_&]:hover:!text-red-500"
@@ -3242,8 +3315,8 @@ export function CharacterList({
                             return matchingItems.map((item) => (
                               <div
                                 key={item}
-                                onPointerDown={(e) => {
-                                  e.preventDefault();
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
                                   setSearchQuery(item);
                                   setDebouncedSearchQuery(item);
                                   saveSearchToHistory(item);
@@ -3269,8 +3342,11 @@ export function CharacterList({
                                 </div>
                                 <button
                                   type="button"
-                                  onPointerDown={(e) => {
+                                  onMouseDown={(e) => {
                                     e.preventDefault();
+                                    e.stopPropagation();
+                                  }}
+                                  onClick={(e) => {
                                     e.stopPropagation();
                                     deleteSearchHistoryItem(item, e);
                                   }}
@@ -3547,7 +3623,14 @@ export function CharacterList({
       </motion.header>
 
       {totalItems === 0 && !hasLoadedOnce ? null : totalItems === 0 ? (
-        debouncedSearchQuery.trim() ? (
+        isSearching && debouncedSearchQuery.trim() ? (
+          <div className="flex flex-col items-center justify-center min-h-[16rem] text-slate-400 px-4 text-center [.light-theme_&]:!text-[#64748b]">
+            <Loader2 className="w-8 h-8 mb-3 animate-spin text-blue-400 [.light-theme_&]:!text-[#007aff]" />
+            <p className="[.light-theme_&]:!text-[#0f172a] font-medium text-sm">
+              正在「{activeScopeOption.label}」中搜索...
+            </p>
+          </div>
+        ) : debouncedSearchQuery.trim() ? (
           <div className="flex flex-col items-center justify-center min-h-[16rem] text-slate-400 px-4 text-center [.light-theme_&]:!text-[#64748b]">
             <Search className="w-12 h-12 mb-3 opacity-40 [.light-theme_&]:!text-[#94a3b8]" />
             <p className="[.light-theme_&]:!text-[#0f172a] font-medium">
@@ -3557,7 +3640,7 @@ export function CharacterList({
               {searchScope !== "all" && (
                 <button
                   type="button"
-                  onClick={() => setSearchScope("all")}
+                  onClick={() => selectSearchScope("all")}
                   className="px-4 py-1.5 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 [.light-theme_&]:!bg-[#e0edff] [.light-theme_&]:!text-[#007aff] transition cursor-pointer"
                 >
                   改为搜索全部内容（含作者/备注/开场白/备忘录）
@@ -3566,6 +3649,7 @@ export function CharacterList({
               <button
                 type="button"
                 onClick={() => {
+                  isComposingRef.current = false;
                   setSearchQuery("");
                   setDebouncedSearchQuery("");
                   setSearchScope("basic");
@@ -3599,13 +3683,17 @@ export function CharacterList({
             }}
             onDragEnd={(event) => {
               isDraggingRef.current = false;
-              lastDragEndTimeRef.current = Date.now();
+              const moved =
+                Math.hypot(event.delta?.x || 0, event.delta?.y || 0) > 6 ||
+                Boolean(event.over && event.active.id !== event.over.id);
+              if (moved) {
+                lastDragEndTimeRef.current = Date.now();
+              }
               setActiveDragId(null);
               handleDragEnd(event);
             }}
             onDragCancel={() => {
               isDraggingRef.current = false;
-              lastDragEndTimeRef.current = Date.now();
               setActiveDragId(null);
             }}
           >
@@ -4744,33 +4832,101 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
   // 追踪 onError 兜底逻辑里额外创建的 blob URL, 保证换掉/卸载时释放,
   // 否则长列表滚动 + 图片偶发加载失败会不断泄漏内存(可能是持续发热的一个来源)。
   const fallbackObjectUrlRef = useRef<string | null>(null);
-  const setUrlWithFallbackCleanup = (newUrl: string, isObjectUrl: boolean) => {
-    if (fallbackObjectUrlRef.current) {
-      URL.revokeObjectURL(fallbackObjectUrlRef.current);
-    }
-    fallbackObjectUrlRef.current = isObjectUrl ? newUrl : null;
-    setUrl(newUrl);
-  };
+  const retriedThumbRef = useRef(false);
+  const retriedBlobRef = useRef(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const isMountedRef = useRef(true);
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
-      if (fallbackObjectUrlRef.current) {
+      isMountedRef.current = false;
+      if (fallbackObjectUrlRef.current && !isCachedBlobUrl(fallbackObjectUrlRef.current)) {
         URL.revokeObjectURL(fallbackObjectUrlRef.current);
       }
+      fallbackObjectUrlRef.current = null;
     };
   }, []);
+
+  const setStableUrl = useCallback((newUrl: string, isOwnedFallbackBlob = false) => {
+    if (
+      fallbackObjectUrlRef.current &&
+      fallbackObjectUrlRef.current !== newUrl &&
+      !isCachedBlobUrl(fallbackObjectUrlRef.current)
+    ) {
+      URL.revokeObjectURL(fallbackObjectUrlRef.current);
+    }
+    fallbackObjectUrlRef.current = isOwnedFallbackBlob ? newUrl : null;
+    setUrl(newUrl);
+  }, []);
+
   const timerRef = useRef<any>(null);
   const isLongPress = useRef(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const isInView = useInView(cardRef); // 一次性:是否已经首次进入过视口附近,决定要不要开始加载
   const isNearby = useContinuousInView(cardRef); // 持续追踪:是否还在较大范围内,决定要不要保留已加载的图
 
+  const handleImageError = useCallback(async () => {
+    if (!isMountedRef.current || url === defaultFallback) return;
+
+    if (char.hasBlobsSeparated && !retriedThumbRef.current) {
+      retriedThumbRef.current = true;
+      if (url && url.startsWith("blob:") && peekCachedUrl(thumbCacheKey) === url) {
+        releaseCachedUrl(thumbCacheKey);
+      }
+      try {
+        const thumbBlob = await getCharacterThumb(char.id);
+        if (!isMountedRef.current) return;
+        if (thumbBlob) {
+          const freshUrl = putCachedBlobUrl(thumbCacheKey, thumbBlob, { forceReplace: true });
+          if (freshUrl) {
+            setStableUrl(freshUrl, false);
+            return;
+          }
+        }
+      } catch {}
+    }
+
+    if (!retriedBlobRef.current) {
+      retriedBlobRef.current = true;
+      if (char.avatarBlob) {
+        const u = safeCreateObjectURL(char.avatarBlob);
+        if (u) {
+          setStableUrl(u, u.startsWith("blob:"));
+          return;
+        }
+      } else if (char.hasBlobsSeparated) {
+        try {
+          const b = await getCharacterBlob(char.id);
+          if (!isMountedRef.current) return;
+          const u = b?.avatarBlob ? safeCreateObjectURL(b.avatarBlob) : null;
+          if (u) {
+            setStableUrl(u, u.startsWith("blob:"));
+            return;
+          }
+        } catch {}
+      } else if (
+        char.localFilePath &&
+        /\.(png|jpe?g|webp|gif|bmp)$/i.test(char.localFilePath)
+      ) {
+        setStableUrl(getLocalImageUrl(char.localFilePath, Date.now()), false);
+        return;
+      }
+    }
+
+    if (isMountedRef.current) {
+      setStableUrl(defaultFallback, false);
+    }
+  }, [url, defaultFallback, char.hasBlobsSeparated, char.id, char.avatarBlob, char.localFilePath, thumbCacheKey, setStableUrl]);
+
   useEffect(() => {
     let isMounted = true;
+    retriedThumbRef.current = false;
+    retriedBlobRef.current = false;
 
     if (!isNearby) {
       // 划出屏幕较远范围: 把 <img> 换回轻量占位图, 释放已解码图像占用的内存,
       // 不清 LRU 缓存本身——缓存还在, 划回来的时候能几乎零成本地恢复。
-      setUrl(initialUrl);
+      setStableUrl(initialUrl, false);
       return;
     }
 
@@ -4778,37 +4934,37 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
 
     if (char.avatarBlob) {
       objectUrl = safeCreateObjectURL(char.avatarBlob);
-      if (objectUrl) setUrl(objectUrl);
+      if (objectUrl) setStableUrl(objectUrl, false);
     } else if (char.hasBlobsSeparated) {
       const cached = peekCachedUrl(thumbCacheKey);
       if (cached) {
-        setUrl(cached);
+        setStableUrl(cached, false);
       } else if (isCharacterNoImage(char.id)) {
-        setUrl(initialUrl);
+        setStableUrl(initialUrl, false);
       } else if (isInView) {
         getCharacterThumb(char.id).then((thumbBlob) => {
           if (!isMounted) return;
           if (thumbBlob) {
-            setUrl(putCachedBlobUrl(thumbCacheKey, thumbBlob));
+            setStableUrl(putCachedBlobUrl(thumbCacheKey, thumbBlob), false);
           } else {
-            setUrl(initialUrl);
+            setStableUrl(initialUrl, false);
           }
         });
       } else {
-        setUrl(initialUrl);
+        setStableUrl(initialUrl, false);
       }
     } else if (
       char.localFilePath &&
       /\.(png|jpe?g|webp|gif|bmp)$/i.test(char.localFilePath)
     ) {
-      setUrl(getLocalImageUrl(char.localFilePath, char.updatedAt || char.createdAt));
+      setStableUrl(getLocalImageUrl(char.localFilePath, char.updatedAt || char.createdAt), false);
     } else {
-      setUrl(initialUrl);
+      setStableUrl(initialUrl, false);
     }
 
     return () => {
       isMounted = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (objectUrl && !isCachedBlobUrl(objectUrl)) URL.revokeObjectURL(objectUrl);
     };
   }, [
     char.avatarBlob,
@@ -4821,7 +4977,32 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
     initialUrl,
     isInView,
     isNearby,
+    setStableUrl,
   ]);
+
+  // 页面切回前台、弹窗关闭或从 LRU 中被意外回收后，如果当前 <img> 已经处于失效/破图状态 (complete && naturalWidth === 0)，自动无缝重拉
+  useEffect(() => {
+    if (!isNearby || !url || !url.startsWith("blob:")) return;
+    const checkBrokenImage = () => {
+      const img = imgRef.current;
+      if (img && img.complete && img.naturalWidth === 0) {
+        void handleImageError();
+      }
+    };
+    const rafId = requestAnimationFrame(checkBrokenImage);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        requestAnimationFrame(checkBrokenImage);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onVisible);
+    return () => {
+      cancelAnimationFrame(rafId);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onVisible);
+    };
+  }, [isNearby, url, handleImageError]);
 
   const touchHandledRef = useRef(false);
   const touchStartXRef = useRef(0);
@@ -4896,8 +5077,8 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
     onClick();
   };
 
-  const charTags = (char as any).tags || char.data?.data?.tags || char.data?.tags;
-  const hasTags = charTags && Array.isArray(charTags) && charTags.length > 0;
+  const charTags = extractCharacterTags(char);
+  const hasTags = charTags.length > 0;
   const badgeInfo = getCardBadgeInfo(char);
 
   if (viewMode === "list") {
@@ -4935,6 +5116,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
       >
         <div className="w-12 h-12 rounded-xl sm:rounded-2xl overflow-hidden shrink-0 relative bg-[#f0f4f8] [.light-theme_&]:bg-[#f0f4f8] dark:bg-[#1e2430] border border-slate-200/60 dark:border-white/10 shadow-xs flex items-center justify-center">
           <img
+            ref={imgRef}
             src={url || undefined}
             alt={char.name}
             className={`w-full h-full pointer-events-none ${
@@ -4943,22 +5125,7 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
                 : 'object-cover'
             }`}
             onError={() => {
-              if (url === defaultFallback) return;
-              if (fallbackObjectUrlRef.current) {
-                setUrl(defaultFallback);
-                return;
-              }
-              if (char.avatarBlob) {
-                const u = safeCreateObjectURL(char.avatarBlob);
-                if (u) setUrlWithFallbackCleanup(u, true);
-                else setUrl(defaultFallback);
-              } else if (char.hasBlobsSeparated) {
-                getCharacterBlob(char.id).then((b) => {
-                  const u = b?.avatarBlob ? safeCreateObjectURL(b.avatarBlob) : null;
-                  if (u) setUrlWithFallbackCleanup(u, true);
-                  else setUrl(defaultFallback);
-                });
-              } else setUrl(defaultFallback);
+              void handleImageError();
             }}
           />
           {isSelected && (
@@ -5068,32 +5235,16 @@ const CharacterCardItem = React.memo(function CharacterCardItem({
       }`}
     >
       <img
+        ref={imgRef}
         src={url || undefined}
         alt={char.name}
-        loading="lazy"
-        decoding="async"
         className={`w-full h-full pointer-events-none ${
           isFallbackMiuImage(url)
             ? 'object-contain p-6 sm:p-8 bg-white'
             : 'object-cover'
         }`}
         onError={() => {
-          if (url === defaultFallback) return;
-          if (fallbackObjectUrlRef.current) {
-            setUrl(defaultFallback);
-            return;
-          }
-          if (char.avatarBlob) {
-            const u = safeCreateObjectURL(char.avatarBlob);
-            if (u) setUrlWithFallbackCleanup(u, true);
-            else setUrl(defaultFallback);
-          } else if (char.hasBlobsSeparated) {
-            getCharacterBlob(char.id).then((b) => {
-              const u = b?.avatarBlob ? safeCreateObjectURL(b.avatarBlob) : null;
-              if (u) setUrlWithFallbackCleanup(u, true);
-              else setUrl(defaultFallback);
-            });
-          } else setUrl(defaultFallback);
+          void handleImageError();
         }}
       />
       {isSelected && (

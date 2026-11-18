@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Globe, CheckCircle2, AlertCircle, Loader2, RefreshCw, Plus, Trash2, ChevronDown, ChevronUp, Save, ShieldAlert } from 'lucide-react';
+import { X, Globe, CheckCircle2, AlertCircle, Loader2, RefreshCw, Plus, Trash2, ChevronDown, ChevronUp, Save, ShieldAlert, Copy, Check } from 'lucide-react';
 import { AISettings, CustomEndpoint, getAISettings, saveAISettings, testConnection, fetchCustomModels, COMMUNITY_JAILBREAK_PRESET, MINIMAL_BYPASS_PRESET, IMMERSIVE_FICTION_PRESET } from '../lib/ai';
 import { CloudSyncTab } from './CloudSyncTab';
 import { SidebarWallpaperTab } from './SidebarWallpaperTab';
@@ -17,6 +17,72 @@ interface Props {
   isLightMode?: boolean;
   /** TT 互联：把接收到的卡片交给 App 走正常导入流程 */
   onImportFiles?: (files: File[]) => void;
+}
+
+/** 复制文本：先试 Clipboard API，不行退回老办法（安卓 WebView 里更稳） */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // 落到下面的兜底
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** 点一下复制的配置代码块（与 TT 联动复制按钮风格一致） */
+function StConfigCopyBlock({ text, multiline = false }: { text: string; multiline?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+    },
+    []
+  );
+
+  const handleCopy = async () => {
+    const ok = await copyText(text);
+    setCopied(ok);
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => setCopied(false), 1600);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title="点一下复制"
+      className="w-full min-h-[40px] px-3 py-2 flex items-center justify-between gap-2 rounded-xl text-left transition cursor-pointer active:scale-[0.99] bg-black/40 hover:bg-black/60 border border-white/5 text-white/80 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:hover:!bg-[#f1f5f9] [.light-theme_&]:!text-[#0f172a]"
+    >
+      {multiline ? (
+        <pre className="min-w-0 overflow-x-auto text-xs font-mono leading-relaxed"><code>{text}</code></pre>
+      ) : (
+        <code className="min-w-0 truncate text-xs font-mono">{text}</code>
+      )}
+      <span className="shrink-0 flex items-center gap-1 text-xs font-semibold text-white/60 [.light-theme_&]:!text-[#64748b]">
+        {copied ? <Check className="w-4 h-4 text-emerald-400 [.light-theme_&]:!text-emerald-600" /> : <Copy className="w-4 h-4" />}
+        {copied ? '已复制' : '复制'}
+      </span>
+    </button>
+  );
 }
 
 export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode: propIsLightMode, onImportFiles }: Props) {
@@ -58,7 +124,6 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateResult, setUpdateResult] = useState<{ msg: string; isError?: boolean; downloadUrl?: string; versionInfo?: any } | null>(null);
   const [isStSetupOpen, setIsStSetupOpen] = useState(false);
-  const [isCopied, setIsCopied] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMsg, setTestMsg] = useState('');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -596,31 +661,16 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'api', isLightMode
                             请在酒馆目录的 <code>config.yaml</code> 文件里修改：
                           </p>
                           
-                          <div className="space-y-1">
+                          <div className="space-y-1.5">
                             <p className="font-medium text-white/70 [.light-theme_&]:!text-[#0f172a]">1. 关闭 CSRF 拦截：</p>
                             <p>找到 <code>disableCsrfProtection: false</code> 这一行，把它改成 <code>true</code>：</p>
-                            <div className="p-2 rounded border font-mono bg-black/40 border-white/5 text-white/70 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]">
-                              disableCsrfProtection: true
-                            </div>
+                            <StConfigCopyBlock text="disableCsrfProtection: true" />
                           </div>
 
-                          <div className="space-y-1">
+                          <div className="space-y-1.5">
                             <p className="font-medium text-white/70 [.light-theme_&]:!text-[#0f172a]">2. 添加跨域允许 (CORS)：</p>
                             <p>在 <code>disableCsrfProtection: true</code> 的下面直接另起一行加上：</p>
-                            <div 
-                              className="p-2 rounded border font-mono relative group cursor-pointer transition-colors bg-black/40 border-white/5 text-white/70 hover:bg-black/60 [.light-theme_&]:!bg-[#ffffff] [.light-theme_&]:!border-[#e2e8f0] [.light-theme_&]:!text-[#0f172a]"
-                              onClick={() => {
-                                navigator.clipboard.writeText('# corsAllowedOrigins:\n#   - "*"');
-                                setIsCopied(true);
-                                setTimeout(() => setIsCopied(false), 2000);
-                              }}
-                              title="点击复制"
-                            >
-                              <pre><code>{`# corsAllowedOrigins:\n#   - "*"`}</code></pre>
-                              <div className="absolute right-2 top-2 text-[10px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-white/10 text-white [.light-theme_&]:!bg-black/10 [.light-theme_&]:!text-[#0f172a]">
-                                {isCopied ? '已复制' : '点击复制'}
-                              </div>
-                            </div>
+                            <StConfigCopyBlock text={`# corsAllowedOrigins:\n#   - "*"`} multiline />
                             <p className="text-[10px] mt-1 text-white/40 [.light-theme_&]:!text-[#94a3b8]">（*号内可替换本站网址）</p>
                           </div>
                         </div>
